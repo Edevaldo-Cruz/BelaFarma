@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "fffe246",
-  "commitMessage": "fix(belaped): auto-refresh dashboard cards and quotes in real-time during quotation",
-  "buildTime": "21/10/2026, 09:26:38"
+  "commitHash": "e09bff7",
+  "commitMessage": "feat(belaped): add CLI scripts belaped:reset, belaped:cotar, and belaped:limpar",
+  "buildTime": "22/10/2026, 07:56:22"
 }

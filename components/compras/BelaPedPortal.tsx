@@ -5004,178 +5004,48 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
 
             {/* Controles Limpos: Busca no Estoque Real + Filtros + Ações Unificadas */}
             <div className="bg-[#0e1626] p-3 sm:p-3.5 rounded-2xl border border-slate-800 shadow-md space-y-3">
-              {/* Linha 1: Barra de Busca Unificada (Cotação + Estoque Real) e Filtros Compactos */}
-              <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-2.5">
-                <div className="flex flex-wrap items-center gap-2 flex-1 w-full">
-                  {/* Campo de Busca Rápida + Botão Modal Estoque Real */}
-                  <div className="relative w-full sm:min-w-[280px] sm:flex-1 sm:max-w-md flex flex-col sm:flex-row items-stretch sm:items-center gap-1.5">
-                    <div className="relative flex-1">
-                      <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-cyan-400" />
-                      <input
-                        type="text"
-                        placeholder="Buscar produto ou EAN (Enter p/ Modal)..."
-                        value={buscaFalta}
-                        onChange={(e) => setBuscaFalta(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' && buscaFalta.trim().length >= 2) {
-                            setModalEstoqueRealAberto(true);
-                          }
-                        }}
-                        className="w-full pl-9 pr-8 py-2 text-xs font-semibold rounded-xl border border-cyan-800/70 bg-[#080d18] text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-cyan-500"
-                      />
-                      {buscaFalta && (
-                        <button
-                          type="button"
-                          onClick={() => setBuscaFalta('')}
-                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white cursor-pointer"
-                          title="Limpar busca"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setModalEstoqueRealAberto(true)}
-                      className="px-3 py-2 rounded-xl bg-cyan-950 hover:bg-cyan-900 text-cyan-200 border border-cyan-600/80 text-xs font-black whitespace-nowrap cursor-pointer flex items-center justify-center gap-1.5 shadow-sm transition-all"
-                      title="Abrir Modal ampla de Pesquisa no Estoque Real da Farmácia com justificativa detalhada e letras grandes"
-                    >
-                      <Search className="w-3.5 h-3.5 text-cyan-400" />
-                      <span>📦 Estoque Real {buscaFalta.trim().length >= 2 ? `(${resultadosEstoqueReal.length})` : ''}</span>
-                    </button>
-                  </div>
-
-                  {/* Wrapper deslizante para Filtros Rápidos no Mobile */}
-                  <div className="flex items-center gap-2 overflow-x-auto no-scrollbar w-full xl:w-auto py-1">
-                    {/* Botão Ordenar por Rankeamento (#1 Alto Giro + Risco de Ruptura) */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setOrdenarColuna('ranking_posicao');
-                        setOrdenarDirecao('asc');
-                        setPaginaAtual(1);
+              {/* LINHA 1: BARRA SUPERIOR DE BUSCA E AÇÕES PRINCIPAIS */}
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                {/* Lado Esquerdo: Campo de Busca Rápida + Botão Modal Estoque Real */}
+                <div className="flex items-center gap-2 w-full lg:w-auto shrink-0">
+                  <div className="relative w-full sm:w-72 lg:w-80">
+                    <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-cyan-400" />
+                    <input
+                      type="text"
+                      placeholder="Buscar produto ou EAN (Enter p/ Modal)..."
+                      value={buscaFalta}
+                      onChange={(e) => setBuscaFalta(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && buscaFalta.trim().length >= 2) {
+                          setModalEstoqueRealAberto(true);
+                        }
                       }}
-                      className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black border transition-all cursor-pointer ${
-                        ordenarColuna === 'ranking_posicao' || !ordenarColuna
-                          ? 'bg-gradient-to-r from-amber-600 to-rose-600 text-white border-amber-400 shadow-sm'
-                          : 'bg-[#080d18] text-amber-300 border-slate-700 hover:border-amber-500'
-                      }`}
-                      title="Ordenar pelo Sistema de Rankeamento (#1, #2, #3...): primeiras posições para produtos de Alto Giro e Risco de Ruptura"
-                    >
-                      <span>🔥 Ranking Giro/Ruptura</span>
-                    </button>
-
-                    {/* Filtro Curva ABC + Esquecidos 6 Meses */}
-                    <div className="shrink-0 flex items-center rounded-xl border border-slate-700 p-0.5 bg-[#080d18] text-xs font-bold whitespace-nowrap">
+                      className="w-full pl-9 pr-8 py-2 text-xs font-semibold rounded-xl border border-cyan-800/70 bg-[#080d18] text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                    />
+                    {buscaFalta && (
                       <button
-                        onClick={() => setFiltroCurva('TODAS')}
-                        className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${filtroCurva === 'TODAS' ? 'bg-cyan-600 text-white shadow-xs font-black' : 'text-slate-400 hover:text-white'}`}
+                        type="button"
+                        onClick={() => setBuscaFalta('')}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white cursor-pointer"
+                        title="Limpar busca"
                       >
-                        Todas ({faltas.length})
+                        <X className="w-3.5 h-3.5" />
                       </button>
-                      <button
-                        onClick={() => setFiltroCurva('A')}
-                        className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${filtroCurva === 'A' ? 'bg-rose-600 text-white shadow-xs font-black' : 'text-slate-400 hover:text-white'}`}
-                      >
-                        Curva A ({faltas.filter(f => f.curva_abc === 'A').length})
-                      </button>
-                      <button
-                        onClick={() => setFiltroCurva('B')}
-                        className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${filtroCurva === 'B' ? 'bg-blue-600 text-white shadow-xs font-black' : 'text-slate-400 hover:text-white'}`}
-                      >
-                        Curva B ({faltas.filter(f => f.curva_abc === 'B').length})
-                      </button>
-                      <button
-                        onClick={() => setFiltroCurva('C')}
-                        className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${filtroCurva === 'C' ? 'bg-slate-600 text-white shadow-xs font-black' : 'text-slate-400 hover:text-white'}`}
-                        title="Produtos de Curva C com venda nos últimos 6 meses que estão zerados na loja (sem equivalente em estoque)"
-                      >
-                        Curva C ({faltas.filter(f => f.curva_abc === 'C').length})
-                      </button>
-                      <button
-                        onClick={() => setFiltroCurva('ESQUECIDOS_6M')}
-                        className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${filtroCurva === 'ESQUECIDOS_6M' ? 'bg-amber-600 text-slate-950 shadow-xs font-black' : 'text-amber-400/90 hover:text-amber-300'}`}
-                        title="Resgate de Esquecidos: Produtos que venderam nos últimos 6 meses, zeraram o estoque e pararam de vender nos últimos 30 dias por falta na prateleira"
-                      >
-                        ⏳ Esquecidos 6m ({faltas.filter(f => f.is_esquecido_6m).length})
-                      </button>
-                      <button
-                        onClick={() => setFiltroCurva('DESEJADOS')}
-                        className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${filtroCurva === 'DESEJADOS' ? 'bg-amber-500 text-slate-950 shadow-xs font-black' : 'text-amber-300 hover:text-white'}`}
-                        title="Exibir somente os Produtos Desejados gravados para cotação prioritária e compra"
-                      >
-                        ⭐ Desejados ({faltas.filter(f => f.is_desejado).length || itensAvulsos.length})
-                      </button>
-                    </div>
-
-                    {/* Filtro Tipo Categoria */}
-                    <div className="shrink-0 flex items-center rounded-xl border border-slate-700 p-0.5 bg-[#080d18] text-xs font-bold whitespace-nowrap">
-                      <button
-                        onClick={() => setFiltroCategoria('TODAS')}
-                        className={`px-2.5 py-1 rounded-lg transition-all ${filtroCategoria === 'TODAS' ? 'bg-cyan-600 text-white shadow-xs font-black' : 'text-slate-400 hover:text-white'}`}
-                      >
-                        Todos
-                      </button>
-                      <button
-                        onClick={() => setFiltroCategoria('MEDICAMENTO')}
-                        className={`px-2.5 py-1 rounded-lg transition-all ${filtroCategoria === 'MEDICAMENTO' ? 'bg-emerald-600 text-white shadow-xs font-black' : 'text-slate-400 hover:text-white'}`}
-                      >
-                        Med
-                      </button>
-                      <button
-                        onClick={() => setFiltroCategoria('PERFUMARIA')}
-                        className={`px-2.5 py-1 rounded-lg transition-all ${filtroCategoria === 'PERFUMARIA' ? 'bg-purple-600 text-white shadow-xs font-black' : 'text-slate-400 hover:text-white'}`}
-                      >
-                        Perf
-                      </button>
-                    </div>
-
-                    {/* Filtro Matriz de Prioridade da Cotação (P1, P2, P3, P4) */}
-                    <div className="shrink-0 flex items-center rounded-xl border border-slate-700 p-0.5 bg-[#080d18] text-xs font-bold whitespace-nowrap">
-                      <button
-                        onClick={() => setFiltroPrioridade('TODAS')}
-                        className={`px-2 py-1 rounded-lg transition-all ${filtroPrioridade === 'TODAS' ? 'bg-cyan-600 text-white font-black' : 'text-slate-400 hover:text-white'}`}
-                      >
-                        Prio
-                      </button>
-                      <button
-                        onClick={() => setFiltroPrioridade('P1')}
-                        className={`px-2 py-1 rounded-lg transition-all flex items-center gap-1 ${filtroPrioridade === 'P1' ? 'bg-rose-600 text-white font-black shadow-xs' : 'text-rose-400 hover:text-rose-200'}`}
-                        title="🚨 P1: Ruptura Crítica (Estoque Zerado + Curva A ou B)"
-                      >
-                        <span>🚨 P1</span>
-                        <span className="text-[10px] opacity-80">({faltas.filter(f => f.prioridade === 'P1').length})</span>
-                      </button>
-                      <button
-                        onClick={() => setFiltroPrioridade('P2')}
-                        className={`px-2 py-1 rounded-lg transition-all flex items-center gap-1 ${filtroPrioridade === 'P2' ? 'bg-amber-600 text-white font-black shadow-xs' : 'text-amber-400 hover:text-amber-200'}`}
-                        title="⚠️ P2: Risco Iminente (< 3 dias de giro + Curva A/B)"
-                      >
-                        <span>⚠️ P2</span>
-                        <span className="text-[10px] opacity-80">({faltas.filter(f => f.prioridade === 'P2').length})</span>
-                      </button>
-                      <button
-                        onClick={() => setFiltroPrioridade('P3')}
-                        className={`px-2 py-1 rounded-lg transition-all flex items-center gap-1 ${filtroPrioridade === 'P3' ? 'bg-blue-600 text-white font-black shadow-xs' : 'text-blue-400 hover:text-blue-200'}`}
-                        title="💼 P3: Orçamento Semanal (Mix preventivo dentro do teto)"
-                      >
-                        <span>💼 P3</span>
-                        <span className="text-[10px] opacity-80">({faltas.filter(f => f.prioridade === 'P3').length})</span>
-                      </button>
-                      <button
-                        onClick={() => setFiltroPrioridade('P4')}
-                        className={`px-2 py-1 rounded-lg transition-all flex items-center gap-1 ${filtroPrioridade === 'P4' ? 'bg-slate-700 text-white font-black shadow-xs' : 'text-slate-400 hover:text-slate-200'}`}
-                        title="📦 P4: Regular (Curva C / baixo giro - modo ocioso)"
-                      >
-                        <span>📦 P4</span>
-                        <span className="text-[10px] opacity-80">({faltas.filter(f => f.prioridade === 'P4').length})</span>
-                      </button>
-                    </div>
+                    )}
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => setModalEstoqueRealAberto(true)}
+                    className="px-3 py-2 rounded-xl bg-cyan-950 hover:bg-cyan-900 text-cyan-200 border border-cyan-600/80 text-xs font-black whitespace-nowrap cursor-pointer flex items-center justify-center gap-1.5 shadow-sm transition-all shrink-0"
+                    title="Abrir Modal ampla de Pesquisa no Estoque Real da Farmácia com justificativa detalhada e letras grandes"
+                  >
+                    <Search className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>📦 Estoque Real {buscaFalta.trim().length >= 2 ? `(${resultadosEstoqueReal.length})` : ''}</span>
+                  </button>
                 </div>
 
-                {/* Ações Principais Enxutas Touch-Friendly */}
-                <div className="grid grid-cols-1 sm:flex sm:flex-wrap items-center gap-2 w-full xl:w-auto">
+                {/* Lado Direito: Ações Principais e de Apoio Alinhadas Horizontalmente */}
+                <div className="flex items-center gap-2 flex-wrap lg:justify-end">
                   {/* BOTÃO: RE-COTAR DIVERGENTES (>40% OU >60% VS ÚLTIMA COMPRA) */}
                   {itensDivergentes.length > 0 && (
                     <button
@@ -5184,7 +5054,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                         handleIniciarCotacaoAoVivo('TODOS', eansDivergentes.length, undefined, eansDivergentes);
                       }}
                       disabled={cotandoAoVivo}
-                      className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-rose-950/90 hover:bg-rose-900 text-rose-200 border border-rose-600 text-xs font-black shadow-md transition-all cursor-pointer animate-pulse"
+                      className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-rose-950/90 hover:bg-rose-900 text-rose-200 border border-rose-600 text-xs font-black shadow-md transition-all cursor-pointer animate-pulse whitespace-nowrap"
                       title={`${itensDivergentes.length} itens têm cotação do 1º colocado muito distante da última compra. Clique para rodar o robô novamente neles.`}
                     >
                       <RotateCcw className="w-3.5 h-3.5 text-rose-300" />
@@ -5196,7 +5066,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                   <button
                     onClick={() => handleIniciarCotacaoAoVivo('TODOS')}
                     disabled={cotandoAoVivo}
-                    className="flex items-center justify-center gap-2 px-3.5 py-2.5 sm:py-2 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white text-xs font-black shadow-lg shadow-emerald-950/50 transition-all cursor-pointer disabled:opacity-50 active:scale-95"
+                    className="flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white text-xs font-black shadow-lg shadow-emerald-950/50 transition-all cursor-pointer disabled:opacity-50 active:scale-95 whitespace-nowrap"
                     title="Disparar os robôs agora para consultar preços ao vivo nos 7 portais (Profarma, DPC, Soton Farma, Distrimed, Divimed, Martins Atacado e Oriente Farma)"
                   >
                     {cotandoAoVivo ? (
@@ -5216,7 +5086,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                   <button
                     onClick={handleReiniciarCotacao}
                     disabled={reiniciandoCotacao}
-                    className="flex items-center justify-center gap-1.5 px-3 py-2.5 sm:py-2 rounded-xl bg-amber-950/80 hover:bg-amber-900/90 text-amber-200 border border-amber-600/70 text-xs font-black shadow-md transition-all cursor-pointer disabled:opacity-50 active:scale-95 whitespace-nowrap"
+                    className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-amber-950/80 hover:bg-amber-900/90 text-amber-200 border border-amber-600/70 text-xs font-black shadow-md transition-all cursor-pointer disabled:opacity-50 active:scale-95 whitespace-nowrap"
                     title="Reiniciar a cotação: interrompe e destrava qualquer robô ou processo anterior e reinicia uma nova cotação limpa nos 7 portais"
                   >
                     <RotateCcw className={`w-3.5 h-3.5 text-amber-400 ${reiniciandoCotacao ? 'animate-spin' : ''}`} />
@@ -5227,39 +5097,39 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                   <button
                     onClick={() => handleExecutarSimulacao(true)}
                     disabled={simulando || totaisSelecionados.qtdItens === 0}
-                    className="flex items-center justify-center gap-2 px-4 py-2.5 sm:py-2 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs font-black shadow-lg shadow-cyan-900/30 transition-all cursor-pointer disabled:opacity-50 active:scale-95"
+                    className="flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs font-black shadow-lg shadow-cyan-900/30 transition-all cursor-pointer disabled:opacity-50 active:scale-95 whitespace-nowrap"
                     title="Pega os carrinhos das empresas que não atingiram o pedido mínimo, divide os produtos com as outras empresas cotadas e abre os carrinhos otimizados"
                   >
                     <Sparkles className={`w-4 h-4 text-cyan-200 ${simulando ? 'animate-spin' : ''}`} />
-                    <span>{simulando ? 'Otimizando Mínimos...' : `✨ Otimizar Carrinhos (${totaisSelecionados.qtdItens})`}</span>
+                    <span>{simulando ? 'Otimizando...' : `✨ Otimizar (${totaisSelecionados.qtdItens})`}</span>
                   </button>
 
-                  {/* BOTÃO NOVO SOLICITADO: VER CARRINHOS (ABRE MODAL UNIFICADA COM GUIAS DE CADA EMPRESA) */}
+                  {/* BOTÃO: VER CARRINHOS (ABRE MODAL UNIFICADA COM GUIAS DE CADA EMPRESA) */}
                   <button
                     onClick={() => handleAbrirModalVerCarrinhos()}
                     disabled={simulando}
-                    className="flex items-center justify-center gap-2 px-4 py-2.5 sm:py-2 rounded-xl bg-gradient-to-r from-indigo-600 via-violet-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-black shadow-lg shadow-indigo-950/50 border border-indigo-400/50 transition-all cursor-pointer active:scale-95"
+                    className="flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl bg-gradient-to-r from-indigo-600 via-violet-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-black shadow-lg shadow-indigo-950/50 border border-indigo-400/50 transition-all cursor-pointer active:scale-95 whitespace-nowrap"
                     title="Abrir a modal unificada com guias (abas) de cada empresa cotada para ver/montar carrinhos, excluir itens, passar para o 2º colocado e confirmar compra"
                   >
                     <ShoppingCart className="w-4 h-4 text-indigo-200" />
-                    <span>🛒 Ver Carrinhos ({carrinhosOtimizados.length > 0 ? `${carrinhosOtimizados.length} empresas` : `${totaisPorDistribuidora.filter(g => g.isEmpresaReal).length} empresas`})</span>
+                    <span>🛒 Ver Carrinhos ({carrinhosOtimizados.length > 0 ? `${carrinhosOtimizados.length} emp.` : `${totaisPorDistribuidora.filter(g => g.isEmpresaReal).length} emp.`})</span>
                   </button>
 
                   {/* BOTÃO: ESPAÇO DE PRODUTOS DESEJADOS */}
                   <button
                     onClick={() => setModalDesejadosAberto(true)}
-                    className="flex items-center justify-center gap-2 px-4 py-2.5 sm:py-2 rounded-xl bg-gradient-to-r from-amber-600 via-orange-600 to-amber-700 hover:from-amber-500 hover:to-orange-500 text-white text-xs font-black shadow-lg shadow-amber-950/50 border border-amber-400/50 transition-all cursor-pointer active:scale-95"
+                    className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-gradient-to-r from-amber-600 via-orange-600 to-amber-700 hover:from-amber-500 hover:to-orange-500 text-white text-xs font-black shadow-lg shadow-amber-950/50 border border-amber-400/50 transition-all cursor-pointer active:scale-95 whitespace-nowrap"
                     title="Espaço de Produtos Desejados: lista de produtos gravados para cotação prioritária nos 7 portais e compra"
                   >
-                    <Tag className="w-4 h-4 text-amber-200" />
-                    <span>⭐ Produtos Desejados ({itensAvulsos.length})</span>
+                    <Tag className="w-3.5 h-3.5 text-amber-200" />
+                    <span>⭐ Desejados ({itensAvulsos.length})</span>
                   </button>
 
                   {/* Botões de Apoio Compactos */}
                   <button
                     onClick={() => setModalAuditoriaAberta(true)}
                     disabled={auditandoPrazos}
-                    className="flex items-center gap-1.5 px-2.5 py-2 rounded-xl bg-[#091528] hover:bg-indigo-950 text-indigo-200 border border-indigo-800/70 text-xs font-bold transition-all cursor-pointer"
+                    className="flex items-center gap-1.5 px-2.5 py-2 rounded-xl bg-[#091528] hover:bg-indigo-950 text-indigo-200 border border-indigo-800/70 text-xs font-bold transition-all cursor-pointer whitespace-nowrap"
                     title="Ver e auditar prazos de boletos e pedidos mínimos dos 7 portais"
                   >
                     <CreditCard className="w-3.5 h-3.5 text-indigo-400" />
@@ -5268,7 +5138,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
 
                   <button
                     onClick={() => setModalCampanhasAberta(true)}
-                    className="flex items-center gap-1.5 px-2.5 py-2 rounded-xl bg-[#091528] hover:bg-amber-950/60 text-amber-300 border border-amber-800/60 text-xs font-bold transition-all cursor-pointer"
+                    className="flex items-center gap-1.5 px-2.5 py-2 rounded-xl bg-[#091528] hover:bg-amber-950/60 text-amber-300 border border-amber-800/60 text-xs font-bold transition-all cursor-pointer whitespace-nowrap"
                     title="Gerenciar campanhas comerciais da Distrimed"
                   >
                     <Tag className="w-3.5 h-3.5 text-amber-400" />
@@ -5278,13 +5148,147 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                   {ultimoRelatorioAuditoria && (
                     <button
                       onClick={() => setModalRelatorioAberto(true)}
-                      className="flex items-center gap-1.5 px-2.5 py-2 rounded-xl bg-emerald-950/60 hover:bg-emerald-900/60 text-emerald-300 border border-emerald-700/60 text-xs font-bold transition-all cursor-pointer"
+                      className="flex items-center gap-1.5 px-2.5 py-2 rounded-xl bg-emerald-950/60 hover:bg-emerald-900/60 text-emerald-300 border border-emerald-700/60 text-xs font-bold transition-all cursor-pointer whitespace-nowrap"
                       title={`Relatório do robô (${ultimoRelatorioAuditoria.distribuidora})`}
                     >
                       <ClipboardList className="w-3.5 h-3.5 text-emerald-400" />
                       <span>Relatório Robô</span>
                     </button>
                   )}
+                </div>
+              </div>
+
+              {/* LINHA 2: BARRA DEDICADA DE FILTROS E SEGMENTAÇÃO DE FALTAS */}
+              <div className="pt-2.5 border-t border-slate-800/80 flex items-center justify-between gap-2.5 flex-wrap">
+                {/* Lado Esquerdo: Ranking + Curva ABC + Esquecidos */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  {/* Botão Ordenar por Rankeamento (#1 Alto Giro + Risco de Ruptura) */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOrdenarColuna('ranking_posicao');
+                      setOrdenarDirecao('asc');
+                      setPaginaAtual(1);
+                    }}
+                    className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black border transition-all cursor-pointer whitespace-nowrap ${
+                      ordenarColuna === 'ranking_posicao' || !ordenarColuna
+                        ? 'bg-gradient-to-r from-amber-600 to-rose-600 text-white border-amber-400 shadow-sm'
+                        : 'bg-[#080d18] text-amber-300 border-slate-700 hover:border-amber-500'
+                    }`}
+                    title="Ordenar pelo Sistema de Rankeamento (#1, #2, #3...): primeiras posições para produtos de Alto Giro e Risco de Ruptura"
+                  >
+                    <span>🔥 Ranking Giro/Ruptura</span>
+                  </button>
+
+                  {/* Filtro Curva ABC + Esquecidos 6 Meses */}
+                  <div className="shrink-0 flex items-center rounded-xl border border-slate-700 p-0.5 bg-[#080d18] text-xs font-bold whitespace-nowrap">
+                    <button
+                      onClick={() => setFiltroCurva('TODAS')}
+                      className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${filtroCurva === 'TODAS' ? 'bg-cyan-600 text-white shadow-xs font-black' : 'text-slate-400 hover:text-white'}`}
+                    >
+                      Todas ({faltas.length})
+                    </button>
+                    <button
+                      onClick={() => setFiltroCurva('A')}
+                      className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${filtroCurva === 'A' ? 'bg-rose-600 text-white shadow-xs font-black' : 'text-slate-400 hover:text-white'}`}
+                    >
+                      Curva A ({faltas.filter(f => f.curva_abc === 'A').length})
+                    </button>
+                    <button
+                      onClick={() => setFiltroCurva('B')}
+                      className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${filtroCurva === 'B' ? 'bg-blue-600 text-white shadow-xs font-black' : 'text-slate-400 hover:text-white'}`}
+                    >
+                      Curva B ({faltas.filter(f => f.curva_abc === 'B').length})
+                    </button>
+                    <button
+                      onClick={() => setFiltroCurva('C')}
+                      className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${filtroCurva === 'C' ? 'bg-slate-600 text-white shadow-xs font-black' : 'text-slate-400 hover:text-white'}`}
+                      title="Produtos de Curva C com venda nos últimos 6 meses que estão zerados na loja (sem equivalente em estoque)"
+                    >
+                      Curva C ({faltas.filter(f => f.curva_abc === 'C').length})
+                    </button>
+                    <button
+                      onClick={() => setFiltroCurva('ESQUECIDOS_6M')}
+                      className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${filtroCurva === 'ESQUECIDOS_6M' ? 'bg-amber-600 text-slate-950 shadow-xs font-black' : 'text-amber-400/90 hover:text-amber-300'}`}
+                      title="Resgate de Esquecidos: Produtos que venderam nos últimos 6 meses, zeraram o estoque e pararam de vender nos últimos 30 dias por falta na prateleira"
+                    >
+                      ⏳ Esquecidos 6m ({faltas.filter(f => f.is_esquecido_6m).length})
+                    </button>
+                    <button
+                      onClick={() => setFiltroCurva('DESEJADOS')}
+                      className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${filtroCurva === 'DESEJADOS' ? 'bg-amber-500 text-slate-950 shadow-xs font-black' : 'text-amber-300 hover:text-white'}`}
+                      title="Exibir somente os Produtos Desejados gravados para cotação prioritária e compra"
+                    >
+                      ⭐ Desejados ({faltas.filter(f => f.is_desejado).length || itensAvulsos.length})
+                    </button>
+                  </div>
+                </div>
+
+                {/* Lado Direito: Categoria + Matriz de Prioridade */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  {/* Filtro Tipo Categoria */}
+                  <div className="shrink-0 flex items-center rounded-xl border border-slate-700 p-0.5 bg-[#080d18] text-xs font-bold whitespace-nowrap">
+                    <button
+                      onClick={() => setFiltroCategoria('TODAS')}
+                      className={`px-2.5 py-1 rounded-lg transition-all ${filtroCategoria === 'TODAS' ? 'bg-cyan-600 text-white shadow-xs font-black' : 'text-slate-400 hover:text-white'}`}
+                    >
+                      Todos
+                    </button>
+                    <button
+                      onClick={() => setFiltroCategoria('MEDICAMENTO')}
+                      className={`px-2.5 py-1 rounded-lg transition-all ${filtroCategoria === 'MEDICAMENTO' ? 'bg-emerald-600 text-white shadow-xs font-black' : 'text-slate-400 hover:text-white'}`}
+                    >
+                      Med
+                    </button>
+                    <button
+                      onClick={() => setFiltroCategoria('PERFUMARIA')}
+                      className={`px-2.5 py-1 rounded-lg transition-all ${filtroCategoria === 'PERFUMARIA' ? 'bg-purple-600 text-white shadow-xs font-black' : 'text-slate-400 hover:text-white'}`}
+                    >
+                      Perf
+                    </button>
+                  </div>
+
+                  {/* Filtro Matriz de Prioridade da Cotação (P1, P2, P3, P4) */}
+                  <div className="shrink-0 flex items-center rounded-xl border border-slate-700 p-0.5 bg-[#080d18] text-xs font-bold whitespace-nowrap">
+                    <button
+                      onClick={() => setFiltroPrioridade('TODAS')}
+                      className={`px-2 py-1 rounded-lg transition-all ${filtroPrioridade === 'TODAS' ? 'bg-cyan-600 text-white font-black' : 'text-slate-400 hover:text-white'}`}
+                    >
+                      Prio
+                    </button>
+                    <button
+                      onClick={() => setFiltroPrioridade('P1')}
+                      className={`px-2 py-1 rounded-lg transition-all flex items-center gap-1 ${filtroPrioridade === 'P1' ? 'bg-rose-600 text-white font-black shadow-xs' : 'text-rose-400 hover:text-rose-200'}`}
+                      title="🚨 P1: Ruptura Crítica (Estoque Zerado + Curva A ou B)"
+                    >
+                      <span>🚨 P1</span>
+                      <span className="text-[10px] opacity-80">({faltas.filter(f => f.prioridade === 'P1').length})</span>
+                    </button>
+                    <button
+                      onClick={() => setFiltroPrioridade('P2')}
+                      className={`px-2 py-1 rounded-lg transition-all flex items-center gap-1 ${filtroPrioridade === 'P2' ? 'bg-amber-600 text-white font-black shadow-xs' : 'text-amber-400 hover:text-amber-200'}`}
+                      title="⚠️ P2: Risco Iminente (< 3 dias de giro + Curva A/B)"
+                    >
+                      <span>⚠️ P2</span>
+                      <span className="text-[10px] opacity-80">({faltas.filter(f => f.prioridade === 'P2').length})</span>
+                    </button>
+                    <button
+                      onClick={() => setFiltroPrioridade('P3')}
+                      className={`px-2 py-1 rounded-lg transition-all flex items-center gap-1 ${filtroPrioridade === 'P3' ? 'bg-blue-600 text-white font-black shadow-xs' : 'text-blue-400 hover:text-blue-200'}`}
+                      title="💼 P3: Orçamento Semanal (Mix preventivo dentro do teto)"
+                    >
+                      <span>💼 P3</span>
+                      <span className="text-[10px] opacity-80">({faltas.filter(f => f.prioridade === 'P3').length})</span>
+                    </button>
+                    <button
+                      onClick={() => setFiltroPrioridade('P4')}
+                      className={`px-2 py-1 rounded-lg transition-all flex items-center gap-1 ${filtroPrioridade === 'P4' ? 'bg-slate-700 text-white font-black shadow-xs' : 'text-slate-400 hover:text-slate-200'}`}
+                      title="📦 P4: Regular (Curva C / baixo giro - modo ocioso)"
+                    >
+                      <span>📦 P4</span>
+                      <span className="text-[10px] opacity-80">({faltas.filter(f => f.prioridade === 'P4').length})</span>
+                    </button>
+                  </div>
                 </div>
               </div>
 
