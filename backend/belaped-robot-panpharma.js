@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const http = require('http');
 const crypto = require('crypto');
+const { spawn } = require('child_process');
 const AdmZip = require('adm-zip');
 const { validarCorrespondenciaProduto } = require('./belaped-validador.js');
 
@@ -19,7 +20,7 @@ function makeJwt(payload, secret) {
 
 /**
  * Módulo de Automação e Integração B2B da Panpharma / Grupo Santa Cruz (BelaPed)
- * Plataforma: ePan - Pedido Eletrônico & REST API Gateway
+ * Plataforma: ePan - Pedido Eletrônico & REST API Gateway + Motor Fiscal Preço NF (ST)
  * Centro de Distribuição: MG12 (PP01 - MG - Varginha - Venda)
  */
 class PanpharmaRobot {
@@ -46,6 +47,16 @@ class PanpharmaRobot {
     this.catalogoCachePath = path.join(__dirname, 'data', 'panpharma_catalogo_cache.json');
     this.catalogoAtualizadoEm = 0;
 
+    // Metadados de produtos (NCM, CEST, classificação, laboratório)
+    this.metadataMap = new Map();
+    this.metadataCachePath = path.join(__dirname, 'data', 'panpharma_metadata_cache.json');
+    this.metadataAtualizadoEm = 0;
+
+    // Cache persistente de Preço NF com ST calculada
+    this.stCache = new Map();
+    this.stCachePath = path.join(__dirname, 'data', 'panpharma_st_cache.json');
+    this.taxServerPort = 3009;
+
     // Diretórios locais da aplicação ePan no Windows
     this.diretorioEpan = 'C:\\Program Files (x86)\\ePan - Pedido Eletrônico';
     this.diretorioEnvio = path.join(this.diretorioEpan, 'repository', 'pedidos', 'envio');
@@ -54,7 +65,10 @@ class PanpharmaRobot {
     // Carrinho em memória da sessão
     this.carrinhoLocal = [];
     this.carrinhoPersistenciaPath = path.join(__dirname, 'data', 'carrinho_panpharma.json');
+
     this._carregarCarrinhoPersistido();
+    this._carregarStCache();
+    this._carregarMetadataCache();
   }
 
   _carregarCarrinhoPersistido() {
@@ -78,6 +92,89 @@ class PanpharmaRobot {
     } catch (err) {
       console.warn('[PanpharmaRobot] Erro ao persistir carrinho local:', err.message);
     }
+  }
+
+  _carregarStCache() {
+    try {
+      if (fs.existsSync(this.stCachePath)) {
+        const dados = JSON.parse(fs.readFileSync(this.stCachePath, 'utf8'));
+        if (typeof dados === 'object' && dados !== null) {
+          for (const [k, v] of Object.entries(dados)) {
+            this.stCache.set(String(k), v);
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
+  _salvarStCache() {
+    try {
+      const pasta = path.dirname(this.stCachePath);
+      if (!fs.existsSync(pasta)) fs.mkdirSync(pasta, { recursive: true });
+      const obj = {};
+      for (const [k, v] of this.stCache.entries()) {
+        obj[k] = v;
+      }
+      fs.writeFileSync(this.stCachePath, JSON.stringify(obj, null, 2), 'utf8');
+    } catch (err) {
+      console.warn('[PanpharmaRobot] Erro ao salvar cache de Preço NF (ST):', err.message);
+    }
+  }
+
+  _carregarMetadataCache() {
+    try {
+      if (fs.existsSync(this.metadataCachePath)) {
+        const dados = JSON.parse(fs.readFileSync(this.metadataCachePath, 'utf8'));
+        if (typeof dados === 'object' && dados !== null) {
+          for (const [k, v] of Object.entries(dados)) {
+            this.metadataMap.set(String(k), v);
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
+  /**
+   * Garante que o microserviço fiscal PanpharmaTaxServer está em execução na porta 3009
+   */
+  async _garantirTaxServer() {
+    try {
+      const res = await fetch(`http://127.0.0.1:${this.taxServerPort}/ping`, { signal: AbortSignal.timeout(1200) });
+      if (res.ok) return true;
+    } catch (_) {}
+
+    console.log('[PanpharmaRobot] ⚙️ Iniciando motor fiscal de cálculo do Preço NF (PanpharmaTaxServer)...');
+    try {
+      const jre = 'C:\\PROGRA~2\\EPAN-P~1\\jre1.8.0_131\\bin\\java.exe';
+      const epanLib = 'C:\\PROGRA~2\\EPAN-P~1\\lib';
+      const cp = '.;backend;' + epanLib + '\\*';
+      const proc = spawn(jre, [
+        '-Xms256m', '-Xmx860m', '-XX:+UseG1GC',
+        `-Dtaxcomponent.conf.basedir=${epanLib}`,
+        `-Dtaxcomponent.rules.basedir=${epanLib}`,
+        '-cp', cp,
+        'PanpharmaTaxServer'
+      ], {
+        cwd: path.resolve(__dirname, '..'),
+        detached: true,
+        stdio: 'ignore'
+      });
+      proc.unref();
+
+      for (let i = 0; i < 15; i++) {
+        await new Promise(r => setTimeout(r, 600));
+        try {
+          const res = await fetch(`http://127.0.0.1:${this.taxServerPort}/ping`, { signal: AbortSignal.timeout(1000) });
+          if (res.ok) {
+            console.log('[PanpharmaRobot] ✅ Motor fiscal Panpharma conectado com sucesso (Preço NF ativo).');
+            return true;
+          }
+        } catch (_) {}
+      }
+    } catch (e) {
+      console.warn('[PanpharmaRobot] Aviso ao subir motor fiscal:', e.message);
+    }
+    return false;
   }
 
   /**
@@ -170,9 +267,76 @@ class PanpharmaRobot {
       req.end();
     });
 
-    // 2. Carrega ou atualiza o catálogo completo de preços e estoque (CD MG12)
+    // 2. Carrega catálogo de metadados tributários (NCM, CEST) se necessário
+    await this._carregarMetadataPanpharma();
+
+    // 3. Carrega ou atualiza o catálogo completo de preços e estoque (CD MG12)
     await this._carregarCatalogoPanpharma();
+
+    // 4. Inicia motor fiscal em segundo plano se ainda não estiver ativo
+    this._garantirTaxServer().catch(() => {});
     return true;
+  }
+
+  /**
+   * Baixa os metadados tributários (NCM, CEST, classificação, laboratório) do catálogo
+   */
+  async _carregarMetadataPanpharma() {
+    const agora = Date.now();
+    const vinteQuatroHorasMs = 24 * 60 * 60 * 1000;
+
+    if (this.metadataMap.size > 0 && fs.existsSync(this.metadataCachePath)) {
+      try {
+        const stats = fs.statSync(this.metadataCachePath);
+        if ((agora - stats.mtimeMs) < vinteQuatroHorasMs) {
+          return;
+        }
+      } catch (_) {}
+    }
+
+    try {
+      console.log(`[PanpharmaRobot] 📥 Baixando metadados fiscais (NCM/CEST) da Panpharma (CD ${this.cdFilial})...`);
+      const url = `http://${this.hostApi}/mdw-grupo-sc-rest/api/pedido-eletronico/digitacao/catalogo/${this.cdFilial}`;
+      const res = await fetch(url, {
+        headers: {
+          'x-acess-token': this.tokenJwt,
+          'x-acess-aplication-origin': 'EPAN',
+          'User-Agent': 'Jersey/2.25.1'
+        }
+      });
+
+      if (res.ok) {
+        const zipBuf = Buffer.from(await res.arrayBuffer());
+        const zip = new AdmZip(zipBuf);
+        const data = JSON.parse(zip.readAsText('content', 'utf8'));
+        const compactMap = {};
+        if (Array.isArray(data.produtos)) {
+          for (const p of data.produtos) {
+            const info = {
+              ean: p.ean ? String(p.ean).trim() : '',
+              codigo: p.codigoPanpharma ? String(p.codigoPanpharma).trim() : '',
+              ncm: p.ncm || '30049099',
+              cest: p.cest || '1300301',
+              classificacao: p.classificacao || 'M',
+              descricao: p.descricao || '',
+              laboratorio: (data.laboratorios && data.laboratorios[p.codigoLaboratorio]) || ''
+            };
+            if (info.codigo) {
+              compactMap[info.codigo] = info;
+              this.metadataMap.set(info.codigo, info);
+            }
+            if (info.ean) {
+              compactMap[info.ean] = info;
+              this.metadataMap.set(info.ean, info);
+            }
+          }
+          fs.writeFileSync(this.metadataCachePath, JSON.stringify(compactMap), 'utf8');
+          console.log(`[PanpharmaRobot] 📋 Metadados fiscais Panpharma atualizados: ${data.produtos.length} produtos.`);
+        }
+      }
+    } catch (e) {
+      console.warn('[PanpharmaRobot] Aviso ao obter metadados fiscais:', e.message);
+    }
   }
 
   /**
@@ -255,7 +419,7 @@ class PanpharmaRobot {
   }
 
   /**
-   * Indexa itens no Map para consulta O(1) imediata
+   * Indexa itens no Map para consulta O(1) imediata com Preço NF real
    */
   _indexarItens(itens) {
     if (!Array.isArray(itens)) return;
@@ -264,26 +428,118 @@ class PanpharmaRobot {
     for (const it of itens) {
       if (!it.d) continue; // d = EAN
       const eanStr = String(it.d).trim();
-      const preco = Number(it.precoLiquido || it.s || 0);
+      const codStr = String(it.e || '').trim();
 
-      // Salva sempre o melhor preço para o EAN
-      if (preco > 0) {
+      const pf = Number(it.s || 0); // it.s = Preço Fábrica
+      const pmc = Number(it.t || 0); // it.t = PMC
+      const descPct = Number(it.f || 0); // it.f = % Desconto
+      const vDesc = Number(it.valorDescontoUnitario || 0);
+      const precoLiq = Number(it.precoLiquido || (pf - vDesc) || 0);
+      const estoqueReal = Number(it.ff || 0); // it.ff = Quantidade física real em estoque
+
+      if (precoLiq > 0) {
         const existente = this.catalogoMap.get(eanStr);
-        if (!existente || preco < existente.preco) {
+        // Salva sempre a condição com menor preço líquido para o EAN
+        if (!existente || precoLiq < existente.precoLiquido) {
+          const meta = this.metadataMap.get(codStr) || this.metadataMap.get(eanStr) || {};
+          const cachedSt = this.stCache.get(eanStr);
+
+          let precoNF = precoLiq;
+          let valorST = 0;
+          if (cachedSt && Math.abs(cachedSt.precoFabrica - pf) < 0.01 && Math.abs(cachedSt.valorDesconto - vDesc) < 0.01) {
+            precoNF = Number(cachedSt.precoNF || precoLiq);
+            valorST = Number(cachedSt.valorST || 0);
+          }
+
           this.catalogoMap.set(eanStr, {
             ean: eanStr,
-            codigo: it.e,
-            preco: preco,
-            precoTabela: Number(it.t) || preco,
+            codigo: codStr,
+            preco: precoNF, // Coluna Preço NF que deve ser considerada para a cotação!
+            precoNF: precoNF,
+            precoLiquido: precoLiq,
+            precoTabela: pf || precoLiq, // Preço Fábrica
+            pmc: pmc,
+            valorDesconto: vDesc,
+            valorST: valorST,
             condicao: it.n || it.j || 'Á VISTA',
             prazo: Number(it.o) || 0,
-            descontoPct: Number(it.ff) || 0,
-            estoque: Number(it.jj) || 0,
-            disponivel: Number(it.jj) > 0
+            descontoPct: descPct,
+            estoque: estoqueReal,
+            disponivel: estoqueReal > 0,
+            ncm: meta.ncm || '30049099',
+            cest: meta.cest || '1300301',
+            descricao: meta.descricao || ''
           });
         }
       }
     }
+  }
+
+  /**
+   * Calcula o Preço NF exato (com ST) para um conjunto de itens via PanpharmaTaxServer
+   */
+  async calcularPrecoNF(itens) {
+    if (!Array.isArray(itens) || itens.length === 0) return [];
+    const pendentes = itens.filter(it => {
+      const cached = this.stCache.get(it.ean);
+      return !cached || Math.abs(cached.precoFabrica - it.precoTabela) >= 0.01 || Math.abs(cached.valorDesconto - it.valorDesconto) >= 0.01;
+    });
+
+    if (pendentes.length > 0) {
+      await this._garantirTaxServer();
+      try {
+        const payload = pendentes.map(it => ({
+          codigo: String(it.codigo),
+          ean: String(it.ean),
+          descricao: it.descricao || `Produto ${it.codigo}`,
+          precoFabrica: it.precoTabela,
+          valorDesconto: it.valorDesconto,
+          pmc: it.pmc || it.precoTabela,
+          ncm: it.ncm || '30049099',
+          cest: it.cest || '1300301'
+        }));
+
+        const res = await fetch(`http://127.0.0.1:${this.taxServerPort}/calc-preco-nf`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+          signal: AbortSignal.timeout(10000)
+        });
+
+        if (res.ok) {
+          const resultados = await res.json();
+          if (Array.isArray(resultados)) {
+            for (const r of resultados) {
+              const eanStr = String(r.ean);
+              const precoNF = Number(r.precoNF);
+              const valorST = Number(r.valorST);
+              this.stCache.set(eanStr, {
+                ean: eanStr,
+                codigo: r.codigo,
+                precoFabrica: Number(r.precoFabrica),
+                valorDesconto: Number(r.valorDesconto),
+                precoLiquido: Number(r.precoLiquido),
+                valorST: valorST,
+                precoNF: precoNF,
+                atualizadoEm: Date.now()
+              });
+
+              const itemCat = this.catalogoMap.get(eanStr);
+              if (itemCat) {
+                itemCat.preco = precoNF;
+                itemCat.precoNF = precoNF;
+                itemCat.valorST = valorST;
+              }
+            }
+            this._salvarStCache();
+          }
+        }
+      } catch (err) {
+        console.warn('[PanpharmaRobot] Erro ao calcular Preço NF via motor fiscal:', err.message);
+      }
+    }
+
+    return itens.map(it => this.catalogoMap.get(it.ean) || it);
   }
 
   /**
@@ -297,6 +553,7 @@ class PanpharmaRobot {
 
   /**
    * Cota um produto por EAN na Panpharma com validação estrita anti-alucinação
+   * Retorna SEMPRE o Preço NF (com ST incluída), conforme exigência comercial do portal.
    * @param {string} ean
    * @param {string} descricao
    */
@@ -324,19 +581,35 @@ class PanpharmaRobot {
       };
     }
 
-    const item = this.catalogoMap.get(eanLimpo);
+    let item = this.catalogoMap.get(eanLimpo);
 
-    if (item && item.preco > 0) {
+    if (item && item.precoLiquido > 0) {
+      // Se não tem Preço NF calculado ainda ou se ST não foi calculada, calcula em tempo real
+      const cached = this.stCache.get(eanLimpo);
+      if (!cached || !item.precoNF || item.precoNF === item.precoLiquido) {
+        try {
+          await this.calcularPrecoNF([item]);
+          item = this.catalogoMap.get(eanLimpo) || item;
+        } catch (_) {}
+      }
+
+      const precoFinal = Number((item.precoNF || item.preco || item.precoLiquido).toFixed(2));
+      const precoPadrao = Number((item.precoTabela || precoFinal).toFixed(2));
+      const precoLiq = Number((item.precoLiquido || precoFinal).toFixed(2));
+      const descVal = Number(((precoPadrao > precoFinal) ? ((precoPadrao - precoFinal) / precoPadrao * 100) : item.descontoPct).toFixed(2));
+
       if (item.disponivel && item.estoque > 0) {
         return {
           sucesso: true,
           encontrado: true,
           ean: eanLimpo,
-          preco: Number(item.preco.toFixed(2)),
-          preco_padrao: Number(item.precoTabela.toFixed(2)),
-          desc_pct: item.descontoPct,
+          preco: precoFinal, // PREÇO NF (coluna considerada para cotação na Panpharma!)
+          preco_padrao: precoPadrao, // Preço Fábrica
+          preco_liquido: precoLiq,
+          valor_st: Number((item.valorST || 0).toFixed(2)),
+          desc_pct: descVal,
           disponivel: true,
-          descricao: descricao || `Produto Panpharma ${item.codigo}`,
+          descricao: descricao || item.descricao || `Produto Panpharma ${item.codigo}`,
           condicao_comercial: `${item.condicao} (${item.prazo}d)`,
           prazo_dias: item.prazo,
           codigo_produto: item.codigo,
@@ -349,10 +622,19 @@ class PanpharmaRobot {
           sucesso: true,
           encontrado: true,
           ean: eanLimpo,
-          preco: Number(item.preco.toFixed(2)),
+          preco: precoFinal,
+          preco_padrao: precoPadrao,
+          preco_liquido: precoLiq,
+          valor_st: Number((item.valorST || 0).toFixed(2)),
+          desc_pct: descVal,
           disponivel: false,
-          descricao: descricao || `Produto Panpharma ${item.codigo}`,
+          descricao: descricao || item.descricao || `Produto Panpharma ${item.codigo}`,
+          condicao_comercial: `${item.condicao} (${item.prazo}d)`,
+          prazo_dias: item.prazo,
+          codigo_produto: item.codigo,
           distribuidora: 'PANPHARMA',
+          url_produto: 'https://www.panpharma.com.br/',
+          estoque: item.estoque,
           motivo: 'Item sem estoque no momento na Panpharma (CD MG12)'
         };
       }
@@ -419,7 +701,7 @@ class PanpharmaRobot {
       const nomeArquivo = 'pedido_belaped_panpharma.csv';
       const caminhoCompleto = path.join(this.diretorioEnvio, nomeArquivo);
 
-      // Layout CSV padrão ePan: CODIGO_EAN;QUANTIDADE
+      // Layout CSV padrão ePan: CODIGO_EAN;QUANTIDADE;DESCRICAO
       let conteudo = 'EAN;QUANTIDADE;DESCRICAO\r\n';
       for (const item of this.carrinhoLocal) {
         conteudo += `${item.ean};${item.quantidade};"${(item.descricao || '').replace(/"/g, '""')}"\r\n`;
