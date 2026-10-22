@@ -2,31 +2,8 @@ const fs = require('fs');
 const path = require('path');
 const http = require('http');
 const crypto = require('crypto');
+const AdmZip = require('adm-zip');
 const { validarCorrespondenciaProduto } = require('./belaped-validador.js');
-const farmacoMatcher = require('./belaped-farmaco-matcher.js');
-const motorEssencia = require('./belaped-motor-essencia.js');
-
-function extrairTermoLimpo(descricao) {
-  if (!descricao) return '';
-  let s = String(descricao).toUpperCase()
-    .replace(/\(.*?\)/g, ' ')
-    .replace(/P344\/98/g, ' ')
-    .replace(/\b(\d+)\s*(MG|ML|MCG|G|GR)\b/g, '$1$2')
-    .replace(/(\d+)GR\b/g, '$1G')
-    .replace(/([A-Z])\./g, '$1 ')
-    .replace(/[^A-Z0-9,.\s]/g, ' ');
-
-  const stopWords = new Set([
-    'C', 'COM', 'CPR', 'CPS', 'CP', 'COMP', 'CAPS', 'FR', 'SOL', 'AD', 'PED',
-    'CLORID', 'CLORIDRATO', 'POTASS', 'POTASSICA', 'SOD', 'SODICO', 'SODICA',
-    'FUMARATO', 'FUM', 'SULFATO', 'MALEATO', 'BESILATO', 'HEMITARTARATO',
-    'GEN', 'GN', 'GENERICO', 'NEO', 'NEOQ', 'NOVA', 'QUIM', 'QUIMICA', 'CIMED',
-    'MEDIX', 'BRASIL', 'UN', 'UNID', 'CX', 'PDA', 'POM', 'CR', 'CREME', 'FARMAX'
-  ]);
-
-  const tokens = s.split(/\s+/).filter(t => t.length >= 2 && !stopWords.has(t));
-  return tokens.slice(0, 2).join(' ');
-}
 
 function base64url(buf) {
   return buf.toString('base64').replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
@@ -43,6 +20,7 @@ function makeJwt(payload, secret) {
 /**
  * Módulo de Automação e Integração B2B da Panpharma / Grupo Santa Cruz (BelaPed)
  * Plataforma: ePan - Pedido Eletrônico & REST API Gateway
+ * Centro de Distribuição: MG12 (PP01 - MG - Varginha - Venda)
  */
 class PanpharmaRobot {
   constructor(options = {}) {
@@ -55,12 +33,18 @@ class PanpharmaRobot {
     this.cnpj = options.cnpj || '47378578000140';
     this.hostApi = options.hostApi || 'digitadorpan.stcruz.com.br';
     this.portaApi = options.portaApi || 80;
+    this.cdFilial = options.cdFilial || 'MG12';
 
     // Chave de assinatura HMAC256 do ecossistema ePan/GrupoSC
     this.secretKey = '34743777217A25432A462D4A614E645266556A586E3272357538782F413F4428';
     this.tokenJwt = null;
     this.tokenExpiraEm = 0;
     this.autenticado = false;
+
+    // Catálogo em memória e em cache local
+    this.catalogoMap = new Map();
+    this.catalogoCachePath = path.join(__dirname, 'data', 'panpharma_catalogo_cache.json');
+    this.catalogoAtualizadoEm = 0;
 
     // Diretórios locais da aplicação ePan no Windows
     this.diretorioEpan = 'C:\\Program Files (x86)\\ePan - Pedido Eletrônico';
@@ -97,6 +81,28 @@ class PanpharmaRobot {
   }
 
   /**
+   * Gera o token JWT com o schema oficial esperado pelo Gateway ePan
+   */
+  gerarToken() {
+    const agoraSec = Math.floor(Date.now() / 1000);
+    this.tokenExpiraEm = agoraSec + 7200; // 2 horas
+    this.tokenJwt = makeJwt({
+      usuario: {
+        login: this.usuario,
+        empresa: this.empresa,
+        perfil: this.perfil,
+        email: this.email,
+        codigos: [Number(this.usuario) || 528854],
+        cnpjs: [this.cnpj],
+        versao: '2.1.51'
+      },
+      iss: 'auth0',
+      exp: this.tokenExpiraEm
+    }, this.secretKey);
+    return this.tokenJwt;
+  }
+
+  /**
    * Realiza login / autenticação com o Gateway REST da Panpharma
    */
   async iniciar() {
@@ -110,8 +116,8 @@ class PanpharmaRobot {
       console.warn('[PanpharmaRobot] Aviso ao checar pastas locais do ePan:', e.message);
     }
 
-    // Autentica via REST API
-    return new Promise((resolve, reject) => {
+    // 1. Autenticação inicial
+    await new Promise((resolve, reject) => {
       const payload = JSON.stringify({
         login: this.usuario,
         senha: this.senhaMd5,
@@ -163,22 +169,121 @@ class PanpharmaRobot {
       req.write(payload);
       req.end();
     });
+
+    // 2. Carrega ou atualiza o catálogo completo de preços e estoque (CD MG12)
+    await this._carregarCatalogoPanpharma();
+    return true;
   }
 
-  gerarToken() {
-    const agoraSec = Math.floor(Date.now() / 1000);
-    this.tokenExpiraEm = agoraSec + 7200; // 2 horas
-    this.tokenJwt = makeJwt({
-      iss: 'auth0',
-      login: this.usuario,
-      empresa: this.empresa,
-      perfil: this.perfil,
-      email: this.email,
-      codigos: [Number(this.usuario) || 528854],
-      cnpjs: [this.cnpj],
-      exp: this.tokenExpiraEm
-    }, this.secretKey);
-    return this.tokenJwt;
+  /**
+   * Baixa e indexa o catálogo completo de produtos do CD MG12
+   */
+  async _carregarCatalogoPanpharma() {
+    const agora = Date.now();
+    const quatroHorasMs = 4 * 60 * 60 * 1000;
+
+    // Se já temos o catálogo carregado em memória recentemente, reutiliza
+    if (this.catalogoMap.size > 0 && (agora - this.catalogoAtualizadoEm) < quatroHorasMs) {
+      console.log(`[PanpharmaRobot] ⚡ Catálogo Panpharma em memória: ${this.catalogoMap.size} EANs indexados.`);
+      return;
+    }
+
+    // Se houver cache no disco com menos de 4 horas, carrega do disco
+    try {
+      if (fs.existsSync(this.catalogoCachePath)) {
+        const stats = fs.statSync(this.catalogoCachePath);
+        if ((agora - stats.mtimeMs) < quatroHorasMs) {
+          const raw = fs.readFileSync(this.catalogoCachePath, 'utf8');
+          const itens = JSON.parse(raw);
+          this._indexarItens(itens);
+          this.catalogoAtualizadoEm = stats.mtimeMs;
+          console.log(`[PanpharmaRobot] 📂 Catálogo Panpharma carregado do cache em disco: ${this.catalogoMap.size} EANs prontos.`);
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn('[PanpharmaRobot] Aviso ao ler cache do catálogo:', e.message);
+    }
+
+    // Baixa o catálogo completo direto da API do ePan
+    try {
+      console.log(`[PanpharmaRobot] 📥 Baixando catálogo ao vivo da Panpharma (CD ${this.cdFilial})...`);
+      const url = `http://${this.hostApi}/mdw-grupo-sc-rest/api/pedido-eletronico/digitacao/${this.usuario}/${this.cdFilial}`;
+
+      const res = await fetch(url, {
+        headers: {
+          'x-acess-token': this.tokenJwt,
+          'x-acess-aplication-origin': 'EPAN',
+          'User-Agent': 'Jersey/2.25.1'
+        }
+      });
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+      }
+
+      const zipBuf = Buffer.from(await res.arrayBuffer());
+      const zip = new AdmZip(zipBuf);
+      const jsonContent = zip.readAsText('content', 'utf8');
+      const itens = JSON.parse(jsonContent);
+
+      this._indexarItens(itens);
+      this.catalogoAtualizadoEm = agora;
+
+      // Salva no cache do disco para aceleração de próximas chamadas
+      try {
+        const pasta = path.dirname(this.catalogoCachePath);
+        if (!fs.existsSync(pasta)) fs.mkdirSync(pasta, { recursive: true });
+        fs.writeFileSync(this.catalogoCachePath, jsonContent, 'utf8');
+      } catch (eSave) {
+        console.warn('[PanpharmaRobot] Aviso ao salvar cache do catálogo:', eSave.message);
+      }
+
+      console.log(`[PanpharmaRobot] ✅ Catálogo Panpharma indexado com sucesso: ${this.catalogoMap.size} EANs disponíveis para cotação.`);
+    } catch (err) {
+      console.error('[PanpharmaRobot] ❌ Erro ao baixar catálogo da Panpharma:', err.message);
+      // Se falhou o download mas tem cache antigo, usa o cache existente
+      if (fs.existsSync(this.catalogoCachePath)) {
+        try {
+          const raw = fs.readFileSync(this.catalogoCachePath, 'utf8');
+          const itens = JSON.parse(raw);
+          this._indexarItens(itens);
+          console.log(`[PanpharmaRobot] ⚠️ Usando catálogo em cache anterior: ${this.catalogoMap.size} EANs.`);
+        } catch (_) {}
+      }
+    }
+  }
+
+  /**
+   * Indexa itens no Map para consulta O(1) imediata
+   */
+  _indexarItens(itens) {
+    if (!Array.isArray(itens)) return;
+    this.catalogoMap.clear();
+
+    for (const it of itens) {
+      if (!it.d) continue; // d = EAN
+      const eanStr = String(it.d).trim();
+      const preco = Number(it.precoLiquido || it.s || 0);
+
+      // Salva sempre o melhor preço para o EAN
+      if (preco > 0) {
+        const existente = this.catalogoMap.get(eanStr);
+        if (!existente || preco < existente.preco) {
+          this.catalogoMap.set(eanStr, {
+            ean: eanStr,
+            codigo: it.e,
+            preco: preco,
+            precoTabela: Number(it.t) || preco,
+            condicao: it.n || it.j || 'Á VISTA',
+            prazo: Number(it.o) || 0,
+            descontoPct: Number(it.ff) || 0,
+            estoque: Number(it.jj) || 0,
+            disponivel: Number(it.jj) > 0
+          });
+        }
+      }
+    }
   }
 
   /**
@@ -196,7 +301,7 @@ class PanpharmaRobot {
    * @param {string} descricao
    */
   async cotarEAN(ean, descricao) {
-    if (!this.autenticado) {
+    if (!this.autenticado || this.catalogoMap.size === 0) {
       await this.iniciar();
     }
 
@@ -210,7 +315,6 @@ class PanpharmaRobot {
       };
     }
 
-    // Validação estrita de formato de código de barras
     if (eanLimpo.length < 7 || eanLimpo.length > 14) {
       return {
         sucesso: true,
@@ -220,32 +324,48 @@ class PanpharmaRobot {
       };
     }
 
-    try {
-      // 1. Tenta consulta ao catálogo da Panpharma
-      // Se não houver retorno ativo pela API ou se o item não estiver em estoque
-      const resultado = await this._consultarPrecoEstoque(eanLimpo, descricao);
-      return resultado;
-    } catch (err) {
-      return {
-        sucesso: true,
-        ean: eanLimpo,
-        encontrado: false,
-        distribuidora: 'Panpharma',
-        motivo: `Erro durante a cotação: ${err.message}`
-      };
-    }
-  }
+    const item = this.catalogoMap.get(eanLimpo);
 
-  async _consultarPrecoEstoque(ean, descricao) {
-    // Caso a API não retorne o produto imediatamente, retorna não encontrado com segurança
-    // garantindo que nunca inventa preços nem alucina
+    if (item && item.preco > 0) {
+      if (item.disponivel && item.estoque > 0) {
+        return {
+          sucesso: true,
+          encontrado: true,
+          ean: eanLimpo,
+          preco: Number(item.preco.toFixed(2)),
+          preco_padrao: Number(item.precoTabela.toFixed(2)),
+          desc_pct: item.descontoPct,
+          disponivel: true,
+          descricao: descricao || `Produto Panpharma ${item.codigo}`,
+          condicao_comercial: `${item.condicao} (${item.prazo}d)`,
+          prazo_dias: item.prazo,
+          codigo_produto: item.codigo,
+          distribuidora: 'PANPHARMA',
+          url_produto: 'https://www.panpharma.com.br/',
+          estoque: item.estoque
+        };
+      } else {
+        return {
+          sucesso: true,
+          encontrado: true,
+          ean: eanLimpo,
+          preco: Number(item.preco.toFixed(2)),
+          disponivel: false,
+          descricao: descricao || `Produto Panpharma ${item.codigo}`,
+          distribuidora: 'PANPHARMA',
+          motivo: 'Item sem estoque no momento na Panpharma (CD MG12)'
+        };
+      }
+    }
+
     return {
       sucesso: true,
       encontrado: false,
-      ean,
+      disponivel: false,
+      ean: eanLimpo,
       descricao: descricao || '',
-      distribuidora: 'Panpharma',
-      motivo: 'Item sem estoque ou não faturável para a região pela Panpharma'
+      distribuidora: 'PANPHARMA',
+      motivo: 'Item não encontrado no catálogo da Panpharma (CD MG12)'
     };
   }
 
