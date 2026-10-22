@@ -2600,13 +2600,18 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
           fornecedor: 'TODOS',
           limite: 40,
           prioridade: 'TODAS_PRIORITARIAS',
-          dispararImediato: false
+          dispararImediato: false,
+          limparCotacoes: true
         })
       });
       const data = await res.json();
+      if (data?.registrosApagados !== undefined) {
+        addToast(`🧹 ${data.registrosApagados} cotações anteriores apagadas. Cotando do zero nos 9 portais!`, 'info');
+      }
       if (data?.status) {
         setStatusCotacao(data.status);
       }
+      carregarDados(true);
 
       // 2. Dispara imediatamente um novo ciclo limpo através do controlador principal
       await handleIniciarCotacaoAoVivo('TODOS', 40, 'TODAS_PRIORITARIAS');

@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "4cacbda",
-  "commitMessage": "chore(build): update version.json and production dist bundle hash",
-  "buildTime": "22/10/2026, 13:17:00"
+  "commitHash": "cc277dc",
+  "commitMessage": "feat(belaped): add Panpharma and MG Medicamentos to 9 distributors with robots, cards and direct quotes",
+  "buildTime": "22/10/2026, 15:11:39"
 }

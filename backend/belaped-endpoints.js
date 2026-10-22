@@ -3216,7 +3216,7 @@ function belapedEndpoints(db) {
     else if (p1List.length === 0 && p2List.length === 0 && p3List.length > 0) rotuloFoco = '💼 P3: Orçamento Semanal';
     else if (p1List.length === 0 && p2List.length === 0 && p3List.length === 0) rotuloFoco = '📦 P4: Regular';
 
-    const numWorkers = fornecedor === 'TODOS' ? 7 : 1;
+    const numWorkers = fornecedor === 'TODOS' ? 9 : 1;
     let passosConcluidos = 0;
 
     // Inicializa status com telemetria de prioridade
@@ -3703,11 +3703,11 @@ function belapedEndpoints(db) {
 
   /**
    * POST /api/belaped/reiniciar-cotacao
-   * Destrava e reinicia a cotação imediatamente, interrompendo qualquer ciclo pendente
+   * Destrava e reinicia a cotação imediatamente, apagando todas as cotações anteriores do banco
    */
   router.post('/reiniciar-cotacao', async (req, res) => {
     try {
-      const { fornecedor = 'TODOS', limite = 40, eans, prioridade, dispararImediato = false } = req.body || {};
+      const { fornecedor = 'TODOS', limite = 40, eans, prioridade, dispararImediato = false, limparCotacoes = true } = req.body || {};
 
       console.log('[BelaPed Cotação] 🔄 Reinicialização solicitada pelo usuário...');
 
@@ -3719,7 +3719,15 @@ function belapedEndpoints(db) {
         await new Promise(resolve => setTimeout(resolve, 500));
       }
 
-      // 3. Força reset completo do status
+      // 3. 🧹 LIMPEZA TOTAL: Apaga todas as cotações anteriores da tabela para cotar do zero!
+      let registrosApagados = 0;
+      if (limparCotacoes !== false) {
+        const delRes = db.prepare('DELETE FROM belaped_cotacoes_reais').run();
+        registrosApagados = delRes.changes;
+        console.log(`[BelaPed Cotação] 🧹 Limpas ${registrosApagados} cotações anteriores do banco. Pronto para cotar do zero!`);
+      }
+
+      // 4. Força reset completo do status
       cotacaoStatus.emAndamento = false;
       cotacaoStatus.solicitouParar = false;
       cotacaoStatus.atual = 0;
@@ -3727,14 +3735,14 @@ function belapedEndpoints(db) {
       cotacaoStatus.total = 0;
       cotacaoStatus.iniciadoEm = null;
       cotacaoStatus.finalizadoEm = null;
-      cotacaoStatus.ultimoItem = '🔄 Cotação reiniciada. Pronto para novo ciclo.';
+      cotacaoStatus.ultimoItem = `🔄 Cotação reiniciada do zero (${registrosApagados} cotações limpas).`;
       if (cotacaoStatus.workers) {
         Object.keys(cotacaoStatus.workers).forEach(w => {
           cotacaoStatus.workers[w] = { status: 'AGUARDANDO', itemAtual: 'Pronto para iniciar', avaliados: 0, encontrados: 0, semEstoque: 0 };
         });
       }
 
-      // 4. Se dispararImediato for true, aciona novo lote
+      // 5. Se dispararImediato for true, aciona novo lote limpo
       let iniciado = false;
       if (dispararImediato) {
         iniciado = await executarCotacaoAoVivoInternal(fornecedor, limite, eans, prioridade);
@@ -3743,15 +3751,35 @@ function belapedEndpoints(db) {
       res.json({
         success: true,
         iniciado,
+        registrosApagados,
         message: iniciado 
-          ? `Cotação reiniciada com sucesso para ${fornecedor}!` 
-          : 'Cotação reiniciada e status zerado com sucesso.',
+          ? `Cotação reiniciada do zero para ${fornecedor} (${registrosApagados} cotações apagadas)!` 
+          : `Cotação reiniciada e ${registrosApagados} cotações anteriores apagadas com sucesso.`,
         status: cotacaoStatus
       });
     } catch (err) {
       cotacaoStatus.emAndamento = false;
       cotacaoStatus.solicitouParar = false;
       console.error('[BelaPed] Erro no endpoint reiniciar-cotacao:', err.message);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * POST /api/belaped/limpar-cotacoes
+   * Apaga todas as cotações salvas em belaped_cotacoes_reais
+   */
+  router.post('/limpar-cotacoes', (req, res) => {
+    try {
+      const del = db.prepare('DELETE FROM belaped_cotacoes_reais').run();
+      console.log(`[BelaPed Cotação] 🧹 Limpeza completa: ${del.changes} cotações apagadas.`);
+      res.json({
+        success: true,
+        apagadas: del.changes,
+        message: `${del.changes} cotações anteriores apagadas com sucesso! Sistema limpo para cotar do zero.`
+      });
+    } catch (err) {
+      console.error('[BelaPed Cotação] Erro ao limpar cotações:', err.message);
       res.status(500).json({ success: false, error: err.message });
     }
   });
@@ -3858,6 +3886,15 @@ function belapedEndpoints(db) {
         : [fornecedorAlvo];
 
       console.log(`[BelaPed Re-cotação] Rodando re-cotação sob demanda para o EAN ${eanLimpo} (${descFinal || ''}) em [${portaisParaCotar.join(', ')}]...`);
+
+      // 🧹 LIMPEZA OBRIGATÓRIA ANTES DE RECOTAR: Apaga todas as cotações anteriores deste produto nas distribuidoras para cotar do zero!
+      if (fornecedorAlvo === 'TODOS' || !MAPA_CLASSES[fornecedorAlvo]) {
+        const delEan = db.prepare('DELETE FROM belaped_cotacoes_reais WHERE ean = ? OR ean_substituto = ?').run(eanLimpo, eanLimpo);
+        console.log(`[BelaPed Re-cotação] 🧹 Removidas ${delEan.changes} cotações anteriores do EAN ${eanLimpo} para cotar do zero nas 9 distribuidoras.`);
+      } else {
+        const delEan = db.prepare('DELETE FROM belaped_cotacoes_reais WHERE (ean = ? OR ean_substituto = ?) AND UPPER(fornecedor) LIKE ?').run(eanLimpo, eanLimpo, `%${fornecedorAlvo}%`);
+        console.log(`[BelaPed Re-cotação] 🧹 Removidas ${delEan.changes} cotações anteriores do EAN ${eanLimpo} na distribuidora ${fornecedorAlvo}.`);
+      }
 
       const stmtSalvar = db.prepare(`
         INSERT INTO belaped_cotacoes_reais (ean, fornecedor, preco, disponivel, descricao, desc_pct, url_produto, condicao_comercial, preco_padrao, is_generico_mais_barato, ean_substituto, laboratorio, is_substituto, todos_concorrentes, updated_at)
