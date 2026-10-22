@@ -1397,19 +1397,49 @@ app.post('/api/boletos', (req, res) => {
   try {
     const boleto = req.body;
     const stmt = db.prepare(`
-      INSERT INTO boletos (id, supplierName, order_id, due_date, value, status, invoice_number)
-      VALUES (@id, @supplierName, @order_id, @due_date, @value, @status, @invoice_number)
+      INSERT INTO boletos (id, supplierName, order_id, due_date, value, status, invoice_number, barcode, bank_code, bank_name, created_at)
+      VALUES (@id, @supplierName, @order_id, @due_date, @value, @status, @invoice_number, @barcode, @bank_code, @bank_name, @created_at)
     `);
+    const newId = boleto.id || Math.random().toString(36).substr(2, 9);
     const result = stmt.run({
-      id: boleto.id || null,
+      id: newId,
       supplierName: boleto.supplierName || null,
       order_id: boleto.order_id || null,
       due_date: boleto.due_date || null,
       value: boleto.value !== undefined ? parseFloat(boleto.value) : null,
-      status: boleto.status || null,
-      invoice_number: boleto.invoice_number || null
+      status: boleto.status || 'Pendente',
+      invoice_number: boleto.invoice_number || null,
+      barcode: boleto.barcode || null,
+      bank_code: boleto.bank_code || null,
+      bank_name: boleto.bank_name || null,
+      created_at: boleto.created_at || new Date().toISOString()
     });
-    res.status(201).json({ id: result.lastInsertRowid });
+
+    // Atualiza/Cria Memória de Fornecedor por Convênio se informado
+    if (boleto.convenio_key && boleto.supplierName && boleto.supplierName.trim()) {
+      try {
+        const memStmt = db.prepare(`
+          INSERT INTO boleto_supplier_memory (convenio_key, bank_code, bank_name, supplier_name, last_used_at, use_count)
+          VALUES (?, ?, ?, ?, datetime('now', 'localtime'), 1)
+          ON CONFLICT(convenio_key) DO UPDATE SET
+            supplier_name = excluded.supplier_name,
+            bank_code = COALESCE(excluded.bank_code, boleto_supplier_memory.bank_code),
+            bank_name = COALESCE(excluded.bank_name, boleto_supplier_memory.bank_name),
+            last_used_at = datetime('now', 'localtime'),
+            use_count = boleto_supplier_memory.use_count + 1
+        `);
+        memStmt.run(
+          boleto.convenio_key,
+          boleto.bank_code || null,
+          boleto.bank_name || null,
+          boleto.supplierName.trim()
+        );
+      } catch (memErr) {
+        console.error('[BOLETO MEMORY] Error upserting memory:', memErr);
+      }
+    }
+
+    res.status(201).json({ id: newId, rowId: result.lastInsertRowid, success: true });
   } catch (err) {
     console.error('Error creating boleto:', err);
     res.status(500).json({ error: 'Failed to create boleto.', details: err.message });
@@ -1491,6 +1521,140 @@ app.delete('/api/boletos/:id', (req, res) => {
   } catch (err) {
     console.error('Error deleting boleto:', err);
     res.status(500).json({ error: 'Failed to delete boleto.' });
+  }
+});
+
+// --- Boleto Scanner & Anti-Duplicidade Endpoints ---
+
+// Check duplicate boletos
+app.post('/api/boletos/check-duplicate', (req, res) => {
+  try {
+    const { barcode, supplierName, due_date, value, invoice_number } = req.body;
+
+    // 1. Checagem estrita por código de barras / linha digitável
+    if (barcode && String(barcode).trim().length >= 20) {
+      const cleanBarcode = String(barcode).replace(/\D/g, '');
+      const barcodeMatches = db.prepare(`
+        SELECT id, supplierName, due_date, value, status, invoice_number, barcode, created_at 
+        FROM boletos 
+        WHERE REPLACE(REPLACE(REPLACE(COALESCE(barcode, ''), ' ', ''), '.', ''), '-', '') = ?
+      `).all(cleanBarcode);
+
+      if (barcodeMatches.length > 0) {
+        const m = barcodeMatches[0];
+        const valFormatted = m.value ? Number(m.value).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : 'R$ 0,00';
+        return res.json({ 
+          isDuplicate: true, 
+          duplicateType: 'barcode', 
+          duplicateReason: `Boleto com este MESMO código de barras já foi cadastrado anteriormente para "${m.supplierName || 'Fornecedor'}" no valor de ${valFormatted} com vencimento em ${m.due_date} (Status: ${m.status}).`,
+          matches: barcodeMatches 
+        });
+      }
+    }
+
+    // 2. Checagem por Fornecedor + Vencimento + Valor
+    if (supplierName && due_date && value !== undefined && value !== null && Number(value) > 0) {
+      const numVal = parseFloat(value);
+      const tripletMatches = db.prepare(`
+        SELECT id, supplierName, due_date, value, status, invoice_number, barcode, created_at 
+        FROM boletos 
+        WHERE LOWER(TRIM(supplierName)) = LOWER(TRIM(?))
+          AND due_date = ?
+          AND ABS(value - ?) < 0.05
+      `).all(supplierName, due_date, numVal);
+
+      if (tripletMatches.length > 0) {
+        const m = tripletMatches[0];
+        const valFormatted = numVal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+        return res.json({ 
+          isDuplicate: true, 
+          duplicateType: 'triplet', 
+          duplicateReason: `Atenção: Já existe um boleto para "${m.supplierName}" com a MESMA data (${due_date}) e MESMO valor (${valFormatted})!`,
+          matches: tripletMatches 
+        });
+      }
+    }
+
+    // 3. Checagem por Fornecedor + Número da Nota Fiscal
+    if (supplierName && invoice_number && String(invoice_number).trim()) {
+      const cleanInvoice = String(invoice_number).trim();
+      const invoiceMatches = db.prepare(`
+        SELECT id, supplierName, due_date, value, status, invoice_number, barcode, created_at 
+        FROM boletos 
+        WHERE LOWER(TRIM(supplierName)) = LOWER(TRIM(?))
+          AND invoice_number = ?
+      `).all(supplierName, cleanInvoice);
+
+      if (invoiceMatches.length > 0) {
+        return res.json({ 
+          isDuplicate: true, 
+          duplicateType: 'invoice', 
+          duplicateReason: `Atenção: Já existe um boleto cadastrado para a Nota Fiscal Nº ${cleanInvoice} de "${invoiceMatches[0].supplierName}".`,
+          matches: invoiceMatches 
+        });
+      }
+    }
+
+    return res.json({ isDuplicate: false, matches: [] });
+  } catch (err) {
+    console.error('Error checking boleto duplicate:', err);
+    res.status(500).json({ error: 'Erro ao verificar duplicidade.', details: err.message });
+  }
+});
+
+// Buscar memórias de fornecedores por convênio
+app.get('/api/boletos/supplier-memory', (req, res) => {
+  try {
+    const { convenio_key } = req.query;
+    if (convenio_key) {
+      const mem = db.prepare('SELECT * FROM boleto_supplier_memory WHERE convenio_key = ?').get(convenio_key);
+      return res.json(mem || null);
+    }
+    const memories = db.prepare('SELECT * FROM boleto_supplier_memory ORDER BY use_count DESC, last_used_at DESC').all();
+    res.json(memories);
+  } catch (err) {
+    console.error('Error fetching supplier memories:', err);
+    res.status(500).json({ error: 'Erro ao buscar memórias de fornecedores.' });
+  }
+});
+
+// Deletar memória de fornecedor
+app.delete('/api/boletos/supplier-memory/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    db.prepare('DELETE FROM boleto_supplier_memory WHERE id = ?').run(id);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error deleting supplier memory:', err);
+    res.status(500).json({ error: 'Erro ao remover memória.' });
+  }
+});
+
+// Lista consolidada de todos os fornecedores cadastrados no BelaFarma (para autocomplete e seleção rápida)
+app.get('/api/boletos/suppliers-list', (req, res) => {
+  try {
+    const fromBoletos = db.prepare("SELECT DISTINCT supplierName as name FROM boletos WHERE supplierName IS NOT NULL AND TRIM(supplierName) != ''").all();
+    const fromOrders = db.prepare("SELECT DISTINCT distributor as name FROM orders WHERE distributor IS NOT NULL AND TRIM(distributor) != ''").all();
+    let fromLocal = [];
+    try {
+      fromLocal = db.prepare("SELECT DISTINCT representante as name FROM local_suppliers WHERE representante IS NOT NULL AND TRIM(representante) != ''").all();
+    } catch(e) {}
+
+    const nameSet = new Set();
+    [...fromBoletos, ...fromOrders, ...fromLocal].forEach(item => {
+      if (item && item.name) {
+        const clean = item.name.trim();
+        if (clean.length > 1 && !/^\d+([.,]\d+)?$/.test(clean)) {
+          nameSet.add(clean);
+        }
+      }
+    });
+
+    const list = Array.from(nameSet).sort((a, b) => a.localeCompare(b, 'pt-BR', { sensitivity: 'base' }));
+    res.json(list);
+  } catch (err) {
+    console.error('Error fetching suppliers list:', err);
+    res.status(500).json({ error: 'Erro ao buscar lista de fornecedores.' });
   }
 });
 

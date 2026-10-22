@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Wallet, TrendingUp, Calendar, ArrowUpRight, ChevronDown, ChevronUp, CheckCircle2, AlertTriangle, Clock, Archive, DollarSign } from 'lucide-react';
+import { Wallet, TrendingUp, Calendar, ArrowUpRight, ChevronDown, ChevronUp, CheckCircle2, AlertTriangle, Clock, Archive, DollarSign, Barcode } from 'lucide-react';
 import { Order, OrderStatus, Installment, Boleto, BoletoStatus, FixedAccount, User, MonthlyLimit, CashClosingRecord } from '../types';
 import { TransactionDetailsModal } from './TransactionDetailsModal';
 import { FinancialArchive } from './FinancialArchive';
@@ -7,6 +7,7 @@ import { ContasAPagar } from './ContasAPagar';
 import { FixedAccountsPage } from './FixedAccountsPage';
 import { DaysInDebt } from './DaysInDebt';
 import { ProvisionsPanel } from './ProvisionsPanel';
+import { BoletoScannerTab } from './BoletoScannerTab';
 
 interface FinancialProps {
   user: User;
@@ -21,7 +22,7 @@ interface FinancialProps {
   onLog: (action: string, details: string) => void;
   cashClosings: CashClosingRecord[];
   onOpenBudgetSummary: () => void;
-  initialTab?: 'overview' | 'payable' | 'fixed' | 'debt' | 'provisions';
+  initialTab?: 'overview' | 'payable' | 'fixed' | 'debt' | 'provisions' | 'scanner';
 }
 
 type Transaction = Order | Boleto | (FixedAccount & { isFixed: true, targetDate: string });
@@ -49,7 +50,7 @@ export const Financial: React.FC<FinancialProps> = ({
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [isDetailsVisible, setIsDetailsVisible] = useState<Record<string, boolean>>({});
   const [showArchive, setShowArchive] = useState(false);
-  const [activeTab, setActiveTab] = useState<'overview' | 'payable' | 'fixed' | 'debt' | 'provisions'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'overview' | 'payable' | 'fixed' | 'debt' | 'provisions' | 'scanner'>(initialTab);
 
 
   const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -236,6 +237,13 @@ export const Financial: React.FC<FinancialProps> = ({
           className={`px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${activeTab === 'payable' ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
         >
           Contas a Pagar
+        </button>
+        <button 
+          onClick={() => setActiveTab('scanner')}
+          className={`flex items-center gap-1.5 px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${activeTab === 'scanner' ? 'bg-red-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-600'}`}
+        >
+          <Barcode className="w-3.5 h-3.5" />
+          Scanner com Memória
         </button>
         <button 
           onClick={() => setActiveTab('fixed')}
@@ -447,6 +455,17 @@ export const Financial: React.FC<FinancialProps> = ({
           <ProvisionsPanel 
             cashClosings={cashClosings}
             fixedAccounts={fixedAccounts}
+          />
+        </div>
+      )}
+
+      {activeTab === 'scanner' && (
+        <div className="animate-in fade-in slide-in-from-bottom-2 duration-500">
+          <BoletoScannerTab
+            user={user}
+            onAddBoleto={onAddBoleto}
+            onLog={onLog}
+            existingBoletos={boletos}
           />
         </div>
       )}

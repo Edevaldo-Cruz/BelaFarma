@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "e09bff7",
-  "commitMessage": "feat(belaped): add CLI scripts belaped:reset, belaped:cotar, and belaped:limpar",
-  "buildTime": "22/10/2026, 07:56:22"
+  "commitHash": "d57a5ae",
+  "commitMessage": "fix(belaped): redesign toolbar to prevent button tower stacking and text clipping",
+  "buildTime": "22/10/2026, 09:32:10"
 }

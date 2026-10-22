@@ -1096,6 +1096,35 @@ try {
       db.exec('ALTER TABLE boletos ADD COLUMN supplierName TEXT');
     }
 
+    // Add barcode columns to boletos table
+    ['barcode', 'bank_code', 'bank_name', 'created_at'].forEach(col => {
+      try {
+        db.prepare(`SELECT ${col} FROM boletos LIMIT 1`).get();
+      } catch (e) {
+        try {
+          db.exec(`ALTER TABLE boletos ADD COLUMN ${col} TEXT`);
+          console.log(`Added ${col} column to boletos table.`);
+        } catch (alterErr) {}
+      }
+    });
+
+    // Tabela de memória de fornecedores/convênios identificados por boletos
+    try {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS boleto_supplier_memory (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          convenio_key TEXT NOT NULL UNIQUE,
+          bank_code TEXT,
+          bank_name TEXT,
+          supplier_name TEXT NOT NULL,
+          last_used_at TEXT NOT NULL,
+          use_count INTEGER DEFAULT 1
+        );
+      `);
+    } catch (tblErr) {
+      console.error('Error creating boleto_supplier_memory table:', tblErr);
+    }
+
     // Add boletoPath column to orders table if it doesn't exist
     try {
       db.prepare('SELECT boletoPath FROM orders LIMIT 1').get();

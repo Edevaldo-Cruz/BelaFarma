@@ -220,6 +220,21 @@ export interface Boleto {
   status: BoletoStatus;
   installment_number: number;
   invoice_number?: string;
+  barcode?: string;
+  bank_code?: string;
+  bank_name?: string;
+  convenio_key?: string;
+  created_at?: string;
+}
+
+export interface BoletoSupplierMemory {
+  id: number;
+  convenio_key: string;
+  bank_code?: string;
+  bank_name?: string;
+  supplier_name: string;
+  last_used_at: string;
+  use_count: number;
 }
 
 export interface MonthlyLimit {
