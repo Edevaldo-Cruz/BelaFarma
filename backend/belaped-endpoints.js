@@ -26,6 +26,10 @@ const { MartinsRobot } = require('./belaped-robot-martins');
 const { OrienteRobot, identificarCondicaoIdeal } = require('./belaped-robot-oriente');
 const { PanpharmaRobot } = require('./belaped-robot-panpharma');
 const MgMedicamentosRobot = require('./belaped-robot-mgmedicamentos');
+const StockfarmaRobot = require('./belaped-robot-stockfarma');
+const OrgafarmaRobot = require('./belaped-robot-orgafarma');
+const FarmixRobot = require('./belaped-robot-farmix');
+const HymparRobot = require('./belaped-robot-hympar');
 const { validarCorrespondenciaProduto } = require('./belaped-validador');
 const farmacoMatcher = require('./belaped-farmaco-matcher');
 const motorEssencia = require('./belaped-motor-essencia');
@@ -62,6 +66,18 @@ function gerarUrlDistribuidoraProduto(fornecedorNome, ean, descricao) {
   }
   if (f.includes('MG MEDICAMENTOS') || f.includes('MGMEDICAMENTOS') || f.startsWith('MG')) {
     return `http://www.mgmedicamentos.com.br/pedido/criar/az/00`;
+  }
+  if (f.includes('STOCKFARMA') || f.includes('STOCK')) {
+    return `https://portal.stockfarma.com.br/pedido/criar/6948/12`;
+  }
+  if (f.includes('ORGAFARMA') || f.includes('ORGA')) {
+    return `https://grupoorgafarma.com.br/pedido/criar/89699/4939`;
+  }
+  if (f.includes('FARMIX')) {
+    return `https://portal.farmixon.com.br/pedido/criar/TABPE/76`;
+  }
+  if (f.includes('HYMPAR')) {
+    return `https://hymparhub.com.br/`;
   }
   return null;
 }
@@ -433,7 +449,7 @@ function belapedEndpoints(db) {
       // Coluna já existe
     }
 
-    // Cadastra e sincroniza as 9 distribuidoras oficiais configuradas
+    // Cadastra e sincroniza as 13 distribuidoras oficiais configuradas
     const portaisReais = [
       { id: 'profarma', nome: 'PROFARMA', url: 'https://pedido.profarma.com.br/?callbackUrl=%2Fnovo-pedido', usuario: '47378578000140', min: 150.0, prazo: 35, uf: 'MG', is_mg: 1, obs: 'Distribuidora Oficial - Importação via planilha CSV e cotação robótica' },
       { id: 'dpc', nome: 'DPC DISTRIBUIDORA', url: 'https://cliente.dpcnet.com.br/?redirect=https%3A%2F%2Fdpcnet.com.br%2F', usuario: '47378578000140', min: 300.0, prazo: 28, uf: 'MG', is_mg: 1, obs: 'Distribuidora Oficial - Importação via planilha CSV e cotação robótica' },
@@ -443,7 +459,11 @@ function belapedEndpoints(db) {
       { id: 'martins', nome: 'MARTINS ATACADO', url: 'https://www.martinsatacado.com.br/login/pessoa-juridica?pathName=%2F', usuario: '47.378.578/0001-40', min: 200.0, prazo: 28, uf: 'MG', is_mg: 1, obs: 'Distribuidora Oficial - Pedido mínimo R$ 200,00 - Filtro estrito: apenas produtos faturados em MG' },
       { id: 'oriente', nome: 'ORIENTE FARMA', url: 'https://pedidoweb.orientefarma.com.br/auth/login', usuario: 'belafarmasul@gmail.com', min: 150.0, prazo: 28, uf: 'MG', is_mg: 1, obs: 'Distribuidora Oficial - Condições: Geral (96), Verão (4774) e Unilever (18)' },
       { id: 'panpharma', nome: 'PANPHARMA', url: 'http://digitadorpan.stcruz.com.br', usuario: '528854', min: 300.0, prazo: 28, uf: 'MG', is_mg: 1, obs: 'Distribuidora Oficial - ePan Pedido Eletrônico e cotação via API direta' },
-      { id: 'mgmedicamentos', nome: 'MG MEDICAMENTOS', url: 'http://www.mgmedicamentos.com.br/pedido/criar/az/00', usuario: 'DSAPPWJ', min: 300.0, prazo: 28, uf: 'MG', is_mg: 1, obs: 'Distribuidora Oficial - Catálogo instantâneo em memória e pedido online' }
+      { id: 'mgmedicamentos', nome: 'MG MEDICAMENTOS', url: 'http://www.mgmedicamentos.com.br/pedido/criar/az/00', usuario: 'DSAPPWJ', min: 300.0, prazo: 28, uf: 'MG', is_mg: 1, obs: 'Distribuidora Oficial - Catálogo instantâneo em memória e pedido online' },
+      { id: 'stockfarma', nome: 'STOCKFARMA', url: 'https://portal.stockfarma.com.br/pedido/criar/6948/12', usuario: 'HCAC542', min: 300.0, prazo: 28, uf: 'MG', is_mg: 1, obs: 'Distribuidora Oficial - Catálogo instantâneo em memória e pedido online' },
+      { id: 'orgafarma', nome: 'ORGAFARMA', url: 'https://grupoorgafarma.com.br/pedido/criar/89699/4939', usuario: 'primusdrogaria2022@gmail.com', min: 300.0, prazo: 28, uf: 'MG', is_mg: 1, obs: 'Distribuidora Oficial - Catálogo AZ e campanha Germed online' },
+      { id: 'farmix', nome: 'FARMIX', url: 'https://portal.farmixon.com.br/pedido/criar/TABPE/76', usuario: 'belafarmasul@gmail.com', min: 300.0, prazo: 28, uf: 'MG', is_mg: 1, obs: 'Distribuidora Oficial - Portal Farmix Pedido Eletrônico' },
+      { id: 'hympar', nome: 'HYMPARHUB', url: 'https://hymparhub.com.br/', usuario: 'primusdrogaria2022@gmail.com', min: 300.0, prazo: 28, uf: 'MG', is_mg: 1, obs: 'Distribuidora Oficial - Hypera Pharma B2B' }
     ];
 
     const stmtUpsert = db.prepare(`
@@ -462,8 +482,8 @@ function belapedEndpoints(db) {
       stmtUpsert.run(p.id, p.nome, p.url, p.usuario, p.min, p.prazo, p.uf, p.is_mg, p.obs);
     }
 
-    // Remove qualquer distribuidora não configurada (garante apenas as 9 oficiais)
-    db.prepare(`DELETE FROM belaped_portais WHERE id NOT IN ('profarma', 'dpc', 'soton', 'distrimed', 'divimed', 'martins', 'oriente', 'panpharma', 'mgmedicamentos')`).run();
+    // Remove qualquer distribuidora não configurada (garante apenas as 13 oficiais)
+    db.prepare(`DELETE FROM belaped_portais WHERE id NOT IN ('profarma', 'dpc', 'soton', 'distrimed', 'divimed', 'martins', 'oriente', 'panpharma', 'mgmedicamentos', 'stockfarma', 'orgafarma', 'farmix', 'hympar')`).run();
 
     // Migração transparente: Coluna url_produto para salvar link direto do produto pesquisado pelo robô
     try {
@@ -3539,6 +3559,14 @@ function belapedEndpoints(db) {
           await executarRoboParaFornecedor('PANPHARMA', PanpharmaRobot);
         } else if (fornecedor === 'MGMEDICAMENTOS' || fornecedor === 'MG' || fornecedor === 'MG MEDICAMENTOS') {
           await executarRoboParaFornecedor('MG MEDICAMENTOS', MgMedicamentosRobot);
+        } else if (fornecedor === 'STOCKFARMA' || fornecedor === 'STOCK') {
+          await executarRoboParaFornecedor('STOCKFARMA', StockfarmaRobot);
+        } else if (fornecedor === 'ORGAFARMA' || fornecedor === 'ORGA') {
+          await executarRoboParaFornecedor('ORGAFARMA', OrgafarmaRobot);
+        } else if (fornecedor === 'FARMIX') {
+          await executarRoboParaFornecedor('FARMIX', FarmixRobot);
+        } else if (fornecedor === 'HYMPAR' || fornecedor === 'HYMPARHUB') {
+          await executarRoboParaFornecedor('HYMPARHUB', HymparRobot);
         } else if (fornecedor === 'TODOS') {
           await Promise.all([
             executarRoboParaFornecedor('PROFARMA', ProfarmaRobot, 0),
@@ -3549,7 +3577,11 @@ function belapedEndpoints(db) {
             executarRoboParaFornecedor('MARTINS ATACADO', MartinsRobot, 6000),
             executarRoboParaFornecedor('ORIENTE FARMA', OrienteRobot, 7200),
             executarRoboParaFornecedor('PANPHARMA', PanpharmaRobot, 8400),
-            executarRoboParaFornecedor('MG MEDICAMENTOS', MgMedicamentosRobot, 9600)
+            executarRoboParaFornecedor('MG MEDICAMENTOS', MgMedicamentosRobot, 9600),
+            executarRoboParaFornecedor('STOCKFARMA', StockfarmaRobot, 10800),
+            executarRoboParaFornecedor('ORGAFARMA', OrgafarmaRobot, 12000),
+            executarRoboParaFornecedor('FARMIX', FarmixRobot, 13200),
+            executarRoboParaFornecedor('HYMPARHUB', HymparRobot, 14400)
           ]);
         } else {
           await executarRoboParaFornecedor('PROFARMA', ProfarmaRobot);
@@ -3877,13 +3909,20 @@ function belapedEndpoints(db) {
         'PANFARMA': PanpharmaRobot,
         'MG MEDICAMENTOS': MgMedicamentosRobot,
         'MGMEDICAMENTOS': MgMedicamentosRobot,
-        'MG': MgMedicamentosRobot
+        'MG': MgMedicamentosRobot,
+        'STOCKFARMA': StockfarmaRobot,
+        'STOCK': StockfarmaRobot,
+        'ORGAFARMA': OrgafarmaRobot,
+        'ORGA': OrgafarmaRobot,
+        'FARMIX': FarmixRobot,
+        'HYMPARHUB': HymparRobot,
+        'HYMPAR': HymparRobot
       };
 
       // Determina quais distribuidoras rodar
       let fornecedorAlvo = fornecedor ? String(fornecedor).trim().toUpperCase() : 'TODOS';
       const portaisParaCotar = (fornecedorAlvo === 'TODOS' || !MAPA_CLASSES[fornecedorAlvo])
-        ? ['PROFARMA', 'DPC DISTRIBUIDORA', 'SOTON FARMA', 'DISTRIMED', 'DIVIMED', 'MARTINS ATACADO', 'ORIENTE FARMA', 'PANPHARMA', 'MG MEDICAMENTOS']
+        ? ['PROFARMA', 'DPC DISTRIBUIDORA', 'SOTON FARMA', 'DISTRIMED', 'DIVIMED', 'MARTINS ATACADO', 'ORIENTE FARMA', 'PANPHARMA', 'MG MEDICAMENTOS', 'STOCKFARMA', 'ORGAFARMA', 'FARMIX', 'HYMPARHUB']
         : [fornecedorAlvo];
 
       console.log(`[BelaPed Re-cotação] Rodando re-cotação sob demanda para o EAN ${eanLimpo} (${descFinal || ''}) em [${portaisParaCotar.join(', ')}]...`);
@@ -3891,7 +3930,7 @@ function belapedEndpoints(db) {
       // 🧹 LIMPEZA OBRIGATÓRIA ANTES DE RECOTAR: Apaga todas as cotações anteriores deste produto nas distribuidoras para cotar do zero!
       if (fornecedorAlvo === 'TODOS' || !MAPA_CLASSES[fornecedorAlvo]) {
         const delEan = db.prepare('DELETE FROM belaped_cotacoes_reais WHERE ean = ? OR ean_substituto = ?').run(eanLimpo, eanLimpo);
-        console.log(`[BelaPed Re-cotação] 🧹 Removidas ${delEan.changes} cotações anteriores do EAN ${eanLimpo} para cotar do zero nas 9 distribuidoras.`);
+        console.log(`[BelaPed Re-cotação] 🧹 Removidas ${delEan.changes} cotações anteriores do EAN ${eanLimpo} para cotar do zero nas 13 distribuidoras.`);
       } else {
         const delEan = db.prepare('DELETE FROM belaped_cotacoes_reais WHERE (ean = ? OR ean_substituto = ?) AND UPPER(fornecedor) LIKE ?').run(eanLimpo, eanLimpo, `%${fornecedorAlvo}%`);
         console.log(`[BelaPed Re-cotação] 🧹 Removidas ${delEan.changes} cotações anteriores do EAN ${eanLimpo} na distribuidora ${fornecedorAlvo}.`);
@@ -4140,7 +4179,11 @@ function belapedEndpoints(db) {
         'MARTINS ATACADO',
         'ORIENTE FARMA',
         'PANPHARMA',
-        'MG MEDICAMENTOS'
+        'MG MEDICAMENTOS',
+        'STOCKFARMA',
+        'ORGAFARMA',
+        'FARMIX',
+        'HYMPARHUB'
       ];
 
       // 2. Cotações reais capturadas pelos robôs
@@ -4253,6 +4296,10 @@ function belapedEndpoints(db) {
         if (n.includes('ORIENTE')) return 'ORIENTE FARMA';
         if (n.includes('PANPHARMA') || n.includes('EPAN')) return 'PANPHARMA';
         if (n.includes('MG MEDICAMENTOS') || n.includes('MG MEDIC')) return 'MG MEDICAMENTOS';
+        if (n.includes('STOCKFARMA') || n.includes('STOCK')) return 'STOCKFARMA';
+        if (n.includes('ORGAFARMA') || n.includes('ORGA')) return 'ORGAFARMA';
+        if (n.includes('FARMIX')) return 'FARMIX';
+        if (n.includes('HYMPAR')) return 'HYMPARHUB';
         return n;
       };
 
@@ -4845,7 +4892,7 @@ function belapedEndpoints(db) {
   /**
    * Garante que múltiplos portais estejam confirmados com 0 itens antes da criação de pedidos.
    */
-  async function garantirCarrinhosVazios(portaisAlvo = ['soton', 'divimed', 'distrimed', 'profarma', 'dpc', 'martins', 'oriente', 'panpharma', 'mgmedicamentos']) {
+  async function garantirCarrinhosVazios(portaisAlvo = ['soton', 'divimed', 'distrimed', 'profarma', 'dpc', 'martins', 'oriente', 'panpharma', 'mgmedicamentos', 'stockfarma', 'orgafarma', 'farmix', 'hympar']) {
     console.log(`[BelaPed Segurança] 🛡️ Verificando e garantindo carrinhos limpos para: ${portaisAlvo.join(', ')}...`);
     const resultados = [];
 
@@ -4862,6 +4909,13 @@ function belapedEndpoints(db) {
         case 'panfarma': return new PanpharmaRobot();
         case 'mgmedicamentos':
         case 'mg': return new MgMedicamentosRobot();
+        case 'stockfarma':
+        case 'stock': return new StockfarmaRobot();
+        case 'orgafarma':
+        case 'orga': return new OrgafarmaRobot();
+        case 'farmix': return new FarmixRobot();
+        case 'hympar':
+        case 'hymparhub': return new HymparRobot();
         default: return null;
       }
     };
@@ -6929,6 +6983,508 @@ function belapedEndpoints(db) {
     res.json({ success: true, status: mgmedicamentosCarrinhoStatus });
   });
 
+  // ==========================================
+  // ESTADO E ENDPOINTS DO CARRINHO: STOCKFARMA
+  // ==========================================
+  const stockfarmaCarrinhoStatus = {
+    emAndamento: false,
+    total: 0,
+    atual: 0,
+    sucessos: 0,
+    erros: 0,
+    ultimoItem: '',
+    itens: [],
+    relatorio: null
+  };
+
+  router.post('/montar-carrinho-stockfarma', async (req, res) => {
+    try {
+      if (stockfarmaCarrinhoStatus.emAndamento) {
+        return res.status(400).json({ success: false, message: 'Uma montagem de carrinho na Stockfarma já está em andamento.' });
+      }
+
+      let itensParaAdicionar = req.body?.itens;
+      if (!Array.isArray(itensParaAdicionar) || itensParaAdicionar.length === 0) {
+        const itensDB = db.prepare(`
+          SELECT cr.ean, cr.descricao, 1 as quantidade, cr.preco
+          FROM belaped_cotacoes_reais cr
+          WHERE UPPER(cr.fornecedor) LIKE '%STOCKFARMA%' OR UPPER(cr.fornecedor) LIKE '%STOCK%'
+          ORDER BY cr.descricao ASC
+        `).all();
+        itensParaAdicionar = itensDB;
+      }
+
+      if (!itensParaAdicionar || itensParaAdicionar.length === 0) {
+        return res.status(400).json({ success: false, message: 'Nenhum produto da Stockfarma elegível para montagem do carrinho.' });
+      }
+
+      stockfarmaCarrinhoStatus.emAndamento = true;
+      stockfarmaCarrinhoStatus.total = itensParaAdicionar.length;
+      stockfarmaCarrinhoStatus.atual = 0;
+      stockfarmaCarrinhoStatus.sucessos = 0;
+      stockfarmaCarrinhoStatus.erros = 0;
+      stockfarmaCarrinhoStatus.ultimoItem = '';
+      stockfarmaCarrinhoStatus.itens = [];
+      stockfarmaCarrinhoStatus.relatorio = null;
+
+      res.json({
+        success: true,
+        message: `Montagem de carrinho iniciada na Stockfarma com ${itensParaAdicionar.length} produtos.`,
+        status: stockfarmaCarrinhoStatus
+      });
+
+      (async () => {
+        let robot = null;
+        try {
+          console.log('[BelaPed] Iniciando robô Stockfarma para montagem de carrinho...');
+          robot = new StockfarmaRobot();
+          await robot.iniciar();
+
+          stockfarmaCarrinhoStatus.ultimoItem = 'Garantindo carrinho limpo com 0 itens...';
+          await garantirCarrinhoVazioRobo(robot, 'stockfarma');
+
+          for (let i = 0; i < itensParaAdicionar.length; i++) {
+            const item = itensParaAdicionar[i];
+            stockfarmaCarrinhoStatus.atual = i + 1;
+            stockfarmaCarrinhoStatus.ultimoItem = `${item.descricao || item.ean} (Qtd: ${item.quantidade})`;
+
+            try {
+              const resAdd = await robot.adicionarAoCarrinho(item.ean, item.quantidade || 1, item.descricao);
+              if (resAdd && resAdd.sucesso) {
+                stockfarmaCarrinhoStatus.sucessos++;
+                stockfarmaCarrinhoStatus.itens.push({
+                  ean: item.ean,
+                  descricao: item.descricao,
+                  quantidade: item.quantidade,
+                  preco: resAdd.preco,
+                  status: 'ADICIONADO'
+                });
+              } else {
+                stockfarmaCarrinhoStatus.erros++;
+                stockfarmaCarrinhoStatus.itens.push({
+                  ean: item.ean,
+                  descricao: item.descricao,
+                  quantidade: item.quantidade,
+                  motivo: resAdd?.erro || 'Erro ao adicionar item na Stockfarma',
+                  status: 'ERRO'
+                });
+              }
+            } catch (itemErr) {
+              stockfarmaCarrinhoStatus.erros++;
+              stockfarmaCarrinhoStatus.itens.push({
+                ean: item.ean,
+                descricao: item.descricao,
+                quantidade: item.quantidade,
+                motivo: itemErr.message,
+                status: 'ERRO'
+              });
+            }
+          }
+
+          stockfarmaCarrinhoStatus.relatorio = {
+            distribuidora: 'STOCKFARMA',
+            totalSolicitado: itensParaAdicionar.length,
+            sucessos: stockfarmaCarrinhoStatus.sucessos,
+            erros: stockfarmaCarrinhoStatus.erros
+          };
+        } catch (botErr) {
+          console.error('[BelaPed] Erro durante a montagem na Stockfarma:', botErr.message);
+          stockfarmaCarrinhoStatus.erros++;
+        } finally {
+          stockfarmaCarrinhoStatus.emAndamento = false;
+          if (robot) await robot.fechar().catch(() => {});
+        }
+      })();
+    } catch (err) {
+      stockfarmaCarrinhoStatus.emAndamento = false;
+      console.error('[BelaPed] Erro em montar-carrinho-stockfarma:', err.message);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/status-carrinho-stockfarma', (req, res) => {
+    res.json({ success: true, status: stockfarmaCarrinhoStatus });
+  });
+
+  // ==========================================
+  // ESTADO E ENDPOINTS DO CARRINHO: ORGAFARMA
+  // ==========================================
+  const orgafarmaCarrinhoStatus = {
+    emAndamento: false,
+    total: 0,
+    atual: 0,
+    sucessos: 0,
+    erros: 0,
+    ultimoItem: '',
+    itens: [],
+    relatorio: null
+  };
+
+  router.post('/montar-carrinho-orgafarma', async (req, res) => {
+    try {
+      if (orgafarmaCarrinhoStatus.emAndamento) {
+        return res.status(400).json({ success: false, message: 'Uma montagem de carrinho na Orgafarma já está em andamento.' });
+      }
+
+      let itensParaAdicionar = req.body?.itens;
+      if (!Array.isArray(itensParaAdicionar) || itensParaAdicionar.length === 0) {
+        const itensDB = db.prepare(`
+          SELECT cr.ean, cr.descricao, 1 as quantidade, cr.preco
+          FROM belaped_cotacoes_reais cr
+          WHERE UPPER(cr.fornecedor) LIKE '%ORGAFARMA%' OR UPPER(cr.fornecedor) LIKE '%ORGA%'
+          ORDER BY cr.descricao ASC
+        `).all();
+        itensParaAdicionar = itensDB;
+      }
+
+      if (!itensParaAdicionar || itensParaAdicionar.length === 0) {
+        return res.status(400).json({ success: false, message: 'Nenhum produto da Orgafarma elegível para montagem do carrinho.' });
+      }
+
+      orgafarmaCarrinhoStatus.emAndamento = true;
+      orgafarmaCarrinhoStatus.total = itensParaAdicionar.length;
+      orgafarmaCarrinhoStatus.atual = 0;
+      orgafarmaCarrinhoStatus.sucessos = 0;
+      orgafarmaCarrinhoStatus.erros = 0;
+      orgafarmaCarrinhoStatus.ultimoItem = '';
+      orgafarmaCarrinhoStatus.itens = [];
+      orgafarmaCarrinhoStatus.relatorio = null;
+
+      res.json({
+        success: true,
+        message: `Montagem de carrinho iniciada na Orgafarma com ${itensParaAdicionar.length} produtos.`,
+        status: orgafarmaCarrinhoStatus
+      });
+
+      (async () => {
+        let robot = null;
+        try {
+          console.log('[BelaPed] Iniciando robô Orgafarma para montagem de carrinho...');
+          robot = new OrgafarmaRobot();
+          await robot.iniciar();
+
+          orgafarmaCarrinhoStatus.ultimoItem = 'Garantindo carrinho limpo com 0 itens...';
+          await garantirCarrinhoVazioRobo(robot, 'orgafarma');
+
+          for (let i = 0; i < itensParaAdicionar.length; i++) {
+            const item = itensParaAdicionar[i];
+            orgafarmaCarrinhoStatus.atual = i + 1;
+            orgafarmaCarrinhoStatus.ultimoItem = `${item.descricao || item.ean} (Qtd: ${item.quantidade})`;
+
+            try {
+              const resAdd = await robot.adicionarAoCarrinho(item.ean, item.quantidade || 1, item.descricao);
+              if (resAdd && resAdd.sucesso) {
+                orgafarmaCarrinhoStatus.sucessos++;
+                orgafarmaCarrinhoStatus.itens.push({
+                  ean: item.ean,
+                  descricao: item.descricao,
+                  quantidade: item.quantidade,
+                  preco: resAdd.preco,
+                  status: 'ADICIONADO'
+                });
+              } else {
+                orgafarmaCarrinhoStatus.erros++;
+                orgafarmaCarrinhoStatus.itens.push({
+                  ean: item.ean,
+                  descricao: item.descricao,
+                  quantidade: item.quantidade,
+                  motivo: resAdd?.erro || 'Erro ao adicionar item na Orgafarma',
+                  status: 'ERRO'
+                });
+              }
+            } catch (itemErr) {
+              orgafarmaCarrinhoStatus.erros++;
+              orgafarmaCarrinhoStatus.itens.push({
+                ean: item.ean,
+                descricao: item.descricao,
+                quantidade: item.quantidade,
+                motivo: itemErr.message,
+                status: 'ERRO'
+              });
+            }
+          }
+
+          orgafarmaCarrinhoStatus.relatorio = {
+            distribuidora: 'ORGAFARMA',
+            totalSolicitado: itensParaAdicionar.length,
+            sucessos: orgafarmaCarrinhoStatus.sucessos,
+            erros: orgafarmaCarrinhoStatus.erros
+          };
+        } catch (botErr) {
+          console.error('[BelaPed] Erro durante a montagem na Orgafarma:', botErr.message);
+          orgafarmaCarrinhoStatus.erros++;
+        } finally {
+          orgafarmaCarrinhoStatus.emAndamento = false;
+          if (robot) await robot.fechar().catch(() => {});
+        }
+      })();
+    } catch (err) {
+      orgafarmaCarrinhoStatus.emAndamento = false;
+      console.error('[BelaPed] Erro em montar-carrinho-orgafarma:', err.message);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/status-carrinho-orgafarma', (req, res) => {
+    res.json({ success: true, status: orgafarmaCarrinhoStatus });
+  });
+
+  // ==========================================
+  // ESTADO E ENDPOINTS DO CARRINHO: FARMIX
+  // ==========================================
+  const farmixCarrinhoStatus = {
+    emAndamento: false,
+    total: 0,
+    atual: 0,
+    sucessos: 0,
+    erros: 0,
+    ultimoItem: '',
+    itens: [],
+    relatorio: null
+  };
+
+  router.post('/montar-carrinho-farmix', async (req, res) => {
+    try {
+      if (farmixCarrinhoStatus.emAndamento) {
+        return res.status(400).json({ success: false, message: 'Uma montagem de carrinho na Farmix já está em andamento.' });
+      }
+
+      let itensParaAdicionar = req.body?.itens;
+      if (!Array.isArray(itensParaAdicionar) || itensParaAdicionar.length === 0) {
+        const itensDB = db.prepare(`
+          SELECT cr.ean, cr.descricao, 1 as quantidade, cr.preco
+          FROM belaped_cotacoes_reais cr
+          WHERE UPPER(cr.fornecedor) LIKE '%FARMIX%'
+          ORDER BY cr.descricao ASC
+        `).all();
+        itensParaAdicionar = itensDB;
+      }
+
+      if (!itensParaAdicionar || itensParaAdicionar.length === 0) {
+        return res.status(400).json({ success: false, message: 'Nenhum produto da Farmix elegível para montagem do carrinho.' });
+      }
+
+      farmixCarrinhoStatus.emAndamento = true;
+      farmixCarrinhoStatus.total = itensParaAdicionar.length;
+      farmixCarrinhoStatus.atual = 0;
+      farmixCarrinhoStatus.sucessos = 0;
+      farmixCarrinhoStatus.erros = 0;
+      farmixCarrinhoStatus.ultimoItem = '';
+      farmixCarrinhoStatus.itens = [];
+      farmixCarrinhoStatus.relatorio = null;
+
+      res.json({
+        success: true,
+        message: `Montagem de carrinho iniciada na Farmix com ${itensParaAdicionar.length} produtos.`,
+        status: farmixCarrinhoStatus
+      });
+
+      (async () => {
+        let robot = null;
+        try {
+          console.log('[BelaPed] Iniciando robô Farmix para montagem de carrinho...');
+          robot = new FarmixRobot();
+          const initRes = await robot.iniciar();
+          if (!initRes.sucesso) {
+            farmixCarrinhoStatus.erros = itensParaAdicionar.length;
+            farmixCarrinhoStatus.ultimoItem = initRes.erro || 'Falha de login no portal Farmix';
+            return;
+          }
+
+          farmixCarrinhoStatus.ultimoItem = 'Garantindo carrinho limpo com 0 itens...';
+          await garantirCarrinhoVazioRobo(robot, 'farmix');
+
+          for (let i = 0; i < itensParaAdicionar.length; i++) {
+            const item = itensParaAdicionar[i];
+            farmixCarrinhoStatus.atual = i + 1;
+            farmixCarrinhoStatus.ultimoItem = `${item.descricao || item.ean} (Qtd: ${item.quantidade})`;
+
+            try {
+              const resAdd = await robot.adicionarAoCarrinho(item.ean, item.quantidade || 1, item.descricao);
+              if (resAdd && resAdd.sucesso) {
+                farmixCarrinhoStatus.sucessos++;
+                farmixCarrinhoStatus.itens.push({
+                  ean: item.ean,
+                  descricao: item.descricao,
+                  quantidade: item.quantidade,
+                  preco: resAdd.preco,
+                  status: 'ADICIONADO'
+                });
+              } else {
+                farmixCarrinhoStatus.erros++;
+                farmixCarrinhoStatus.itens.push({
+                  ean: item.ean,
+                  descricao: item.descricao,
+                  quantidade: item.quantidade,
+                  motivo: resAdd?.erro || 'Erro ao adicionar item na Farmix',
+                  status: 'ERRO'
+                });
+              }
+            } catch (itemErr) {
+              farmixCarrinhoStatus.erros++;
+              farmixCarrinhoStatus.itens.push({
+                ean: item.ean,
+                descricao: item.descricao,
+                quantidade: item.quantidade,
+                motivo: itemErr.message,
+                status: 'ERRO'
+              });
+            }
+          }
+
+          farmixCarrinhoStatus.relatorio = {
+            distribuidora: 'FARMIX',
+            totalSolicitado: itensParaAdicionar.length,
+            sucessos: farmixCarrinhoStatus.sucessos,
+            erros: farmixCarrinhoStatus.erros
+          };
+        } catch (botErr) {
+          console.error('[BelaPed] Erro durante a montagem na Farmix:', botErr.message);
+          farmixCarrinhoStatus.erros++;
+        } finally {
+          farmixCarrinhoStatus.emAndamento = false;
+          if (robot) await robot.fechar().catch(() => {});
+        }
+      })();
+    } catch (err) {
+      farmixCarrinhoStatus.emAndamento = false;
+      console.error('[BelaPed] Erro em montar-carrinho-farmix:', err.message);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/status-carrinho-farmix', (req, res) => {
+    res.json({ success: true, status: farmixCarrinhoStatus });
+  });
+
+  // ==========================================
+  // ESTADO E ENDPOINTS DO CARRINHO: HYMPARHUB
+  // ==========================================
+  const hymparCarrinhoStatus = {
+    emAndamento: false,
+    total: 0,
+    atual: 0,
+    sucessos: 0,
+    erros: 0,
+    ultimoItem: '',
+    itens: [],
+    relatorio: null
+  };
+
+  router.post('/montar-carrinho-hympar', async (req, res) => {
+    try {
+      if (hymparCarrinhoStatus.emAndamento) {
+        return res.status(400).json({ success: false, message: 'Uma montagem de carrinho no Hympar Hub já está em andamento.' });
+      }
+
+      let itensParaAdicionar = req.body?.itens;
+      if (!Array.isArray(itensParaAdicionar) || itensParaAdicionar.length === 0) {
+        const itensDB = db.prepare(`
+          SELECT cr.ean, cr.descricao, 1 as quantidade, cr.preco
+          FROM belaped_cotacoes_reais cr
+          WHERE UPPER(cr.fornecedor) LIKE '%HYMPAR%'
+          ORDER BY cr.descricao ASC
+        `).all();
+        itensParaAdicionar = itensDB;
+      }
+
+      if (!itensParaAdicionar || itensParaAdicionar.length === 0) {
+        return res.status(400).json({ success: false, message: 'Nenhum produto do Hympar Hub elegível para montagem do carrinho.' });
+      }
+
+      hymparCarrinhoStatus.emAndamento = true;
+      hymparCarrinhoStatus.total = itensParaAdicionar.length;
+      hymparCarrinhoStatus.atual = 0;
+      hymparCarrinhoStatus.sucessos = 0;
+      hymparCarrinhoStatus.erros = 0;
+      hymparCarrinhoStatus.ultimoItem = '';
+      hymparCarrinhoStatus.itens = [];
+      hymparCarrinhoStatus.relatorio = null;
+
+      res.json({
+        success: true,
+        message: `Montagem de carrinho iniciada no Hympar Hub com ${itensParaAdicionar.length} produtos.`,
+        status: hymparCarrinhoStatus
+      });
+
+      (async () => {
+        let robot = null;
+        try {
+          console.log('[BelaPed] Iniciando robô Hympar Hub para montagem de carrinho...');
+          robot = new HymparRobot();
+          const initRes = await robot.iniciar();
+          if (!initRes.sucesso) {
+            hymparCarrinhoStatus.erros = itensParaAdicionar.length;
+            hymparCarrinhoStatus.ultimoItem = initRes.erro || 'Falha de login no Hympar Hub';
+            return;
+          }
+
+          hymparCarrinhoStatus.ultimoItem = 'Garantindo carrinho limpo com 0 itens...';
+          await garantirCarrinhoVazioRobo(robot, 'hympar');
+
+          for (let i = 0; i < itensParaAdicionar.length; i++) {
+            const item = itensParaAdicionar[i];
+            hymparCarrinhoStatus.atual = i + 1;
+            hymparCarrinhoStatus.ultimoItem = `${item.descricao || item.ean} (Qtd: ${item.quantidade})`;
+
+            try {
+              const resAdd = await robot.adicionarAoCarrinho(item.ean, item.quantidade || 1, item.descricao);
+              if (resAdd && resAdd.sucesso) {
+                hymparCarrinhoStatus.sucessos++;
+                hymparCarrinhoStatus.itens.push({
+                  ean: item.ean,
+                  descricao: item.descricao,
+                  quantidade: item.quantidade,
+                  preco: resAdd.preco,
+                  status: 'ADICIONADO'
+                });
+              } else {
+                hymparCarrinhoStatus.erros++;
+                hymparCarrinhoStatus.itens.push({
+                  ean: item.ean,
+                  descricao: item.descricao,
+                  quantidade: item.quantidade,
+                  motivo: resAdd?.erro || 'Erro ao adicionar item no Hympar Hub',
+                  status: 'ERRO'
+                });
+              }
+            } catch (itemErr) {
+              hymparCarrinhoStatus.erros++;
+              hymparCarrinhoStatus.itens.push({
+                ean: item.ean,
+                descricao: item.descricao,
+                quantidade: item.quantidade,
+                motivo: itemErr.message,
+                status: 'ERRO'
+              });
+            }
+          }
+
+          hymparCarrinhoStatus.relatorio = {
+            distribuidora: 'HYMPARHUB',
+            totalSolicitado: itensParaAdicionar.length,
+            sucessos: hymparCarrinhoStatus.sucessos,
+            erros: hymparCarrinhoStatus.erros
+          };
+        } catch (botErr) {
+          console.error('[BelaPed] Erro durante a montagem no Hympar Hub:', botErr.message);
+          hymparCarrinhoStatus.erros++;
+        } finally {
+          hymparCarrinhoStatus.emAndamento = false;
+          if (robot) await robot.fechar().catch(() => {});
+        }
+      })();
+    } catch (err) {
+      hymparCarrinhoStatus.emAndamento = false;
+      console.error('[BelaPed] Erro em montar-carrinho-hympar:', err.message);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/status-carrinho-hympar', (req, res) => {
+    res.json({ success: true, status: hymparCarrinhoStatus });
+  });
+
   /**
    * GET /api/belaped/oriente/pedidos-recentes
    * Consulta os pedidos gerados recentemente no portal da Oriente Farma (gerenciar-pedidos)
@@ -7063,6 +7619,10 @@ function belapedEndpoints(db) {
     if (p.includes('ORIENTE')) return new OrienteRobot(options);
     if (p.includes('PANPHARMA') || p.includes('PANFARMA')) return new PanpharmaRobot(options);
     if (p.includes('MG MEDICAMENTOS') || p.includes('MGMEDICAMENTOS') || p.startsWith('MG')) return new MgMedicamentosRobot(options);
+    if (p.includes('STOCKFARMA') || p.includes('STOCK')) return new StockfarmaRobot(options);
+    if (p.includes('ORGAFARMA') || p.includes('ORGA')) return new OrgafarmaRobot(options);
+    if (p.includes('FARMIX')) return new FarmixRobot(options);
+    if (p.includes('HYMPAR')) return new HymparRobot(options);
     return null;
   }
 

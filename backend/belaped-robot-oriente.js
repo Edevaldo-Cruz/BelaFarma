@@ -233,13 +233,19 @@ class OrienteRobot {
               continue;
             }
             const precoLiq = Number(p.precoFinal || p.valor || (p.melhorPreco && p.melhorPreco.precoFinal) || 0);
-            if (precoLiq > 0) {
+            const precoComSt = Number(p.precoComSt || 0);
+            const valorSt = Number(p.valorSt || 0);
+            const precoNF = precoComSt > 0 ? precoComSt : (precoLiq + valorSt > precoLiq ? Number((precoLiq + valorSt).toFixed(2)) : precoLiq);
+            if (precoNF > 0) {
               itens.push({
                 ean: p.codigoBarras ? String(p.codigoBarras).trim() : null,
                 codigo: p.codigoProduto ? String(p.codigoProduto) : null,
                 descricao: p.descricao || '',
                 laboratorio: p.nomeFantasiaFornecedor ? String(p.nomeFantasiaFornecedor).trim() : null,
-                preco: precoLiq,
+                preco: precoNF,
+                preco_nf: precoNF,
+                preco_liquido: precoLiq,
+                valor_st: valorSt,
                 pmc: p.pmc ? Number(p.pmc) : null,
                 desconto: p.desconto ? Number(p.desconto) : null,
                 estoque: p.nivelEstoque || 'Disponível',
@@ -324,14 +330,24 @@ class OrienteRobot {
 
             const matchPreco = cells[8].match(/R\$\s*([\d\.,]+)/);
             if (matchPreco) precoLiq = parseFloat(matchPreco[1].replace(/\./g, '').replace(',', '.'));
+
+            let valorSt = 0;
+            const matchSt = cells[8].match(/ST:\s*R\$\s*([\d\.,]+)/i);
+            if (matchSt) valorSt = parseFloat(matchSt[1].replace(/\./g, '').replace(',', '.'));
+
+            const precoNF = (precoLiq || 0) + (valorSt || 0);
           }
 
           if (precoLiq && precoLiq > 0) {
+            const precoFinalNF = precoNF > 0 ? Number(precoNF.toFixed(2)) : precoLiq;
             resultados.push({
               ean: eanItem,
               codigo: codOriente,
               descricao: descricaoItem || text.slice(0, 100),
-              preco: precoLiq,
+              preco: precoFinalNF,
+              preco_nf: precoFinalNF,
+              preco_liquido: precoLiq,
+              valor_st: valorSt,
               pmc,
               desconto: descontoPct,
               estoque: estoqueDesc,
@@ -404,7 +420,12 @@ class OrienteRobot {
       };
 
       const resultadoClassificacao = motorEssencia.filtrarEClassificarCandidatos(todosCandidatos, itemOrigConfig, opts.db || this.db);
-      const vencedor = resultadoClassificacao.vencedor || melhorEanOriginal;
+
+      // Validação Estrita de EAN: Se o produto original existir e não houver solicitação explícita de substituição,
+      // a cotação oficial SEMPRE preserva o produto e preço do EAN original pesquisado
+      const vencedor = (melhorEanOriginal && !opts.aceitarSubstituto)
+        ? melhorEanOriginal
+        : (resultadoClassificacao.vencedor || melhorEanOriginal);
 
       if (!vencedor) {
         return {

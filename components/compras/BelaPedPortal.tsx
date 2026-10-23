@@ -1411,7 +1411,12 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       'PANFARMA': 300,
       'MG MEDICAMENTOS': 300,
       'MGMEDICAMENTOS': 300,
-      'MG': 300
+      'MG': 300,
+      'STOCKFARMA': 300,
+      'ORGAFARMA': 300,
+      'FARMIX': 300,
+      'HYMPARHUB': 300,
+      'HYMPAR': 300
     };
     portais.forEach(p => {
       if (p.nome) minimosPadrao[p.nome.toUpperCase()] = Number(p.pedido_minimo) || 300;
@@ -2224,6 +2229,10 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     else if (dist.includes('ORIENTE')) endpoint = '/api/belaped/montar-carrinho-oriente';
     else if (dist.includes('PANPHARMA') || dist.includes('PANFARMA')) endpoint = '/api/belaped/montar-carrinho-panpharma';
     else if (dist.includes('MG MEDICAMENTOS') || dist.includes('MGMEDICAMENTOS') || dist.startsWith('MG')) endpoint = '/api/belaped/montar-carrinho-mgmedicamentos';
+    else if (dist.includes('STOCKFARMA') || dist.includes('STOCK')) endpoint = '/api/belaped/montar-carrinho-stockfarma';
+    else if (dist.includes('ORGAFARMA') || dist.includes('ORGA')) endpoint = '/api/belaped/montar-carrinho-orgafarma';
+    else if (dist.includes('FARMIX')) endpoint = '/api/belaped/montar-carrinho-farmix';
+    else if (dist.includes('HYMPAR')) endpoint = '/api/belaped/montar-carrinho-hympar';
 
     if (!endpoint) {
       addToast(`Portal ${dist} não possui robô de montagem individual mapeado.`, 'warning');
@@ -2453,9 +2462,9 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     setWizardComprarTodosAberto(true);
   };
 
-  // Iniciar Cotação ao Vivo com o Robô Puppeteer (8 Portais)
+  // Iniciar Cotação ao Vivo com o Robô Puppeteer (13 Portais)
   const handleIniciarCotacaoAoVivo = async (
-    fornecedor: 'PROFARMA' | 'DPC' | 'SOTON' | 'DISTRIMED' | 'DIVIMED' | 'MARTINS' | 'ORIENTE' | 'PANPHARMA' | 'TODOS' = 'TODOS',
+    fornecedor: 'PROFARMA' | 'DPC' | 'SOTON' | 'DISTRIMED' | 'DIVIMED' | 'MARTINS' | 'ORIENTE' | 'PANPHARMA' | 'MG MEDICAMENTOS' | 'STOCKFARMA' | 'ORGAFARMA' | 'FARMIX' | 'HYMPARHUB' | 'TODOS' = 'TODOS',
     tamanhoLote: number = 40,
     prioridadeFiltro?: 'P1' | 'P2' | 'P3' | 'P4' | 'TODAS_PRIORITARIAS' | 'TODOS',
     eansEspecificos?: string[]

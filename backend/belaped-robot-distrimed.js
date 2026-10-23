@@ -268,6 +268,38 @@ class DistrimedRobot {
           const data = await resp.json();
           if (!data || data.erro || !Array.isArray(data.dados)) return { ok: false };
 
+          function calcularPrecoNFDistrimed(item, qtd = 1) {
+            let precoBase = Number(item.preco || 0);
+            let desconto = Number(item.desconto || 0);
+            if (Array.isArray(item.precos) && item.precos.length > 0) {
+              const faixas = [...item.precos].sort((a, b) => Number(a.faixa || 0) - Number(b.faixa || 0));
+              const faixaAdequada = faixas.find(f => Number(f.faixa || 0) >= qtd) || faixas[0];
+              if (faixaAdequada && Number(faixaAdequada.preco) > 0) {
+                precoBase = Number(faixaAdequada.preco);
+                if (faixaAdequada.desconto) desconto = Number(faixaAdequada.desconto);
+              }
+            }
+
+            // Cálculo oficial de ST da Distrimed (fórmula nativa extraída do frontend da Distrimed)
+            const n = precoBase;
+            const r = Number(item.mcAliquotaIcms || 0);
+            const a = Number(item.mcAliquotaSt || 0);
+            const o = Number(item.mcFem || 0);
+            const i = Number(item.mcMva || 0);
+            const s = {
+              0: 0,
+              1: (n + n * i) * (a + o) - n * r,
+              2: Number(item.mcValorIcm || 0) * 1 * (a + o) - n * 1 * r,
+              3: 0,
+              4: Number(item.mcValorStTts || 0)
+            };
+            const modo = Number(item.mcCalculoVendaSt || 0);
+            const valorSt = Math.max(0, Number(s[modo] || 0));
+            const precoNF = Number((n + valorSt).toFixed(2));
+
+            return { precoNF, precoBase, valorSt, desconto };
+          }
+
           const encontrados = [];
           for (const item of data.dados) {
             const estUpper = String(item.estoque || '').toUpperCase();
@@ -279,15 +311,18 @@ class DistrimedRobot {
             ) {
               continue;
             }
-            const precoUnit = Number(item.preco || 0);
-            if (precoUnit > 0) {
+            const calc = calcularPrecoNFDistrimed(item, 1);
+            if (calc.precoNF > 0) {
               encontrados.push({
                 ean: item.ean ? String(item.ean).trim() : '',
                 descricao: item.descricao || '',
                 laboratorio: item.grupo ? String(item.grupo).replace(/\s*GEN\.?$/i, '').trim() : undefined,
-                preco: precoUnit,
+                preco: calc.precoNF,
+                preco_nf: calc.precoNF,
+                preco_liquido: calc.precoBase,
+                valor_st: calc.valorSt,
                 pmc: item.pmc ? Number(item.pmc) : null,
-                desconto: item.desconto ? Number(item.desconto) : null,
+                desconto: calc.desconto,
                 codigo: item.codProduto ? String(item.codProduto) : null
               });
             }
@@ -380,11 +415,15 @@ class DistrimedRobot {
         let eanCard = '';
         let descricaoCard = '';
         let precoUnit = null;
+        let precoComSt = null;
 
         for (let i = 0; i < linhas.length; i++) {
           const l = linhas[i];
           if (l.startsWith('EAN:')) {
             eanCard = l.replace('EAN:', '').split('/')[0].trim();
+          } else if (l.includes('Preço + ST:') || l.includes('Preco + ST:')) {
+            const mSt = l.match(/R\$\s*([\d\.,]+)/i);
+            if (mSt) precoComSt = parseFloat(mSt[1].replace(/\./g, '').replace(',', '.'));
           } else if (/^R\$\s*[\d.,]+$/.test(l)) {
             const num = parseFloat(l.replace('R$', '').trim().replace(/\./g, '').replace(',', '.'));
             if (!isNaN(num) && num > 0 && precoUnit === null) {
@@ -398,11 +437,16 @@ class DistrimedRobot {
           }
         }
 
-        if (precoUnit !== null && precoUnit > 0) {
+        const precoFinalNF = (precoComSt && precoComSt > 0) ? precoComSt : precoUnit;
+
+        if (precoFinalNF !== null && precoFinalNF > 0) {
           encontrados.push({
             ean: eanCard,
             descricao: descricaoCard,
-            preco: precoUnit
+            preco: precoFinalNF,
+            preco_nf: precoFinalNF,
+            preco_liquido: precoUnit,
+            valor_st: precoComSt && precoUnit ? Number((precoComSt - precoUnit).toFixed(2)) : 0
           });
         }
       }
@@ -468,7 +512,12 @@ class DistrimedRobot {
       };
 
       const resultadoClassificacao = motorEssencia.filtrarEClassificarCandidatos(todosCandidatos, itemOrigConfig, opts.db || this.db);
-      const vencedor = resultadoClassificacao.vencedor || melhorEanOriginal;
+
+      // Validação Estrita de EAN: Se o produto original existir e não houver solicitação explícita de substituição,
+      // a cotação oficial SEMPRE preserva o produto e preço do EAN original pesquisado
+      const vencedor = (melhorEanOriginal && !opts.aceitarSubstituto)
+        ? melhorEanOriginal
+        : (resultadoClassificacao.vencedor || melhorEanOriginal);
 
       if (!vencedor) {
         return {
