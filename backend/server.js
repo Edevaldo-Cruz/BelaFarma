@@ -5711,6 +5711,19 @@ app.get('/api/debug-shortages', async (req, res) => {
   }
 });
 
-// Nodemon trigger restart
+// Encerramento Gracioso para evitar travamento em StopPending no Windows Service
+const gracefulShutdown = (signal) => {
+  console.log(`[Server] Recebido sinal ${signal}. Encerrando processo graciosamente...`);
+  try {
+    if (db && typeof db.close === 'function') {
+      db.close();
+    }
+  } catch (_) {}
+  setTimeout(() => process.exit(0), 500);
+};
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
 
 

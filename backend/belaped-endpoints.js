@@ -707,7 +707,7 @@ function belapedEndpoints(db) {
       const cotacoesSemEstoqueComPrecoMap = {};
       const eansConsultadosSet = new Set();
       try {
-        const todasCotacoes = db.prepare(`SELECT * FROM belaped_cotacoes_reais ORDER BY preco ASC`).all();
+        const todasCotacoes = db.prepare(`SELECT * FROM belaped_cotacoes_reais WHERE COALESCE(is_substituto, 0) = 0 ORDER BY preco ASC`).all();
         for (const c of todasCotacoes) {
           if (c.ean) eansConsultadosSet.add(c.ean);
           if (c.disponivel === 1 && c.preco > 0) {
@@ -3431,20 +3431,31 @@ function belapedEndpoints(db) {
             const horaLog = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
             if (resultado && resultado.disponivel && resultado.preco > 0) {
-              cotacaoStatus.encontrados++;
-              cotacaoStatus.workers[nomeFornecedor].encontrados++;
-              cotacaoStatus.workers[nomeFornecedor].itemAtual = `✅ ${descAtual || eanAtual} -> R$ ${resultado.preco.toFixed(2)}`;
-              cotacaoStatus.ultimoItem = `✅ ${nomeFornecedor}: ${descAtual || eanAtual} -> R$ ${resultado.preco.toFixed(2)}`;
+              const precoOficialEan = resultado.isSubstituto 
+                ? (resultado.precoOriginalEan || null) 
+                : resultado.preco;
+              const disponivelOficial = (precoOficialEan && precoOficialEan > 0) ? 1 : 0;
+
+              if (disponivelOficial === 1) {
+                cotacaoStatus.encontrados++;
+                cotacaoStatus.workers[nomeFornecedor].encontrados++;
+                cotacaoStatus.workers[nomeFornecedor].itemAtual = `✅ ${descAtual || eanAtual} -> R$ ${precoOficialEan.toFixed(2)}`;
+                cotacaoStatus.ultimoItem = `✅ ${nomeFornecedor}: ${descAtual || eanAtual} -> R$ ${precoOficialEan.toFixed(2)}`;
+              } else {
+                cotacaoStatus.workers[nomeFornecedor].semEstoque++;
+                cotacaoStatus.workers[nomeFornecedor].itemAtual = `⚪ Sem estoque (EAN original): ${descAtual || eanAtual}`;
+              }
+
               stmtSalvar.run(
                 eanAtual,
                 nomeFornecedor,
-                resultado.preco,
-                1,
+                precoOficialEan,
+                disponivelOficial,
                 resultado.descricao || descAtual,
                 resultado.descPct || 0,
-                resultado.url || resultado.urlProduto || resultado.link || gerarUrlDistribuidoraProduto(nomeFornecedor, eanAtual, descAtual),
+                gerarUrlDistribuidoraProduto(nomeFornecedor, eanAtual, descAtual),
                 resultado.condicao_comercial || null,
-                resultado.preco_padrao || resultado.preco,
+                resultado.preco_padrao || precoOficialEan,
                 resultado.isGenericoEquivalente ? 1 : 0,
                 resultado.isSubstituto ? (resultado.eanSubstituto || resultado.ean || null) : null,
                 resultado.laboratorio || null,
@@ -3987,16 +3998,21 @@ function belapedEndpoints(db) {
           }
 
           if (resCot.disponivel && resCot.preco > 0) {
+            const precoOficialEan = resCot.isSubstituto 
+              ? (resCot.precoOriginalEan || null) 
+              : resCot.preco;
+            const disponivelOficial = (precoOficialEan && precoOficialEan > 0) ? 1 : 0;
+
             stmtSalvar.run(
               eanLimpo,
               nomePortal,
-              resCot.preco,
-              1,
+              precoOficialEan,
+              disponivelOficial,
               resCot.descricao || descFinal || '',
               resCot.descPct || 0,
-              resCot.url || resCot.urlProduto || resCot.link || gerarUrlDistribuidoraProduto(nomePortal, eanLimpo, descFinal),
+              gerarUrlDistribuidoraProduto(nomePortal, eanLimpo, descFinal),
               resCot.condicao_comercial || null,
-              resCot.preco_padrao || resCot.preco,
+              resCot.preco_padrao || precoOficialEan,
               resCot.isGenericoEquivalente ? 1 : 0,
               resCot.isSubstituto ? (resCot.eanSubstituto || resCot.ean || null) : null,
               resCot.laboratorio || null,
