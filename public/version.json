@@ -1,9 +1,14 @@
 {
   "version": "1.2.0",
-  "commitHash": "523b234",
-  "commitMessage": "refactor(belaped): remove completamente robo e endpoints da stockfarma unificando com oriente",
-  "buildTime": "24/10/2026, 15:23:18",
+  "commitHash": "44725db",
+  "commitMessage": "fix(belaped): recalcula produtos ao alternar janela orcamentaria e remove excecao de prazo da distrimed",
+  "buildTime": "24/10/2026, 15:45:55",
   "recentCommits": [
+    {
+      "hash": "44725db",
+      "date": "24/10/2026",
+      "message": "fix(belaped): recalcula produtos ao alternar janela orcamentaria e remove excecao de prazo da distrimed"
+    },
     {
       "hash": "523b234",
       "date": "24/10/2026",
@@ -58,11 +63,6 @@
       "hash": "6a37bd3",
       "date": "22/10/2026",
       "message": "build: atualizar bundle e version.json para forcar invalidacao de cache PWA"
-    },
-    {
-      "hash": "30417d3",
-      "date": "22/10/2026",
-      "message": "fix(belaped): corrigir travamento da fila de cotação e botão inacessível no monitor do robô"
     }
   ]
 }

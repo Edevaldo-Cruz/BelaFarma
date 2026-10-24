@@ -31,7 +31,8 @@ import {
   PackageCheck,
   Building2,
   Clock,
-  HelpCircle
+  HelpCircle,
+  Printer
 } from 'lucide-react';
 import { useToast } from '../ToastContext';
 
@@ -90,6 +91,9 @@ export interface FaltaItem7d {
   score_ranking?: number;
   falta_balcao_belinha?: any;
   melhor_fora_janela?: { distribuidora: string; preco: number; motivo: string } | null;
+  substituto_promovido?: string;
+  motivo_sem_estoque?: string;
+  prioridade_original?: number;
 }
 
 interface PortalInfo {
@@ -181,6 +185,9 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
   // Modais auxiliares
   const [modalExclusaoAberto, setModalExclusaoAberto] = useState<boolean>(false);
   const [modalBancoAberto, setModalBancoAberto] = useState<boolean>(false);
+  const [modalSemEstoqueAberto, setModalSemEstoqueAberto] = useState<boolean>(false);
+  const [modalImpressaoAberto, setModalImpressaoAberto] = useState<boolean>(false);
+  const [recotandoEan, setRecotandoEan] = useState<string | null>(null);
   const [copiadoId, setCopiadoId] = useState<string | null>(null);
 
   // Barra de Pesquisa Rápida Integrada (Topo)
@@ -325,33 +332,73 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
     });
   }, [faltas, itensAvulsosPesquisa, descartadosSessao, promovidosManualmente]);
 
-  // 3. DIVISÃO EM LISTA ATIVA DA SEMANA (LIMITADA AO ORÇAMENTO) E BANCO DE RESERVA
-  const { listaAtivaSemana, bancoReservaSemana, totalOrcadoSemana } = useMemo(() => {
+  // 3. DIVISÃO EM LISTA ATIVA DA SEMANA (LIMITADA AO ORÇAMENTO), BANCO DE RESERVA E ITENS SEM ESTOQUE
+  const { listaAtivaSemana, bancoReservaSemana, itensSemEstoquePortais, totalOrcadoSemana } = useMemo(() => {
     const ativa: FaltaItem7d[] = [];
     const reserva: FaltaItem7d[] = [];
+    const semEstoque: FaltaItem7d[] = [];
     let acumulado = 0;
 
+    let rankGlobal = 1;
     for (const item of itensCandidatos) {
+      const forn = String(item.fornecedor_1 || '').trim().toLowerCase();
+      // Tem estoque se tiver preço válido e fornecedor não for nulo/vazio/"sem estoque"/"sem cotação"
+      const temEstoque = Boolean(
+        item.preco_1 && 
+        item.preco_1 > 0 && 
+        forn && 
+        !forn.includes('sem estoque') && 
+        !forn.includes('sem cotação')
+      );
+
       const preco = item.preco_1 && item.preco_1 > 0
         ? item.preco_1
         : (item.preco_ult_compra || item.custo_unitario || 0);
       const qtd = Math.max(1, item.qtd_sugerida_7d || 1);
       const subtotal = Number((qtd * preco).toFixed(2));
 
-      // Se foi promovido manualmente pelo usuário, entra com prioridade
+      if (!temEstoque) {
+        // Produto sem estoque nos 12 portais: não consome orçamento e abre vaga imediata
+        semEstoque.push({
+          ...item,
+          subtotal_7d: subtotal,
+          prioridade_original: rankGlobal++,
+          motivo_sem_estoque: 'Esgotado em todos os 12 portais'
+        });
+        continue;
+      }
+
+      // Produto possui estoque e cotação em distribuidora
       const isPromovido = promovidosManualmente.has(item.produto_id);
 
       if (isPromovido || (acumulado + subtotal <= tetoSemanalAtivo || ativa.length === 0)) {
-        ativa.push({ ...item, subtotal_7d: subtotal });
+        ativa.push({
+          ...item,
+          subtotal_7d: subtotal,
+          prioridade_original: rankGlobal++
+        });
         acumulado += subtotal;
       } else {
-        reserva.push({ ...item, subtotal_7d: subtotal });
+        reserva.push({
+          ...item,
+          subtotal_7d: subtotal,
+          prioridade_original: rankGlobal++
+        });
       }
     }
+
+    // Associa aos itens sem estoque o produto com estoque que entrou na lista para preencher a cota
+    semEstoque.forEach((se, idx) => {
+      const promovido = ativa[ativa.length - 1 - idx] || ativa[0];
+      if (promovido) {
+        se.substituto_promovido = promovido.descricao;
+      }
+    });
 
     return {
       listaAtivaSemana: ativa,
       bancoReservaSemana: reserva,
+      itensSemEstoquePortais: semEstoque,
       totalOrcadoSemana: acumulado
     };
   }, [itensCandidatos, tetoSemanalAtivo, promovidosManualmente]);
@@ -413,6 +460,38 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
     setPromovidosManualmente(prev => new Set(prev).add(produtoId));
     setModalBancoAberto(false);
     addToast(`"${descricao.slice(0, 25)}" promovido com sucesso para a lista ativa!`, 'success');
+  };
+
+  // 6. Recotar item sem estoque nos portais
+  const handleRecotarItemSemEstoque = async (ean: string, descricao: string) => {
+    if (!ean) {
+      addToast('Produto sem EAN para cotação.', 'warning');
+      return;
+    }
+    setRecotandoEan(ean);
+    addToast(`Disparando recotação nos portais para "${descricao.slice(0, 25)}"...`, 'info');
+    try {
+      const res = await fetch('/api/belaped/recotar-produto', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ean,
+          fornecedor: 'TODOS',
+          descricao
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        addToast(`Cotação atualizada para "${descricao.slice(0, 25)}"!`, 'success');
+        if (onRecarregarDados) await onRecarregarDados();
+      } else {
+        addToast(data.error || 'Não foi possível recotar o item.', 'warning');
+      }
+    } catch (e) {
+      addToast('Erro ao disparar recotação.', 'error');
+    } finally {
+      setRecotandoEan(null);
+    }
   };
 
   // 6. Enviar item ao carrinho via robô
@@ -963,6 +1042,19 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
             <span>Banco de Reserva ({bancoReservaSemana.length})</span>
           </button>
 
+          {/* Botão para ver Sem Estoque nos Portais */}
+          {itensSemEstoquePortais.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setModalSemEstoqueAberto(true)}
+              className="px-2.5 py-1.5 rounded-xl bg-amber-950/40 border border-amber-800/80 hover:border-amber-500 text-amber-300 text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-sm"
+              title="Itens críticos esgotados em todos os 12 portais (abriram vaga na semana)"
+            >
+              <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+              <span>Sem Estoque ({itensSemEstoquePortais.length})</span>
+            </button>
+          )}
+
           {/* Botão para ver Lista de Exclusão */}
           {itensExcluidos.length > 0 && (
             <button
@@ -974,6 +1066,18 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
               <span>Excluídos ({itensExcluidos.length})</span>
             </button>
           )}
+
+          {/* Botão de Impressão da Lista (A4) */}
+          <button
+            type="button"
+            onClick={() => setModalImpressaoAberto(true)}
+            className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-cyan-900/60 to-blue-900/60 border border-cyan-700/80 hover:border-cyan-400 text-cyan-200 hover:text-white text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 shadow-sm active:scale-95"
+            title="Imprimir relatório da semana e faltas esgotadas nos portais"
+          >
+            <Printer className="w-3.5 h-3.5 text-cyan-400" />
+            <span className="hidden sm:inline">Imprimir Lista</span>
+            <span className="sm:hidden">Imprimir</span>
+          </button>
 
           {/* Alternador de Modo: Grade vs Carrossel */}
           <div className="flex items-center bg-[#060a12] border border-slate-800 rounded-xl p-0.5">
@@ -1243,6 +1347,412 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
             >
               Cancelar
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ─── MODAL DE PRODUTOS SEM ESTOQUE NOS PORTAIS (ABRIRAM VAGA) ───────── */}
+      {modalSemEstoqueAberto && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-[#0b1222] border-2 border-amber-800/80 rounded-2xl w-full max-w-3xl max-h-[85vh] flex flex-col shadow-2xl animate-in zoom-in-95">
+            <div className="p-4 border-b border-slate-800 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-amber-950/60 border border-amber-800 rounded-xl text-amber-400">
+                  <AlertTriangle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-black text-white text-base">Faltas Sem Estoque nos Portais ({itensSemEstoquePortais.length} itens)</h3>
+                  <span className="text-xs text-amber-300 font-bold">Abriram vaga no orçamento semanal</span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setModalSemEstoqueAberto(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-4 overflow-y-auto flex-1 flex flex-col gap-2.5">
+              <div className="bg-amber-950/30 border border-amber-800/60 rounded-xl p-3 text-xs text-amber-200">
+                <p className="font-bold mb-1">💡 Por que estes produtos não aparecem nos cards de compra?</p>
+                <p className="text-slate-300 text-[11px] leading-relaxed">
+                  Estes itens pertencem à Extrema Necessidade (Curva A/B ou Ruptura), porém nenhuma das 12 distribuidoras possui estoque disponível no momento. Eles <b>não consumiram o seu orçamento</b>, abrindo vaga automaticamente para que outros produtos com estoque pudessem ser aprovados.
+                </p>
+              </div>
+
+              {itensSemEstoquePortais.length === 0 ? (
+                <p className="text-xs text-slate-500 text-center py-8">Nenhum produto em falta está esgotado nos portais.</p>
+              ) : (
+                itensSemEstoquePortais.map((it) => (
+                  <div
+                    key={it.produto_id}
+                    className="p-3 rounded-xl bg-[#060a12] border border-amber-900/40 hover:border-amber-700/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 transition-colors"
+                  >
+                    <div className="truncate flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-amber-950 text-amber-300 border border-amber-800">
+                          #{it.prioridade_original || '—'}
+                        </span>
+                        <span className="font-black text-xs text-white truncate">{it.descricao}</span>
+                        <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-rose-950 text-rose-300 border border-rose-800">
+                          Esgotado nos 12 portais
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 text-[11px] text-slate-400 mt-1 flex-wrap">
+                        <span>EAN: {it.ean}</span>
+                        <span>•</span>
+                        <span>Curva {it.curva_abc}</span>
+                        <span>•</span>
+                        <span>Saldo: <b className="text-rose-400">{it.saldo} un</b></span>
+                        <span>•</span>
+                        <span>VMD: {it.vmd_ponderado}</span>
+                        <span>•</span>
+                        <span>Qtd Nec: {it.qtd_sugerida_7d} un</span>
+                        <span>•</span>
+                        <span>Ref: R$ {(it.preco_ult_compra || it.custo_unitario || 0).toFixed(2)}</span>
+                      </div>
+                      {it.substituto_promovido && (
+                        <div className="mt-1 text-[11px] text-emerald-400 font-medium">
+                          ↳ Vaga ocupada por: <span className="font-bold underline">{it.substituto_promovido}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={recotandoEan === it.ean}
+                      onClick={() => handleRecotarItemSemEstoque(it.ean, it.descricao)}
+                      className="px-3 py-1.5 rounded-xl bg-amber-950 hover:bg-amber-900 border border-amber-700/80 text-amber-200 text-xs font-black uppercase tracking-wider shrink-0 cursor-pointer shadow-sm active:scale-95 transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
+                      title="Disparar robôs para consultar novamente este EAN em todos os portais"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${recotandoEan === it.ean ? 'animate-spin' : ''}`} />
+                      <span>{recotandoEan === it.ean ? 'Cotando...' : 'Recotar Portais'}</span>
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── MODAL DE PRÉ-VISUALIZAÇÃO E IMPRESSÃO A4 (2 BLOCOS) ───────────────── */}
+      {modalImpressaoAberto && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
+          {/* Estilos específicos para impressão nativa A4 */}
+          <style>{`
+            @media print {
+              body * {
+                visibility: hidden !important;
+              }
+              #relatorio-decisao-print, #relatorio-decisao-print * {
+                visibility: visible !important;
+              }
+              #relatorio-decisao-print {
+                position: absolute !important;
+                left: 0 !important;
+                top: 0 !important;
+                width: 100% !important;
+                margin: 0 !important;
+                padding: 10mm !important;
+                background: #ffffff !important;
+                color: #000000 !important;
+                box-shadow: none !important;
+              }
+              .no-print {
+                display: none !important;
+              }
+              table {
+                width: 100% !important;
+                border-collapse: collapse !important;
+                font-size: 10px !important;
+                page-break-inside: auto !important;
+              }
+              tr {
+                page-break-inside: avoid !important;
+                page-break-after: auto !important;
+              }
+              thead {
+                display: table-header-group !important;
+              }
+              tfoot {
+                display: table-footer-group !important;
+              }
+              th, td {
+                border: 1px solid #cbd5e1 !important;
+                padding: 4px 6px !important;
+                color: #0f172a !important;
+              }
+              th {
+                background-color: #f1f5f9 !important;
+                font-weight: 800 !important;
+              }
+            }
+          `}</style>
+
+          <div className="bg-[#0b1222] border border-cyan-800 rounded-2xl w-full max-w-5xl max-h-[92vh] flex flex-col shadow-2xl animate-in zoom-in-95">
+            {/* Barra superior de ações (oculta na impressão) */}
+            <div className="no-print p-3.5 border-b border-slate-800 flex items-center justify-between bg-[#060a12] rounded-t-2xl shrink-0">
+              <div className="flex items-center gap-2">
+                <Printer className="w-5 h-5 text-cyan-400" />
+                <h3 className="font-black text-white text-sm sm:text-base">Pré-visualização do Relatório Semanal de Compras</h3>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-black uppercase tracking-wider shadow-lg flex items-center gap-2 cursor-pointer transition-all active:scale-95"
+                >
+                  <Printer className="w-4 h-4" />
+                  <span>Imprimir / Salvar PDF</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setModalImpressaoAberto(false)}
+                  className="text-slate-400 hover:text-white p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Conteúdo Imprimível (A4 Clean) */}
+            <div className="p-4 sm:p-6 overflow-y-auto flex-1 bg-slate-900/60 flex justify-center">
+              <div 
+                id="relatorio-decisao-print" 
+                className="bg-white text-slate-900 p-6 sm:p-8 rounded-xl shadow-xl w-full max-w-4xl min-h-[1050px] font-sans flex flex-col gap-5"
+              >
+                {/* Cabeçalho Institucional do Relatório */}
+                <div className="border-b-2 border-slate-900 pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
+                      BelaFarma • Decisão Semanal de Compras
+                    </h1>
+                    <p className="text-xs text-slate-600 font-semibold mt-0.5">
+                      Enquadramento Orçamentário com Reserva de Segurança & Auditoria de Faltas
+                    </p>
+                  </div>
+                  <div className="text-left sm:text-right text-[11px] text-slate-600 leading-snug">
+                    <p><b>Emissão:</b> {new Date().toLocaleDateString('pt-BR')} às {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
+                    <p><b>Janela de Vencimento:</b> {janelaAlvoSelecionada || 'Padrão'}</p>
+                    <p><b>Reserva de Caixa:</b> {reservaSegurancaPct}%</p>
+                  </div>
+                </div>
+
+                {/* Resumo Financeiro da Semana */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs">
+                  <div>
+                    <span className="text-[10px] text-slate-500 uppercase font-bold block">Teto Semanal:</span>
+                    <span className="font-bold text-slate-800">
+                      R$ {tetoSemanalAtivo.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-500 uppercase font-bold block">Cota Comprometida:</span>
+                    <span className="font-black text-blue-700">
+                      R$ {totalOrcadoSemana.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-500 uppercase font-bold block">Reserva Poupada ({reservaSegurancaPct}%):</span>
+                    <span className="font-bold text-emerald-700">
+                      R$ {valorReservaPoupada.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-500 uppercase font-bold block">Itens Aprovados:</span>
+                    <span className="font-bold text-slate-800">
+                      {listaAtivaSemana.length} produtos ({itensSemEstoquePortais.length} sem estoque)
+                    </span>
+                  </div>
+                </div>
+
+                {/* ─── BLOCO 1: PEDIDO DA SEMANA DENTRO DA COTA ORÇAMENTÁRIA ────────── */}
+                <div className="flex flex-col gap-2">
+                  <div className="bg-slate-800 text-white px-3 py-1.5 rounded flex items-center justify-between">
+                    <span className="font-black text-xs tracking-wider uppercase">
+                      📦 Bloco 1: Pedido da Semana dentro da Cota Orçamentária
+                    </span>
+                    <span className="text-xs font-mono font-bold text-cyan-300">
+                      Total: R$ {totalOrcadoSemana.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse border border-slate-300 text-[10px]">
+                      <thead>
+                        <tr className="bg-slate-100 text-slate-700">
+                          <th className="border border-slate-300 px-1.5 py-1 text-center w-8">#</th>
+                          <th className="border border-slate-300 px-2 py-1 text-left">Produto / Descrição</th>
+                          <th className="border border-slate-300 px-1.5 py-1 text-center">EAN</th>
+                          <th className="border border-slate-300 px-1.5 py-1 text-center w-8">Curva</th>
+                          <th className="border border-slate-300 px-1.5 py-1 text-right">Saldo</th>
+                          <th className="border border-slate-300 px-1.5 py-1 text-right">VMD</th>
+                          <th className="border border-slate-300 px-1.5 py-1 text-center font-bold">Qtd</th>
+                          <th className="border border-slate-300 px-2 py-1 text-left">Distribuidora</th>
+                          <th className="border border-slate-300 px-2 py-1 text-right">Preço Un.</th>
+                          <th className="border border-slate-300 px-2 py-1 text-right font-bold">Subtotal</th>
+                          <th className="border border-slate-300 px-1.5 py-1 text-center">Janela</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {listaAtivaSemana.map((it, idx) => (
+                          <tr key={it.produto_id} className={idx % 2 === 1 ? 'bg-slate-50' : 'bg-white'}>
+                            <td className="border border-slate-300 px-1.5 py-1 text-center font-bold text-slate-600">
+                              {idx + 1}
+                            </td>
+                            <td className="border border-slate-300 px-2 py-1 font-bold text-slate-900">
+                              {it.descricao}
+                            </td>
+                            <td className="border border-slate-300 px-1.5 py-1 text-center font-mono text-slate-600">
+                              {it.ean || '—'}
+                            </td>
+                            <td className="border border-slate-300 px-1.5 py-1 text-center font-bold text-slate-700">
+                              {it.curva_abc}
+                            </td>
+                            <td className={`border border-slate-300 px-1.5 py-1 text-right ${it.saldo <= 0 ? 'text-rose-600 font-bold' : 'text-slate-700'}`}>
+                              {it.saldo}
+                            </td>
+                            <td className="border border-slate-300 px-1.5 py-1 text-right text-slate-600">
+                              {Number(it.vmd_ponderado).toFixed(1)}
+                            </td>
+                            <td className="border border-slate-300 px-1.5 py-1 text-center font-bold text-blue-800">
+                              {it.qtd_sugerida_7d}
+                            </td>
+                            <td className="border border-slate-300 px-2 py-1 font-bold text-slate-800">
+                              {it.fornecedor_1 || '—'}
+                            </td>
+                            <td className="border border-slate-300 px-2 py-1 text-right font-mono text-slate-700">
+                              R$ {(it.preco_1 || 0).toFixed(2)}
+                            </td>
+                            <td className="border border-slate-300 px-2 py-1 text-right font-mono font-bold text-slate-900">
+                              R$ {it.subtotal_7d.toFixed(2)}
+                            </td>
+                            <td className="border border-slate-300 px-1.5 py-1 text-center text-[9px] font-bold">
+                              {it.melhor_fora_janela && it.melhor_fora_janela.distribuidora === it.fornecedor_1 ? (
+                                <span className="text-amber-700">Fora Janela</span>
+                              ) : (
+                                <span className="text-emerald-700">Janela OK</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr className="bg-slate-200 font-bold text-slate-900">
+                          <td colSpan={6} className="border border-slate-300 px-2 py-1.5 text-right uppercase">
+                            Totais do Pedido da Semana:
+                          </td>
+                          <td className="border border-slate-300 px-1.5 py-1.5 text-center font-bold text-blue-900">
+                            {listaAtivaSemana.reduce((acc, it) => acc + (it.qtd_sugerida_7d || 1), 0)} un
+                          </td>
+                          <td colSpan={2} className="border border-slate-300 px-2 py-1.5 text-right uppercase">
+                            Valor Total Comprometido:
+                          </td>
+                          <td className="border border-slate-300 px-2 py-1.5 text-right font-mono font-black text-blue-900 text-[11px]">
+                            R$ {totalOrcadoSemana.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </td>
+                          <td className="border border-slate-300 px-1.5 py-1.5 text-center text-[9px] text-slate-600">
+                            {((totalOrcadoSemana / (tetoSemanalAtivo || 1)) * 100).toFixed(0)}% cota
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </div>
+
+                {/* ─── BLOCO 2: FALTAS CRÍTICAS SEM ESTOQUE NOS PORTAIS ───────────── */}
+                <div className="flex flex-col gap-2 pt-2">
+                  <div className="bg-amber-900 text-white px-3 py-1.5 rounded flex items-center justify-between">
+                    <span className="font-black text-xs tracking-wider uppercase">
+                      ⚠️ Bloco 2: Faltas Críticas Sem Estoque nos Portais (Cobrança de Fornecedores)
+                    </span>
+                    <span className="text-xs font-bold text-amber-200">
+                      {itensSemEstoquePortais.length} itens esgotados (vagas abertas no orçamento)
+                    </span>
+                  </div>
+
+                  <p className="text-[10px] text-slate-600 italic">
+                    Itens prioritários com estoque zerado ou ruptura iminente que não puderam ser cotados por falta de disponibilidade em nenhum dos 12 portais. Entregue esta lista ao televendas/representantes para cobrança direta.
+                  </p>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse border border-slate-300 text-[10px]">
+                      <thead>
+                        <tr className="bg-amber-50 text-amber-950 font-bold">
+                          <th className="border border-slate-300 px-1.5 py-1 text-center w-8"># Orig.</th>
+                          <th className="border border-slate-300 px-2 py-1 text-left">Produto em Falta</th>
+                          <th className="border border-slate-300 px-1.5 py-1 text-center">EAN</th>
+                          <th className="border border-slate-300 px-1.5 py-1 text-center w-8">Curva</th>
+                          <th className="border border-slate-300 px-1.5 py-1 text-right">Saldo</th>
+                          <th className="border border-slate-300 px-1.5 py-1 text-right">VMD</th>
+                          <th className="border border-slate-300 px-1.5 py-1 text-center font-bold">Qtd Nec.</th>
+                          <th className="border border-slate-300 px-2 py-1 text-right">Preço Ref.</th>
+                          <th className="border border-slate-300 px-2 py-1 text-center text-rose-700">Situação Portais</th>
+                          <th className="border border-slate-300 px-2 py-1 text-left font-bold text-slate-800">Vaga Ocupada Por (Substituto)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {itensSemEstoquePortais.length === 0 ? (
+                          <tr>
+                            <td colSpan={10} className="border border-slate-300 p-3 text-center text-slate-500 italic">
+                              Nenhum produto crítico esgotado nos portais nesta semana.
+                            </td>
+                          </tr>
+                        ) : (
+                          itensSemEstoquePortais.map((it) => (
+                            <tr key={it.produto_id} className="bg-white hover:bg-amber-50/50">
+                              <td className="border border-slate-300 px-1.5 py-1 text-center font-bold text-amber-800">
+                                #{it.prioridade_original || '—'}
+                              </td>
+                              <td className="border border-slate-300 px-2 py-1 font-bold text-slate-900">
+                                {it.descricao}
+                              </td>
+                              <td className="border border-slate-300 px-1.5 py-1 text-center font-mono text-slate-600">
+                                {it.ean || '—'}
+                              </td>
+                              <td className="border border-slate-300 px-1.5 py-1 text-center font-bold text-slate-700">
+                                {it.curva_abc}
+                              </td>
+                              <td className="border border-slate-300 px-1.5 py-1 text-right text-rose-600 font-bold">
+                                {it.saldo}
+                              </td>
+                              <td className="border border-slate-300 px-1.5 py-1 text-right text-slate-600">
+                                {Number(it.vmd_ponderado).toFixed(1)}
+                              </td>
+                              <td className="border border-slate-300 px-1.5 py-1 text-center font-bold text-slate-800">
+                                {it.qtd_sugerida_7d}
+                              </td>
+                              <td className="border border-slate-300 px-2 py-1 text-right font-mono text-slate-700">
+                                R$ {(it.preco_ult_compra || it.custo_unitario || 0).toFixed(2)}
+                              </td>
+                              <td className="border border-slate-300 px-2 py-1 text-center font-bold text-rose-600 text-[9px]">
+                                Esgotado nos 12 portais
+                              </td>
+                              <td className="border border-slate-300 px-2 py-1 text-slate-800 text-[10px]">
+                                {it.substituto_promovido ? (
+                                  <span className="font-bold text-emerald-800">{it.substituto_promovido}</span>
+                                ) : (
+                                  <span className="text-slate-400 italic">Vaga liberada no orçamento</span>
+                                )}
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Rodapé Institucional */}
+                <div className="border-t border-slate-300 pt-3 text-[10px] text-slate-500 flex items-center justify-between mt-auto">
+                  <span>BelaFarma Gestão Farmacêutica Inteligente • Módulo BelaPed Decisão</span>
+                  <span>Documento gerado automaticamente pelo sistema</span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}
