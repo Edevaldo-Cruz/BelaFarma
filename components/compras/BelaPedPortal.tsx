@@ -75,6 +75,7 @@ import { BelaPedConcorrentesModal } from './BelaPedConcorrentesModal';
 import BelaPedDecisaoTab from './BelaPedDecisaoTab';
 import BelaPedCotacoesMatrizTab from './BelaPedCotacoesMatrizTab';
 import { BelaPedPesquisaPrecosTab } from './BelaPedPesquisaPrecosTab';
+import { VersionModal } from '../VersionModal';
 
 interface BelaPedPortalProps {
   user: User;
@@ -214,6 +215,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
   // Abas de Navegação do BelaPed (Decisão de Compras como aba inicial prioritária)
   const [activeTab, setActiveTab] = useState<'pesquisa_precos' | 'decisao' | 'cotacoes_matriz' | 'faltas' | 'cotacao' | 'orcamento' | 'relatorios' | 'pedidos' | 'simulador'>('decisao');
   const [produtoSimuladorId, setProdutoSimuladorId] = useState<number | null>(null);
+  const [versionModalOpen, setVersionModalOpen] = useState(false);
 
   // Estados de Dados
   const [loading, setLoading] = useState(true);
@@ -4013,6 +4015,18 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
             <span>Auto-Sync: 15 min</span>
             {ultimaAtualizacao && <span className="text-slate-400">• Últ: {ultimaAtualizacao}</span>}
           </div>
+
+          {/* Badge de Versão do Sistema & Auditoria de Builds */}
+          <button
+            type="button"
+            onClick={() => setVersionModalOpen(true)}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-900/80 hover:bg-slate-800 border border-slate-700/80 text-[11px] font-mono font-bold text-slate-300 hover:text-white transition-all cursor-pointer shadow-sm group"
+            title="Ver detalhes da versão, descrição das mudanças e checar atualizações"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-cyan-400 group-hover:scale-110 transition-transform" />
+            <span>v{typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.2.0'}</span>
+            <span className="text-slate-500">#{typeof __COMMIT_HASH__ !== 'undefined' ? __COMMIT_HASH__ : 'dev'}</span>
+          </button>
 
           {/* Botão de Exibir Apenas a Tabela no Header */}
           <button
@@ -9919,6 +9933,12 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
           <span>{toastCopiado}</span>
         </div>
       )}
+
+      {/* ─── MODAL DE VERSÕES & CHANGELOG ─── */}
+      <VersionModal
+        isOpen={versionModalOpen}
+        onClose={() => setVersionModalOpen(false)}
+      />
 
     </div>
   );
