@@ -425,6 +425,34 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
   const totalPoupadoSemana = valorReservaPoupada + sobraSemana;
   const pctConsumoOrcamento = tetoSemanalAtivo > 0 ? (totalOrcadoSemana / tetoSemanalAtivo) * 100 : 0;
 
+  // 4. BALANÇO DE ECONOMIA OU GASTO A MAIS NA COTAÇÃO (VS ÚLTIMA COMPRA / REFERÊNCIA)
+  const { totalReferenciaUltCompra, diferencaEconomiaReais, diferencaEconomiaPct, isEconomia } = useMemo(() => {
+    let somaRef = 0;
+    let somaCotado = 0;
+
+    for (const item of listaAtivaSemana) {
+      const precoCotado = Number(item.preco_1) || 0;
+      const precoRef = Number(item.preco_ult_compra) || Number(item.custo_unitario) || 0;
+      const qtd = Math.max(1, item.qtd_sugerida_7d || 1);
+
+      if (precoCotado > 0 && precoRef > 0) {
+        somaCotado += precoCotado * qtd;
+        somaRef += precoRef * qtd;
+      }
+    }
+
+    const diff = somaRef - somaCotado;
+    const pct = somaRef > 0 ? (Math.abs(diff) / somaRef) * 100 : 0;
+    const isEcon = diff >= 0;
+
+    return {
+      totalReferenciaUltCompra: somaRef,
+      diferencaEconomiaReais: Math.abs(diff),
+      diferencaEconomiaPct: Number(pct.toFixed(1)),
+      isEconomia: isEcon
+    };
+  }, [listaAtivaSemana]);
+
   // Ajusta índice ativo no carrossel para não sair do limite
   useEffect(() => {
     if (indiceCarrossel >= listaAtivaSemana.length) {
@@ -637,7 +665,7 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
     }
     .kpi-grid {
       display: grid;
-      grid-template-columns: repeat(4, 1fr);
+      grid-template-columns: repeat(5, 1fr);
       gap: 6px;
       background: #f8fafc;
       border: 1px solid #e2e8f0;
@@ -796,6 +824,12 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
         <span class="kpi-val" style="color: #059669;">R$ ${valorReservaPoupada.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
       </div>
       <div class="kpi-item">
+        <span class="kpi-label">${isEconomia ? 'Economia na Cotação' : 'Acréscimo na Cotação'}</span>
+        <span class="kpi-val" style="color: ${isEconomia ? '#059669' : '#dc2626'};">
+          ${isEconomia ? '-' : '+'}R$ ${diferencaEconomiaReais.toFixed(2)} (${isEconomia ? '-' : '+'}${diferencaEconomiaPct}%)
+        </span>
+      </div>
+      <div class="kpi-item">
         <span class="kpi-label">Itens Aprovados</span>
         <span class="kpi-val">${listaAtivaSemana.length} produtos (${totalUnidades} un)</span>
       </div>
@@ -810,50 +844,76 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
     <table>
       <thead>
         <tr>
-          <th class="text-center" style="width: 22px;">#</th>
+          <th class="text-center" style="width: 20px;">#</th>
           <th>Produto / Descrição</th>
-          <th class="text-center" style="width: 80px;">EAN</th>
-          <th class="text-center" style="width: 28px;">Curva</th>
-          <th class="text-right" style="width: 32px;">Saldo</th>
-          <th class="text-right" style="width: 32px;">VMD</th>
-          <th class="text-center" style="width: 35px;">Qtd</th>
-          <th>Distribuidora Vencedora</th>
-          <th class="text-right" style="width: 58px;">Preço Un.</th>
-          <th class="text-right" style="width: 62px;">Subtotal</th>
-          <th class="text-center" style="width: 60px;">Janela</th>
+          <th class="text-center" style="width: 75px;">EAN</th>
+          <th class="text-center" style="width: 25px;">Curva</th>
+          <th class="text-right" style="width: 28px;">Saldo</th>
+          <th class="text-right" style="width: 28px;">VMD</th>
+          <th class="text-center" style="width: 30px;">Qtd</th>
+          <th>Distribuidora</th>
+          <th class="text-right" style="width: 52px;">Preço Cot.</th>
+          <th class="text-right" style="width: 52px;">Últ. Compra</th>
+          <th class="text-right" style="width: 65px;">Variação</th>
+          <th class="text-right" style="width: 58px;">Subtotal</th>
+          <th class="text-center" style="width: 52px;">Janela</th>
         </tr>
       </thead>
       <tbody>
-        ${listaAtivaSemana.map((it, idx) => `
-          <tr>
-            <td class="text-center font-bold" style="color: #64748b;">${idx + 1}</td>
-            <td class="font-bold">${escapeHtml(it.descricao)}</td>
-            <td class="text-center font-mono" style="color: #475569;">${escapeHtml(it.ean || '—')}</td>
-            <td class="text-center font-bold">${escapeHtml(it.curva_abc)}</td>
-            <td class="text-right ${it.saldo <= 0 ? 'font-bold' : ''}" style="color: ${it.saldo <= 0 ? '#dc2626' : '#334155'};">${it.saldo}</td>
-            <td class="text-right" style="color: #475569;">${Number(it.vmd_ponderado).toFixed(1)}</td>
-            <td class="text-center font-bold" style="color: #0369a1;">${it.qtd_sugerida_7d}</td>
-            <td class="font-bold">${escapeHtml(it.fornecedor_1 || '—')}</td>
-            <td class="text-right font-mono">R$ ${(it.preco_1 || 0).toFixed(2)}</td>
-            <td class="text-right font-mono font-bold">R$ ${it.subtotal_7d.toFixed(2)}</td>
-            <td class="text-center">
-              ${it.melhor_fora_janela && it.melhor_fora_janela.distribuidora === it.fornecedor_1 
-                ? '<span class="badge-warn">Fora Janela</span>' 
-                : '<span class="badge-ok">Janela OK</span>'}
-            </td>
-          </tr>
-        `).join('')}
+        ${listaAtivaSemana.map((it, idx) => {
+          const precoUlt = Number(it.preco_ult_compra) || Number(it.custo_unitario) || 0;
+          const precoCot = Number(it.preco_1) || 0;
+          const diffUnit = precoUlt > 0 && precoCot > 0 ? (precoCot - precoUlt) : 0;
+          const diffPct = precoUlt > 0 ? (diffUnit / precoUlt) * 100 : 0;
+          return `
+            <tr>
+              <td class="text-center font-bold" style="color: #64748b;">${idx + 1}</td>
+              <td class="font-bold">${escapeHtml(it.descricao)}</td>
+              <td class="text-center font-mono" style="color: #475569;">${escapeHtml(it.ean || '—')}</td>
+              <td class="text-center font-bold">${escapeHtml(it.curva_abc)}</td>
+              <td class="text-right ${it.saldo <= 0 ? 'font-bold' : ''}" style="color: ${it.saldo <= 0 ? '#dc2626' : '#334155'};">${it.saldo}</td>
+              <td class="text-right" style="color: #475569;">${Number(it.vmd_ponderado).toFixed(1)}</td>
+              <td class="text-center font-bold" style="color: #0369a1;">${it.qtd_sugerida_7d}</td>
+              <td class="font-bold">${escapeHtml(it.fornecedor_1 || '—')}</td>
+              <td class="text-right font-mono">R$ ${precoCot.toFixed(2)}</td>
+              <td class="text-right font-mono" style="color: #64748b;">${precoUlt > 0 ? `R$ ${precoUlt.toFixed(2)}` : '—'}</td>
+              <td class="text-right font-mono font-bold" style="font-size: 8px;">
+                ${diffUnit < 0 
+                  ? `<span class="badge-ok">-R$ ${Math.abs(diffUnit).toFixed(2)} (${diffPct.toFixed(1)}%)</span>` 
+                  : diffUnit > 0 
+                  ? `<span class="badge-warn">+R$ ${diffUnit.toFixed(2)} (+${diffPct.toFixed(1)}%)</span>` 
+                  : '<span style="color: #94a3b8;">=</span>'}
+              </td>
+              <td class="text-right font-mono font-bold">R$ ${it.subtotal_7d.toFixed(2)}</td>
+              <td class="text-center">
+                ${it.melhor_fora_janela && it.melhor_fora_janela.distribuidora === it.fornecedor_1 
+                  ? '<span class="badge-warn">Fora Janela</span>' 
+                  : '<span class="badge-ok">Janela OK</span>'}
+              </td>
+            </tr>
+          `;
+        }).join('')}
       </tbody>
       <tfoot>
         <tr style="background: #e2e8f0; font-weight: 800;">
-          <td colspan="6" class="text-right font-bold" style="text-transform: uppercase;">Totais do Pedido da Semana:</td>
+          <td colspan="6" class="text-right font-bold" style="text-transform: uppercase;">Totais do Pedido:</td>
           <td class="text-center font-bold" style="color: #0369a1;">${totalUnidades} un</td>
-          <td colspan="2" class="text-right font-bold" style="text-transform: uppercase;">Valor Total Comprometido:</td>
-          <td class="text-right font-mono font-black" style="color: #0f172a; font-size: 10.5px;">
+          <td colspan="4" class="text-right font-bold" style="text-transform: uppercase;">Valor Total Comprometido:</td>
+          <td class="text-right font-mono font-black" style="color: #0f172a; font-size: 10px;">
             R$ ${totalOrcadoSemana.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </td>
-          <td class="text-center" style="font-size: 8.5px; color: #475569;">
+          <td class="text-center" style="font-size: 8px; color: #475569;">
             ${((totalOrcadoSemana / (tetoSemanalAtivo || 1)) * 100).toFixed(0)}% cota
+          </td>
+        </tr>
+        <tr style="background: #f8fafc; font-weight: 700;">
+          <td colspan="6" class="text-right" style="text-transform: uppercase; font-size: 8px; color: #64748b;">
+            Balanço vs Última Compra:
+          </td>
+          <td colspan="7" class="text-left font-mono font-bold" style="color: ${isEconomia ? '#059669' : '#dc2626'}; font-size: 9px;">
+            ${isEconomia ? '🟢 ECONOMIA TOTAL GERADA:' : '🟠 ACRÉSCIMO TOTAL:'} 
+            <b>${isEconomia ? '-' : '+'}R$ ${diferencaEconomiaReais.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b> 
+            (${isEconomia ? '-' : '+'}${diferencaEconomiaPct}% vs total histórico de R$ ${totalReferenciaUltCompra.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
           </td>
         </tr>
       </tfoot>
@@ -1154,7 +1214,7 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
           </div>
 
           {/* Cards de Métricas Financeiras e Progresso Orçamentário */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 pt-1">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2 pt-1">
             {/* Teto do Mês */}
             <div className="bg-[#070d18] border border-slate-800/80 rounded-xl p-2.5 flex flex-col justify-between">
               <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Limite do Mês</span>
@@ -1240,6 +1300,30 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
               <span className="text-sm font-black text-emerald-300 font-mono">
                 R$ {totalPoupadoSemana.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </span>
+            </div>
+
+            {/* Balanço de Economia ou Gasto a Mais na Cotação vs Última Compra */}
+            <div className={`border rounded-xl p-2.5 flex flex-col justify-between ${
+              isEconomia 
+                ? 'bg-gradient-to-br from-emerald-950/40 to-teal-950/30 border-emerald-700/60' 
+                : 'bg-gradient-to-br from-rose-950/40 to-amber-950/30 border-rose-700/60'
+            }`}>
+              <div className="flex items-center justify-between">
+                <span className={`text-[10px] uppercase font-black tracking-wider flex items-center gap-1 ${
+                  isEconomia ? 'text-emerald-300' : 'text-rose-300'
+                }`}>
+                  {isEconomia ? 'Economia Cotação' : 'Acréscimo Cotação'}
+                </span>
+                {isEconomia ? <TrendingDown className="w-3.5 h-3.5 text-emerald-400" /> : <TrendingUp className="w-3.5 h-3.5 text-rose-400" />}
+              </div>
+              <div className="flex items-baseline gap-1 mt-0.5">
+                <span className={`text-sm font-black font-mono ${isEconomia ? 'text-emerald-300' : 'text-rose-300'}`}>
+                  {isEconomia ? '-' : '+'}R$ {diferencaEconomiaReais.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+                <span className={`text-[10px] font-bold ${isEconomia ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  ({isEconomia ? '-' : '+'}{diferencaEconomiaPct}%)
+                </span>
+              </div>
             </div>
           </div>
 
@@ -1459,8 +1543,8 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
       </div>
 
       {/* ─── 3. BARRA DE CONTROLE DA LISTA DA SEMANA ───────────────────────────── */}
-      <div className="px-3 sm:px-4 max-w-7xl mx-auto w-full flex items-center justify-between gap-3 pb-2 shrink-0">
-        <div className="flex items-center gap-2">
+      <div className="px-3 sm:px-4 max-w-7xl mx-auto w-full flex items-center justify-between gap-3 pb-2 shrink-0 flex-wrap">
+        <div className="flex items-center gap-2.5 flex-wrap">
           <span className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-1.5">
             <Layers className="w-4 h-4 text-cyan-400" />
             Lote Ativo da Semana ({listaAtivaSemana.length} itens)
@@ -1468,6 +1552,19 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
           <span className="text-[11px] font-mono text-cyan-300 font-bold">
             = R$ {totalOrcadoSemana.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </span>
+
+          {totalReferenciaUltCompra > 0 && (
+            <span className={`text-[11px] font-bold px-2 py-0.5 rounded-lg border flex items-center gap-1.5 ${
+              isEconomia 
+                ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60' 
+                : 'bg-rose-950/80 text-rose-300 border-rose-700/60'
+            }`}>
+              {isEconomia ? <TrendingDown className="w-3.5 h-3.5 text-emerald-400" /> : <TrendingUp className="w-3.5 h-3.5 text-rose-400" />}
+              <span>
+                {isEconomia ? 'Economia:' : 'Gasto a mais:'} <b>{isEconomia ? '-' : '+'}R$ {diferencaEconomiaReais.toFixed(2)}</b> ({isEconomia ? '-' : '+'}{diferencaEconomiaPct}% vs última compra)
+              </span>
+            </span>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
@@ -1981,7 +2078,7 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
                 </div>
 
                 {/* Resumo Financeiro da Semana */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs">
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs">
                   <div>
                     <span className="text-[10px] text-slate-500 uppercase font-bold block">Teto Semanal:</span>
                     <span className="font-bold text-slate-800">
@@ -1998,6 +2095,12 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
                     <span className="text-[10px] text-slate-500 uppercase font-bold block">Reserva Poupada ({reservaSegurancaPct}%):</span>
                     <span className="font-bold text-emerald-700">
                       R$ {valorReservaPoupada.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-500 uppercase font-bold block">{isEconomia ? 'Economia na Cotação:' : 'Acréscimo na Cotação:'}</span>
+                    <span className={`font-black font-mono ${isEconomia ? 'text-emerald-700' : 'text-rose-700'}`}>
+                      {isEconomia ? '-' : '+'}R$ {diferencaEconomiaReais.toFixed(2)} ({isEconomia ? '-' : '+'}{diferencaEconomiaPct}%)
                     </span>
                   </div>
                   <div>
@@ -2031,53 +2134,73 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
                           <th className="border border-slate-300 px-1.5 py-1 text-right">VMD</th>
                           <th className="border border-slate-300 px-1.5 py-1 text-center font-bold">Qtd</th>
                           <th className="border border-slate-300 px-2 py-1 text-left">Distribuidora</th>
-                          <th className="border border-slate-300 px-2 py-1 text-right">Preço Un.</th>
+                          <th className="border border-slate-300 px-2 py-1 text-right">Preço Cot.</th>
+                          <th className="border border-slate-300 px-2 py-1 text-right">Últ. Compra</th>
+                          <th className="border border-slate-300 px-2 py-1 text-right font-bold">Variação</th>
                           <th className="border border-slate-300 px-2 py-1 text-right font-bold">Subtotal</th>
                           <th className="border border-slate-300 px-1.5 py-1 text-center">Janela</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {listaAtivaSemana.map((it, idx) => (
-                          <tr key={it.produto_id} className={idx % 2 === 1 ? 'bg-slate-50' : 'bg-white'}>
-                            <td className="border border-slate-300 px-1.5 py-1 text-center font-bold text-slate-600">
-                              {idx + 1}
-                            </td>
-                            <td className="border border-slate-300 px-2 py-1 font-bold text-slate-900">
-                              {it.descricao}
-                            </td>
-                            <td className="border border-slate-300 px-1.5 py-1 text-center font-mono text-slate-600">
-                              {it.ean || '—'}
-                            </td>
-                            <td className="border border-slate-300 px-1.5 py-1 text-center font-bold text-slate-700">
-                              {it.curva_abc}
-                            </td>
-                            <td className={`border border-slate-300 px-1.5 py-1 text-right ${it.saldo <= 0 ? 'text-rose-600 font-bold' : 'text-slate-700'}`}>
-                              {it.saldo}
-                            </td>
-                            <td className="border border-slate-300 px-1.5 py-1 text-right text-slate-600">
-                              {Number(it.vmd_ponderado).toFixed(1)}
-                            </td>
-                            <td className="border border-slate-300 px-1.5 py-1 text-center font-bold text-blue-800">
-                              {it.qtd_sugerida_7d}
-                            </td>
-                            <td className="border border-slate-300 px-2 py-1 font-bold text-slate-800">
-                              {it.fornecedor_1 || '—'}
-                            </td>
-                            <td className="border border-slate-300 px-2 py-1 text-right font-mono text-slate-700">
-                              R$ {(it.preco_1 || 0).toFixed(2)}
-                            </td>
-                            <td className="border border-slate-300 px-2 py-1 text-right font-mono font-bold text-slate-900">
-                              R$ {it.subtotal_7d.toFixed(2)}
-                            </td>
-                            <td className="border border-slate-300 px-1.5 py-1 text-center text-[9px] font-bold">
-                              {it.melhor_fora_janela && it.melhor_fora_janela.distribuidora === it.fornecedor_1 ? (
-                                <span className="text-amber-700">Fora Janela</span>
-                              ) : (
-                                <span className="text-emerald-700">Janela OK</span>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
+                        {listaAtivaSemana.map((it, idx) => {
+                          const precoUlt = Number(it.preco_ult_compra) || Number(it.custo_unitario) || 0;
+                          const precoCot = Number(it.preco_1) || 0;
+                          const diffUnit = precoUlt > 0 && precoCot > 0 ? (precoCot - precoUlt) : 0;
+                          const diffPct = precoUlt > 0 ? (diffUnit / precoUlt) * 100 : 0;
+                          return (
+                            <tr key={it.produto_id} className={idx % 2 === 1 ? 'bg-slate-50' : 'bg-white'}>
+                              <td className="border border-slate-300 px-1.5 py-1 text-center font-bold text-slate-600">
+                                {idx + 1}
+                              </td>
+                              <td className="border border-slate-300 px-2 py-1 font-bold text-slate-900">
+                                {it.descricao}
+                              </td>
+                              <td className="border border-slate-300 px-1.5 py-1 text-center font-mono text-slate-600">
+                                {it.ean || '—'}
+                              </td>
+                              <td className="border border-slate-300 px-1.5 py-1 text-center font-bold text-slate-700">
+                                {it.curva_abc}
+                              </td>
+                              <td className={`border border-slate-300 px-1.5 py-1 text-right ${it.saldo <= 0 ? 'text-rose-600 font-bold' : 'text-slate-700'}`}>
+                                {it.saldo}
+                              </td>
+                              <td className="border border-slate-300 px-1.5 py-1 text-right text-slate-600">
+                                {Number(it.vmd_ponderado).toFixed(1)}
+                              </td>
+                              <td className="border border-slate-300 px-1.5 py-1 text-center font-bold text-blue-800">
+                                {it.qtd_sugerida_7d}
+                              </td>
+                              <td className="border border-slate-300 px-2 py-1 font-bold text-slate-800">
+                                {it.fornecedor_1 || '—'}
+                              </td>
+                              <td className="border border-slate-300 px-2 py-1 text-right font-mono text-slate-700">
+                                R$ {precoCot.toFixed(2)}
+                              </td>
+                              <td className="border border-slate-300 px-2 py-1 text-right font-mono text-slate-500">
+                                {precoUlt > 0 ? `R$ ${precoUlt.toFixed(2)}` : '—'}
+                              </td>
+                              <td className="border border-slate-300 px-1.5 py-1 text-right font-mono font-bold text-[9px]">
+                                {diffUnit < 0 ? (
+                                  <span className="text-emerald-700 font-bold">-R$ {Math.abs(diffUnit).toFixed(2)} ({diffPct.toFixed(1)}%)</span>
+                                ) : diffUnit > 0 ? (
+                                  <span className="text-rose-700 font-bold">+R$ {diffUnit.toFixed(2)} (+{diffPct.toFixed(1)}%)</span>
+                                ) : (
+                                  <span className="text-slate-400">=</span>
+                                )}
+                              </td>
+                              <td className="border border-slate-300 px-2 py-1 text-right font-mono font-bold text-slate-900">
+                                R$ {it.subtotal_7d.toFixed(2)}
+                              </td>
+                              <td className="border border-slate-300 px-1.5 py-1 text-center text-[9px] font-bold">
+                                {it.melhor_fora_janela && it.melhor_fora_janela.distribuidora === it.fornecedor_1 ? (
+                                  <span className="text-amber-700">Fora Janela</span>
+                                ) : (
+                                  <span className="text-emerald-700">Janela OK</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                       <tfoot>
                         <tr className="bg-slate-200 font-bold text-slate-900">
@@ -2087,7 +2210,7 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
                           <td className="border border-slate-300 px-1.5 py-1.5 text-center font-bold text-blue-900">
                             {listaAtivaSemana.reduce((acc, it) => acc + (it.qtd_sugerida_7d || 1), 0)} un
                           </td>
-                          <td colSpan={2} className="border border-slate-300 px-2 py-1.5 text-right uppercase">
+                          <td colSpan={4} className="border border-slate-300 px-2 py-1.5 text-right uppercase">
                             Valor Total Comprometido:
                           </td>
                           <td className="border border-slate-300 px-2 py-1.5 text-right font-mono font-black text-blue-900 text-[11px]">
@@ -2095,6 +2218,18 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
                           </td>
                           <td className="border border-slate-300 px-1.5 py-1.5 text-center text-[9px] text-slate-600">
                             {((totalOrcadoSemana / (tetoSemanalAtivo || 1)) * 100).toFixed(0)}% cota
+                          </td>
+                        </tr>
+                        <tr className="bg-slate-100 font-bold">
+                          <td colSpan={6} className="border border-slate-300 px-2 py-1 text-right uppercase text-[9px] text-slate-600">
+                            Balanço vs Última Compra:
+                          </td>
+                          <td colSpan={7} className={`border border-slate-300 px-2 py-1 text-left font-mono font-bold text-[10px] ${
+                            isEconomia ? 'text-emerald-700' : 'text-rose-700'
+                          }`}>
+                            {isEconomia ? '🟢 ECONOMIA TOTAL GERADA:' : '🟠 ACRÉSCIMO TOTAL:'}{' '}
+                            <b>{isEconomia ? '-' : '+'}R$ {diferencaEconomiaReais.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b>{' '}
+                            ({isEconomia ? '-' : '+'}{diferencaEconomiaPct}% vs total histórico de R$ {totalReferenciaUltCompra.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
                           </td>
                         </tr>
                       </tfoot>

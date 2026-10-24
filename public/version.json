@@ -1,9 +1,14 @@
 {
   "version": "1.2.0",
-  "commitHash": "2cc2951",
-  "commitMessage": "fix(belaped): gera documento HTML nativo em nova aba para impressao multi-paginas em modo retrato A4",
-  "buildTime": "24/10/2026, 16:51:30",
+  "commitHash": "05a25d3",
+  "commitMessage": "fix(belaped): limita itens sem estoque auditados rigorosamente ao corte do lote da semana",
+  "buildTime": "24/10/2026, 17:01:22",
   "recentCommits": [
+    {
+      "hash": "05a25d3",
+      "date": "24/10/2026",
+      "message": "fix(belaped): limita itens sem estoque auditados rigorosamente ao corte do lote da semana"
+    },
     {
       "hash": "2cc2951",
       "date": "24/10/2026",
@@ -58,11 +63,6 @@
       "hash": "09d459c",
       "date": "23/10/2026",
       "message": "fix(belaped): previne substituicao indevida de EAN na matriz e adiciona encerramento gracioso no server"
-    },
-    {
-      "hash": "d87e03d",
-      "date": "23/10/2026",
-      "message": "feat(belaped): integra 4 novos portais e corrige preco NF e validacao estrita de EAN em Distrimed e Oriente Farma"
     }
   ]
 }
