@@ -26,7 +26,6 @@ const { MartinsRobot } = require('./belaped-robot-martins');
 const { OrienteRobot, identificarCondicaoIdeal } = require('./belaped-robot-oriente');
 const { PanpharmaRobot } = require('./belaped-robot-panpharma');
 const MgMedicamentosRobot = require('./belaped-robot-mgmedicamentos');
-const StockfarmaRobot = require('./belaped-robot-stockfarma');
 const OrgafarmaRobot = require('./belaped-robot-orgafarma');
 const FarmixRobot = require('./belaped-robot-farmix');
 const HymparRobot = require('./belaped-robot-hympar');
@@ -4080,8 +4079,6 @@ function belapedEndpoints(db) {
           await executarRoboParaFornecedor('PANPHARMA', PanpharmaRobot);
         } else if (fornecedor === 'MGMEDICAMENTOS' || fornecedor === 'MG' || fornecedor === 'MG MEDICAMENTOS') {
           await executarRoboParaFornecedor('MG MEDICAMENTOS', MgMedicamentosRobot);
-        } else if (fornecedor === 'STOCKFARMA' || fornecedor === 'STOCK') {
-          await executarRoboParaFornecedor('STOCKFARMA', StockfarmaRobot);
         } else if (fornecedor === 'ORGAFARMA' || fornecedor === 'ORGA') {
           await executarRoboParaFornecedor('ORGAFARMA', OrgafarmaRobot);
         } else if (fornecedor === 'FARMIX') {
@@ -4099,10 +4096,9 @@ function belapedEndpoints(db) {
             executarRoboParaFornecedor('ORIENTE FARMA', OrienteRobot, 7200),
             executarRoboParaFornecedor('PANPHARMA', PanpharmaRobot, 8400),
             executarRoboParaFornecedor('MG MEDICAMENTOS', MgMedicamentosRobot, 9600),
-            executarRoboParaFornecedor('STOCKFARMA', StockfarmaRobot, 10800),
-            executarRoboParaFornecedor('ORGAFARMA', OrgafarmaRobot, 12000),
-            executarRoboParaFornecedor('FARMIX', FarmixRobot, 13200),
-            executarRoboParaFornecedor('HYMPARHUB', HymparRobot, 14400)
+            executarRoboParaFornecedor('ORGAFARMA', OrgafarmaRobot, 10800),
+            executarRoboParaFornecedor('FARMIX', FarmixRobot, 12000),
+            executarRoboParaFornecedor('HYMPARHUB', HymparRobot, 13200)
           ]);
         } else {
           await executarRoboParaFornecedor('PROFARMA', ProfarmaRobot);
@@ -4431,8 +4427,8 @@ function belapedEndpoints(db) {
         'MG MEDICAMENTOS': MgMedicamentosRobot,
         'MGMEDICAMENTOS': MgMedicamentosRobot,
         'MG': MgMedicamentosRobot,
-        'STOCKFARMA': StockfarmaRobot,
-        'STOCK': StockfarmaRobot,
+        'STOCKFARMA': OrienteRobot,
+        'STOCK': OrienteRobot,
         'ORGAFARMA': OrgafarmaRobot,
         'ORGA': OrgafarmaRobot,
         'FARMIX': FarmixRobot,
@@ -7560,8 +7556,8 @@ function belapedEndpoints(db) {
       (async () => {
         let robot = null;
         try {
-          console.log('[BelaPed] Iniciando robô Stockfarma para montagem de carrinho...');
-          robot = new StockfarmaRobot();
+          console.log('[BelaPed] Stockfarma unificada com Oriente Farma para montagem de carrinho...');
+          robot = new OrienteRobot();
           await robot.iniciar();
 
           stockfarmaCarrinhoStatus.ultimoItem = 'Garantindo carrinho limpo com 0 itens...';
