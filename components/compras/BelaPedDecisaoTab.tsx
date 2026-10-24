@@ -338,8 +338,9 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
     const reserva: FaltaItem7d[] = [];
     const semEstoque: FaltaItem7d[] = [];
     let acumulado = 0;
-
     let rankGlobal = 1;
+    let loteSemanaCheio = false;
+
     for (const item of itensCandidatos) {
       const forn = String(item.fornecedor_1 || '').trim().toLowerCase();
       // Tem estoque se tiver preço válido e fornecedor não for nulo/vazio/"sem estoque"/"sem cotação"
@@ -357,39 +358,55 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
       const qtd = Math.max(1, item.qtd_sugerida_7d || 1);
       const subtotal = Number((qtd * preco).toFixed(2));
 
-      if (!temEstoque) {
-        // Produto sem estoque nos 12 portais: não consome orçamento e abre vaga imediata
-        semEstoque.push({
-          ...item,
-          subtotal_7d: subtotal,
-          prioridade_original: rankGlobal++,
-          motivo_sem_estoque: 'Esgotado em todos os 12 portais'
-        });
-        continue;
-      }
+      // Enquanto o lote ativo da semana ainda NÃO completou o orçamento:
+      if (!loteSemanaCheio) {
+        if (!temEstoque) {
+          // Item prioritário avaliado para esta semana que não tem estoque em nenhum portal:
+          // Abre vaga para o próximo e entra na lista de auditadas da semana!
+          semEstoque.push({
+            ...item,
+            subtotal_7d: subtotal,
+            prioridade_original: rankGlobal++,
+            motivo_sem_estoque: 'Esgotado em todos os 12 portais'
+          });
+          continue;
+        }
 
-      // Produto possui estoque e cotação em distribuidora
-      const isPromovido = promovidosManualmente.has(item.produto_id);
+        // Tem estoque: verifica se cabe no orçamento da semana
+        const isPromovido = promovidosManualmente.has(item.produto_id);
 
-      if (isPromovido || (acumulado + subtotal <= tetoSemanalAtivo || ativa.length === 0)) {
-        ativa.push({
-          ...item,
-          subtotal_7d: subtotal,
-          prioridade_original: rankGlobal++
-        });
-        acumulado += subtotal;
+        if (isPromovido || (acumulado + subtotal <= tetoSemanalAtivo || ativa.length === 0)) {
+          ativa.push({
+            ...item,
+            subtotal_7d: subtotal,
+            prioridade_original: rankGlobal++
+          });
+          acumulado += subtotal;
+        } else {
+          // Ultrapassou o teto orçamentário da semana: o lote da semana fechou!
+          loteSemanaCheio = true;
+          reserva.push({
+            ...item,
+            subtotal_7d: subtotal,
+            prioridade_original: rankGlobal++
+          });
+        }
       } else {
-        reserva.push({
-          ...item,
-          subtotal_7d: subtotal,
-          prioridade_original: rankGlobal++
-        });
+        // Lote da semana já completo: apenas os itens restantes COM estoque vão para o Banco de Reserva
+        if (temEstoque) {
+          reserva.push({
+            ...item,
+            subtotal_7d: subtotal,
+            prioridade_original: rankGlobal++
+          });
+        }
+        // Itens sem estoque além do corte semanal são ignorados para não poluir o relatório da semana
       }
     }
 
-    // Associa aos itens sem estoque o produto com estoque que entrou na lista para preencher a cota
+    // Associa aos itens sem estoque o produto com estoque que entrou na lista ativa para ocupar a vaga
     semEstoque.forEach((se, idx) => {
-      const promovido = ativa[ativa.length - 1 - idx] || ativa[0];
+      const promovido = ativa[ativa.length - 1 - idx] || ativa[ativa.length - 1] || ativa[0];
       if (promovido) {
         se.substituto_promovido = promovido.descricao;
       }

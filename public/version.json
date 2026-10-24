@@ -1,9 +1,14 @@
 {
   "version": "1.2.0",
-  "commitHash": "f031cdc",
-  "commitMessage": "feat(belaped): oculta itens sem estoque dos cards da semana, auto-substitui no orcamento e adiciona relatorio impresso em 2 blocos",
-  "buildTime": "24/10/2026, 16:40:45",
+  "commitHash": "2cc2951",
+  "commitMessage": "fix(belaped): gera documento HTML nativo em nova aba para impressao multi-paginas em modo retrato A4",
+  "buildTime": "24/10/2026, 16:51:30",
   "recentCommits": [
+    {
+      "hash": "2cc2951",
+      "date": "24/10/2026",
+      "message": "fix(belaped): gera documento HTML nativo em nova aba para impressao multi-paginas em modo retrato A4"
+    },
     {
       "hash": "f031cdc",
       "date": "24/10/2026",
@@ -58,11 +63,6 @@
       "hash": "d87e03d",
       "date": "23/10/2026",
       "message": "feat(belaped): integra 4 novos portais e corrige preco NF e validacao estrita de EAN em Distrimed e Oriente Farma"
-    },
-    {
-      "hash": "b9ed444",
-      "date": "22/10/2026",
-      "message": "fix(belaped): ajustar cotacao Panpharma para considerar Preco NF com ST e corrigir mapeamento de estoque"
     }
   ]
 }
