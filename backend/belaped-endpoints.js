@@ -740,21 +740,17 @@ function belapedEndpoints(db) {
         const temCotacao = Boolean(cotMatch && cotMatch.preco > 0 && cotMatch.disponivel);
         const precoUnitario = temCotacao ? Number(cotMatch.preco) : null;
 
-        // Avaliação de elegibilidade para a janela
+        // Avaliação de elegibilidade estrita para a janela de vencimento dos boletos
         let isJanelaElegivel = true;
-        if (janelaMes) {
-          const prazoDias = Number(portal.prazo_dias_padrao) || 28;
-          const dataVenc = new Date();
-          dataVenc.setDate(dataVenc.getDate() + prazoDias);
-          const mesVencAno = `${dataVenc.getFullYear()}-${String(dataVenc.getMonth() + 1).padStart(2, '0')}`;
-          
-          if (nomeUpper.includes('PROFARMA') && janelaMes >= '2027-01') {
-            isJanelaElegivel = true;
-          } else if (nomeUpper.includes('DISTRIMED')) {
-            isJanelaElegivel = true;
-          } else {
-            isJanelaElegivel = (mesVencAno === janelaMes);
-          }
+        if (janelaMes && janelaMes.includes('-')) {
+          const [tAno, tMes] = janelaMes.split('-').map(Number);
+          const prazosStr = portal.prazos_boleto || `${portal.prazo_dias_padrao || 28} DDL`;
+          const dias = extrairDiasDePrazos(prazosStr, portal.prazo_dias_padrao);
+          const dataBase = new Date();
+          isJanelaElegivel = dias.some(d => {
+            const dt = new Date(dataBase.getTime() + d * 86400000);
+            return (dt.getMonth() + 1 === tMes && dt.getFullYear() === tAno);
+          });
         }
 
         return {
@@ -1134,7 +1130,7 @@ function belapedEndpoints(db) {
               const alcanca = dias.some(d => {
                 const dt = new Date(hojeCalc.getTime() + d * 86400000);
                 return (dt.getMonth() + 1 === targetMesJanela && dt.getFullYear() === targetAnoJanela);
-              }) || (String(p.nome).toUpperCase() === 'DISTRIMED');
+              });
               if (alcanca) {
                 distribuidorasElegiveisJanelaSet.add(String(p.nome).toUpperCase());
               }

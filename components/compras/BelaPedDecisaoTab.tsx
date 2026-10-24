@@ -89,6 +89,7 @@ export interface FaltaItem7d {
   ranking_posicao?: number;
   score_ranking?: number;
   falta_balcao_belinha?: any;
+  melhor_fora_janela?: { distribuidora: string; preco: number; motivo: string } | null;
 }
 
 interface PortalInfo {
@@ -1384,10 +1385,21 @@ const CardProdutoDecisao: React.FC<CardProps> = ({
               <span className="font-black text-xs text-white truncate">
                 {item.fornecedor_1 || 'Sem Cotação'}
               </span>
-              <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-emerald-950 text-emerald-300 border border-emerald-800">
-                Janela OK
-              </span>
+              {item.melhor_fora_janela && item.melhor_fora_janela.distribuidora === item.fornecedor_1 ? (
+                <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-amber-950 text-amber-300 border border-amber-800" title={item.melhor_fora_janela.motivo}>
+                  ⚠️ Vence fora da Janela
+                </span>
+              ) : item.preco_1 && item.preco_1 > 0 ? (
+                <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-emerald-950 text-emerald-300 border border-emerald-800">
+                  Janela OK
+                </span>
+              ) : null}
             </div>
+            {item.melhor_fora_janela && item.melhor_fora_janela.distribuidora !== item.fornecedor_1 && (
+              <span className="text-[10px] text-amber-300/80 block mt-0.5">
+                💡 Menor geral: {item.melhor_fora_janela.distribuidora} (R$ {item.melhor_fora_janela.preco.toFixed(2)}) vence fora da janela
+              </span>
+            )}
             {diferencaPct !== 0 && precoUlt > 0 && preco1 > 0 && (
               <span className={`text-[10px] font-bold flex items-center gap-0.5 mt-0.5 ${
                 diferencaPct < 0 ? 'text-emerald-400' : 'text-rose-400'

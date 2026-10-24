@@ -1,9 +1,19 @@
 {
   "version": "1.2.0",
-  "commitHash": "0f682e6",
-  "commitMessage": "feat(belaped): tela unificada de orcamento semanal e decisao com reserva de seguranca, podio de cotacoes e remocao da stockfarma",
-  "buildTime": "24/10/2026, 14:41:36",
+  "commitHash": "523b234",
+  "commitMessage": "refactor(belaped): remove completamente robo e endpoints da stockfarma unificando com oriente",
+  "buildTime": "24/10/2026, 15:23:18",
   "recentCommits": [
+    {
+      "hash": "523b234",
+      "date": "24/10/2026",
+      "message": "refactor(belaped): remove completamente robo e endpoints da stockfarma unificando com oriente"
+    },
+    {
+      "hash": "e43f18f",
+      "date": "24/10/2026",
+      "message": "build: atualiza bundle de producao com orcamento semanal e decisao"
+    },
     {
       "hash": "0f682e6",
       "date": "24/10/2026",
@@ -53,16 +63,6 @@
       "hash": "30417d3",
       "date": "22/10/2026",
       "message": "fix(belaped): corrigir travamento da fila de cotação e botão inacessível no monitor do robô"
-    },
-    {
-      "hash": "e8349f9",
-      "date": "22/10/2026",
-      "message": "fix(belaped): integracao direta do robo Panpharma/ePan via API REST com catalogo completo CD MG12 e cotacao instantanea"
-    },
-    {
-      "hash": "ba494bb",
-      "date": "22/10/2026",
-      "message": "feat(belaped): nova guia Matriz de Cotacoes comparando ultima compra com precos das 9 distribuidoras"
     }
   ]
 }

@@ -1228,13 +1228,14 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
   const [ultimaAtualizacao, setUltimaAtualizacao] = useState<string>('');
 
   // Carrega todos os dados iniciais (ou apenas dados de cotações de forma leve em background)
-  const carregarDados = async (apenasCotacoes: boolean = false) => {
+  const carregarDados = async (apenasCotacoes: boolean = false, overrideJanela?: string) => {
     try {
       if (!apenasCotacoes) {
         setRefreshing(true);
       }
 
-      const janelaQuery = janelaAlvoSelecionada ? `&janelaMes=${encodeURIComponent(janelaAlvoSelecionada)}` : '';
+      const janelaEfetiva = overrideJanela !== undefined ? overrideJanela : janelaAlvoSelecionada;
+      const janelaQuery = janelaEfetiva ? `&janelaMes=${encodeURIComponent(janelaEfetiva)}` : '';
 
       // Se for apenas atualização dinâmica de cotação, consulta apenas faltas-7d e relatorio-precos (rápido, ~50ms)
       const requisicoes = apenasCotacoes
@@ -1941,10 +1942,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
   const handleMudarJanelaAlvo = (novaChave: string) => {
     setJanelaAlvoSelecionada(novaChave);
     try { localStorage.setItem('belaped_janela_alvo', novaChave); } catch {}
-    setRefreshing(true);
-    setTimeout(() => {
-      carregarDados(false);
-    }, 50);
+    carregarDados(false, novaChave);
   };
 
   // Algoritmo de Equalização e Enquadramento Orçamentário com Sobra Garantida
@@ -4485,7 +4483,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
             onRecarregarDados={carregarDados}
             orcamentoInfo={orcamentoInfo}
             janelaAlvoSelecionada={janelaAlvoSelecionada}
-            setJanelaAlvoSelecionada={setJanelaAlvoSelecionada}
+            setJanelaAlvoSelecionada={handleMudarJanelaAlvo}
           />
         )}
 
