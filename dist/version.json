@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "09d459c",
-  "commitMessage": "fix(belaped): previne substituicao indevida de EAN na matriz e adiciona encerramento gracioso no server",
-  "buildTime": "24/10/2026, 09:52:22"
+  "commitHash": "370d044",
+  "commitMessage": "feat(belaped): lista de extrema necessidade com orcamento semanal, janelas de pagamento e banco de espera",
+  "buildTime": "24/10/2026, 10:46:59"
 }

@@ -74,6 +74,7 @@ import { BelaPedOrcamentoSemanalModal } from './BelaPedOrcamentoSemanalModal';
 import { BelaPedConcorrentesModal } from './BelaPedConcorrentesModal';
 import BelaPedDecisaoTab from './BelaPedDecisaoTab';
 import BelaPedCotacoesMatrizTab from './BelaPedCotacoesMatrizTab';
+import { BelaPedPesquisaPrecosTab } from './BelaPedPesquisaPrecosTab';
 
 interface BelaPedPortalProps {
   user: User;
@@ -211,7 +212,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
   const { addToast } = useToast();
   
   // Abas de Navegação do BelaPed (Decisão de Compras como aba inicial prioritária)
-  const [activeTab, setActiveTab] = useState<'decisao' | 'cotacoes_matriz' | 'faltas' | 'cotacao' | 'orcamento' | 'relatorios' | 'pedidos' | 'simulador'>('decisao');
+  const [activeTab, setActiveTab] = useState<'pesquisa_precos' | 'decisao' | 'cotacoes_matriz' | 'faltas' | 'cotacao' | 'orcamento' | 'relatorios' | 'pedidos' | 'simulador'>('decisao');
   const [produtoSimuladorId, setProdutoSimuladorId] = useState<number | null>(null);
 
   // Estados de Dados
@@ -3932,6 +3933,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
 
   // Lista unificada de Módulos para Navegação Desktop e Mobile
   const modulosNav = useMemo(() => [
+    { id: 'pesquisa_precos' as const, label: '🔍 Pesquisa de Preços', shortLabel: 'Pesquisa', icon: <Search className="w-4 h-4 text-cyan-400" />, badge: 0 },
     { id: 'decisao' as const, label: '🎯 Decisão de Compras', shortLabel: 'Decisão', icon: <Sparkles className="w-4 h-4 text-amber-400" />, badge: itensPendentesDecisaoCount },
     { id: 'cotacoes_matriz' as const, label: '📊 Tabela de Cotações', shortLabel: 'Cotações', icon: <Table className="w-4 h-4 text-emerald-400" />, badge: 0 },
     { id: 'faltas' as const, label: '1. Extrema Necessidade', shortLabel: 'Extrema Necessidade', icon: <AlertTriangle className="w-4 h-4 text-amber-400" />, badge: faltas.length },
@@ -4444,6 +4446,18 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
           </div>
         )}
 
+
+        {/* ─── ABA: PESQUISA DE PREÇOS & COTAÇÃO MULTI-DISTRIBUIDORA ─── */}
+        {activeTab === 'pesquisa_precos' && (
+          <BelaPedPesquisaPrecosTab
+            janelaAlvoSelecionada={janelaAlvoSelecionada}
+            janelaAtivaData={janelaAtivaData}
+            addToast={addToast}
+            user={user}
+            onNavegarTab={setActiveTab}
+            onAlternarJaPedido={handleAlternarJaPedido}
+          />
+        )}
 
         {/* ─── ABA 0: DECISÃO DE COMPRAS (CARROSSEL FOCAL PRODUTO A PRODUTO) ─── */}
         {activeTab === 'decisao' && (

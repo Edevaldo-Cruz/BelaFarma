@@ -630,6 +630,348 @@ function belapedEndpoints(db) {
   });
 
   /**
+   * GET /api/belaped/pesquisa-produto
+   * Consulta detalhada de produto para a nova aba de Pesquisa Multi-Distribuidora:
+   * - Retorna dados de estoque, giro (VMD), curva ABC e última compra
+   * - Retorna cotações de todas as distribuidoras cadastradas
+   * - Calcula veredito inteligente em 3 níveis (COMPRAR_AGORA, AGUARDAR, EVITAR)
+   * - Avalia elegibilidade para a janela de vencimento dos boletos (janelaMes)
+   */
+  router.get('/pesquisa-produto', (req, res) => {
+    try {
+      const termoRaw = String(req.query.q || '').trim();
+      const janelaMes = String(req.query.janelaMes || '').trim();
+
+      if (!termoRaw) {
+        return res.status(400).json({ success: false, error: 'Termo de pesquisa ou EAN é obrigatório.' });
+      }
+
+      // 1. Busca no cache de estoque (ou catálogo)
+      const isApenasNumeros = /^\d{5,}$/.test(termoRaw);
+
+      let produtosEncontrados = [];
+      if (isApenasNumeros) {
+        produtosEncontrados = db.prepare(`
+          SELECT * FROM compras_estoque_cache 
+          WHERE ean = ? OR CAST(produto_id AS TEXT) = ?
+          LIMIT 10
+        `).all(termoRaw, termoRaw);
+      }
+
+      if (produtosEncontrados.length === 0) {
+        produtosEncontrados = db.prepare(`
+          SELECT * FROM compras_estoque_cache 
+          WHERE descricao LIKE ? OR apresentacao LIKE ? OR ean LIKE ?
+          ORDER BY 
+            CASE curva_abc WHEN 'A' THEN 1 WHEN 'B' THEN 2 ELSE 3 END ASC,
+            vendas_30d DESC
+          LIMIT 15
+        `).all(`%${termoRaw}%`, `%${termoRaw}%`, `%${termoRaw}%`);
+      }
+
+      if (produtosEncontrados.length === 0) {
+        return res.json({
+          success: true,
+          encontrado: false,
+          mensagem: `Nenhum produto encontrado para "${termoRaw}".`,
+          produto: null,
+          outrosResultados: []
+        });
+      }
+
+      const prodPrincipal = produtosEncontrados[0];
+      const outrosResultados = produtosEncontrados.slice(1).map(p => ({
+        produto_id: p.produto_id,
+        ean: p.ean,
+        descricao: p.descricao,
+        apresentacao: p.apresentacao,
+        saldo: Number(p.saldo) || 0,
+        curva_abc: p.curva_abc || 'C',
+        vmd_ponderado: Number(p.vmd_ponderado) || 0
+      }));
+
+      const eanPrincipal = String(prodPrincipal.ean || '').trim();
+      const saldo = Number(prodPrincipal.saldo) || 0;
+      const vmd = Number(prodPrincipal.vmd_ponderado) || 0;
+      const diasCob = vmd > 0 ? Number((saldo / vmd).toFixed(1)) : (saldo > 0 ? 999 : 0);
+      const vendas30 = Number(prodPrincipal.vendas_30d) || 0;
+      const precoUltCompra = Number(prodPrincipal.preco_unitario_ult_compra) || Number(prodPrincipal.custo_unitario) || 0;
+      const curva = prodPrincipal.curva_abc || 'C';
+
+      // 2. Consulta regras do produto
+      let regraProd = null;
+      if (eanPrincipal || prodPrincipal.produto_id) {
+        regraProd = db.prepare(`
+          SELECT * FROM belaped_produtos_regras 
+          WHERE (ean IS NOT NULL AND ean = ?) OR (produto_id IS NOT NULL AND produto_id = ?)
+          LIMIT 1
+        `).get(eanPrincipal, prodPrincipal.produto_id);
+      }
+
+      const isNaoCotar = Boolean(regraProd?.nao_cotar);
+      const isNaoCarrinho = Boolean(regraProd?.nao_carrinho);
+      const isJaPedido = Boolean(regraProd?.ja_pedido_ate && new Date(regraProd.ja_pedido_ate) >= new Date());
+      const isAdiado = Boolean(regraProd?.adiar_ate && new Date(regraProd.adiar_ate) >= new Date());
+
+      // 3. Consulta todas as distribuidoras cadastradas
+      const portaisCadastrados = db.prepare('SELECT * FROM belaped_portais ORDER BY nome ASC').all();
+
+      // 4. Consulta cotações reais deste EAN
+      const cotacoesExistentes = db.prepare(`
+        SELECT * FROM belaped_cotacoes_reais 
+        WHERE ean = ? OR ean_substituto = ?
+      `).all(eanPrincipal, eanPrincipal);
+
+      const mapaCotacoesPorFornecedor = {};
+      for (const cot of cotacoesExistentes) {
+        const fornNorm = (cot.fornecedor || '').toUpperCase().trim();
+        mapaCotacoesPorFornecedor[fornNorm] = cot;
+      }
+
+      // 5. Mapeia prazos e elegibilidade de cada distribuidora para a janela selecionada
+      const listaCotacoesPortais = portaisCadastrados.map(portal => {
+        const nomeUpper = portal.nome.toUpperCase().trim();
+        let cotMatch = mapaCotacoesPorFornecedor[nomeUpper];
+        if (!cotMatch) {
+          const chaveParcial = Object.keys(mapaCotacoesPorFornecedor).find(k => k.includes(nomeUpper) || nomeUpper.includes(k));
+          if (chaveParcial) cotMatch = mapaCotacoesPorFornecedor[chaveParcial];
+        }
+
+        const temCotacao = Boolean(cotMatch && cotMatch.preco > 0 && cotMatch.disponivel);
+        const precoUnitario = temCotacao ? Number(cotMatch.preco) : null;
+
+        // Avaliação de elegibilidade para a janela
+        let isJanelaElegivel = true;
+        if (janelaMes) {
+          const prazoDias = Number(portal.prazo_dias_padrao) || 28;
+          const dataVenc = new Date();
+          dataVenc.setDate(dataVenc.getDate() + prazoDias);
+          const mesVencAno = `${dataVenc.getFullYear()}-${String(dataVenc.getMonth() + 1).padStart(2, '0')}`;
+          
+          if (nomeUpper.includes('PROFARMA') && janelaMes >= '2027-01') {
+            isJanelaElegivel = true;
+          } else if (nomeUpper.includes('DISTRIMED')) {
+            isJanelaElegivel = true;
+          } else {
+            isJanelaElegivel = (mesVencAno === janelaMes);
+          }
+        }
+
+        return {
+          portal_id: portal.id,
+          nome: portal.nome,
+          pedido_minimo: portal.pedido_minimo || 0,
+          prazo_dias: portal.prazo_dias_padrao || 28,
+          uf: portal.uf || 'MG',
+          preco: precoUnitario,
+          disponivel: temCotacao,
+          desc_pct: cotMatch ? Number(cotMatch.desc_pct || 0) : 0,
+          is_substituto: Boolean(cotMatch?.is_substituto || cotMatch?.is_generico_mais_barato),
+          ean_cotado: cotMatch?.ean_substituto || eanPrincipal,
+          url_produto: cotMatch?.url_produto || gerarUrlDistribuidoraProduto(portal.nome, eanPrincipal, prodPrincipal.descricao),
+          updated_at: cotMatch?.updated_at || null,
+          is_janela_elegivel: isJanelaElegivel
+        };
+      });
+
+      // Ordena cotações: menores preços primeiro (disponíveis primeiro)
+      listaCotacoesPortais.sort((a, b) => {
+        if (a.disponivel && !b.disponivel) return -1;
+        if (!a.disponivel && b.disponivel) return 1;
+        if (a.preco && b.preco) return a.preco - b.preco;
+        return 0;
+      });
+
+      const cotacoesDisponiveis = listaCotacoesPortais.filter(c => c.disponivel && c.preco > 0);
+      const melhorGeral = cotacoesDisponiveis[0] || null;
+      const cotacoesNaJanela = cotacoesDisponiveis.filter(c => c.is_janela_elegivel);
+      const melhorJanela = cotacoesNaJanela[0] || melhorGeral;
+
+      // 6. Cálculo do Veredito em 3 Níveis
+      let statusVeredito = 'AGUARDAR';
+      let corVeredito = 'amber';
+      let tituloVeredito = 'Aguardar / Avaliar Estoque';
+      let detalheVeredito = '';
+      const motivos = [];
+
+      const isFalta = saldo <= 0;
+      const isRupturaImediata = diasCob <= 7;
+      const isCurvaAlta = curva === 'A' || curva === 'B';
+
+      if (isJaPedido) {
+        statusVeredito = 'AGUARDAR';
+        corVeredito = 'emerald';
+        tituloVeredito = 'Já Pedido Recentemente';
+        detalheVeredito = `Este produto já foi pedido e está com previsão de entrega. Não é necessário comprar novamente agora.`;
+        motivos.push('Identificado como já pedido no sistema');
+      } else if (isNaoCotar || isNaoCarrinho) {
+        statusVeredito = 'EVITAR';
+        corVeredito = 'rose';
+        tituloVeredito = 'Restrição de Compra Ativa';
+        detalheVeredito = `O produto está marcado como ${isNaoCotar ? 'Não Cotar' : 'Não Colocar no Carrinho'}. Motivo: ${regraProd?.motivo_justificativa || 'Restrição manual'}.`;
+        motivos.push('Restrição cadastrada pelo comprador');
+      } else if (isFalta || isRupturaImediata) {
+        if (isCurvaAlta || vendas30 > 0) {
+          statusVeredito = 'COMPRAR_AGORA';
+          corVeredito = 'emerald';
+          tituloVeredito = '⭐ Recomendado: Comprar Agora';
+          detalheVeredito = isFalta
+            ? `Produto em falta total (0 un no estoque) com giro ativo (Curva ${curva}, ${vendas30} un/30d). Reposição urgente para não perder vendas.`
+            : `Estoque crítico para apenas ${diasCob} dias (${saldo} un restantes). Abastecimento necessário para a semana.`;
+          motivos.push(isFalta ? 'Falta total (Saldo 0)' : `Estoque crítico (${diasCob}d de cobertura)`);
+          motivos.push(`Giro relevante: Curva ${curva}`);
+          
+          if (melhorJanela) {
+            motivos.push(`Melhor preço na janela: ${melhorJanela.nome} (R$ ${melhorJanela.preco.toFixed(2)})`);
+          }
+          if (melhorGeral && precoUltCompra > 0 && melhorGeral.preco < precoUltCompra) {
+            const econ = (((precoUltCompra - melhorGeral.preco) / precoUltCompra) * 100).toFixed(1);
+            motivos.push(`Economia de ${econ}% vs última compra`);
+          }
+        } else {
+          statusVeredito = 'AGUARDAR';
+          corVeredito = 'amber';
+          tituloVeredito = 'Baixo Giro / Avaliar Demanda';
+          detalheVeredito = `Produto Curva C com saldo zerado mas sem vendas expressivas nos últimos 30 dias (${vendas30} un).`;
+          motivos.push('Curva C sem histórico recente de saída');
+        }
+      } else if (diasCob > 20) {
+        statusVeredito = 'EVITAR';
+        corVeredito = 'rose';
+        tituloVeredito = 'Estoque Confortável / Não Comprar';
+        detalheVeredito = `Você possui ${saldo} un em estoque, o que garante cobertura para ${diasCob} dias. Comprar agora imobilizaria caixa desnecessariamente.`;
+        motivos.push(`Cobertura alta (${diasCob} dias de estoque)`);
+        motivos.push('Evitar acúmulo de estoque e vencimento');
+      } else {
+        if (melhorGeral && precoUltCompra > 0 && melhorGeral.preco <= precoUltCompra * 0.9) {
+          const desc = (((precoUltCompra - melhorGeral.preco) / precoUltCompra) * 100).toFixed(0);
+          statusVeredito = 'COMPRAR_AGORA';
+          corVeredito = 'emerald';
+          tituloVeredito = 'Oportunidade Comercial (Preço Baixo)';
+          detalheVeredito = `Embora tenha ${diasCob} dias de cobertura, o menor preço atual (${melhorGeral.nome} a R$ ${melhorGeral.preco.toFixed(2)}) está ${desc}% mais barato que sua última compra (R$ ${precoUltCompra.toFixed(2)}).`;
+          motivos.push(`Preço de oportunidade: -${desc}%`);
+        } else {
+          statusVeredito = 'AGUARDAR';
+          corVeredito = 'amber';
+          tituloVeredito = 'Aguardar Próxima Semana';
+          detalheVeredito = `Estoque atende a demanda da semana (${diasCob} dias de cobertura). Monitore o preço para a próxima reposição.`;
+          motivos.push(`Cobertura suficiente para os próximos ${diasCob} dias`);
+        }
+      }
+
+      res.json({
+        success: true,
+        encontrado: true,
+        produto: {
+          produto_id: prodPrincipal.produto_id,
+          descricao: prodPrincipal.descricao,
+          apresentacao: prodPrincipal.apresentacao,
+          ean: eanPrincipal,
+          curva_abc: curva,
+          categoria_id: prodPrincipal.categoria_id,
+          preco_venda: Number(prodPrincipal.preco_venda_vigente || 0)
+        },
+        estoque: {
+          saldo,
+          dias_cobertura: diasCob,
+          vmd_ponderado: vmd,
+          vendas_30d: vendas30,
+          is_falta: isFalta,
+          is_ruptura: diasCob <= 7
+        },
+        ultima_compra: {
+          preco: precoUltCompra,
+          fornecedor: prodPrincipal.ultima_compra_fornecedor || 'Não inf.',
+          data: prodPrincipal.ultima_compra_data || null,
+          nf: prodPrincipal.ultima_compra_nf || null
+        },
+        regras: {
+          nao_cotar: isNaoCotar,
+          nao_carrinho: isNaoCarrinho,
+          ja_pedido: isJaPedido,
+          adiado: isAdiado,
+          motivo_justificativa: regraProd?.motivo_justificativa || null
+        },
+        veredito: {
+          status: statusVeredito,
+          cor: corVeredito,
+          titulo: tituloVeredito,
+          detalhe: detalheVeredito,
+          motivos
+        },
+        cotacoes: {
+          melhor_geral: melhorGeral,
+          melhor_janela: melhorJanela,
+          portais: listaCotacoesPortais
+        },
+        outrosResultados
+      });
+
+    } catch (err) {
+      console.error('[BelaPed Pesquisa] Erro no endpoint /pesquisa-produto:', err.message);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * POST /api/belaped/adicionar-item-carrinho
+   * Adiciona um produto individual diretamente ao carrinho da distribuidora via robô RPA
+   * - Suporta limparAntes: boolean (se true, executa limparCarrinho() e confirma 0 itens antes)
+   */
+  router.post('/adicionar-item-carrinho', async (req, res) => {
+    try {
+      const { distribuidora, ean, quantidade = 1, descricao, limparAntes = false } = req.body;
+      const distNome = String(distribuidora || '').trim();
+      const eanLimpo = String(ean || '').trim();
+
+      if (!distNome || !eanLimpo) {
+        return res.status(400).json({ success: false, error: 'Distribuidora e EAN são obrigatórios.' });
+      }
+
+      const robot = obterInstanciaRobo(distNome);
+      if (!robot) {
+        return res.status(400).json({ success: false, error: `Robô não disponível para a distribuidora: ${distNome}` });
+      }
+
+      console.log(`[BelaPed Carrinho] Adicionando item único na ${distNome}: EAN ${eanLimpo} (${quantidade} un, limparAntes: ${limparAntes})...`);
+
+      await robot.iniciar();
+      try {
+        if (limparAntes && typeof robot.limparCarrinho === 'function') {
+          console.log(`[BelaPed Carrinho] Limpando carrinho da ${distNome} antes da inclusão...`);
+          await robot.limparCarrinho();
+        }
+
+        const qtdEfetiva = Math.max(1, Number(quantidade) || 1);
+        const resAdd = await robot.adicionarAoCarrinho(eanLimpo, qtdEfetiva, descricao || '');
+
+        await robot.fechar();
+
+        if (resAdd && resAdd.sucesso) {
+          return res.json({
+            success: true,
+            message: `✓ Produto adicionado com sucesso ao carrinho da ${distNome}!`,
+            detalhes: resAdd
+          });
+        } else {
+          return res.status(400).json({
+            success: false,
+            error: resAdd?.motivo || `Não foi possível incluir o item no carrinho da ${distNome}.`,
+            detalhes: resAdd
+          });
+        }
+      } catch (errRobo) {
+        await robot.fechar().catch(() => {});
+        throw errRobo;
+      }
+
+    } catch (err) {
+      console.error('[BelaPed Carrinho] Erro ao adicionar item avulso ao carrinho:', err.message);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
    * GET /api/belaped/faltas-7d
    * Retorna os produtos em ruptura ou com saldo crítico para reposição de 1 SEMANA (7 dias)
    * - Inclui Curva A e B sem corte artificial (sem LIMIT 200 que escondia a Curva B)
@@ -3321,12 +3663,13 @@ function belapedEndpoints(db) {
       }
       mapaPrioridadeEan[ean] = prio;
 
-      // Só entra na fila pendente se estiver em falta/ruptura E NÃO tiver sido cotado nas últimas 24h E NÃO estiver marcado para não cotar
-      if (!setDesejadosP1.has(ean) && (saldo <= 0 || saldo < estMin) && !eansCotadosHoje.has(ean) && !eansNaoCotar.has(ean)) {
-        if (prio === 'P1') p1List.push(ean);
-        else if (prio === 'P2') p2List.push(ean);
-        else if (prio === 'P3') p3List.push(ean);
-        else p4List.push(ean);
+      // NOVA ABORDAGEM: O robô só cota o CRÍTICO DA SEMANA (Curvas A e B com falta ou risco de ruptura <= 7 dias)
+      // e produtos solicitados sob demanda (P1 / eans explícitos). Não pesquisa mais a base inteira!
+      if (!setDesejadosP1.has(ean) && !eansCotadosHoje.has(ean) && !eansNaoCotar.has(ean)) {
+        if (isCurvaAlta && (saldo <= 0 || diasCob <= 7)) {
+          if (saldo <= 0) p1List.push(ean);
+          else p2List.push(ean);
+        }
       }
     }
 
@@ -3336,7 +3679,7 @@ function belapedEndpoints(db) {
       const semCotacaoHoje = filtrados.filter(e => !eansCotadosHoje.has(e));
       const comCotacaoHoje = filtrados.filter(e => eansCotadosHoje.has(e));
 
-      // Ordena os sem cotação pela Matriz de Gravidade Operacional (P1 -> P2 -> P3 -> P4)
+      // Ordena os sem cotação pela Matriz de Gravidade Operacional (P1 -> P2)
       const pesoPrio = { P1: 1, P2: 2, P3: 3, P4: 4 };
       semCotacaoHoje.sort((a, b) => (pesoPrio[mapaPrioridadeEan[a] || 'P4'] - pesoPrio[mapaPrioridadeEan[b] || 'P4']));
 
@@ -3347,16 +3690,9 @@ function belapedEndpoints(db) {
         filaPrioritaria = p1List;
       } else if (prioridadeFiltro === 'P2') {
         filaPrioritaria = p2List;
-      } else if (prioridadeFiltro === 'P3') {
-        filaPrioritaria = p3List;
-      } else if (prioridadeFiltro === 'P4') {
-        filaPrioritaria = p4List;
-      } else if (prioridadeFiltro === 'TODAS_PRIORITARIAS') {
-        filaPrioritaria = [...p1List, ...p2List, ...p3List];
-        if (filaPrioritaria.length === 0) filaPrioritaria = p4List;
       } else {
-        // Cota toda a fila pendente em ordem natural de gravidade: P1 -> P2 -> P3 -> P4 (Cotar Tudo)
-        filaPrioritaria = [...p1List, ...p2List, ...p3List, ...p4List];
+        // Nova Abordagem: Apenas os críticos da semana (P1 e P2). O robô não pesquisa mais P3/P4 indiscriminadamente!
+        filaPrioritaria = [...p1List, ...p2List];
       }
       listaEans = filaPrioritaria.slice(0, limiteEfetivo);
     }
