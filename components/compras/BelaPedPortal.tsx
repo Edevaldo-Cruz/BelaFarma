@@ -1490,7 +1490,6 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       'MG MEDICAMENTOS': 300,
       'MGMEDICAMENTOS': 300,
       'MG': 300,
-      'STOCKFARMA': 300,
       'ORGAFARMA': 300,
       'FARMIX': 300,
       'HYMPARHUB': 300,
@@ -2416,10 +2415,9 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     else if (dist.includes('DISTRIMED')) endpoint = '/api/belaped/importar-carrinho-distrimed';
     else if (dist.includes('DIVIMED')) endpoint = '/api/belaped/montar-carrinho-divimed';
     else if (dist.includes('MARTINS')) endpoint = '/api/belaped/montar-carrinho-martins';
-    else if (dist.includes('ORIENTE')) endpoint = '/api/belaped/montar-carrinho-oriente';
+    else if (dist.includes('ORIENTE') || dist.includes('STOCKFARMA') || dist.includes('STOCK')) endpoint = '/api/belaped/montar-carrinho-oriente';
     else if (dist.includes('PANPHARMA') || dist.includes('PANFARMA')) endpoint = '/api/belaped/montar-carrinho-panpharma';
     else if (dist.includes('MG MEDICAMENTOS') || dist.includes('MGMEDICAMENTOS') || dist.startsWith('MG')) endpoint = '/api/belaped/montar-carrinho-mgmedicamentos';
-    else if (dist.includes('STOCKFARMA') || dist.includes('STOCK')) endpoint = '/api/belaped/montar-carrinho-stockfarma';
     else if (dist.includes('ORGAFARMA') || dist.includes('ORGA')) endpoint = '/api/belaped/montar-carrinho-orgafarma';
     else if (dist.includes('FARMIX')) endpoint = '/api/belaped/montar-carrinho-farmix';
     else if (dist.includes('HYMPAR')) endpoint = '/api/belaped/montar-carrinho-hympar';
@@ -2654,7 +2652,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
 
   // Iniciar Cotação ao Vivo com o Robô Puppeteer (13 Portais)
   const handleIniciarCotacaoAoVivo = async (
-    fornecedor: 'PROFARMA' | 'DPC' | 'SOTON' | 'DISTRIMED' | 'DIVIMED' | 'MARTINS' | 'ORIENTE' | 'PANPHARMA' | 'MG MEDICAMENTOS' | 'STOCKFARMA' | 'ORGAFARMA' | 'FARMIX' | 'HYMPARHUB' | 'TODOS' = 'TODOS',
+    fornecedor: 'PROFARMA' | 'DPC' | 'SOTON' | 'DISTRIMED' | 'DIVIMED' | 'MARTINS' | 'ORIENTE' | 'PANPHARMA' | 'MG MEDICAMENTOS' | 'ORGAFARMA' | 'FARMIX' | 'HYMPARHUB' | 'TODOS' = 'TODOS',
     tamanhoLote: number = 40,
     prioridadeFiltro?: 'P1' | 'P2' | 'P3' | 'P4' | 'TODAS_PRIORITARIAS' | 'TODOS',
     eansEspecificos?: string[]
@@ -3935,8 +3933,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
 
   // Lista unificada de Módulos para Navegação Desktop e Mobile
   const modulosNav = useMemo(() => [
-    { id: 'pesquisa_precos' as const, label: '🔍 Pesquisa de Preços', shortLabel: 'Pesquisa', icon: <Search className="w-4 h-4 text-cyan-400" />, badge: 0 },
-    { id: 'decisao' as const, label: '🎯 Decisão de Compras', shortLabel: 'Decisão', icon: <Sparkles className="w-4 h-4 text-amber-400" />, badge: itensPendentesDecisaoCount },
+    { id: 'decisao' as const, label: '🎯 Orçamento Semanal & Decisão', shortLabel: 'Orçamento & Decisão', icon: <Sparkles className="w-4 h-4 text-amber-400" />, badge: itensPendentesDecisaoCount },
     { id: 'cotacoes_matriz' as const, label: '📊 Tabela de Cotações', shortLabel: 'Cotações', icon: <Table className="w-4 h-4 text-emerald-400" />, badge: 0 },
     { id: 'faltas' as const, label: '1. Extrema Necessidade', shortLabel: 'Extrema Necessidade', icon: <AlertTriangle className="w-4 h-4 text-amber-400" />, badge: faltas.length },
     { id: 'cotacao' as const, label: '2. Portais & Carrinho', shortLabel: 'Portais', icon: <Globe className="w-4 h-4 text-blue-400" />, badge: carrinhosOtimizados.length },
@@ -4473,7 +4470,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
           />
         )}
 
-        {/* ─── ABA 0: DECISÃO DE COMPRAS (CARROSSEL FOCAL PRODUTO A PRODUTO) ─── */}
+        {/* ─── ABA 0: ORÇAMENTO SEMANAL & DECISÃO DE COMPRAS (GRADE & CARROSSEL) ─── */}
         {activeTab === 'decisao' && (
           <BelaPedDecisaoTab
             faltas={faltas}
@@ -4486,6 +4483,9 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
             onAbrirVerCarrinhos={handleAbrirModalVerCarrinhos}
             onNavegarTab={setActiveTab}
             onRecarregarDados={carregarDados}
+            orcamentoInfo={orcamentoInfo}
+            janelaAlvoSelecionada={janelaAlvoSelecionada}
+            setJanelaAlvoSelecionada={setJanelaAlvoSelecionada}
           />
         )}
 

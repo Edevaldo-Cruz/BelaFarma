@@ -467,7 +467,6 @@ function belapedEndpoints(db) {
       { id: 'oriente', nome: 'ORIENTE FARMA', url: 'https://pedidoweb.orientefarma.com.br/auth/login', usuario: 'belafarmasul@gmail.com', min: 150.0, prazo: 28, uf: 'MG', is_mg: 1, obs: 'Distribuidora Oficial - Condições: Geral (96), Verão (4774) e Unilever (18)' },
       { id: 'panpharma', nome: 'PANPHARMA', url: 'http://digitadorpan.stcruz.com.br', usuario: '528854', min: 300.0, prazo: 28, uf: 'MG', is_mg: 1, obs: 'Distribuidora Oficial - ePan Pedido Eletrônico e cotação via API direta' },
       { id: 'mgmedicamentos', nome: 'MG MEDICAMENTOS', url: 'http://www.mgmedicamentos.com.br/pedido/criar/az/00', usuario: 'DSAPPWJ', min: 300.0, prazo: 28, uf: 'MG', is_mg: 1, obs: 'Distribuidora Oficial - Catálogo instantâneo em memória e pedido online' },
-      { id: 'stockfarma', nome: 'STOCKFARMA', url: 'https://portal.stockfarma.com.br/pedido/criar/6948/12', usuario: 'HCAC542', min: 300.0, prazo: 28, uf: 'MG', is_mg: 1, obs: 'Distribuidora Oficial - Catálogo instantâneo em memória e pedido online' },
       { id: 'orgafarma', nome: 'ORGAFARMA', url: 'https://grupoorgafarma.com.br/pedido/criar/89699/4939', usuario: 'primusdrogaria2022@gmail.com', min: 300.0, prazo: 28, uf: 'MG', is_mg: 1, obs: 'Distribuidora Oficial - Catálogo AZ e campanha Germed online' },
       { id: 'farmix', nome: 'FARMIX', url: 'https://portal.farmixon.com.br/pedido/criar/TABPE/76', usuario: 'belafarmasul@gmail.com', min: 300.0, prazo: 28, uf: 'MG', is_mg: 1, obs: 'Distribuidora Oficial - Portal Farmix Pedido Eletrônico' },
       { id: 'hympar', nome: 'HYMPARHUB', url: 'https://hymparhub.com.br/', usuario: 'primusdrogaria2022@gmail.com', min: 300.0, prazo: 28, uf: 'MG', is_mg: 1, obs: 'Distribuidora Oficial - Hypera Pharma B2B' }
@@ -489,8 +488,10 @@ function belapedEndpoints(db) {
       stmtUpsert.run(p.id, p.nome, p.url, p.usuario, p.min, p.prazo, p.uf, p.is_mg, p.obs);
     }
 
-    // Remove qualquer distribuidora não configurada (garante apenas as 13 oficiais)
-    db.prepare(`DELETE FROM belaped_portais WHERE id NOT IN ('profarma', 'dpc', 'soton', 'distrimed', 'divimed', 'martins', 'oriente', 'panpharma', 'mgmedicamentos', 'stockfarma', 'orgafarma', 'farmix', 'hympar')`).run();
+    // Remove Stockfarma/Stocker (mesma empresa que Oriente Farma) e portais não configurados
+    db.prepare(`DELETE FROM belaped_portais WHERE id = 'stockfarma' OR UPPER(nome) LIKE '%STOCKFARMA%'`).run();
+    db.prepare(`DELETE FROM belaped_cotacoes_reais WHERE UPPER(fornecedor) LIKE '%STOCKFARMA%'`).run();
+    db.prepare(`DELETE FROM belaped_portais WHERE id NOT IN ('profarma', 'dpc', 'soton', 'distrimed', 'divimed', 'martins', 'oriente', 'panpharma', 'mgmedicamentos', 'orgafarma', 'farmix', 'hympar')`).run();
 
     // Migração transparente: Coluna url_produto para salvar link direto do produto pesquisado pelo robô
     try {
@@ -1165,6 +1166,25 @@ function belapedEndpoints(db) {
         }
       } catch (e) {}
 
+      // Mapeamento de Melhor Dia Histórico de Compra por EAN (menor média de preço registrada)
+      const melhorDiaPorEanMap = new Map();
+      try {
+        const DIAS_SEMANA_NOMES = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
+        const rowsMelhorDia = db.prepare(`
+          SELECT ean, dia_semana, AVG(preco) as media_preco
+          FROM belaped_precos_historico_diario
+          WHERE preco > 0
+          GROUP BY ean, dia_semana
+          ORDER BY media_preco ASC
+        `).all();
+        for (const row of rowsMelhorDia) {
+          const eanTrim = String(row.ean).trim();
+          if (!melhorDiaPorEanMap.has(eanTrim)) {
+            melhorDiaPorEanMap.set(eanTrim, DIAS_SEMANA_NOMES[row.dia_semana] || 'Terça-feira');
+          }
+        }
+      } catch (eMdia) {}
+
       // Mapeamento de Fotos dos Produtos (scraped_images + uploads físicos)
       const fotoEanMap = new Map();
       const fotoNameList = [];
@@ -1515,6 +1535,9 @@ function belapedEndpoints(db) {
         let fornecedor2 = '';
         let preco2 = 0;
         let urlProduto2 = null;
+        let fornecedor3 = '—';
+        let preco3 = 0;
+        let urlProduto3 = null;
         let fornecedor2Ref = null;
         let preco2Ref = 0;
         let diferencaPct = 0;
@@ -1568,6 +1591,12 @@ function belapedEndpoints(db) {
               }
             }
           }
+
+          if (cotacoesFiltradasJanela.length > 2) {
+            fornecedor3 = cotacoesFiltradasJanela[2].fornecedor;
+            preco3 = Number(cotacoesFiltradasJanela[2].preco.toFixed(2));
+            urlProduto3 = cotacoesFiltradasJanela[2].url_produto || gerarUrlDistribuidoraProduto(fornecedor3, r.ean, r.descricao);
+          }
         } else if (jaConsultado) {
           fornecedor1 = 'Sem Estoque (Portais)';
           preco1 = Number(custo.toFixed(2));
@@ -1575,6 +1604,9 @@ function belapedEndpoints(db) {
           fornecedor2 = '—';
           preco2 = 0;
           urlProduto2 = null;
+          fornecedor3 = '—';
+          preco3 = 0;
+          urlProduto3 = null;
           diferencaPct = 0;
         } else {
           fornecedor1 = 'Não Cotado';
@@ -1583,6 +1615,9 @@ function belapedEndpoints(db) {
           fornecedor2 = '—';
           preco2 = 0;
           urlProduto2 = null;
+          fornecedor3 = '—';
+          preco3 = 0;
+          urlProduto3 = null;
           diferencaPct = 0;
         }
 
@@ -1741,6 +1776,10 @@ function belapedEndpoints(db) {
           fornecedor_2: fornecedor2,
           preco_2: preco2,
           url_produto_2: urlProduto2,
+          fornecedor_3: fornecedor3,
+          preco_3: preco3,
+          url_produto_3: urlProduto3,
+          melhor_dia_semana: (r.ean && melhorDiaPorEanMap.get(String(r.ean).trim())) || 'Terça-feira',
           fornecedor_2_ref: fornecedor2Ref,
           preco_2_ref: preco2Ref,
           condicao_comercial_1: cotacoesReais && cotacoesReais[0] ? (cotacoesReais[0].condicao_comercial || null) : null,
@@ -4667,7 +4706,6 @@ function belapedEndpoints(db) {
         'ORIENTE FARMA',
         'PANPHARMA',
         'MG MEDICAMENTOS',
-        'STOCKFARMA',
         'ORGAFARMA',
         'FARMIX',
         'HYMPARHUB'
@@ -4780,10 +4818,9 @@ function belapedEndpoints(db) {
         if (n.includes('SOTON')) return 'SOTON FARMA';
         if (n.includes('DIVIMED')) return 'DIVIMED';
         if (n.includes('MARTINS')) return 'MARTINS ATACADO';
-        if (n.includes('ORIENTE')) return 'ORIENTE FARMA';
+        if (n.includes('ORIENTE') || n.includes('STOCKFARMA') || n.includes('STOCK')) return 'ORIENTE FARMA';
         if (n.includes('PANPHARMA') || n.includes('EPAN')) return 'PANPHARMA';
         if (n.includes('MG MEDICAMENTOS') || n.includes('MG MEDIC')) return 'MG MEDICAMENTOS';
-        if (n.includes('STOCKFARMA') || n.includes('STOCK')) return 'STOCKFARMA';
         if (n.includes('ORGAFARMA') || n.includes('ORGA')) return 'ORGAFARMA';
         if (n.includes('FARMIX')) return 'FARMIX';
         if (n.includes('HYMPAR')) return 'HYMPARHUB';
@@ -5379,7 +5416,7 @@ function belapedEndpoints(db) {
   /**
    * Garante que múltiplos portais estejam confirmados com 0 itens antes da criação de pedidos.
    */
-  async function garantirCarrinhosVazios(portaisAlvo = ['soton', 'divimed', 'distrimed', 'profarma', 'dpc', 'martins', 'oriente', 'panpharma', 'mgmedicamentos', 'stockfarma', 'orgafarma', 'farmix', 'hympar']) {
+  async function garantirCarrinhosVazios(portaisAlvo = ['soton', 'divimed', 'distrimed', 'profarma', 'dpc', 'martins', 'oriente', 'panpharma', 'mgmedicamentos', 'orgafarma', 'farmix', 'hympar']) {
     console.log(`[BelaPed Segurança] 🛡️ Verificando e garantindo carrinhos limpos para: ${portaisAlvo.join(', ')}...`);
     const resultados = [];
 
@@ -5391,13 +5428,13 @@ function belapedEndpoints(db) {
         case 'profarma': return new ProfarmaRobot({ headless: true });
         case 'dpc': return new DpcRobot({ headless: true });
         case 'martins': return new MartinsRobot({ headless: true });
-        case 'oriente': return new OrienteRobot({ headless: true });
+        case 'oriente':
+        case 'stockfarma':
+        case 'stock': return new OrienteRobot({ headless: true });
         case 'panpharma':
         case 'panfarma': return new PanpharmaRobot();
         case 'mgmedicamentos':
         case 'mg': return new MgMedicamentosRobot();
-        case 'stockfarma':
-        case 'stock': return new StockfarmaRobot();
         case 'orgafarma':
         case 'orga': return new OrgafarmaRobot();
         case 'farmix': return new FarmixRobot();
@@ -8103,10 +8140,9 @@ function belapedEndpoints(db) {
     if (p.includes('MARTINS')) return new MartinsRobot(options);
     if (p.includes('DISTRIMED')) return new DistrimedRobot(options);
     if (p.includes('DIVIMED')) return new DivimedRobot(options);
-    if (p.includes('ORIENTE')) return new OrienteRobot(options);
+    if (p.includes('ORIENTE') || p.includes('STOCKFARMA') || p.includes('STOCK')) return new OrienteRobot(options);
     if (p.includes('PANPHARMA') || p.includes('PANFARMA')) return new PanpharmaRobot(options);
     if (p.includes('MG MEDICAMENTOS') || p.includes('MGMEDICAMENTOS') || p.startsWith('MG')) return new MgMedicamentosRobot(options);
-    if (p.includes('STOCKFARMA') || p.includes('STOCK')) return new StockfarmaRobot(options);
     if (p.includes('ORGAFARMA') || p.includes('ORGA')) return new OrgafarmaRobot(options);
     if (p.includes('FARMIX')) return new FarmixRobot(options);
     if (p.includes('HYMPAR')) return new HymparRobot(options);
