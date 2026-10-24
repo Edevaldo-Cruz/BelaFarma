@@ -1,6 +1,6 @@
 {
   "version": "1.1.0",
-  "commitHash": "b9ed444",
-  "commitMessage": "fix(belaped): ajustar cotacao Panpharma para considerar Preco NF com ST e corrigir mapeamento de estoque",
-  "buildTime": "23/10/2026, 15:32:24"
+  "commitHash": "09d459c",
+  "commitMessage": "fix(belaped): previne substituicao indevida de EAN na matriz e adiciona encerramento gracioso no server",
+  "buildTime": "24/10/2026, 09:52:22"
 }

@@ -449,6 +449,13 @@ function belapedEndpoints(db) {
       // Coluna já existe
     }
 
+    // Migração transparente: Coluna ja_pedido_ate para marcar item como já solicitado
+    try {
+      db.prepare(`ALTER TABLE belaped_produtos_regras ADD COLUMN ja_pedido_ate TEXT`).run();
+    } catch (migJaPedErr) {
+      // Coluna já existe
+    }
+
     // Cadastra e sincroniza as 13 distribuidoras oficiais configuradas
     const portaisReais = [
       { id: 'profarma', nome: 'PROFARMA', url: 'https://pedido.profarma.com.br/?callbackUrl=%2Fnovo-pedido', usuario: '47378578000140', min: 150.0, prazo: 35, uf: 'MG', is_mg: 1, obs: 'Distribuidora Oficial - Importação via planilha CSV e cotação robótica' },
@@ -735,16 +742,64 @@ function belapedEndpoints(db) {
         }
       } catch (eUc) {}
 
-      // Regras e preferências de produtos (não cotar, não colocar no carrinho, justificativas, adiar e enviado ao carrinho na semana)
+      // Regras e preferências de produtos (não cotar, não colocar no carrinho, justificativas, adiar, já pedido e enviado ao carrinho na semana)
       const regrasMap = {};
       try {
-        const rowsRegras = db.prepare(`SELECT chave_regra, ean, produto_id, nao_cotar, nao_carrinho, motivo_justificativa, adiar_ate, enviado_carrinho_ate FROM belaped_produtos_regras`).all();
+        const rowsRegras = db.prepare(`SELECT chave_regra, ean, produto_id, nao_cotar, nao_carrinho, motivo_justificativa, adiar_ate, enviado_carrinho_ate, ja_pedido_ate FROM belaped_produtos_regras`).all();
         for (const reg of rowsRegras) {
           if (reg.ean) regrasMap[reg.ean] = reg;
           if (reg.produto_id) regrasMap[`ID_${reg.produto_id}`] = reg;
           if (reg.chave_regra) regrasMap[reg.chave_regra] = reg;
         }
       } catch (e) {}
+
+      // Itens pedidos recentemente (últimos 7 dias) no sistema BelaPed
+      const pedidosRecentesMap = new Map();
+      try {
+        const rowsPedidosRecentes = db.prepare(`
+          SELECT pi.ean, p.distribuidora, p.created_at, p.numero_pedido_portal, pi.qtd_pedida, pi.preco_cotado
+          FROM belaped_pedidos_itens pi
+          JOIN belaped_pedidos p ON p.id = pi.pedido_id
+          WHERE pi.ean IS NOT NULL AND pi.ean != ''
+            AND date(p.created_at) >= date('now', '-7 days')
+            AND LOWER(COALESCE(p.status, '')) NOT IN ('cancelado', 'rejeitado')
+          ORDER BY p.created_at DESC
+        `).all();
+        for (const pr of rowsPedidosRecentes) {
+          const eanTrim = String(pr.ean).trim();
+          if (!pedidosRecentesMap.has(eanTrim)) {
+            pedidosRecentesMap.set(eanTrim, pr);
+          }
+        }
+      } catch (ePr) {}
+
+      // Janela Alvo de Orçamento (Ex: '2027-01')
+      const janelaMes = req.query.janelaMes ? String(req.query.janelaMes).trim() : null;
+      let targetAnoJanela = null;
+      let targetMesJanela = null;
+      const distribuidorasElegiveisJanelaSet = new Set();
+
+      if (janelaMes && janelaMes.includes('-')) {
+        const partesJ = janelaMes.split('-');
+        targetAnoJanela = Number(partesJ[0]);
+        targetMesJanela = Number(partesJ[1]);
+        if (targetAnoJanela > 2020 && targetMesJanela >= 1 && targetMesJanela <= 12) {
+          try {
+            const portaisAtivos = db.prepare(`SELECT nome, pedido_minimo, prazo_dias_padrao, prazos_boleto FROM belaped_portais WHERE is_ativo = 1`).all();
+            const hojeCalc = new Date();
+            portaisAtivos.forEach(p => {
+              const dias = extrairDiasDePrazos(p.prazos_boleto, p.prazo_dias_padrao);
+              const alcanca = dias.some(d => {
+                const dt = new Date(hojeCalc.getTime() + d * 86400000);
+                return (dt.getMonth() + 1 === targetMesJanela && dt.getFullYear() === targetAnoJanela);
+              }) || (String(p.nome).toUpperCase() === 'DISTRIMED');
+              if (alcanca) {
+                distribuidorasElegiveisJanelaSet.add(String(p.nome).toUpperCase());
+              }
+            });
+          } catch (ePortais) {}
+        }
+      }
 
       // Itens que já entraram no carrinho na semana atual (segunda a domingo)
       const eansNoCarrinhoSemanaSet = new Set();
@@ -1121,16 +1176,41 @@ function belapedEndpoints(db) {
         let fornecedor2Ref = null;
         let preco2Ref = 0;
         let diferencaPct = 0;
+        let melhorForaJanela = null;
 
-        if (cotacoesReais && cotacoesReais.length > 0) {
-          fornecedor1 = cotacoesReais[0].fornecedor;
-          preco1 = Number(cotacoesReais[0].preco.toFixed(2));
-          urlProduto1 = cotacoesReais[0].url_produto || gerarUrlDistribuidoraProduto(fornecedor1, r.ean, r.descricao);
+        // Se uma janela específica estiver selecionada e tiver distribuidoras elegíveis
+        let cotacoesFiltradasJanela = cotacoesReais;
+        if (cotacoesReais && cotacoesReais.length > 0 && distribuidorasElegiveisJanelaSet.size > 0) {
+          const naJanela = cotacoesReais.filter(c => distribuidorasElegiveisJanelaSet.has(String(c.fornecedor).toUpperCase()));
+          if (naJanela.length > 0) {
+            cotacoesFiltradasJanela = naJanela;
+            const melhorGlobal = cotacoesReais[0];
+            if (String(melhorGlobal.fornecedor).toUpperCase() !== String(naJanela[0].fornecedor).toUpperCase() && melhorGlobal.preco < naJanela[0].preco) {
+              melhorForaJanela = {
+                distribuidora: melhorGlobal.fornecedor,
+                preco: Number(melhorGlobal.preco.toFixed(2)),
+                motivo: `Menor preço em portal com vencimento fora de ${janelaMes}`
+              };
+            }
+          } else {
+            // Nenhuma distribuidora na janela tem estoque
+            melhorForaJanela = {
+              distribuidora: cotacoesReais[0].fornecedor,
+              preco: Number(cotacoesReais[0].preco.toFixed(2)),
+              motivo: `Fora da janela (sem estoque nas empresas da janela)`
+            };
+          }
+        }
 
-          if (cotacoesReais.length > 1) {
-            fornecedor2 = cotacoesReais[1].fornecedor;
-            preco2 = Number(cotacoesReais[1].preco.toFixed(2));
-            urlProduto2 = cotacoesReais[1].url_produto || gerarUrlDistribuidoraProduto(fornecedor2, r.ean, r.descricao);
+        if (cotacoesFiltradasJanela && cotacoesFiltradasJanela.length > 0) {
+          fornecedor1 = cotacoesFiltradasJanela[0].fornecedor;
+          preco1 = Number(cotacoesFiltradasJanela[0].preco.toFixed(2));
+          urlProduto1 = cotacoesFiltradasJanela[0].url_produto || gerarUrlDistribuidoraProduto(fornecedor1, r.ean, r.descricao);
+
+          if (cotacoesFiltradasJanela.length > 1) {
+            fornecedor2 = cotacoesFiltradasJanela[1].fornecedor;
+            preco2 = Number(cotacoesFiltradasJanela[1].preco.toFixed(2));
+            urlProduto2 = cotacoesFiltradasJanela[1].url_produto || gerarUrlDistribuidoraProduto(fornecedor2, r.ean, r.descricao);
             diferencaPct = preco1 > 0 ? Number((((preco2 - preco1) / preco1) * 100).toFixed(1)) : 0;
           } else {
             fornecedor2 = '—';
@@ -1359,6 +1439,19 @@ function belapedEndpoints(db) {
           motivo_justificativa: regProd?.motivo_justificativa || '',
           adiar_ate: regProd?.adiar_ate || null,
           is_adiado_proxima_semana: Boolean(regProd?.adiar_ate && String(regProd.adiar_ate) >= hojeIso),
+          ja_pedido_ate: regProd?.ja_pedido_ate || null,
+          is_ja_pedido: Boolean((regProd?.ja_pedido_ate && String(regProd.ja_pedido_ate) >= hojeIso) || (r.ean && pedidosRecentesMap.has(String(r.ean).trim()))),
+          ja_pedido_detalhe: (r.ean && pedidosRecentesMap.has(String(r.ean).trim()))
+            ? {
+                automatico: true,
+                distribuidora: pedidosRecentesMap.get(String(r.ean).trim()).distribuidora,
+                data: pedidosRecentesMap.get(String(r.ean).trim()).created_at ? new Date(pedidosRecentesMap.get(String(r.ean).trim()).created_at).toLocaleDateString('pt-BR') : '',
+                numero_pedido: pedidosRecentesMap.get(String(r.ean).trim()).numero_pedido_portal || null
+              }
+            : (regProd?.ja_pedido_ate && String(regProd.ja_pedido_ate) >= hojeIso)
+            ? { automatico: false, motivo: 'Marcado manualmente' }
+            : null,
+          melhor_fora_janela: melhorForaJanela,
           enviado_carrinho_ate: enviadoAte,
           is_enviado_carrinho_semana: isEnviadoCarrinhoSemana,
           falta_balcao_belinha: faltaBelinhaMatch ? {
@@ -1644,7 +1737,7 @@ function belapedEndpoints(db) {
   router.get('/produtos-regras', (req, res) => {
     try {
       const rows = db.prepare(`
-        SELECT chave_regra, ean, produto_id, descricao, nao_cotar, nao_carrinho, motivo_justificativa, atualizado_por, atualizado_em
+        SELECT chave_regra, ean, produto_id, descricao, nao_cotar, nao_carrinho, motivo_justificativa, adiar_ate, ja_pedido_ate, atualizado_por, atualizado_em
         FROM belaped_produtos_regras
         ORDER BY atualizado_em DESC
       `).all();
@@ -1657,11 +1750,11 @@ function belapedEndpoints(db) {
 
   /**
    * POST /api/belaped/produtos-regras
-   * Salva ou atualiza a preferência do produto (não cotar, não colocar no carrinho, justificativa)
+   * Salva ou atualiza a preferência do produto (não cotar, não colocar no carrinho, justificativa, adiar, já pedido)
    */
   router.post('/produtos-regras', (req, res) => {
     try {
-      const { ean, produto_id, descricao, nao_cotar, nao_carrinho, motivo_justificativa, adiar_ate, usuario } = req.body;
+      const { ean, produto_id, descricao, nao_cotar, nao_carrinho, motivo_justificativa, adiar_ate, ja_pedido_ate, usuario } = req.body;
       const eanLimpo = String(ean || '').trim();
       const pidNum = produto_id ? Number(produto_id) : null;
       const chaveRegra = eanLimpo || (pidNum ? `ID_${pidNum}` : null);
@@ -1671,8 +1764,8 @@ function belapedEndpoints(db) {
       }
 
       const stmt = db.prepare(`
-        INSERT INTO belaped_produtos_regras (chave_regra, ean, produto_id, descricao, nao_cotar, nao_carrinho, motivo_justificativa, adiar_ate, atualizado_por, atualizado_em)
-        VALUES (@chave_regra, @ean, @produto_id, @descricao, @nao_cotar, @nao_carrinho, @motivo_justificativa, @adiar_ate, @atualizado_por, datetime('now', 'localtime'))
+        INSERT INTO belaped_produtos_regras (chave_regra, ean, produto_id, descricao, nao_cotar, nao_carrinho, motivo_justificativa, adiar_ate, ja_pedido_ate, atualizado_por, atualizado_em)
+        VALUES (@chave_regra, @ean, @produto_id, @descricao, @nao_cotar, @nao_carrinho, @motivo_justificativa, @adiar_ate, @ja_pedido_ate, @atualizado_por, datetime('now', 'localtime'))
         ON CONFLICT(chave_regra) DO UPDATE SET
           ean = COALESCE(excluded.ean, belaped_produtos_regras.ean),
           produto_id = COALESCE(excluded.produto_id, belaped_produtos_regras.produto_id),
@@ -1681,6 +1774,7 @@ function belapedEndpoints(db) {
           nao_carrinho = excluded.nao_carrinho,
           motivo_justificativa = excluded.motivo_justificativa,
           adiar_ate = excluded.adiar_ate,
+          ja_pedido_ate = excluded.ja_pedido_ate,
           atualizado_por = excluded.atualizado_por,
           atualizado_em = excluded.atualizado_em
       `);
@@ -1694,6 +1788,7 @@ function belapedEndpoints(db) {
         nao_carrinho: nao_carrinho ? 1 : 0,
         motivo_justificativa: String(motivo_justificativa || '').trim(),
         adiar_ate: adiar_ate ? String(adiar_ate).trim() : null,
+        ja_pedido_ate: ja_pedido_ate ? String(ja_pedido_ate).trim() : null,
         atualizado_por: usuario || 'Farmacêutico/Gestor'
       });
 
@@ -1707,7 +1802,8 @@ function belapedEndpoints(db) {
           nao_cotar: Boolean(nao_cotar),
           nao_carrinho: Boolean(nao_carrinho),
           motivo_justificativa: String(motivo_justificativa || '').trim(),
-          adiar_ate: adiar_ate || null
+          adiar_ate: adiar_ate || null,
+          ja_pedido_ate: ja_pedido_ate || null
         }
       });
     } catch (err) {
@@ -1848,6 +1944,24 @@ function belapedEndpoints(db) {
           };
         });
 
+        const cotaSemanalLivre = Math.max(0, Number((saldoLivre / qtdSemanas).toFixed(2)));
+        const cotaSemanalSegura = Math.max(0, Number((cotaSemanalLivre * 0.8).toFixed(2)));
+        const reservaSeguranca = Math.max(0, Number((cotaSemanalLivre * 0.2).toFixed(2)));
+
+        // Distribuidoras elegíveis que possuem faturamento alcançando este mês
+        const portaisAtivos = db.prepare(`SELECT nome, pedido_minimo, prazo_dias_padrao, prazos_boleto FROM belaped_portais WHERE is_ativo = 1`).all();
+        const distribuidorasElegiveis = [];
+        portaisAtivos.forEach(p => {
+          const dias = extrairDiasDePrazos(p.prazos_boleto, p.prazo_dias_padrao);
+          const alcanca = dias.some(d => {
+            const dt = new Date(hoje.getTime() + d * 86400000);
+            return (dt.getMonth() + 1 === mesNum && dt.getFullYear() === anoNum);
+          }) || (String(p.nome).toUpperCase() === 'DISTRIMED');
+          if (alcanca) {
+            distribuidorasElegiveis.push(p.nome);
+          }
+        });
+
         const semanaAtualVigente = semanas.find(s => s.isSemanaAtual) || semanas[0];
 
         return {
@@ -1863,6 +1977,10 @@ function belapedEndpoints(db) {
           saldoLivre: Number(saldoLivre.toFixed(2)),
           percentualComprometido,
           statusOrcamento,
+          cotaSemanalLivre,
+          cotaSemanalSegura,
+          reservaSeguranca,
+          distribuidorasElegiveis,
           qtdBoletos: boletosDoMes.length,
           semanas,
           semanaAtual: semanaAtualVigente
@@ -1882,6 +2000,22 @@ function belapedEndpoints(db) {
       const todosMesesAno = [];
       for (let m = 1; m <= 12; m++) {
         todosMesesAno.push(calcularMes(m, anoAtual));
+      }
+
+      // Janelas rolantes para os próximos 6 meses (atravessando virada de ano, ex: Out/26 a Mar/27)
+      const janelasDisponiveis = [];
+      for (let i = 0; i < 6; i++) {
+        const d = new Date(anoAtual, (mesAtual - 1) + i, 1);
+        const mNum = d.getMonth() + 1;
+        const aNum = d.getFullYear();
+        const mCalc = calcularMes(mNum, aNum);
+        const nomeCap = mCalc.nomeMes.charAt(0).toUpperCase() + mCalc.nomeMes.slice(1);
+        janelasDisponiveis.push({
+          chave: `${aNum}-${String(mNum).padStart(2, '0')}`,
+          label: `${nomeCap} / ${aNum}`,
+          isMesAtual: i === 0,
+          ...mCalc
+        });
       }
 
       // Dias restantes no mês atual
@@ -1919,7 +2053,8 @@ function belapedEndpoints(db) {
         proximoMes: mes1,
         mesSeguinte: mes2,
         semanaAtual: mes0.semanaAtual,
-        todosMesesAno
+        todosMesesAno,
+        janelasDisponiveis
       });
     } catch (err) {
       console.error('[BelaPed] Erro em orcamento-boletos:', err.message);

@@ -60,7 +60,8 @@ import {
   Trash2,
   Check,
   Copy,
-  Menu
+  Menu,
+  PackageCheck
 } from 'lucide-react';
 import { User } from '../../types';
 import { useToast } from '../ToastContext';
@@ -137,6 +138,20 @@ interface FaltaItem7d {
   motivo_justificativa?: string;
   adiar_ate?: string | null;
   is_adiado_proxima_semana?: boolean;
+  ja_pedido_ate?: string | null;
+  is_ja_pedido?: boolean;
+  ja_pedido_detalhe?: {
+    automatico: boolean;
+    distribuidora?: string;
+    data?: string;
+    numero_pedido?: string | null;
+    motivo?: string;
+  } | null;
+  melhor_fora_janela?: {
+    distribuidora: string;
+    preco: number;
+    motivo: string;
+  } | null;
   ranking_posicao?: number;
   score_ranking?: number;
   todas_cotacoes_reais?: Array<{ distribuidora: string; preco: number }>;
@@ -215,8 +230,35 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     mesSeguinte: MesOrcamento | null;
     semanaAtual?: any;
     todosMesesAno?: MesOrcamento[];
+    janelasDisponiveis?: Array<{
+      chave: string;
+      label: string;
+      isMesAtual: boolean;
+      mes: number;
+      ano: number;
+      nomeMes: string;
+      limite: number;
+      limiteSemanalPadrao: number;
+      qtdSemanas: number;
+      totalComprometido: number;
+      saldoLivre: number;
+      statusOrcamento: 'LIBERADO' | 'ALERTA' | 'ESTOURADO';
+      cotaSemanalLivre: number;
+      cotaSemanalSegura: number;
+      reservaSeguranca: number;
+      distribuidorasElegiveis: string[];
+    }>;
     ano?: number;
   } | null>(null);
+
+  // Janela Alvo de Orçamento Ativa (Ex: '2027-01' ou primeiro mês liberado)
+  const [janelaAlvoSelecionada, setJanelaAlvoSelecionada] = useState<string>(() => {
+    try {
+      return localStorage.getItem('belaped_janela_alvo') || '';
+    } catch {
+      return '';
+    }
+  });
 
   // Modal de Consulta do Limite Semanal de Gastos
   const [orcamentoSemanalModalOpen, setOrcamentoSemanalModalOpen] = useState(false);
@@ -301,22 +343,26 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     }
   };
 
-  // Atualizar Regra de Produto (Não colocar no carrinho, Não cotar, Justificativa e Adiar para próxima semana)
+  // Atualizar Regra de Produto (Não colocar no carrinho, Não cotar, Justificativa, Adiar e Já Pedido)
   const handleAtualizarRegraProduto = async (
     item: FaltaItem7d,
-    campo: 'nao_cotar' | 'nao_carrinho' | 'motivo_justificativa' | 'adiar_ate',
+    campo: 'nao_cotar' | 'nao_carrinho' | 'motivo_justificativa' | 'adiar_ate' | 'ja_pedido_ate',
     valor: any
   ) => {
     const hoje = new Date().toISOString().slice(0, 10);
     const novoAdiarAte = campo === 'adiar_ate' ? (valor || null) : (item.adiar_ate || null);
     const isAdiado = Boolean(novoAdiarAte && String(novoAdiarAte) >= hoje);
+    const novoJaPedidoAte = campo === 'ja_pedido_ate' ? (valor || null) : (item.ja_pedido_ate || null);
+    const isJaPedido = Boolean(novoJaPedidoAte && String(novoJaPedidoAte) >= hoje);
 
     const novaRegra = {
       nao_cotar: campo === 'nao_cotar' ? Boolean(valor) : Boolean(item.nao_cotar),
       nao_carrinho: campo === 'nao_carrinho' ? Boolean(valor) : Boolean(item.nao_carrinho),
       motivo_justificativa: campo === 'motivo_justificativa' ? String(valor) : String(item.motivo_justificativa || ''),
       adiar_ate: novoAdiarAte,
-      is_adiado_proxima_semana: isAdiado
+      is_adiado_proxima_semana: isAdiado,
+      ja_pedido_ate: novoJaPedidoAte,
+      is_ja_pedido: isJaPedido
     };
 
     // Atualização otimista no estado local imediato
@@ -329,8 +375,8 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       return f;
     }));
 
-    // Se marcou para não colocar no carrinho ou adiou para próxima semana, desmarca da seleção de compra
-    if ((campo === 'nao_carrinho' && valor === true) || (campo === 'adiar_ate' && valor)) {
+    // Se marcou para não colocar no carrinho, adiou para próxima semana ou marcou como já pedido, desmarca da seleção de compra
+    if ((campo === 'nao_carrinho' && valor === true) || (campo === 'adiar_ate' && valor) || (campo === 'ja_pedido_ate' && valor)) {
       setItensSelecionados(prev => ({ ...prev, [item.produto_id]: false }));
     }
 
@@ -356,6 +402,8 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
           addToast(`Justificativa salva com sucesso!`, 'success');
         } else if (campo === 'adiar_ate') {
           addToast(valor ? `"${item.descricao}" adiado para cotar na próxima semana!` : `"${item.descricao}" liberado para cotar nesta semana!`, 'success');
+        } else if (campo === 'ja_pedido_ate') {
+          addToast(valor ? `"${item.descricao}" marcado como Já Pedido!` : `"${item.descricao}" desmarcado de Já Pedido!`, 'info');
         }
       }
     } catch (e: any) {
@@ -379,6 +427,24 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       d.setDate(d.getDate() + 7);
       const proximaData = d.toISOString().slice(0, 10);
       handleAtualizarRegraProduto(item, 'adiar_ate', proximaData);
+    }
+  };
+
+  // Alternar Status de Já Pedido
+  const handleAlternarJaPedido = (item: FaltaItem7d, e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    const hoje = new Date().toISOString().slice(0, 10);
+    const jaPedido = Boolean(item.is_ja_pedido || (item.ja_pedido_ate && String(item.ja_pedido_ate) >= hoje));
+    if (jaPedido) {
+      handleAtualizarRegraProduto(item, 'ja_pedido_ate', null);
+    } else {
+      const d = new Date();
+      d.setDate(d.getDate() + 7);
+      const proximaData = d.toISOString().slice(0, 10);
+      handleAtualizarRegraProduto(item, 'ja_pedido_ate', proximaData);
     }
   };
 
@@ -1165,15 +1231,17 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
         setRefreshing(true);
       }
 
+      const janelaQuery = janelaAlvoSelecionada ? `&janelaMes=${encodeURIComponent(janelaAlvoSelecionada)}` : '';
+
       // Se for apenas atualização dinâmica de cotação, consulta apenas faltas-7d e relatorio-precos (rápido, ~50ms)
       const requisicoes = apenasCotacoes
         ? [
-            fetch(`/api/belaped/faltas-7d?equalizar=${equalizarAtivo ? '1' : '0'}&teto_max=${tetoMaxUnidades}`),
+            fetch(`/api/belaped/faltas-7d?equalizar=${equalizarAtivo ? '1' : '0'}&teto_max=${tetoMaxUnidades}${janelaQuery}`),
             fetch('/api/belaped/relatorio-precos')
           ]
         : [
             fetch('/api/belaped/orcamento-boletos'),
-            fetch(`/api/belaped/faltas-7d?equalizar=${equalizarAtivo ? '1' : '0'}&teto_max=${tetoMaxUnidades}`),
+            fetch(`/api/belaped/faltas-7d?equalizar=${equalizarAtivo ? '1' : '0'}&teto_max=${tetoMaxUnidades}${janelaQuery}`),
             fetch('/api/belaped/portais'),
             fetch('/api/belaped/relatorio-precos')
           ];
@@ -1188,6 +1256,13 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
         if (resOrc && resOrc.ok) {
           const dataOrc = await resOrc.json();
           setOrcamentoInfo(dataOrc);
+          if (!janelaAlvoSelecionada && Array.isArray(dataOrc.janelasDisponiveis) && dataOrc.janelasDisponiveis.length > 0) {
+            const primeiraLiberada = dataOrc.janelasDisponiveis.find((j: any) => j.statusOrcamento === 'LIBERADO') || dataOrc.janelasDisponiveis[0];
+            if (primeiraLiberada) {
+              setJanelaAlvoSelecionada(primeiraLiberada.chave);
+              try { localStorage.setItem('belaped_janela_alvo', primeiraLiberada.chave); } catch {}
+            }
+          }
         }
         if (resPortais && resPortais.ok) {
           const dataPortais = await resPortais.json();
@@ -1757,6 +1832,118 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       deficitTeto
     };
   }, [orcamentoInfo, percentualSobraMeta, totaisSelecionados.valorTotal]);
+
+  // Dados da Janela Alvo de Orçamento Ativa (selecionada pelo usuário)
+  const janelaAtivaData = useMemo(() => {
+    if (orcamentoInfo?.janelasDisponiveis && orcamentoInfo.janelasDisponiveis.length > 0) {
+      if (janelaAlvoSelecionada) {
+        const achada = orcamentoInfo.janelasDisponiveis.find(j => j.chave === janelaAlvoSelecionada);
+        if (achada) return achada;
+      }
+      return orcamentoInfo.janelasDisponiveis.find(j => j.statusOrcamento === 'LIBERADO') || orcamentoInfo.janelasDisponiveis[0];
+    }
+    return orcamentoInfo?.mesAtual || null;
+  }, [orcamentoInfo, janelaAlvoSelecionada]);
+
+  // Análise da Cota Semanal Enxuta (80% para compras, 20% retido como economia)
+  const analiseOrcamentoSemanal = useMemo(() => {
+    const saldoLivreMes = Math.max(0, janelaAtivaData?.saldoLivre ?? 0);
+    const limiteTotalMes = Math.max(0, janelaAtivaData?.limite ?? 0);
+    const totalComprometidoMes = Math.max(0, janelaAtivaData?.totalComprometido ?? 0);
+    const limiteSemanalBruto = Math.max(0, (janelaAtivaData as any)?.cotaSemanalLivre ?? Number((saldoLivreMes / ((janelaAtivaData as any)?.qtdSemanas || 4)).toFixed(2)));
+    
+    // Regra acordada no grill-me: 80% do teto semanal para compras da semana (enxugamento), 20% guardado como reserva de caixa
+    const cotaSemanalSegura = Math.max(0, (janelaAtivaData as any)?.cotaSemanalSegura ?? Number((limiteSemanalBruto * 0.8).toFixed(2)));
+    const reservaSeguranca = Math.max(0, (janelaAtivaData as any)?.reservaSeguranca ?? Number((limiteSemanalBruto * 0.2).toFixed(2)));
+
+    const valorSelecionado = totaisSelecionados.valorTotal;
+    const estaDentroDaCota = valorSelecionado <= cotaSemanalSegura;
+    const diferencaCota = Number((cotaSemanalSegura - valorSelecionado).toFixed(2));
+    const percentualUsoCota = cotaSemanalSegura > 0 ? Math.min(150, Number(((valorSelecionado / cotaSemanalSegura) * 100).toFixed(1))) : 0;
+
+    return {
+      limiteTotalMes,
+      totalComprometidoMes,
+      saldoLivreMes,
+      limiteSemanalBruto,
+      cotaSemanalSegura,
+      reservaSeguranca,
+      valorSelecionado,
+      estaDentroDaCota,
+      diferencaCota,
+      percentualUsoCota
+    };
+  }, [janelaAtivaData, totaisSelecionados.valorTotal]);
+
+  // Divisão em "Itens na Cota Semanal" vs "Banco de Espera (Próximos da Fila)" com Efeito Cascata
+  const { itensNaCotaSemanal, itensBancoEspera } = useMemo(() => {
+    const tetoSeguro = analiseOrcamentoSemanal.cotaSemanalSegura;
+    const dentro: FaltaItem7d[] = [];
+    const espera: FaltaItem7d[] = [];
+    let acumulado = 0;
+
+    faltasFiltradas.forEach(it => {
+      const isBloqueado = Boolean(it.nao_carrinho || it.nao_cotar || it.is_adiado_proxima_semana || it.is_ja_pedido);
+      const isSelected = Boolean(itensSelecionados[it.produto_id]);
+
+      if (isBloqueado) {
+        espera.push(it);
+        return;
+      }
+
+      const sub = Number(it.subtotal_7d || 0);
+      if (isSelected) {
+        if (acumulado + sub <= tetoSeguro || dentro.length === 0) {
+          dentro.push(it);
+          acumulado += sub;
+        } else {
+          espera.push(it);
+        }
+      } else {
+        espera.push(it);
+      }
+    });
+
+    return { itensNaCotaSemanal: dentro, itensBancoEspera: espera };
+  }, [faltasFiltradas, itensSelecionados, analiseOrcamentoSemanal.cotaSemanalSegura]);
+
+  // Ação rápida para pré-selecionar os produtos mais urgentes até o teto de 80% da semana
+  const handleAutoPreencherCotaSemanal = () => {
+    const teto = analiseOrcamentoSemanal.cotaSemanalSegura;
+    if (teto <= 0) {
+      addToast('Saldo livre da janela insuficiente para compras nesta semana.', 'warning');
+      return;
+    }
+
+    let acumulado = 0;
+    const novoSel: Record<number, boolean> = {};
+    let count = 0;
+
+    faltasFiltradas.forEach(it => {
+      const isBloqueado = Boolean(it.nao_carrinho || it.nao_cotar || it.is_adiado_proxima_semana || it.is_ja_pedido);
+      if (isBloqueado) return;
+
+      const sub = Number(it.subtotal_7d || 0);
+      if (acumulado + sub <= teto) {
+        novoSel[it.produto_id] = true;
+        acumulado += sub;
+        count++;
+      }
+    });
+
+    setItensSelecionados(novoSel);
+    addToast(`Cota semanal enxuta preenchida! ${count} produtos de extrema necessidade selecionados (R$ ${acumulado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}), preservando 20% de reserva de caixa.`, 'success');
+  };
+
+  // Alternar Janela Alvo de Orçamento
+  const handleMudarJanelaAlvo = (novaChave: string) => {
+    setJanelaAlvoSelecionada(novaChave);
+    try { localStorage.setItem('belaped_janela_alvo', novaChave); } catch {}
+    setRefreshing(true);
+    setTimeout(() => {
+      carregarDados(false);
+    }, 50);
+  };
 
   // Algoritmo de Equalização e Enquadramento Orçamentário com Sobra Garantida
   const handleEqualizarOrcamentoComSobra = () => {
@@ -3181,6 +3368,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
 
     const isBloqueadoCarrinho = Boolean(item.nao_carrinho);
     const isNaoCotar = Boolean(item.nao_cotar);
+    const isJaPedido = Boolean(item.is_ja_pedido || (item.ja_pedido_ate && String(item.ja_pedido_ate) >= new Date().toISOString().slice(0, 10)));
 
     return (
       <div
@@ -3190,6 +3378,8 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
             ? 'bg-[#151016] border-amber-600/70 shadow-amber-950/20 ring-1 ring-amber-500/30'
             : isNaoCotar
             ? 'bg-[#180e14] border-rose-600/70 shadow-rose-950/20 ring-1 ring-rose-500/30'
+            : isJaPedido
+            ? 'bg-[#0a1322] border-blue-600/70 shadow-blue-950/20 ring-1 ring-blue-500/30'
             : isSelected
             ? 'bg-[#0a182c] border-cyan-500/80 shadow-cyan-950/40 ring-1 ring-cyan-500/50'
             : 'bg-[#0b1322] border-slate-800 hover:border-slate-700 hover:shadow-slate-900/40'
@@ -3267,6 +3457,16 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
               {item.falta_balcao_belinha && (
                 <span className="px-1.5 py-0.5 rounded text-[10px] font-black bg-fuchsia-950 text-fuchsia-300 border border-fuchsia-700">
                   🔔 Balcão
+                </span>
+              )}
+
+              {isJaPedido && (
+                <span
+                  className="px-1.5 py-0.5 rounded text-[10px] font-black bg-blue-950 text-blue-300 border border-blue-600 shadow-sm flex items-center gap-1"
+                  title={item.ja_pedido_detalhe?.distribuidora ? `Já solicitado em ${item.ja_pedido_detalhe.data || ''} na ${item.ja_pedido_detalhe.distribuidora}` : 'Marcado como Já Pedido'}
+                >
+                  <PackageCheck className="w-3 h-3 text-blue-400" />
+                  <span>Já Pedido</span>
                 </span>
               )}
 
@@ -3471,6 +3671,19 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                 </span>
               </div>
             )}
+
+            {/* Aviso de Menor Preço Fora da Janela Selecionada */}
+            {item.melhor_fora_janela && (
+              <div className="pt-1.5 border-t border-slate-800/80 text-[10px] text-amber-300/90 flex items-center justify-between gap-1 bg-amber-950/30 p-1.5 rounded-lg border border-amber-800/40 mt-1" title={item.melhor_fora_janela.motivo}>
+                <span className="truncate max-w-[135px] flex items-center gap-1">
+                  <Info className="w-3 h-3 text-amber-400 shrink-0" />
+                  <span>Global: {item.melhor_fora_janela.distribuidora}</span>
+                </span>
+                <span className="font-bold text-amber-200 shrink-0">
+                  R$ {item.melhor_fora_janela.preco.toFixed(2)}
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Botão de Re-cotar com Robô em Cada Produto (Solicitado pelo Usuário) */}
@@ -3494,6 +3707,43 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
 
         {/* RODAPÉ DO CARD: REGRAS DE DECISÃO E JUSTIFICATIVA (SOLICITADO PELO USUÁRIO) */}
         <div className="pt-2.5 border-t border-slate-800/80 space-y-2 mt-auto">
+          {/* Opção 4: Marcar como Já Pedido (Solicitado pelo Usuário) */}
+          <button
+            type="button"
+            onClick={(e) => handleAlternarJaPedido(item, e)}
+            className={`w-full flex items-center justify-between p-2 px-3 rounded-xl border cursor-pointer transition-all select-none text-left ${
+              isJaPedido
+                ? 'bg-blue-950/90 border-blue-500 text-blue-200 font-black shadow-md ring-1 ring-blue-400/40'
+                : 'bg-[#060c18] border-slate-800 text-slate-400 hover:text-blue-300 hover:border-blue-800/60'
+            }`}
+            title={
+              isJaPedido
+                ? 'Produto já solicitado! Clique para reativá-lo e colocá-lo de volta na lista de compras ativa.'
+                : 'Clique se este produto já foi pedido/comprado (libera a cota para o próximo produto da fila)'
+            }
+          >
+            <div className="flex items-center gap-2">
+              <PackageCheck className={`w-4 h-4 shrink-0 ${isJaPedido ? 'text-blue-400' : 'text-slate-400'}`} />
+              <div className="flex flex-col">
+                <span className="text-xs font-bold leading-tight">
+                  {isJaPedido ? '📦 Já Pedido (Compra Feita)' : '📦 Marcar como Já Pedido'}
+                </span>
+                {item.ja_pedido_detalhe?.distribuidora && (
+                  <span className="text-[10px] text-blue-300/80 font-normal">
+                    {item.ja_pedido_detalhe.distribuidora} ({item.ja_pedido_detalhe.data})
+                  </span>
+                )}
+              </div>
+            </div>
+            <span className={`text-[10px] px-2 py-0.5 rounded font-mono font-bold ${
+              isJaPedido
+                ? 'bg-blue-900/90 text-blue-100 border border-blue-500'
+                : 'bg-slate-900 text-slate-400 border border-slate-800'
+            }`}>
+              {isJaPedido ? 'Desmarcar' : 'Já Pedido'}
+            </span>
+          </button>
+
           {/* Opção 3: Cotar na Próxima Semana (Solicitado pelo Usuário) */}
           <button
             type="button"
@@ -3684,7 +3934,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
   const modulosNav = useMemo(() => [
     { id: 'decisao' as const, label: '🎯 Decisão de Compras', shortLabel: 'Decisão', icon: <Sparkles className="w-4 h-4 text-amber-400" />, badge: itensPendentesDecisaoCount },
     { id: 'cotacoes_matriz' as const, label: '📊 Tabela de Cotações', shortLabel: 'Cotações', icon: <Table className="w-4 h-4 text-emerald-400" />, badge: 0 },
-    { id: 'faltas' as const, label: '1. Reposição 1 Semana', shortLabel: 'Reposição', icon: <Layers className="w-4 h-4 text-cyan-300" />, badge: faltas.length },
+    { id: 'faltas' as const, label: '1. Extrema Necessidade', shortLabel: 'Extrema Necessidade', icon: <AlertTriangle className="w-4 h-4 text-amber-400" />, badge: faltas.length },
     { id: 'cotacao' as const, label: '2. Portais & Carrinho', shortLabel: 'Portais', icon: <Globe className="w-4 h-4 text-blue-400" />, badge: carrinhosOtimizados.length },
     { id: 'pedidos' as const, label: '3. Meus Pedidos & NF', shortLabel: 'Pedidos', icon: <ShoppingCart className="w-4 h-4 text-amber-400" />, badge: 0 },
     { id: 'orcamento' as const, label: '4. Radar de Orçamento', shortLabel: 'Orçamento', icon: <DollarSign className="w-4 h-4 text-emerald-400" />, badge: 0 },
@@ -4406,151 +4656,210 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                 {/* ─── PAINEL TREMOR DE INDICADORES EXECUTIVOS ─────────────────────── */}
                 <BelaPedResumoTremor faltas={faltas} totais={totaisPorDistribuidora} />
 
-                {/* ─── PAINEL ESTRATÉGICO: TRAVA ORÇAMENTÁRIA & META DE SOBRA NO CAIXA ─── */}
-                <div className="bg-gradient-to-r from-[#0a1426] via-[#0d1c35] to-[#091222] p-4 rounded-2xl border border-cyan-800/80 shadow-xl space-y-3.5">
-              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
-                <div className="flex items-center gap-2.5">
-                  <div className="p-2 rounded-xl bg-cyan-950/90 border border-cyan-600/50 text-cyan-400">
-                    <PiggyBank className="w-5 h-5" />
+                {/* ─── PAINEL ESTRATÉGICO: TRAVA ORÇAMENTÁRIA POR JANELA & COTA SEMANAL ENXUTA ─── */}
+                <div className="bg-gradient-to-r from-[#0a1426] via-[#0d1c35] to-[#091222] p-4 rounded-2xl border border-cyan-800/80 shadow-xl space-y-4">
+                  <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="p-2.5 rounded-xl bg-cyan-950/90 border border-cyan-600/50 text-cyan-400">
+                        <Wallet className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-black uppercase tracking-wider text-cyan-300">
+                            Gestão Orçamentária por Janela & Cota Semanal Enxuta
+                          </span>
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-950/90 text-emerald-300 border border-emerald-700/60">
+                            COTA 80% • RESERVA 20%
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-300 font-medium mt-0.5">
+                          Limita o pedido para abastecer 1 semana com proteção de caixa, mantendo compras até a última semana do mês.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        onClick={handleAutoPreencherCotaSemanal}
+                        className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-black shadow-md cursor-pointer transition-all active:scale-95"
+                        title="Seleciona automaticamente os produtos mais urgentes (A e faltas) até atingir os 80% da cota semanal segura"
+                      >
+                        <Zap className="w-4 h-4 text-emerald-200" />
+                        <span>⚡ Preencher Cota Enxuta (80%)</span>
+                      </button>
+
+                      <button
+                        onClick={() => setOrcamentoSemanalModalOpen(true)}
+                        className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-cyan-700 to-blue-700 hover:from-cyan-600 hover:to-blue-600 text-white text-xs font-black shadow-md cursor-pointer transition-all active:scale-95"
+                        title="Consultar divisão do orçamento por semanas em todos os meses do ano"
+                      >
+                        <CalendarCheck className="w-4 h-4 text-cyan-200" />
+                        <span>Consultar Limites Semanais</span>
+                      </button>
+                    </div>
                   </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-black uppercase tracking-wider text-cyan-300">
-                        Plano de Gestão Orçamentária & Equalização
+
+                  {/* SELETOR DE JANELA DE VENCIMENTO ALVO (BOLETOS) */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-[11px] font-black uppercase text-cyan-300 tracking-wider flex items-center gap-1.5">
+                        <Calendar className="w-3.5 h-3.5 text-cyan-400" />
+                        Selecione a Janela de Vencimento dos Boletos (Alvo de Pagamento):
                       </span>
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-950/90 text-emerald-300 border border-emerald-700/60">
-                        GARANTIR SOBRA LIVRE
+                      {janelaAtivaData && (
+                        <span className="text-slate-400 text-[11px]">
+                          Janela Ativa: <b className="text-white">{janelaAtivaData.nomeMes}</b> ({janelaAtivaData.statusOrcamento})
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
+                      {(orcamentoInfo?.janelasDisponiveis || []).map(j => {
+                        const isSelecionada = (janelaAlvoSelecionada || orcamentoInfo?.janelaAlvoRecomendada) === j.anoMes;
+                        return (
+                          <button
+                            key={j.anoMes}
+                            onClick={() => {
+                              setJanelaAlvoSelecionada(j.anoMes);
+                              carregarDados();
+                            }}
+                            className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer relative ${
+                              isSelecionada
+                                ? 'bg-cyan-950/90 border-cyan-400 ring-2 ring-cyan-500/40 text-white shadow-lg'
+                                : 'bg-[#081120] border-slate-800 text-slate-400 hover:text-white hover:border-slate-700'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-black text-white">{j.nomeMes}</span>
+                              <span className={`text-[9px] font-black px-1.5 py-0.2 rounded ${
+                                j.statusOrcamento === 'LIBERADO'
+                                  ? 'bg-emerald-950 text-emerald-300 border border-emerald-800'
+                                  : j.statusOrcamento === 'ALERTA'
+                                  ? 'bg-amber-950 text-amber-300 border border-amber-800'
+                                  : 'bg-rose-950 text-rose-300 border border-rose-800'
+                              }`}>
+                                {j.statusOrcamento}
+                              </span>
+                            </div>
+                            <span className="text-xs font-black block mt-1 text-emerald-300">
+                              R$ {j.saldoLivre.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
+                            </span>
+                            <span className="text-[10px] text-slate-400 block mt-0.5 truncate" title={`Cota 80%: R$ ${j.cotaSemanalSegura.toFixed(0)}/sem`}>
+                              Cota: R$ {j.cotaSemanalSegura.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}/sem
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* Distribuidoras elegíveis para a janela selecionada */}
+                    {janelaAtivaData && (
+                      <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#070e1c] border border-slate-800/80 text-[11px] text-slate-300">
+                        <span className="text-cyan-400 font-bold shrink-0">🏢 Fornecedores c/ prazo p/ {janelaAtivaData.nomeMes}:</span>
+                        <span className="font-semibold truncate">
+                          {janelaAtivaData.distribuidorasElegiveis && janelaAtivaData.distribuidorasElegiveis.length > 0
+                            ? janelaAtivaData.distribuidorasElegiveis.join(', ')
+                            : 'Todos os portais elegíveis'}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Indicadores Numéricos da Cota Semanal Enxuta */}
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs pt-1">
+                    {/* Teto Total da Janela */}
+                    <div className="p-3 rounded-xl bg-[#081120] border border-slate-800">
+                      <span className="text-[10px] font-black uppercase text-slate-400 block">
+                        Saldo Livre na Janela ({janelaAtivaData?.nomeMes || 'Mês'})
+                      </span>
+                      <span className="text-base font-black text-white mt-1 block">
+                        R$ {analiseOrcamentoSemanal.saldoLivreMes.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                      </span>
+                      <span className="text-[10px] text-slate-400 block mt-0.5">
+                        Teto Total: R$ {analiseOrcamentoSemanal.limiteTotalMes.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
                       </span>
                     </div>
-                    <p className="text-xs text-slate-300 font-medium mt-0.5">
-                      Controle dinâmico para comprar um mix variado equalizado sem esgotar o caixa da empresa.
-                    </p>
+
+                    {/* Cota Semanal Bruta (100%) */}
+                    <div className="p-3 rounded-xl bg-[#081120] border border-slate-800">
+                      <span className="text-[10px] font-black uppercase text-slate-400 block">
+                        Cota Semanal Bruta (100%)
+                      </span>
+                      <span className="text-base font-black text-slate-200 mt-1 block">
+                        R$ {analiseOrcamentoSemanal.limiteSemanalBruto.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                      </span>
+                      <span className="text-[10px] text-slate-400 block mt-0.5">
+                        Dividido uniformemente por semana
+                      </span>
+                    </div>
+
+                    {/* Cota Segura Enxuta (80%) */}
+                    <div className="p-3 rounded-xl bg-[#081120] border border-cyan-800/80 shadow-inner">
+                      <span className="text-[10px] font-black uppercase text-cyan-400 block flex items-center justify-between">
+                        <span>Cota Segura Enxuta (80%)</span>
+                        <span className="px-1.5 py-0.2 rounded bg-cyan-950 text-cyan-300 text-[9px] font-black">
+                          TETO
+                        </span>
+                      </span>
+                      <span className="text-base font-black text-cyan-200 mt-1 block">
+                        R$ {analiseOrcamentoSemanal.cotaSemanalSegura.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                      </span>
+                      <span className="text-[10px] text-cyan-400/80 block mt-0.5">
+                        Teto máximo para compras hoje
+                      </span>
+                    </div>
+
+                    {/* Reserva de Segurança (20%) */}
+                    <div className="p-3 rounded-xl bg-[#081120] border border-emerald-900/60">
+                      <span className="text-[10px] font-black uppercase text-emerald-400 block">
+                        Reserva Caixa (20%)
+                      </span>
+                      <span className="text-base font-black text-emerald-300 mt-1 block">
+                        R$ {analiseOrcamentoSemanal.reservaSeguranca.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                      </span>
+                      <span className="text-[10px] text-emerald-400/80 block mt-0.5">
+                        Retido p/ proteção de caixa
+                      </span>
+                    </div>
+
+                    {/* Status do Selecionado x Cota Segura */}
+                    <div className={`p-3 rounded-xl border ${
+                      analiseOrcamentoSemanal.estaDentroDaCota
+                        ? 'bg-emerald-950/40 border-emerald-700/80'
+                        : 'bg-rose-950/40 border-rose-700/80'
+                    }`}>
+                      <span className={`text-[10px] font-black uppercase block flex items-center justify-between ${
+                        analiseOrcamentoSemanal.estaDentroDaCota ? 'text-emerald-300' : 'text-rose-300'
+                      }`}>
+                        <span>{analiseOrcamentoSemanal.estaDentroDaCota ? '✓ Dentro da Cota' : '⚠️ Excedendo Cota'}</span>
+                        <span className="text-[9px] font-black">
+                          {analiseOrcamentoSemanal.percentualUsoCota}%
+                        </span>
+                      </span>
+                      <span className={`text-base font-black mt-1 block ${
+                        analiseOrcamentoSemanal.estaDentroDaCota ? 'text-emerald-200' : 'text-rose-200'
+                      }`}>
+                        R$ {analiseOrcamentoSemanal.valorSelecionado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                      </span>
+                      {/* Barra de Progresso */}
+                      <div className="w-full h-1.5 bg-black/40 rounded-full overflow-hidden mt-1.5">
+                        <div
+                          className={`h-full transition-all duration-300 ${
+                            analiseOrcamentoSemanal.estaDentroDaCota ? 'bg-emerald-400' : 'bg-rose-500'
+                          }`}
+                          style={{ width: `${Math.min(100, analiseOrcamentoSemanal.percentualUsoCota)}%` }}
+                        ></div>
+                      </div>
+                      <span className={`text-[10px] block mt-1 ${
+                        analiseOrcamentoSemanal.estaDentroDaCota ? 'text-emerald-300/80' : 'text-rose-300/80'
+                      }`}>
+                        {analiseOrcamentoSemanal.estaDentroDaCota
+                          ? `Sobra da Cota: R$ ${analiseOrcamentoSemanal.diferencaCota.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
+                          : `Excede em R$ ${Math.abs(analiseOrcamentoSemanal.diferencaCota).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`}
+                      </span>
+                    </div>
                   </div>
                 </div>
-
-                {/* Seletores de Meta de Reserva */}
-                <div className="flex flex-wrap items-center gap-2">
-                  <div className="flex items-center gap-1 bg-[#070e1c] p-1 rounded-xl border border-slate-700 text-xs font-bold">
-                    <span className="px-2 text-slate-400 text-[11px]">Meta de Sobra Livre:</span>
-                    {([15, 20, 25, 30] as const).map(pct => (
-                      <button
-                        key={pct}
-                        onClick={() => setPercentualSobraMeta(pct)}
-                        className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer font-black text-xs ${
-                          percentualSobraMeta === pct
-                            ? 'bg-emerald-600 text-white shadow-sm'
-                            : 'text-slate-400 hover:text-white'
-                        }`}
-                      >
-                        {pct}%
-                      </button>
-                    ))}
-                  </div>
-
-                  <button
-                    onClick={handleEqualizarOrcamentoComSobra}
-                    className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-black shadow-md cursor-pointer transition-all active:scale-95"
-                    title={`Ajusta automaticamente a lista de itens selecionados para não ultrapassar o teto e garantir ${percentualSobraMeta}% de sobra livre no caixa`}
-                  >
-                    <Wallet className="w-4 h-4 text-emerald-200" />
-                    <span>Equalizar ao Teto ({percentualSobraMeta}% de Sobra)</span>
-                  </button>
-
-                  {/* BOTÃO PARA CONSULTA DO LIMITE SEMANAL DE TODOS OS MESES */}
-                  <button
-                    onClick={() => setOrcamentoSemanalModalOpen(true)}
-                    className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-cyan-700 to-blue-700 hover:from-cyan-600 hover:to-blue-600 text-white text-xs font-black shadow-md cursor-pointer transition-all active:scale-95"
-                    title="Consultar divisão do orçamento por semanas em todos os meses do ano"
-                  >
-                    <CalendarCheck className="w-4 h-4 text-cyan-200" />
-                    <span>Consultar Limites Semanais (12 Meses)</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Indicadores Numéricos da Trava de Caixa + Limite Semanal da Semana Vigente */}
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs">
-                {/* Saldo Livre Bruto do Mês */}
-                <div className="p-3 rounded-xl bg-[#081120] border border-slate-800">
-                  <span className="text-[10px] font-black uppercase text-slate-400 block">
-                    Saldo Livre no Mês ({orcamentoInfo?.mesAtual?.nomeMes || 'Atual'})
-                  </span>
-                  <span className="text-base font-black text-white mt-1 block">
-                    R$ {analiseOrcamentoSobra.saldoLivreMes.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                  </span>
-                  <span className="text-[10px] text-slate-400 block mt-0.5">
-                    Limite: R$ {(orcamentoInfo?.mesAtual?.limite || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
-                  </span>
-                </div>
-
-                {/* Limite Semanal Vigente (Semana Atual) */}
-                <div className="p-3 rounded-xl bg-[#081120] border border-cyan-800/80 shadow-inner">
-                  <span className="text-[10px] font-black uppercase text-cyan-400 block flex items-center justify-between">
-                    <span>Semana Vigente</span>
-                    <span className="px-1.5 py-0.2 rounded bg-cyan-950 text-cyan-300 text-[9px] font-black">
-                      {orcamentoInfo?.semanaAtual?.nome || 'Semana 1'}
-                    </span>
-                  </span>
-                  <span className="text-base font-black text-cyan-200 mt-1 block">
-                    R$ {(orcamentoInfo?.semanaAtual?.limiteSemanal || analiseOrcamentoSobra.saldoLivreMes / 4).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                  </span>
-                  <span className="text-[10px] text-slate-400 block mt-0.5 truncate" title={`Período: ${orcamentoInfo?.semanaAtual?.periodo || 'Atual'} • Gasto: R$ ${(orcamentoInfo?.semanaAtual?.totalComprometido || 0).toFixed(0)}`}>
-                    Gasto: R$ {(orcamentoInfo?.semanaAtual?.totalComprometido || 0).toLocaleString('pt-BR', { minimumFractionDigits: 0 })} • Saldo: R$ {(orcamentoInfo?.semanaAtual?.saldoLivreSemana || 0).toFixed(0)}
-                  </span>
-                </div>
-
-                {/* Reserva de Segurança (Sobra Garantida) */}
-                <div className="p-3 rounded-xl bg-[#081120] border border-emerald-900/60">
-                  <span className="text-[10px] font-black uppercase text-emerald-400 block">
-                    Reserva de Sobra ({percentualSobraMeta}%)
-                  </span>
-                  <span className="text-base font-black text-emerald-300 mt-1 block">
-                    R$ {analiseOrcamentoSobra.reservaSeguranca.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                  </span>
-                  <span className="text-[10px] text-emerald-400/80 block mt-0.5">
-                    Preservado para imprevistos
-                  </span>
-                </div>
-
-                {/* Teto Disponível para Compras */}
-                <div className="p-3 rounded-xl bg-[#081120] border border-cyan-900/60">
-                  <span className="text-[10px] font-black uppercase text-cyan-400 block">
-                    Teto para Compras Hoje
-                  </span>
-                  <span className="text-base font-black text-cyan-200 mt-1 block">
-                    R$ {analiseOrcamentoSobra.tetoComprasDisponivel.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                  </span>
-                  <span className="text-[10px] text-cyan-400/80 block mt-0.5">
-                    Saldo Livre − Reserva
-                  </span>
-                </div>
-
-                {/* Status do Selecionado x Sobra */}
-                <div className={`p-3 rounded-xl border ${
-                  analiseOrcamentoSobra.estaDentroDoTeto
-                    ? 'bg-emerald-950/40 border-emerald-700/80'
-                    : 'bg-rose-950/40 border-rose-700/80'
-                }`}>
-                  <span className={`text-[10px] font-black uppercase block ${
-                    analiseOrcamentoSobra.estaDentroDoTeto ? 'text-emerald-300' : 'text-rose-300'
-                  }`}>
-                    {analiseOrcamentoSobra.estaDentroDoTeto ? '✓ Sobra Preservada' : '⚠️ Excedendo Teto'}
-                  </span>
-                  <span className={`text-base font-black mt-1 block ${
-                    analiseOrcamentoSobra.estaDentroDoTeto ? 'text-emerald-200' : 'text-rose-200'
-                  }`}>
-                    R$ {analiseOrcamentoSobra.sobraProjetada.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                  </span>
-                  <span className={`text-[10px] block mt-0.5 ${
-                    analiseOrcamentoSobra.estaDentroDoTeto ? 'text-emerald-300/80' : 'text-rose-300/80'
-                  }`}>
-                    {analiseOrcamentoSobra.estaDentroDoTeto
-                      ? `${analiseOrcamentoSobra.percentualSobraReal}% de sobra projetada`
-                      : `Excede teto em R$ ${analiseOrcamentoSobra.deficitTeto.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`}
-                  </span>
-                </div>
-              </div>
-            </div>
 
             {/* ─── BANNER DINÂMICO: LISTA DE URGÊNCIA ➔ LISTA DE COMPRAS REGULARES ─── */}
             <div className={`p-4 rounded-2xl border transition-all ${
@@ -6088,13 +6397,13 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                       <label className="flex items-center gap-2 text-xs font-bold text-slate-300 cursor-pointer">
                         <input
                           type="checkbox"
-                          checked={(agruparPorDistribuidora ? faltasFiltradas : itensPaginados).length > 0 && (agruparPorDistribuidora ? faltasFiltradas : itensPaginados).every(f => itensSelecionados[f.produto_id])}
+                          checked={faltasFiltradas.length > 0 && faltasFiltradas.every(f => itensSelecionados[f.produto_id])}
                           onChange={() => {
-                            const listaAlvo = agruparPorDistribuidora ? faltasFiltradas : itensPaginados;
+                            const listaAlvo = faltasFiltradas;
                             const todosMarcados = listaAlvo.length > 0 && listaAlvo.every(f => itensSelecionados[f.produto_id]);
                             const novoMap = { ...itensSelecionados };
                             listaAlvo.forEach(f => {
-                              if (!todosMarcados && f.nao_carrinho) {
+                              if (!todosMarcados && (f.nao_carrinho || f.nao_cotar || f.is_adiado_proxima_semana || f.is_ja_pedido)) {
                                 novoMap[f.produto_id] = false;
                               } else {
                                 novoMap[f.produto_id] = !todosMarcados;
@@ -6104,7 +6413,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                           }}
                           className="w-4 h-4 rounded border-slate-700 bg-slate-900 text-cyan-500 focus:ring-cyan-500 cursor-pointer"
                         />
-                        <span>Selecionar Todos ({agruparPorDistribuidora ? faltasFiltradas.length : itensPaginados.length})</span>
+                        <span>Selecionar Todos ({faltasFiltradas.length})</span>
                       </label>
                     </div>
 
@@ -6148,13 +6457,73 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                         </div>
                       ))}
                     </div>
-                  ) : itensPaginados.length === 0 ? (
+                  ) : faltasFiltradas.length === 0 ? (
                     <div className="p-12 text-center bg-[#091120] rounded-2xl border border-slate-800">
                       <p className="text-sm font-bold text-slate-400">Nenhum produto encontrado com os filtros selecionados.</p>
                     </div>
                   ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                      {itensPaginados.map(item => renderProdutoCard(item))}
+                    <div className="space-y-8">
+                      {/* ─── SEÇÃO A: PRODUTOS NA COTA SEMANAL (TOP PRIORIDADE) ─── */}
+                      <div className="space-y-3">
+                        <div className="flex flex-wrap items-center justify-between gap-3 bg-gradient-to-r from-emerald-950/80 via-[#0c241d] to-slate-900/90 p-3.5 rounded-xl border border-emerald-600/80 shadow-md">
+                          <div className="flex items-center gap-2.5">
+                            <span className="text-sm font-black text-emerald-300 uppercase flex items-center gap-2">
+                              <span className="p-1 rounded-md bg-emerald-900/80 text-emerald-300 border border-emerald-500/60">⭐</span>
+                              <span>Produtos na Cota Semanal (Top Prioridade)</span>
+                            </span>
+                            <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-900/90 text-emerald-200 font-black border border-emerald-600/80">
+                              {itensNaCotaSemanal.length} produtos
+                            </span>
+                            <span className="text-xs px-2.5 py-0.5 rounded-full bg-[#081322] text-cyan-300 font-black border border-cyan-800/80">
+                              R$ {itensNaCotaSemanal.reduce((acc, i) => acc + Number(i.subtotal_7d || 0), 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                            </span>
+                          </div>
+                          <div className="text-xs text-slate-300 font-medium">
+                            Itens prioritários enquadrados nos 80% da cota semanal ({janelaAtivaData?.nomeMes || 'Janela'}).
+                          </div>
+                        </div>
+
+                        {itensNaCotaSemanal.length === 0 ? (
+                          <div className="p-8 text-center bg-[#091120]/80 rounded-2xl border border-slate-800 space-y-2">
+                            <p className="text-sm font-bold text-slate-300">Nenhum produto ativo dentro da cota semanal.</p>
+                            <p className="text-xs text-slate-400">
+                              Clique no botão <b className="text-emerald-400">"⚡ Preencher Cota Enxuta"</b> no topo para selecionar os itens mais urgentes automaticamente.
+                            </p>
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                            {itensNaCotaSemanal.map(item => renderProdutoCard(item))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* ─── SEÇÃO B: BANCO DE ESPERA & PRÓXIMOS DA FILA (CASCATA) ─── */}
+                      <div className="space-y-3 pt-2">
+                        <div className="flex flex-wrap items-center justify-between gap-3 bg-gradient-to-r from-slate-900/90 via-[#101b2f] to-[#0a1221] p-3.5 rounded-xl border border-slate-700/80 shadow-md">
+                          <div className="flex items-center gap-2.5">
+                            <span className="text-sm font-black text-cyan-300 uppercase flex items-center gap-2">
+                              <span className="p-1 rounded-md bg-slate-800 text-cyan-300 border border-slate-700">⏳</span>
+                              <span>Banco de Espera & Próximos da Fila</span>
+                            </span>
+                            <span className="text-xs px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 font-bold border border-slate-700">
+                              {itensBancoEspera.length} produtos
+                            </span>
+                          </div>
+                          <div className="text-xs text-slate-400 font-medium">
+                            Substituição automática em cascata: ao marcar <b>"📦 Já Pedido"</b> ou adiar um item acima, o 1º da fila sobe para a cota.
+                          </div>
+                        </div>
+
+                        {itensBancoEspera.length === 0 ? (
+                          <div className="p-6 text-center bg-[#091120]/40 rounded-xl border border-slate-800">
+                            <p className="text-xs font-bold text-slate-400">Nenhum produto no banco de espera no momento.</p>
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                            {itensBancoEspera.map(item => renderProdutoCard(item))}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
