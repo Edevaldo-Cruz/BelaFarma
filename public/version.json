@@ -1,9 +1,19 @@
 {
   "version": "1.2.0",
-  "commitHash": "b428935",
-  "commitMessage": "feat(pwa): expoe versao e descricao com changelog, banner de atualizacao e badge no BelaPed",
-  "buildTime": "24/10/2026, 11:26:12",
+  "commitHash": "0f682e6",
+  "commitMessage": "feat(belaped): tela unificada de orcamento semanal e decisao com reserva de seguranca, podio de cotacoes e remocao da stockfarma",
+  "buildTime": "24/10/2026, 14:41:36",
   "recentCommits": [
+    {
+      "hash": "0f682e6",
+      "date": "24/10/2026",
+      "message": "feat(belaped): tela unificada de orcamento semanal e decisao com reserva de seguranca, podio de cotacoes e remocao da stockfarma"
+    },
+    {
+      "hash": "b291093",
+      "date": "24/10/2026",
+      "message": "build: atualiza bundle de producao v1.2.0"
+    },
     {
       "hash": "b428935",
       "date": "24/10/2026",
@@ -53,16 +63,6 @@
       "hash": "ba494bb",
       "date": "22/10/2026",
       "message": "feat(belaped): nova guia Matriz de Cotacoes comparando ultima compra com precos das 9 distribuidoras"
-    },
-    {
-      "hash": "20d9145",
-      "date": "22/10/2026",
-      "message": "feat(belaped): enforce full quotes purge on restart and recote to discover best prices from scratch across 9 distributors"
-    },
-    {
-      "hash": "cc277dc",
-      "date": "22/10/2026",
-      "message": "feat(belaped): add Panpharma and MG Medicamentos to 9 distributors with robots, cards and direct quotes"
     }
   ]
 }
