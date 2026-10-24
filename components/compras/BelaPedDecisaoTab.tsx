@@ -494,7 +494,429 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
     }
   };
 
-  // 6. Enviar item ao carrinho via robô
+  // 7. Gerar e abrir documento HTML puro para impressão perfeita em modo Retrato (A4 Multi-páginas)
+  const handleAbrirRelatorioHtml = () => {
+    const dataHoje = new Date().toLocaleDateString('pt-BR');
+    const horaHoje = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const totalUnidades = listaAtivaSemana.reduce((acc, it) => acc + (it.qtd_sugerida_7d || 1), 0);
+    const escapeHtml = (str: any) => String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+    const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>BelaFarma - Relatório Semanal de Compras (${dataHoje})</title>
+  <style>
+    @page {
+      size: A4 portrait;
+      margin: 8mm 8mm 10mm 8mm;
+    }
+    * {
+      box-sizing: border-box;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #ffffff;
+      color: #0f172a;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-size: 10.5px;
+      line-height: 1.25;
+    }
+    .toolbar {
+      position: sticky;
+      top: 0;
+      background: #0f172a;
+      color: #ffffff;
+      padding: 10px 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      box-shadow: 0 4px 6px -1px rgba(0,0,0,0.15);
+      z-index: 9999;
+    }
+    .toolbar h2 {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .toolbar-actions {
+      display: flex;
+      gap: 10px;
+    }
+    .btn {
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-weight: 800;
+      font-size: 11px;
+      cursor: pointer;
+      border: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      transition: all 0.15s ease;
+    }
+    .btn-primary {
+      background: #0284c7;
+      color: #ffffff;
+    }
+    .btn-primary:hover {
+      background: #0369a1;
+    }
+    .btn-secondary {
+      background: #334155;
+      color: #ffffff;
+    }
+    .btn-secondary:hover {
+      background: #475569;
+    }
+    @media print {
+      .toolbar {
+        display: none !important;
+      }
+      body {
+        padding: 0 !important;
+      }
+    }
+    .sheet {
+      width: 100%;
+      max-width: 210mm;
+      margin: 0 auto;
+      padding: 12px 14px;
+    }
+    .header {
+      border-bottom: 2px solid #0f172a;
+      padding-bottom: 8px;
+      margin-bottom: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+    .header h1 {
+      margin: 0;
+      font-size: 17px;
+      font-weight: 900;
+      color: #0f172a;
+      letter-spacing: -0.5px;
+    }
+    .header p {
+      margin: 2px 0 0;
+      font-size: 10.5px;
+      color: #475569;
+      font-weight: 600;
+    }
+    .meta-box {
+      text-align: right;
+      font-size: 9.5px;
+      color: #475569;
+      line-height: 1.35;
+    }
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 6px;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      padding: 6px 10px;
+      margin-bottom: 12px;
+    }
+    .kpi-item span {
+      display: block;
+    }
+    .kpi-label {
+      font-size: 8.5px;
+      text-transform: uppercase;
+      font-weight: 700;
+      color: #64748b;
+    }
+    .kpi-val {
+      font-size: 12px;
+      font-weight: 800;
+      color: #0f172a;
+      font-family: monospace;
+    }
+    .section-title {
+      background: #1e293b;
+      color: #ffffff;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 10.5px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      display: flex;
+      justify-content: space-between;
+      margin-top: 12px;
+      margin-bottom: 5px;
+    }
+    .section-subtitle {
+      font-size: 9.5px;
+      color: #64748b;
+      font-style: italic;
+      margin: -2px 0 5px 2px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 9px;
+      margin-bottom: 8px;
+      page-break-inside: auto;
+    }
+    thead {
+      display: table-header-group;
+    }
+    tfoot {
+      display: table-footer-group;
+    }
+    tr {
+      page-break-inside: avoid;
+      page-break-after: auto;
+    }
+    th {
+      background: #f1f5f9;
+      color: #1e293b;
+      font-weight: 800;
+      text-align: left;
+      border: 1px solid #94a3b8;
+      padding: 3.5px 5px;
+      white-space: nowrap;
+    }
+    td {
+      border: 1px solid #cbd5e1;
+      padding: 3px 5px;
+      color: #0f172a;
+    }
+    tr:nth-child(even) td {
+      background: #f8fafc;
+    }
+    .text-center { text-align: center; }
+    .text-right { text-align: right; }
+    .font-mono { font-family: monospace; }
+    .font-bold { font-weight: 700; }
+    .font-black { font-weight: 900; }
+    .badge-ok {
+      background: #ecfdf5;
+      color: #047857;
+      padding: 1px 4px;
+      border-radius: 3px;
+      font-size: 8px;
+      font-weight: 700;
+      border: 1px solid #a7f3d0;
+      white-space: nowrap;
+    }
+    .badge-warn {
+      background: #fffbeb;
+      color: #b45309;
+      padding: 1px 4px;
+      border-radius: 3px;
+      font-size: 8px;
+      font-weight: 700;
+      border: 1px solid #fde68a;
+      white-space: nowrap;
+    }
+    .badge-esgotado {
+      background: #fef2f2;
+      color: #b91c1c;
+      padding: 1px 4px;
+      border-radius: 3px;
+      font-size: 8px;
+      font-weight: 700;
+      border: 1px solid #fecaca;
+      white-space: nowrap;
+    }
+    .footer {
+      border-top: 1px solid #cbd5e1;
+      padding-top: 6px;
+      margin-top: 12px;
+      display: flex;
+      justify-content: space-between;
+      font-size: 8.5px;
+      color: #64748b;
+    }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <h2>📄 BelaFarma • Relatório Semanal de Compras</h2>
+    <div class="toolbar-actions">
+      <button class="btn btn-primary" onclick="window.print()">🖨️ Imprimir / Salvar PDF</button>
+      <button class="btn btn-secondary" onclick="window.close()">✕ Fechar</button>
+    </div>
+  </div>
+
+  <div class="sheet">
+    <div class="header">
+      <div>
+        <h1>BelaFarma • Decisão Semanal de Compras</h1>
+        <p>Enquadramento Orçamentário com Reserva de Segurança & Auditoria de Faltas</p>
+      </div>
+      <div class="meta-box">
+        <div><b>Emissão:</b> ${dataHoje} às ${horaHoje}</div>
+        <div><b>Janela:</b> ${escapeHtml(janelaAlvoSelecionada || 'Padrão')}</div>
+        <div><b>Reserva de Caixa:</b> ${reservaSegurancaPct}%</div>
+      </div>
+    </div>
+
+    <div class="kpi-grid">
+      <div class="kpi-item">
+        <span class="kpi-label">Teto Semanal</span>
+        <span class="kpi-val">R$ ${tetoSemanalAtivo.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+      </div>
+      <div class="kpi-item">
+        <span class="kpi-label">Cota Comprometida</span>
+        <span class="kpi-val" style="color: #0284c7;">R$ ${totalOrcadoSemana.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+      </div>
+      <div class="kpi-item">
+        <span class="kpi-label">Reserva Poupada (${reservaSegurancaPct}%)</span>
+        <span class="kpi-val" style="color: #059669;">R$ ${valorReservaPoupada.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+      </div>
+      <div class="kpi-item">
+        <span class="kpi-label">Itens Aprovados</span>
+        <span class="kpi-val">${listaAtivaSemana.length} produtos (${totalUnidades} un)</span>
+      </div>
+    </div>
+
+    <!-- BLOCO 1 -->
+    <div class="section-title">
+      <span>📦 Bloco 1: Pedido da Semana dentro da Cota Orçamentária</span>
+      <span class="font-mono">Total: R$ ${totalOrcadoSemana.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th class="text-center" style="width: 22px;">#</th>
+          <th>Produto / Descrição</th>
+          <th class="text-center" style="width: 80px;">EAN</th>
+          <th class="text-center" style="width: 28px;">Curva</th>
+          <th class="text-right" style="width: 32px;">Saldo</th>
+          <th class="text-right" style="width: 32px;">VMD</th>
+          <th class="text-center" style="width: 35px;">Qtd</th>
+          <th>Distribuidora Vencedora</th>
+          <th class="text-right" style="width: 58px;">Preço Un.</th>
+          <th class="text-right" style="width: 62px;">Subtotal</th>
+          <th class="text-center" style="width: 60px;">Janela</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${listaAtivaSemana.map((it, idx) => `
+          <tr>
+            <td class="text-center font-bold" style="color: #64748b;">${idx + 1}</td>
+            <td class="font-bold">${escapeHtml(it.descricao)}</td>
+            <td class="text-center font-mono" style="color: #475569;">${escapeHtml(it.ean || '—')}</td>
+            <td class="text-center font-bold">${escapeHtml(it.curva_abc)}</td>
+            <td class="text-right ${it.saldo <= 0 ? 'font-bold' : ''}" style="color: ${it.saldo <= 0 ? '#dc2626' : '#334155'};">${it.saldo}</td>
+            <td class="text-right" style="color: #475569;">${Number(it.vmd_ponderado).toFixed(1)}</td>
+            <td class="text-center font-bold" style="color: #0369a1;">${it.qtd_sugerida_7d}</td>
+            <td class="font-bold">${escapeHtml(it.fornecedor_1 || '—')}</td>
+            <td class="text-right font-mono">R$ ${(it.preco_1 || 0).toFixed(2)}</td>
+            <td class="text-right font-mono font-bold">R$ ${it.subtotal_7d.toFixed(2)}</td>
+            <td class="text-center">
+              ${it.melhor_fora_janela && it.melhor_fora_janela.distribuidora === it.fornecedor_1 
+                ? '<span class="badge-warn">Fora Janela</span>' 
+                : '<span class="badge-ok">Janela OK</span>'}
+            </td>
+          </tr>
+        `).join('')}
+      </tbody>
+      <tfoot>
+        <tr style="background: #e2e8f0; font-weight: 800;">
+          <td colspan="6" class="text-right font-bold" style="text-transform: uppercase;">Totais do Pedido da Semana:</td>
+          <td class="text-center font-bold" style="color: #0369a1;">${totalUnidades} un</td>
+          <td colspan="2" class="text-right font-bold" style="text-transform: uppercase;">Valor Total Comprometido:</td>
+          <td class="text-right font-mono font-black" style="color: #0f172a; font-size: 10.5px;">
+            R$ ${totalOrcadoSemana.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </td>
+          <td class="text-center" style="font-size: 8.5px; color: #475569;">
+            ${((totalOrcadoSemana / (tetoSemanalAtivo || 1)) * 100).toFixed(0)}% cota
+          </td>
+        </tr>
+      </tfoot>
+    </table>
+
+    <!-- BLOCO 2 -->
+    <div class="section-title" style="background: #78350f;">
+      <span>⚠️ Bloco 2: Faltas Críticas Sem Estoque nos Portais (Cobrança de Fornecedores)</span>
+      <span>${itensSemEstoquePortais.length} itens esgotados (vagas abertas)</span>
+    </div>
+    <div class="section-subtitle">
+      Itens prioritários em falta crítica que abriram vaga no orçamento por estarem esgotados em todos os 12 portais. Entregue esta lista ao televendas/representantes.
+    </div>
+
+    <table>
+      <thead>
+        <tr style="background: #fef3c7;">
+          <th class="text-center" style="width: 30px;"># Orig.</th>
+          <th>Produto em Falta</th>
+          <th class="text-center" style="width: 80px;">EAN</th>
+          <th class="text-center" style="width: 28px;">Curva</th>
+          <th class="text-right" style="width: 32px;">Saldo</th>
+          <th class="text-right" style="width: 32px;">VMD</th>
+          <th class="text-center" style="width: 38px;">Qtd Nec.</th>
+          <th class="text-right" style="width: 60px;">Preço Ref.</th>
+          <th class="text-center" style="width: 90px;">Situação Portais</th>
+          <th>Vaga Ocupada Por (Substituto)</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${itensSemEstoquePortais.length === 0 ? `
+          <tr>
+            <td colspan="10" class="text-center" style="padding: 10px; color: #64748b; font-style: italic;">
+              Nenhum produto crítico esgotado nos portais nesta semana.
+            </td>
+          </tr>
+        ` : itensSemEstoquePortais.map((it) => `
+          <tr>
+            <td class="text-center font-bold" style="color: #92400e;">#${it.prioridade_original || '—'}</td>
+            <td class="font-bold">${escapeHtml(it.descricao)}</td>
+            <td class="text-center font-mono" style="color: #475569;">${escapeHtml(it.ean || '—')}</td>
+            <td class="text-center font-bold">${escapeHtml(it.curva_abc)}</td>
+            <td class="text-right font-bold" style="color: #dc2626;">${it.saldo}</td>
+            <td class="text-right" style="color: #475569;">${Number(it.vmd_ponderado).toFixed(1)}</td>
+            <td class="text-center font-bold">${it.qtd_sugerida_7d}</td>
+            <td class="text-right font-mono">R$ ${(it.preco_ult_compra || it.custo_unitario || 0).toFixed(2)}</td>
+            <td class="text-center"><span class="badge-esgotado">Esgotado nos 12 portais</span></td>
+            <td>
+              ${it.substituto_promovido 
+                ? `<b style="color: #065f46;">${escapeHtml(it.substituto_promovido)}</b>` 
+                : '<span style="color: #64748b; font-style: italic;">Vaga liberada no orçamento</span>'}
+            </td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+
+    <div class="footer">
+      <span>BelaFarma Gestão Farmacêutica Inteligente • Módulo BelaPed Decisão</span>
+      <span>Documento gerado em modo Retrato (A4 Multi-páginas)</span>
+    </div>
+  </div>
+</body>
+</html>`;
+
+    const win = window.open('', '_blank');
+    if (win) {
+      win.document.open();
+      win.document.write(html);
+      win.document.close();
+      win.focus();
+      setTimeout(() => {
+        try { win.print(); } catch {}
+      }, 400);
+    } else {
+      addToast('Pop-up bloqueado pelo navegador. Por favor, autorize pop-ups para imprimir.', 'warning');
+    }
+  };
+
+  // 8. Enviar item ao carrinho via robô
   const handleAdicionarAoCarrinho = (item: FaltaItem7d, distribuidora: string, preco: number) => {
     setModalCarrinho({
       aberto: true,
@@ -1070,7 +1492,7 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
           {/* Botão de Impressão da Lista (A4) */}
           <button
             type="button"
-            onClick={() => setModalImpressaoAberto(true)}
+            onClick={handleAbrirRelatorioHtml}
             className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-cyan-900/60 to-blue-900/60 border border-cyan-700/80 hover:border-cyan-400 text-cyan-200 hover:text-white text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 shadow-sm active:scale-95"
             title="Imprimir relatório da semana e faltas esgotadas nos portais"
           >
@@ -1502,11 +1924,11 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => window.print()}
+                  onClick={handleAbrirRelatorioHtml}
                   className="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-black uppercase tracking-wider shadow-lg flex items-center gap-2 cursor-pointer transition-all active:scale-95"
                 >
                   <Printer className="w-4 h-4" />
-                  <span>Imprimir / Salvar PDF</span>
+                  <span>Imprimir em Nova Janela (A4)</span>
                 </button>
                 <button
                   type="button"

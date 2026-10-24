@@ -1,9 +1,14 @@
 {
   "version": "1.2.0",
-  "commitHash": "44725db",
-  "commitMessage": "fix(belaped): recalcula produtos ao alternar janela orcamentaria e remove excecao de prazo da distrimed",
-  "buildTime": "24/10/2026, 15:45:55",
+  "commitHash": "f031cdc",
+  "commitMessage": "feat(belaped): oculta itens sem estoque dos cards da semana, auto-substitui no orcamento e adiciona relatorio impresso em 2 blocos",
+  "buildTime": "24/10/2026, 16:40:45",
   "recentCommits": [
+    {
+      "hash": "f031cdc",
+      "date": "24/10/2026",
+      "message": "feat(belaped): oculta itens sem estoque dos cards da semana, auto-substitui no orcamento e adiciona relatorio impresso em 2 blocos"
+    },
     {
       "hash": "44725db",
       "date": "24/10/2026",
@@ -58,11 +63,6 @@
       "hash": "b9ed444",
       "date": "22/10/2026",
       "message": "fix(belaped): ajustar cotacao Panpharma para considerar Preco NF com ST e corrigir mapeamento de estoque"
-    },
-    {
-      "hash": "6a37bd3",
-      "date": "22/10/2026",
-      "message": "build: atualizar bundle e version.json para forcar invalidacao de cache PWA"
     }
   ]
 }
