@@ -1,6 +1,68 @@
 {
-  "version": "1.1.0",
-  "commitHash": "370d044",
-  "commitMessage": "feat(belaped): lista de extrema necessidade com orcamento semanal, janelas de pagamento e banco de espera",
-  "buildTime": "24/10/2026, 10:46:59"
+  "version": "1.2.0",
+  "commitHash": "b428935",
+  "commitMessage": "feat(pwa): expoe versao e descricao com changelog, banner de atualizacao e badge no BelaPed",
+  "buildTime": "24/10/2026, 11:26:12",
+  "recentCommits": [
+    {
+      "hash": "b428935",
+      "date": "24/10/2026",
+      "message": "feat(pwa): expoe versao e descricao com changelog, banner de atualizacao e badge no BelaPed"
+    },
+    {
+      "hash": "5b821a3",
+      "date": "24/10/2026",
+      "message": "feat(belaped): aba de pesquisa multi-distribuidora com veredito e restricao de robo ao critico da semana"
+    },
+    {
+      "hash": "370d044",
+      "date": "24/10/2026",
+      "message": "feat(belaped): lista de extrema necessidade com orcamento semanal, janelas de pagamento e banco de espera"
+    },
+    {
+      "hash": "09d459c",
+      "date": "23/10/2026",
+      "message": "fix(belaped): previne substituicao indevida de EAN na matriz e adiciona encerramento gracioso no server"
+    },
+    {
+      "hash": "d87e03d",
+      "date": "23/10/2026",
+      "message": "feat(belaped): integra 4 novos portais e corrige preco NF e validacao estrita de EAN em Distrimed e Oriente Farma"
+    },
+    {
+      "hash": "b9ed444",
+      "date": "22/10/2026",
+      "message": "fix(belaped): ajustar cotacao Panpharma para considerar Preco NF com ST e corrigir mapeamento de estoque"
+    },
+    {
+      "hash": "6a37bd3",
+      "date": "22/10/2026",
+      "message": "build: atualizar bundle e version.json para forcar invalidacao de cache PWA"
+    },
+    {
+      "hash": "30417d3",
+      "date": "22/10/2026",
+      "message": "fix(belaped): corrigir travamento da fila de cotação e botão inacessível no monitor do robô"
+    },
+    {
+      "hash": "e8349f9",
+      "date": "22/10/2026",
+      "message": "fix(belaped): integracao direta do robo Panpharma/ePan via API REST com catalogo completo CD MG12 e cotacao instantanea"
+    },
+    {
+      "hash": "ba494bb",
+      "date": "22/10/2026",
+      "message": "feat(belaped): nova guia Matriz de Cotacoes comparando ultima compra com precos das 9 distribuidoras"
+    },
+    {
+      "hash": "20d9145",
+      "date": "22/10/2026",
+      "message": "feat(belaped): enforce full quotes purge on restart and recote to discover best prices from scratch across 9 distributors"
+    },
+    {
+      "hash": "cc277dc",
+      "date": "22/10/2026",
+      "message": "feat(belaped): add Panpharma and MG Medicamentos to 9 distributors with robots, cards and direct quotes"
+    }
+  ]
 }
