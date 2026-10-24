@@ -579,12 +579,19 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
       display: flex;
       align-items: center;
       justify-content: space-between;
+      gap: 12px;
       box-shadow: 0 4px 6px -1px rgba(0,0,0,0.15);
       z-index: 9999;
+      flex-wrap: wrap;
+    }
+    .toolbar-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
     }
     .toolbar h2 {
       margin: 0;
-      font-size: 14px;
+      font-size: 13.5px;
       font-weight: 800;
       display: flex;
       align-items: center;
@@ -592,10 +599,33 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
     }
     .toolbar-actions {
       display: flex;
-      gap: 10px;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .toolbar-chk {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 700;
+      color: #cbd5e1;
+      cursor: pointer;
+      user-select: none;
+      background: #1e293b;
+      padding: 5px 9px;
+      border-radius: 6px;
+      border: 1px solid #334155;
+    }
+    .toolbar-chk input[type="checkbox"] {
+      cursor: pointer;
+      accent-color: #0284c7;
+      width: 14px;
+      height: 14px;
+      margin: 0;
     }
     .btn {
-      padding: 6px 14px;
+      padding: 6px 12px;
       border-radius: 6px;
       font-weight: 800;
       font-size: 11px;
@@ -622,8 +652,58 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
     .btn-secondary:hover {
       background: #475569;
     }
+    .btn-warning {
+      background: #b45309;
+      color: #ffffff;
+    }
+    .btn-warning:hover {
+      background: #d97706;
+    }
+    .col-chk {
+      width: 22px;
+      text-align: center;
+    }
+    .col-chk input[type="checkbox"] {
+      cursor: pointer;
+      accent-color: #0284c7;
+      width: 14px;
+      height: 14px;
+      vertical-align: middle;
+      margin: 0;
+    }
+    tr.item-oculto {
+      display: none !important;
+    }
+    tr.tr-desmarcado td {
+      opacity: 0.35;
+      text-decoration: line-through;
+      background: #f1f5f9 !important;
+    }
+
+    /* Modo Apenas Nomes dos Itens */
+    body.modo-apenas-nomes .col-detalhe {
+      display: none !important;
+    }
+    body.modo-apenas-nomes .bloco-financeiro {
+      display: none !important;
+    }
+    body.modo-apenas-nomes .kpi-grid {
+      grid-template-columns: repeat(2, 1fr) !important;
+    }
+    body.modo-apenas-nomes .col-produto {
+      font-size: 11.5px !important;
+      padding: 6px 8px !important;
+    }
+    body.modo-apenas-nomes .col-qtd {
+      font-size: 11.5px !important;
+      width: 60px !important;
+    }
+
     @media print {
-      .toolbar {
+      .toolbar, .col-chk {
+        display: none !important;
+      }
+      tr.item-oculto, tr.tr-desmarcado {
         display: none !important;
       }
       body {
@@ -790,10 +870,27 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
 </head>
 <body>
   <div class="toolbar">
-    <h2>📄 BelaFarma • Relatório Semanal de Compras</h2>
+    <div class="toolbar-left">
+      <h2>📄 BelaFarma • Relatório Semanal de Compras</h2>
+      <span id="badgeModo" style="background: #334155; color: #94a3b8; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 12px;">Modo Completo</span>
+    </div>
     <div class="toolbar-actions">
-      <button class="btn btn-primary" onclick="window.print()">🖨️ Imprimir / Salvar PDF</button>
-      <button class="btn btn-secondary" onclick="window.close()">✕ Fechar</button>
+      <button id="btnToggleModo" class="btn btn-secondary" onclick="toggleModoNomes()">
+        📋 Apenas Nomes dos Itens
+      </button>
+      <label class="toolbar-chk" title="Quando marcado, itens desmarcados são ocultados imediatamente da visualização e da impressão">
+        <input type="checkbox" id="chkAutoOcultar" checked onchange="aplicarAutoOcultar()">
+        <span>Ocultar desmarcados</span>
+      </label>
+      <button id="btnRestaurar" class="btn btn-warning" style="display: none;" onclick="restaurarTodos()">
+        ↺ Restaurar (<span id="countOcultos">0</span> ocultos)
+      </button>
+      <button class="btn btn-primary" onclick="window.print()">
+        🖨️ Imprimir / Salvar PDF
+      </button>
+      <button class="btn btn-secondary" onclick="window.close()">
+        ✕ Fechar
+      </button>
     </div>
   </div>
 
@@ -811,52 +908,55 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
     </div>
 
     <div class="kpi-grid">
-      <div class="kpi-item">
+      <div class="kpi-item bloco-financeiro">
         <span class="kpi-label">Teto Semanal</span>
         <span class="kpi-val">R$ ${tetoSemanalAtivo.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
       </div>
-      <div class="kpi-item">
+      <div class="kpi-item bloco-financeiro">
         <span class="kpi-label">Cota Comprometida</span>
-        <span class="kpi-val" style="color: #0284c7;">R$ ${totalOrcadoSemana.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+        <span class="kpi-val" id="kpi-comprometida" style="color: #0284c7;">R$ ${totalOrcadoSemana.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
       </div>
       <div class="kpi-item">
         <span class="kpi-label">Reserva Poupada (${reservaSegurancaPct}%)</span>
         <span class="kpi-val" style="color: #059669;">R$ ${valorReservaPoupada.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
       </div>
-      <div class="kpi-item">
+      <div class="kpi-item bloco-financeiro">
         <span class="kpi-label">${isEconomia ? 'Economia na Cotação' : 'Acréscimo na Cotação'}</span>
-        <span class="kpi-val" style="color: ${isEconomia ? '#059669' : '#dc2626'};">
+        <span class="kpi-val" id="kpi-economia" style="color: ${isEconomia ? '#059669' : '#dc2626'};">
           ${isEconomia ? '-' : '+'}R$ ${diferencaEconomiaReais.toFixed(2)} (${isEconomia ? '-' : '+'}${diferencaEconomiaPct}%)
         </span>
       </div>
       <div class="kpi-item">
         <span class="kpi-label">Itens Aprovados</span>
-        <span class="kpi-val">${listaAtivaSemana.length} produtos (${totalUnidades} un)</span>
+        <span class="kpi-val" id="kpi-itens-aprovados">${listaAtivaSemana.length} produtos (${totalUnidades} un)</span>
       </div>
     </div>
 
     <!-- BLOCO 1 -->
     <div class="section-title">
       <span>📦 Bloco 1: Pedido da Semana dentro da Cota Orçamentária</span>
-      <span class="font-mono">Total: R$ ${totalOrcadoSemana.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+      <span class="font-mono bloco-financeiro" id="title-bloco1-total">Total: R$ ${totalOrcadoSemana.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
     </div>
 
     <table>
       <thead>
         <tr>
-          <th class="text-center" style="width: 20px;">#</th>
-          <th>Produto / Descrição</th>
-          <th class="text-center" style="width: 75px;">EAN</th>
-          <th class="text-center" style="width: 25px;">Curva</th>
-          <th class="text-right" style="width: 28px;">Saldo</th>
-          <th class="text-right" style="width: 28px;">VMD</th>
-          <th class="text-center" style="width: 30px;">Qtd</th>
-          <th>Distribuidora</th>
-          <th class="text-right" style="width: 52px;">Preço Cot.</th>
-          <th class="text-right" style="width: 52px;">Últ. Compra</th>
-          <th class="text-right" style="width: 65px;">Variação</th>
-          <th class="text-right" style="width: 58px;">Subtotal</th>
-          <th class="text-center" style="width: 52px;">Janela</th>
+          <th class="col-chk text-center" style="width: 22px;">
+            <input type="checkbox" id="chkTodosBloco1" checked title="Marcar/Desmarcar todos do Bloco 1" onchange="toggleTodos('bloco1', this.checked)">
+          </th>
+          <th class="text-center col-idx" style="width: 20px;">#</th>
+          <th class="col-produto">Produto / Descrição</th>
+          <th class="text-center col-detalhe" style="width: 75px;">EAN</th>
+          <th class="text-center col-detalhe" style="width: 25px;">Curva</th>
+          <th class="text-right col-detalhe" style="width: 28px;">Saldo</th>
+          <th class="text-right col-detalhe" style="width: 28px;">VMD</th>
+          <th class="text-center col-qtd" style="width: 30px;">Qtd</th>
+          <th class="col-detalhe">Distribuidora</th>
+          <th class="text-right col-detalhe" style="width: 52px;">Preço Cot.</th>
+          <th class="text-right col-detalhe" style="width: 52px;">Últ. Compra</th>
+          <th class="text-right col-detalhe" style="width: 65px;">Variação</th>
+          <th class="text-right col-detalhe" style="width: 58px;">Subtotal</th>
+          <th class="text-center col-detalhe" style="width: 52px;">Janela</th>
         </tr>
       </thead>
       <tbody>
@@ -866,26 +966,29 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
           const diffUnit = precoUlt > 0 && precoCot > 0 ? (precoCot - precoUlt) : 0;
           const diffPct = precoUlt > 0 ? (diffUnit / precoUlt) * 100 : 0;
           return `
-            <tr>
-              <td class="text-center font-bold" style="color: #64748b;">${idx + 1}</td>
-              <td class="font-bold">${escapeHtml(it.descricao)}</td>
-              <td class="text-center font-mono" style="color: #475569;">${escapeHtml(it.ean || '—')}</td>
-              <td class="text-center font-bold">${escapeHtml(it.curva_abc)}</td>
-              <td class="text-right ${it.saldo <= 0 ? 'font-bold' : ''}" style="color: ${it.saldo <= 0 ? '#dc2626' : '#334155'};">${it.saldo}</td>
-              <td class="text-right" style="color: #475569;">${Number(it.vmd_ponderado).toFixed(1)}</td>
-              <td class="text-center font-bold" style="color: #0369a1;">${it.qtd_sugerida_7d}</td>
-              <td class="font-bold">${escapeHtml(it.fornecedor_1 || '—')}</td>
-              <td class="text-right font-mono">R$ ${precoCot.toFixed(2)}</td>
-              <td class="text-right font-mono" style="color: #64748b;">${precoUlt > 0 ? `R$ ${precoUlt.toFixed(2)}` : '—'}</td>
-              <td class="text-right font-mono font-bold" style="font-size: 8px;">
+            <tr id="row-b1-${idx}" data-bloco="1" data-qtd="${it.qtd_sugerida_7d}" data-preco="${precoCot}" data-ref="${precoUlt}" data-subtotal="${it.subtotal_7d}">
+              <td class="col-chk text-center">
+                <input type="checkbox" checked class="chk-item chk-b1" onchange="toggleRow(this)" title="Desmarcar para ocultar este item">
+              </td>
+              <td class="text-center font-bold col-idx" style="color: #64748b;">${idx + 1}</td>
+              <td class="font-bold col-produto">${escapeHtml(it.descricao)}</td>
+              <td class="text-center font-mono col-detalhe" style="color: #475569;">${escapeHtml(it.ean || '—')}</td>
+              <td class="text-center font-bold col-detalhe">${escapeHtml(it.curva_abc)}</td>
+              <td class="text-right col-detalhe ${it.saldo <= 0 ? 'font-bold' : ''}" style="color: ${it.saldo <= 0 ? '#dc2626' : '#334155'};">${it.saldo}</td>
+              <td class="text-right col-detalhe" style="color: #475569;">${Number(it.vmd_ponderado).toFixed(1)}</td>
+              <td class="text-center font-bold col-qtd" style="color: #0369a1;">${it.qtd_sugerida_7d}</td>
+              <td class="font-bold col-detalhe">${escapeHtml(it.fornecedor_1 || '—')}</td>
+              <td class="text-right font-mono col-detalhe">R$ ${precoCot.toFixed(2)}</td>
+              <td class="text-right font-mono col-detalhe" style="color: #64748b;">${precoUlt > 0 ? `R$ ${precoUlt.toFixed(2)}` : '—'}</td>
+              <td class="text-right font-mono font-bold col-detalhe" style="font-size: 8px;">
                 ${diffUnit < 0 
                   ? `<span class="badge-ok">-R$ ${Math.abs(diffUnit).toFixed(2)} (${diffPct.toFixed(1)}%)</span>` 
                   : diffUnit > 0 
                   ? `<span class="badge-warn">+R$ ${diffUnit.toFixed(2)} (+${diffPct.toFixed(1)}%)</span>` 
                   : '<span style="color: #94a3b8;">=</span>'}
               </td>
-              <td class="text-right font-mono font-bold">R$ ${it.subtotal_7d.toFixed(2)}</td>
-              <td class="text-center">
+              <td class="text-right font-mono font-bold col-detalhe">R$ ${it.subtotal_7d.toFixed(2)}</td>
+              <td class="text-center col-detalhe">
                 ${it.melhor_fora_janela && it.melhor_fora_janela.distribuidora === it.fornecedor_1 
                   ? '<span class="badge-warn">Fora Janela</span>' 
                   : '<span class="badge-ok">Janela OK</span>'}
@@ -896,21 +999,29 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
       </tbody>
       <tfoot>
         <tr style="background: #e2e8f0; font-weight: 800;">
-          <td colspan="6" class="text-right font-bold" style="text-transform: uppercase;">Totais do Pedido:</td>
-          <td class="text-center font-bold" style="color: #0369a1;">${totalUnidades} un</td>
-          <td colspan="4" class="text-right font-bold" style="text-transform: uppercase;">Valor Total Comprometido:</td>
-          <td class="text-right font-mono font-black" style="color: #0f172a; font-size: 10px;">
+          <td class="col-chk"></td>
+          <td class="col-idx"></td>
+          <td class="text-right font-bold col-produto" style="text-transform: uppercase;">Totais do Pedido:</td>
+          <td class="col-detalhe"></td>
+          <td class="col-detalhe"></td>
+          <td class="col-detalhe"></td>
+          <td class="col-detalhe"></td>
+          <td class="text-center font-bold col-qtd" id="foot-total-un" style="color: #0369a1;">${totalUnidades} un</td>
+          <td colspan="4" class="text-right font-bold col-detalhe" style="text-transform: uppercase;">Valor Total Comprometido:</td>
+          <td class="text-right font-mono font-black col-detalhe" id="foot-total-subtotal" style="color: #0f172a; font-size: 10px;">
             R$ ${totalOrcadoSemana.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </td>
-          <td class="text-center" style="font-size: 8px; color: #475569;">
+          <td class="text-center col-detalhe" id="foot-cota-pct" style="font-size: 8px; color: #475569;">
             ${((totalOrcadoSemana / (tetoSemanalAtivo || 1)) * 100).toFixed(0)}% cota
           </td>
         </tr>
-        <tr style="background: #f8fafc; font-weight: 700;">
-          <td colspan="6" class="text-right" style="text-transform: uppercase; font-size: 8px; color: #64748b;">
+        <tr class="bloco-financeiro" style="background: #f8fafc; font-weight: 700;">
+          <td class="col-chk"></td>
+          <td class="col-idx"></td>
+          <td class="text-right col-produto" style="text-transform: uppercase; font-size: 8px; color: #64748b;">
             Balanço vs Última Compra:
           </td>
-          <td colspan="7" class="text-left font-mono font-bold" style="color: ${isEconomia ? '#059669' : '#dc2626'}; font-size: 9px;">
+          <td colspan="11" class="text-left font-mono font-bold" id="foot-balanco-economia" style="color: ${isEconomia ? '#059669' : '#dc2626'}; font-size: 9px;">
             ${isEconomia ? '🟢 ECONOMIA TOTAL GERADA:' : '🟠 ACRÉSCIMO TOTAL:'} 
             <b>${isEconomia ? '-' : '+'}R$ ${diferencaEconomiaReais.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b> 
             (${isEconomia ? '-' : '+'}${diferencaEconomiaPct}% vs total histórico de R$ ${totalReferenciaUltCompra.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
@@ -931,37 +1042,43 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
     <table>
       <thead>
         <tr style="background: #fef3c7;">
-          <th class="text-center" style="width: 30px;"># Orig.</th>
-          <th>Produto em Falta</th>
-          <th class="text-center" style="width: 80px;">EAN</th>
-          <th class="text-center" style="width: 28px;">Curva</th>
-          <th class="text-right" style="width: 32px;">Saldo</th>
-          <th class="text-right" style="width: 32px;">VMD</th>
-          <th class="text-center" style="width: 38px;">Qtd Nec.</th>
-          <th class="text-right" style="width: 60px;">Preço Ref.</th>
-          <th class="text-center" style="width: 90px;">Situação Portais</th>
-          <th>Vaga Ocupada Por (Substituto)</th>
+          <th class="col-chk text-center" style="width: 22px;">
+            <input type="checkbox" id="chkTodosBloco2" checked title="Marcar/Desmarcar todos do Bloco 2" onchange="toggleTodos('bloco2', this.checked)">
+          </th>
+          <th class="text-center col-idx" style="width: 30px;"># Orig.</th>
+          <th class="col-produto">Produto em Falta</th>
+          <th class="text-center col-detalhe" style="width: 80px;">EAN</th>
+          <th class="text-center col-detalhe" style="width: 28px;">Curva</th>
+          <th class="text-right col-detalhe" style="width: 32px;">Saldo</th>
+          <th class="text-right col-detalhe" style="width: 32px;">VMD</th>
+          <th class="text-center col-qtd" style="width: 38px;">Qtd Nec.</th>
+          <th class="text-right col-detalhe" style="width: 60px;">Preço Ref.</th>
+          <th class="text-center col-detalhe" style="width: 90px;">Situação Portais</th>
+          <th class="col-substituto">Vaga Ocupada Por (Substituto)</th>
         </tr>
       </thead>
       <tbody>
         ${itensSemEstoquePortais.length === 0 ? `
           <tr>
-            <td colspan="10" class="text-center" style="padding: 10px; color: #64748b; font-style: italic;">
+            <td colspan="11" class="text-center" style="padding: 10px; color: #64748b; font-style: italic;">
               Nenhum produto crítico esgotado nos portais nesta semana.
             </td>
           </tr>
-        ` : itensSemEstoquePortais.map((it) => `
-          <tr>
-            <td class="text-center font-bold" style="color: #92400e;">#${it.prioridade_original || '—'}</td>
-            <td class="font-bold">${escapeHtml(it.descricao)}</td>
-            <td class="text-center font-mono" style="color: #475569;">${escapeHtml(it.ean || '—')}</td>
-            <td class="text-center font-bold">${escapeHtml(it.curva_abc)}</td>
-            <td class="text-right font-bold" style="color: #dc2626;">${it.saldo}</td>
-            <td class="text-right" style="color: #475569;">${Number(it.vmd_ponderado).toFixed(1)}</td>
-            <td class="text-center font-bold">${it.qtd_sugerida_7d}</td>
-            <td class="text-right font-mono">R$ ${(it.preco_ult_compra || it.custo_unitario || 0).toFixed(2)}</td>
-            <td class="text-center"><span class="badge-esgotado">Esgotado nos 12 portais</span></td>
-            <td>
+        ` : itensSemEstoquePortais.map((it, idx) => `
+          <tr id="row-b2-${idx}" data-bloco="2">
+            <td class="col-chk text-center">
+              <input type="checkbox" checked class="chk-item chk-b2" onchange="toggleRow(this)" title="Desmarcar para ocultar este item">
+            </td>
+            <td class="text-center font-bold col-idx" style="color: #92400e;">#${it.prioridade_original || '—'}</td>
+            <td class="font-bold col-produto">${escapeHtml(it.descricao)}</td>
+            <td class="text-center font-mono col-detalhe" style="color: #475569;">${escapeHtml(it.ean || '—')}</td>
+            <td class="text-center font-bold col-detalhe">${escapeHtml(it.curva_abc)}</td>
+            <td class="text-right font-bold col-detalhe" style="color: #dc2626;">${it.saldo}</td>
+            <td class="text-right col-detalhe" style="color: #475569;">${Number(it.vmd_ponderado).toFixed(1)}</td>
+            <td class="text-center font-bold col-qtd">${it.qtd_sugerida_7d}</td>
+            <td class="text-right font-mono col-detalhe">R$ ${(it.preco_ult_compra || it.custo_unitario || 0).toFixed(2)}</td>
+            <td class="text-center col-detalhe"><span class="badge-esgotado">Esgotado nos 12 portais</span></td>
+            <td class="col-substituto">
               ${it.substituto_promovido 
                 ? `<b style="color: #065f46;">${escapeHtml(it.substituto_promovido)}</b>` 
                 : '<span style="color: #64748b; font-style: italic;">Vaga liberada no orçamento</span>'}
@@ -976,6 +1093,189 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
       <span>Documento gerado em modo Retrato (A4 Multi-páginas)</span>
     </div>
   </div>
+
+  <script>
+    function toggleModoNomes() {
+      var isNomes = document.body.classList.toggle('modo-apenas-nomes');
+      var btn = document.getElementById('btnToggleModo');
+      var badge = document.getElementById('badgeModo');
+      if (isNomes) {
+        if (btn) btn.innerHTML = '📊 Exibir Modo Completo';
+        if (badge) {
+          badge.textContent = 'Apenas Nomes dos Itens';
+          badge.style.background = '#0284c7';
+          badge.style.color = '#ffffff';
+        }
+      } else {
+        if (btn) btn.innerHTML = '📋 Apenas Nomes dos Itens';
+        if (badge) {
+          badge.textContent = 'Modo Completo';
+          badge.style.background = '#334155';
+          badge.style.color = '#94a3b8';
+        }
+      }
+    }
+
+    function aplicarAutoOcultar() {
+      var autoOcultar = document.getElementById('chkAutoOcultar').checked;
+      document.querySelectorAll('.chk-item').forEach(function(chk) {
+        var tr = chk.closest('tr');
+        if (!chk.checked) {
+          if (autoOcultar) {
+            tr.classList.add('item-oculto');
+            tr.classList.remove('tr-desmarcado');
+          } else {
+            tr.classList.remove('item-oculto');
+            tr.classList.add('tr-desmarcado');
+          }
+        }
+      });
+      recalcular();
+    }
+
+    function toggleRow(chk) {
+      var tr = chk.closest('tr');
+      var autoOcultar = document.getElementById('chkAutoOcultar').checked;
+      if (chk.checked) {
+        tr.classList.remove('item-oculto');
+        tr.classList.remove('tr-desmarcado');
+      } else {
+        if (autoOcultar) {
+          tr.classList.add('item-oculto');
+          tr.classList.remove('tr-desmarcado');
+        } else {
+          tr.classList.remove('item-oculto');
+          tr.classList.add('tr-desmarcado');
+        }
+      }
+      recalcular();
+    }
+
+    function toggleTodos(bloco, checked) {
+      var selector = bloco === 'bloco1' ? '.chk-b1' : '.chk-b2';
+      var autoOcultar = document.getElementById('chkAutoOcultar').checked;
+      document.querySelectorAll(selector).forEach(function(chk) {
+        chk.checked = checked;
+        var tr = chk.closest('tr');
+        if (checked) {
+          tr.classList.remove('item-oculto');
+          tr.classList.remove('tr-desmarcado');
+        } else {
+          if (autoOcultar) {
+            tr.classList.add('item-oculto');
+            tr.classList.remove('tr-desmarcado');
+          } else {
+            tr.classList.remove('item-oculto');
+            tr.classList.add('tr-desmarcado');
+          }
+        }
+      });
+      recalcular();
+    }
+
+    function restaurarTodos() {
+      document.querySelectorAll('.chk-item').forEach(function(chk) {
+        chk.checked = true;
+        var tr = chk.closest('tr');
+        tr.classList.remove('item-oculto');
+        tr.classList.remove('tr-desmarcado');
+      });
+      var chkB1 = document.getElementById('chkTodosBloco1');
+      if (chkB1) chkB1.checked = true;
+      var chkB2 = document.getElementById('chkTodosBloco2');
+      if (chkB2) chkB2.checked = true;
+      recalcular();
+    }
+
+    function recalcular() {
+      var rowsB1 = document.querySelectorAll('tbody tr[data-bloco="1"]');
+      var totalQtd = 0;
+      var totalSubtotal = 0;
+      var totalRef = 0;
+      var visiveisB1 = 0;
+      var ocultosTotal = 0;
+
+      rowsB1.forEach(function(tr) {
+        var chk = tr.querySelector('.chk-item');
+        if (chk && chk.checked) {
+          visiveisB1++;
+          var qtd = Number(tr.getAttribute('data-qtd')) || 0;
+          var sub = Number(tr.getAttribute('data-subtotal')) || 0;
+          var preco = Number(tr.getAttribute('data-preco')) || 0;
+          var ref = Number(tr.getAttribute('data-ref')) || 0;
+          totalQtd += qtd;
+          totalSubtotal += sub;
+          if (ref > 0) {
+            totalRef += (ref * qtd);
+          } else {
+            totalRef += (preco * qtd);
+          }
+        } else {
+          ocultosTotal++;
+        }
+      });
+
+      var rowsB2 = document.querySelectorAll('tbody tr[data-bloco="2"]');
+      var visiveisB2 = 0;
+      rowsB2.forEach(function(tr) {
+        var chk = tr.querySelector('.chk-item');
+        if (chk && chk.checked) {
+          visiveisB2++;
+        } else {
+          ocultosTotal++;
+        }
+      });
+
+      // Atualizar tfoot Bloco 1
+      var elFootQtd = document.getElementById('foot-total-un');
+      if (elFootQtd) elFootQtd.textContent = totalQtd + ' un';
+
+      var elFootSubtotal = document.getElementById('foot-total-subtotal');
+      if (elFootSubtotal) elFootSubtotal.textContent = 'R$ ' + totalSubtotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+      var elTitleB1 = document.getElementById('title-bloco1-total');
+      if (elTitleB1) elTitleB1.textContent = 'Total: R$ ' + totalSubtotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+      var elFootCotaPct = document.getElementById('foot-cota-pct');
+      var teto = ${tetoSemanalAtivo || 1};
+      if (elFootCotaPct) elFootCotaPct.textContent = ((totalSubtotal / teto) * 100).toFixed(0) + '% cota';
+
+      // Atualizar Balanço de Economia
+      var diff = totalSubtotal - totalRef;
+      var isEco = diff <= 0;
+      var diffReais = Math.abs(diff);
+      var diffPct = totalRef > 0 ? (diffReais / totalRef) * 100 : 0;
+
+      var elFootBalanco = document.getElementById('foot-balanco-economia');
+      if (elFootBalanco) {
+        elFootBalanco.style.color = isEco ? '#059669' : '#dc2626';
+        elFootBalanco.innerHTML = (isEco ? '🟢 ECONOMIA TOTAL GERADA: ' : '🟠 ACRÉSCIMO TOTAL: ') +
+          '<b>' + (isEco ? '-' : '+') + 'R$ ' + diffReais.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '</b> ' +
+          '(' + (isEco ? '-' : '+') + diffPct.toFixed(1) + '% vs total histórico de R$ ' + totalRef.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ')';
+      }
+
+      // Atualizar KPI Cards no Header
+      var kpiComprometido = document.getElementById('kpi-comprometida');
+      if (kpiComprometido) kpiComprometido.textContent = 'R$ ' + totalSubtotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+      var kpiItens = document.getElementById('kpi-itens-aprovados');
+      if (kpiItens) kpiItens.textContent = visiveisB1 + ' produtos (' + totalQtd + ' un)';
+
+      var kpiEco = document.getElementById('kpi-economia');
+      if (kpiEco) {
+        kpiEco.style.color = isEco ? '#059669' : '#dc2626';
+        kpiEco.textContent = (isEco ? '-' : '+') + 'R$ ' + diffReais.toFixed(2) + ' (' + (isEco ? '-' : '+') + diffPct.toFixed(1) + '%)';
+      }
+
+      // Botão restaurar
+      var btnRestaurar = document.getElementById('btnRestaurar');
+      var countSpan = document.getElementById('countOcultos');
+      if (countSpan) countSpan.textContent = ocultosTotal;
+      if (btnRestaurar) {
+        btnRestaurar.style.display = ocultosTotal > 0 ? 'inline-flex' : 'none';
+      }
+    }
+  </script>
 </body>
 </html>`;
 
@@ -985,11 +1285,8 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
       win.document.write(html);
       win.document.close();
       win.focus();
-      setTimeout(() => {
-        try { win.print(); } catch {}
-      }, 400);
     } else {
-      addToast('Pop-up bloqueado pelo navegador. Por favor, autorize pop-ups para imprimir.', 'warning');
+      addToast('Pop-up bloqueado pelo navegador. Por favor, autorize pop-ups para visualizar o relatório.', 'warning');
     }
   };
 
