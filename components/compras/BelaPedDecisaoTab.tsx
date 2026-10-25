@@ -32,7 +32,9 @@ import {
   Building2,
   Clock,
   HelpCircle,
-  Printer
+  Printer,
+  Table,
+  Filter
 } from 'lucide-react';
 import { useToast } from '../ToastContext';
 
@@ -128,6 +130,7 @@ interface Props {
   orcamentoInfo?: any;
   janelaAlvoSelecionada?: string;
   setJanelaAlvoSelecionada?: (janela: string) => void;
+  abaInicial?: 'pedido_semana' | 'oportunidades';
 }
 
 export const BelaPedDecisaoTab: React.FC<Props> = ({
@@ -143,9 +146,27 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
   onRecarregarDados,
   orcamentoInfo,
   janelaAlvoSelecionada = '2027-01',
-  setJanelaAlvoSelecionada
+  setJanelaAlvoSelecionada,
+  abaInicial = 'pedido_semana'
 }) => {
   const { addToast } = useToast();
+
+  // Guia Principal da Tela: 'pedido_semana' (Lote da Semana & Orçamento) ou 'oportunidades' (Preço Cotado < Última Compra)
+  const [abaDecisaoAtiva, setAbaDecisaoAtiva] = useState<'pedido_semana' | 'oportunidades'>(abaInicial || 'pedido_semana');
+
+  useEffect(() => {
+    if (abaInicial) {
+      setAbaDecisaoAtiva(abaInicial);
+    }
+  }, [abaInicial]);
+
+  // Estados exclusivos da Guia Oportunidades
+  const [buscaOportunidade, setBuscaOportunidade] = useState('');
+  const [filtroDistOportunidade, setFiltroDistOportunidade] = useState<string>('TODAS');
+  const [filtroCurvaOportunidade, setFiltroCurvaOportunidade] = useState<'TODAS' | 'A' | 'B' | 'C'>('TODAS');
+  const [filtroFaixaDesconto, setFiltroFaixaDesconto] = useState<'TODOS' | 'MAIOR_10' | 'MAIOR_20' | 'MAIOR_30'>('TODOS');
+  const [ordenacaoOportunidade, setOrdenacaoOportunidade] = useState<'desconto_pct' | 'economia_total' | 'preco_menor' | 'curva_abc' | 'giro_vmd'>('desconto_pct');
+  const [modoViewOportunidades, setModoViewOportunidades] = useState<'tabela' | 'cards'>('tabela');
 
   // Modo de exibição: Grade Compacta ou Carrossel Focal 1 a 1
   const [modoVisualizacao, setModoVisualizacao] = useState<'grade' | 'carrossel'>(() => {
@@ -211,6 +232,7 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
     descricao: string;
     quantidade: number;
     preco: number;
+    precoUlt?: number;
     enviando: boolean;
   }>({
     aberto: false,
@@ -219,6 +241,7 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
     descricao: '',
     quantidade: 1,
     preco: 0,
+    precoUlt: 0,
     enviando: false
   });
 
@@ -452,6 +475,157 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
       isEconomia: isEcon
     };
   }, [listaAtivaSemana]);
+
+  // 5. OPORTUNIDADES: ITENS COTADOS COM VALOR ABAIXO DA ÚLTIMA COMPRA
+  const oportunidadesCompra = useMemo(() => {
+    const list: Array<FaltaItem7d & {
+      precoUlt: number;
+      precoCot: number;
+      diffUnit: number;
+      diffPct: number;
+      economiaTotal: number;
+      fornecedorVencedor: string;
+    }> = [];
+
+    // Considera todos os itens da base de faltas e avulsos
+    const base = [...itensAvulsosPesquisa, ...faltas];
+    const mapaUnicos = new Map<number, FaltaItem7d>();
+    base.forEach(item => {
+      if (!mapaUnicos.has(item.produto_id)) {
+        mapaUnicos.set(item.produto_id, item);
+      }
+    });
+
+    for (const item of mapaUnicos.values()) {
+      if (item.nao_cotar) continue;
+      
+      const forn = String(item.fornecedor_1 || '').trim();
+      const fornLower = forn.toLowerCase();
+      const temCotacaoValida = Boolean(
+        item.preco_1 && 
+        item.preco_1 > 0 && 
+        forn && 
+        !fornLower.includes('sem estoque') && 
+        !fornLower.includes('esgotado') && 
+        !fornLower.includes('sem cotac')
+      );
+
+      if (!temCotacaoValida) continue;
+
+      const precoUlt = Number(item.preco_ult_compra) || Number(item.custo_unitario) || 0;
+      const precoCot = Number(item.preco_1) || 0;
+
+      // OPORTUNIDADE: Preço cotado é estritamente menor que a última compra
+      if (precoUlt > 0 && precoCot > 0 && precoCot < precoUlt) {
+        const diffUnit = precoUlt - precoCot;
+        const diffPct = (diffUnit / precoUlt) * 100;
+        const qtd = Math.max(1, Number(item.qtd_sugerida_7d) || 1);
+        const economiaTotal = diffUnit * qtd;
+
+        list.push({
+          ...item,
+          precoUlt,
+          precoCot,
+          diffUnit,
+          diffPct,
+          economiaTotal,
+          fornecedorVencedor: forn
+        });
+      }
+    }
+
+    // Ordenação padrão: maior economia percentual (maior desconto)
+    return list.sort((a, b) => b.diffPct - a.diffPct);
+  }, [faltas, itensAvulsosPesquisa]);
+
+  // Total de economia de todas as oportunidades encontradas
+  const totalEconomiaOportunidades = useMemo(() => {
+    return oportunidadesCompra.reduce((acc, it) => acc + it.economiaTotal, 0);
+  }, [oportunidadesCompra]);
+
+  // Lista de distribuidoras com contagem para o select
+  const distribuidorasComOportunidades = useMemo(() => {
+    const counts: Record<string, number> = {};
+    oportunidadesCompra.forEach(it => {
+      const d = it.fornecedorVencedor || 'Outros';
+      counts[d] = (counts[d] || 0) + 1;
+    });
+    return Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  }, [oportunidadesCompra]);
+
+  // Lista filtrada e ordenada de Oportunidades
+  const oportunidadesFiltradas = useMemo(() => {
+    let list = [...oportunidadesCompra];
+
+    if (buscaOportunidade.trim()) {
+      const q = buscaOportunidade.trim().toLowerCase();
+      list = list.filter(it => 
+        (it.descricao && it.descricao.toLowerCase().includes(q)) ||
+        (it.ean && it.ean.includes(q))
+      );
+    }
+
+    if (filtroDistOportunidade !== 'TODAS') {
+      list = list.filter(it => 
+        it.fornecedorVencedor.toUpperCase() === filtroDistOportunidade.toUpperCase()
+      );
+    }
+
+    if (filtroCurvaOportunidade !== 'TODAS') {
+      list = list.filter(it => 
+        (it.curva_abc || 'C').toUpperCase() === filtroCurvaOportunidade
+      );
+    }
+
+    if (filtroFaixaDesconto === 'MAIOR_10') {
+      list = list.filter(it => it.diffPct >= 10);
+    } else if (filtroFaixaDesconto === 'MAIOR_20') {
+      list = list.filter(it => it.diffPct >= 20);
+    } else if (filtroFaixaDesconto === 'MAIOR_30') {
+      list = list.filter(it => it.diffPct >= 30);
+    }
+
+    list.sort((a, b) => {
+      if (ordenacaoOportunidade === 'desconto_pct') {
+        return b.diffPct - a.diffPct;
+      }
+      if (ordenacaoOportunidade === 'economia_total') {
+        return b.economiaTotal - a.economiaTotal;
+      }
+      if (ordenacaoOportunidade === 'preco_menor') {
+        return a.precoCot - b.precoCot;
+      }
+      if (ordenacaoOportunidade === 'curva_abc') {
+        const peso: Record<string, number> = { A: 3, B: 2, C: 1 };
+        const pA = peso[(a.curva_abc || 'C').toUpperCase()] || 0;
+        const pB = peso[(b.curva_abc || 'C').toUpperCase()] || 0;
+        return pB - pA;
+      }
+      if (ordenacaoOportunidade === 'giro_vmd') {
+        return (Number(b.vmd_ponderado) || 0) - (Number(a.vmd_ponderado) || 0);
+      }
+      return 0;
+    });
+
+    return list;
+  }, [oportunidadesCompra, buscaOportunidade, filtroDistOportunidade, filtroCurvaOportunidade, filtroFaixaDesconto, ordenacaoOportunidade]);
+
+  // Métricas agregadas das oportunidades filtradas
+  const metricasOportunidades = useMemo(() => {
+    const totalItens = oportunidadesFiltradas.length;
+    const totalEconomia = oportunidadesFiltradas.reduce((acc, it) => acc + it.economiaTotal, 0);
+    const totalInvestimento = oportunidadesFiltradas.reduce((acc, it) => acc + (it.precoCot * (it.qtd_sugerida_7d || 1)), 0);
+    const mediaDesconto = totalItens > 0 ? (oportunidadesFiltradas.reduce((acc, it) => acc + it.diffPct, 0) / totalItens) : 0;
+    const maiorDescontoItem = oportunidadesFiltradas.reduce((max, it) => (it.diffPct > (max?.diffPct || 0) ? it : max), oportunidadesFiltradas[0] || null);
+
+    return {
+      totalItens,
+      totalEconomia,
+      totalInvestimento,
+      mediaDesconto,
+      maiorDescontoItem
+    };
+  }, [oportunidadesFiltradas]);
 
   // Ajusta índice ativo no carrossel para não sair do limite
   useEffect(() => {
@@ -1290,15 +1464,285 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
     }
   };
 
+  // 7.1 Relatório HTML A4 Multi-páginas exclusivo para Oportunidades
+  const handleAbrirRelatorioOportunidadesHtml = () => {
+    const dataHoje = new Date().toLocaleDateString('pt-BR');
+    const horaHoje = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const escapeHtml = (str: any) => String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const totalItens = metricasOportunidades.totalItens;
+    const totalEconomia = metricasOportunidades.totalEconomia;
+    const totalInvestimento = metricasOportunidades.totalInvestimento;
+    const mediaDesconto = metricasOportunidades.mediaDesconto;
+
+    const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>BelaFarma - Relatório de Oportunidades de Compra (${dataHoje})</title>
+  <style>
+    @page {
+      size: A4 portrait;
+      margin: 8mm 8mm 10mm 8mm;
+    }
+    * {
+      box-sizing: border-box;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #ffffff;
+      color: #0f172a;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-size: 10px;
+      line-height: 1.25;
+    }
+    .toolbar {
+      position: sticky;
+      top: 0;
+      background: #064e3b;
+      color: #ffffff;
+      padding: 10px 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      box-shadow: 0 4px 6px -1px rgba(0,0,0,0.15);
+      z-index: 9999;
+    }
+    .toolbar h2 {
+      margin: 0;
+      font-size: 13.5px;
+      font-weight: 800;
+    }
+    .toolbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .btn {
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-weight: 800;
+      font-size: 11px;
+      cursor: pointer;
+      border: none;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .btn-primary { background: #059669; color: #ffffff; }
+    .btn-secondary { background: #065f46; color: #ffffff; }
+    @media print {
+      .toolbar { display: none !important; }
+      body { padding: 0 !important; }
+    }
+    .sheet {
+      width: 100%;
+      max-width: 210mm;
+      margin: 0 auto;
+      padding: 12px 14px;
+    }
+    .header {
+      border-bottom: 2px solid #065f46;
+      padding-bottom: 8px;
+      margin-bottom: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+    .header h1 {
+      margin: 0;
+      font-size: 17px;
+      font-weight: 900;
+      color: #065f46;
+    }
+    .header p {
+      margin: 2px 0 0;
+      font-size: 10px;
+      color: #475569;
+      font-weight: 600;
+    }
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 6px;
+      background: #f0fdf4;
+      border: 1px solid #bbf7d0;
+      border-radius: 6px;
+      padding: 6px 10px;
+      margin-bottom: 12px;
+    }
+    .kpi-label { font-size: 8.5px; text-transform: uppercase; font-weight: 700; color: #166534; display: block; }
+    .kpi-val { font-size: 12px; font-weight: 800; color: #065f46; font-family: monospace; display: block; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 9px;
+      margin-bottom: 8px;
+    }
+    th {
+      background: #f1f5f9;
+      color: #1e293b;
+      font-weight: 800;
+      text-align: left;
+      border: 1px solid #94a3b8;
+      padding: 3.5px 5px;
+      white-space: nowrap;
+    }
+    td {
+      border: 1px solid #cbd5e1;
+      padding: 3px 5px;
+      color: #0f172a;
+    }
+    tr:nth-child(even) td { background: #f8fafc; }
+    .text-center { text-align: center; }
+    .text-right { text-align: right; }
+    .font-mono { font-family: monospace; }
+    .font-bold { font-weight: 700; }
+    .badge-ok {
+      background: #ecfdf5;
+      color: #047857;
+      padding: 1px 4px;
+      border-radius: 3px;
+      font-size: 8px;
+      font-weight: 700;
+      border: 1px solid #a7f3d0;
+      white-space: nowrap;
+    }
+    .footer {
+      border-top: 1px solid #cbd5e1;
+      padding-top: 6px;
+      margin-top: 12px;
+      display: flex;
+      justify-content: space-between;
+      font-size: 8.5px;
+      color: #64748b;
+    }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <h2>🔥 BelaFarma • Relatório de Oportunidades de Compra</h2>
+    <div class="toolbar-actions">
+      <button class="btn btn-primary" onclick="window.print()">🖨️ Imprimir / Salvar PDF</button>
+      <button class="btn btn-secondary" onclick="window.close()">✕ Fechar</button>
+    </div>
+  </div>
+
+  <div class="sheet">
+    <div class="header">
+      <div>
+        <h1>BelaFarma • Oportunidades de Compra</h1>
+        <p>Itens Cotados com Valor Abaixo da Última Compra</p>
+      </div>
+      <div style="text-align: right; font-size: 9.5px; color: #475569;">
+        <div><b>Emissão:</b> ${dataHoje} às ${horaHoje}</div>
+        <div><b>Total Itens:</b> ${totalItens} ofertas</div>
+      </div>
+    </div>
+
+    <div class="kpi-grid">
+      <div>
+        <span class="kpi-label">Oportunidades</span>
+        <span class="kpi-val">${totalItens} itens</span>
+      </div>
+      <div>
+        <span class="kpi-label">Economia Projetada</span>
+        <span class="kpi-val" style="color: #047857;">R$ ${totalEconomia.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+      </div>
+      <div>
+        <span class="kpi-label">Desconto Médio</span>
+        <span class="kpi-val">-${mediaDesconto.toFixed(1)}%</span>
+      </div>
+      <div>
+        <span class="kpi-label">Investimento Total</span>
+        <span class="kpi-val">R$ ${totalInvestimento.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+      </div>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th class="text-center" style="width: 20px;">#</th>
+          <th>Produto / Descrição</th>
+          <th class="text-center" style="width: 80px;">EAN</th>
+          <th class="text-center" style="width: 25px;">Curva</th>
+          <th class="text-right" style="width: 30px;">Saldo</th>
+          <th class="text-right" style="width: 30px;">VMD</th>
+          <th class="text-right" style="width: 55px;">Últ. Compra</th>
+          <th class="text-right" style="width: 55px;">Preço Cot.</th>
+          <th class="text-right" style="width: 70px;">Economia Unit.</th>
+          <th>Distribuidora</th>
+          <th class="text-center" style="width: 30px;">Qtd</th>
+          <th class="text-right" style="width: 60px;">Total</th>
+          <th class="text-right" style="width: 65px;">Economia Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${oportunidadesFiltradas.map((it, idx) => {
+          const subtotal = it.precoCot * (it.qtd_sugerida_7d || 1);
+          const econTot = it.diffUnit * (it.qtd_sugerida_7d || 1);
+          return `
+            <tr>
+              <td class="text-center font-bold" style="color: #64748b;">${idx + 1}</td>
+              <td class="font-bold">${escapeHtml(it.descricao)}</td>
+              <td class="text-center font-mono" style="color: #475569;">${escapeHtml(it.ean || '—')}</td>
+              <td class="text-center font-bold">${escapeHtml(it.curva_abc)}</td>
+              <td class="text-right ${it.saldo <= 0 ? 'font-bold' : ''}" style="color: ${it.saldo <= 0 ? '#dc2626' : '#334155'};">${it.saldo}</td>
+              <td class="text-right" style="color: #475569;">${Number(it.vmd_ponderado).toFixed(1)}</td>
+              <td class="text-right font-mono" style="color: #64748b; text-decoration: line-through;">R$ ${it.precoUlt.toFixed(2)}</td>
+              <td class="text-right font-mono font-bold" style="color: #047857;">R$ ${it.precoCot.toFixed(2)}</td>
+              <td class="text-right font-mono font-bold">
+                <span class="badge-ok">-R$ ${it.diffUnit.toFixed(2)} (-${it.diffPct.toFixed(1)}%)</span>
+              </td>
+              <td class="font-bold">${escapeHtml(it.fornecedorVencedor)}</td>
+              <td class="text-center font-bold" style="color: #0369a1;">${it.qtd_sugerida_7d || 1}</td>
+              <td class="text-right font-mono font-bold">R$ ${subtotal.toFixed(2)}</td>
+              <td class="text-right font-mono font-bold" style="color: #047857;">R$ ${econTot.toFixed(2)}</td>
+            </tr>
+          `;
+        }).join('')}
+      </tbody>
+      <tfoot>
+        <tr style="background: #e2e8f0; font-weight: 800;">
+          <td colspan="10" class="text-right font-bold uppercase">Totais Gerais:</td>
+          <td class="text-center font-bold">${oportunidadesFiltradas.reduce((acc, it) => acc + (it.qtd_sugerida_7d || 1), 0)} un</td>
+          <td class="text-right font-mono font-bold">R$ ${totalInvestimento.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+          <td class="text-right font-mono font-bold" style="color: #047857;">R$ ${totalEconomia.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+        </tr>
+      </tfoot>
+    </table>
+
+    <div class="footer">
+      <span>BelaFarma Gestão Farmacêutica • Módulo BelaPed Oportunidades</span>
+      <span>Documento gerado em modo Retrato (A4 Multi-páginas)</span>
+    </div>
+  </div>
+</body>
+</html>`;
+
+    const win = window.open('', '_blank');
+    if (win) {
+      win.document.open();
+      win.document.write(html);
+      win.document.close();
+      win.focus();
+    } else {
+      addToast('Pop-up bloqueado pelo navegador. Por favor, autorize pop-ups para visualizar o relatório.', 'warning');
+    }
+  };
+
   // 8. Enviar item ao carrinho via robô
-  const handleAdicionarAoCarrinho = (item: FaltaItem7d, distribuidora: string, preco: number) => {
+  const handleAdicionarAoCarrinho = (item: FaltaItem7d, distribuidora: string, preco: number, qtdCustom?: number) => {
+    const precoUlt = Number(item.preco_ult_compra) || Number(item.custo_unitario) || 0;
     setModalCarrinho({
       aberto: true,
       distribuidora,
       ean: item.ean,
       descricao: item.descricao,
-      quantidade: Math.max(1, item.qtd_sugerida_7d || 1),
+      quantidade: qtdCustom || Math.max(1, item.qtd_sugerida_7d || 1),
       preco,
+      precoUlt,
       enviando: false
     });
   };
@@ -1646,14 +2090,551 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* ─── 2. BARRA DE PESQUISA RÁPIDA INTEGRADA (TOPO) ────────────────────── */}
-      <div className="p-3 sm:p-4 max-w-7xl mx-auto w-full flex flex-col gap-2 shrink-0">
-        <div className="relative flex items-center">
-          <Search className="w-4 h-4 text-cyan-400 absolute left-3.5 pointer-events-none" />
-          <input
-            type="text"
-            value={termoBusca}
-            onChange={(e) => setTermoBusca(e.target.value)}
+      {/* ─── 1.1 BARRA DE GUIAS PRINCIPAIS: PEDIDO DA SEMANA vs OPORTUNIDADES ─── */}
+      <div className="bg-[#0b1222] border-b border-cyan-900/40 px-3 sm:px-4 py-2 shrink-0">
+        <div className="max-w-7xl mx-auto flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setAbaDecisaoAtiva('pedido_semana');
+                if (onNavegarTab) onNavegarTab('decisao');
+              }}
+              className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-black transition-all flex items-center gap-2 cursor-pointer ${
+                abaDecisaoAtiva === 'pedido_semana'
+                  ? 'bg-gradient-to-r from-amber-600 to-orange-600 text-white shadow-md shadow-amber-950/40 border border-amber-400/40'
+                  : 'bg-[#060a12] text-slate-400 hover:text-white hover:bg-slate-800/60 border border-slate-800'
+              }`}
+            >
+              <Sparkles className="w-4 h-4 text-amber-300" />
+              <span>Pedido da Semana (Orçamento)</span>
+              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-amber-950 text-amber-200 border border-amber-800/80">
+                {listaAtivaSemana.length}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setAbaDecisaoAtiva('oportunidades');
+                if (onNavegarTab) onNavegarTab('oportunidades');
+              }}
+              className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-black transition-all flex items-center gap-2 cursor-pointer ${
+                abaDecisaoAtiva === 'oportunidades'
+                  ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md shadow-emerald-950/40 border border-emerald-400/40'
+                  : 'bg-[#060a12] text-slate-400 hover:text-white hover:bg-slate-800/60 border border-slate-800'
+              }`}
+            >
+              <TrendingDown className="w-4 h-4 text-emerald-300" />
+              <span>Oportunidades</span>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-950 text-emerald-300 border border-emerald-700/80">
+                {oportunidadesCompra.length} abaixo da última compra
+              </span>
+            </button>
+          </div>
+
+          {abaDecisaoAtiva === 'oportunidades' && (
+            <div className="flex items-center gap-2 text-xs text-slate-400">
+              <span className="hidden md:inline font-medium">Economia potencial:</span>
+              <span className="font-mono font-black text-emerald-400 bg-emerald-950/60 border border-emerald-800/60 px-2.5 py-1 rounded-lg">
+                R$ {totalEconomiaOportunidades.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {abaDecisaoAtiva === 'oportunidades' ? (
+        /* ─── GUIA OPORTUNIDADES: CABEÇALHO, KPIS, FILTROS E TABELA/CARDS ─── */
+        <div className="flex-1 flex flex-col p-3 sm:p-4 max-w-7xl mx-auto w-full gap-3 pb-16">
+          {/* Header da Guia Oportunidades */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-[#0b1222] border border-emerald-900/40 p-3.5 sm:p-4 rounded-2xl shadow-lg">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-gradient-to-br from-emerald-500/20 to-teal-500/20 border border-emerald-500/40 rounded-xl text-emerald-400">
+                <TrendingDown className="w-6 h-6" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h2 className="text-base sm:text-lg font-black text-white flex items-center gap-2">
+                    Oportunidades de Compra
+                  </h2>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-950 text-emerald-300 border border-emerald-700/80">
+                    Preço Cotado &lt; Última Compra
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Itens onde os distribuidores estão ofertando preço menor do que o histórico pago pela farmácia.
+                </p>
+              </div>
+            </div>
+
+            {/* Botão de Exportar / Imprimir Oportunidades */}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleAbrirRelatorioOportunidadesHtml}
+                className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-900/60 to-teal-900/60 border border-emerald-700/80 hover:border-emerald-400 text-emerald-200 hover:text-white text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 shadow-sm active:scale-95"
+                title="Imprimir relatório das oportunidades encontradas"
+              >
+                <Printer className="w-3.5 h-3.5 text-emerald-400" />
+                <span className="hidden sm:inline">Imprimir Oportunidades</span>
+                <span className="sm:hidden">Imprimir</span>
+              </button>
+            </div>
+          </div>
+
+          {/* 5 KPI Cards de Oportunidades */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
+            <div className="bg-[#0b1222] border border-slate-800 rounded-xl p-3 flex flex-col justify-between">
+              <span className="text-[10px] uppercase font-bold text-slate-400">Oportunidades Ativas</span>
+              <span className="text-base font-black text-white font-mono">
+                {metricasOportunidades.totalItens} <span className="text-xs text-slate-400 font-normal">de {oportunidadesCompra.length}</span>
+              </span>
+            </div>
+
+            <div className="bg-gradient-to-br from-emerald-950/40 to-teal-950/30 border border-emerald-800/80 rounded-xl p-3 flex flex-col justify-between">
+              <span className="text-[10px] uppercase font-black text-emerald-400 flex items-center gap-1">
+                Economia Projetada
+                <Sparkles className="w-3 h-3 text-emerald-400" />
+              </span>
+              <span className="text-base font-black text-emerald-300 font-mono">
+                R$ {metricasOportunidades.totalEconomia.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+            </div>
+
+            <div className="bg-[#0b1222] border border-slate-800 rounded-xl p-3 flex flex-col justify-between">
+              <span className="text-[10px] uppercase font-bold text-slate-400">Desconto Médio</span>
+              <span className="text-base font-black text-cyan-300 font-mono">
+                -{metricasOportunidades.mediaDesconto.toFixed(1)}%
+              </span>
+            </div>
+
+            <div className="bg-[#0b1222] border border-slate-800 rounded-xl p-3 flex flex-col justify-between">
+              <span className="text-[10px] uppercase font-bold text-slate-400">Maior Desconto</span>
+              <span className="text-base font-black text-amber-400 font-mono">
+                {metricasOportunidades.maiorDescontoItem ? `-${metricasOportunidades.maiorDescontoItem.diffPct.toFixed(1)}%` : '0%'}
+              </span>
+              {metricasOportunidades.maiorDescontoItem && (
+                <span className="text-[10px] text-slate-400 truncate max-w-[140px]" title={metricasOportunidades.maiorDescontoItem.descricao}>
+                  {metricasOportunidades.maiorDescontoItem.descricao}
+                </span>
+              )}
+            </div>
+
+            <div className="bg-[#0b1222] border border-slate-800 rounded-xl p-3 flex flex-col justify-between">
+              <span className="text-[10px] uppercase font-bold text-slate-400">Total Investimento</span>
+              <span className="text-base font-black text-slate-200 font-mono">
+                R$ {metricasOportunidades.totalInvestimento.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+            </div>
+          </div>
+
+          {/* Barra de Filtros e Busca */}
+          <div className="bg-[#0b1222] border border-slate-800/80 p-2.5 sm:p-3 rounded-2xl flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2.5">
+            {/* Campo de Busca */}
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 text-emerald-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="text"
+                value={buscaOportunidade}
+                onChange={(e) => setBuscaOportunidade(e.target.value)}
+                placeholder="🔍 Filtrar oportunidades por nome ou EAN..."
+                className="w-full bg-[#060a12] border border-slate-800 rounded-xl pl-9 pr-8 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-all"
+              />
+              {buscaOportunidade && (
+                <button
+                  type="button"
+                  onClick={() => setBuscaOportunidade('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            {/* Filtros em Dropdown */}
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Distribuidora */}
+              <select
+                value={filtroDistOportunidade}
+                onChange={(e) => setFiltroDistOportunidade(e.target.value)}
+                className="bg-[#060a12] border border-slate-800 text-slate-200 text-xs font-bold rounded-xl px-2.5 py-2 outline-none focus:border-emerald-500 cursor-pointer"
+              >
+                <option value="TODAS">Empresas (Todas)</option>
+                {distribuidorasComOportunidades.map(([dist, count]) => (
+                  <option key={dist} value={dist}>{dist} ({count})</option>
+                ))}
+              </select>
+
+              {/* Curva ABC */}
+              <select
+                value={filtroCurvaOportunidade}
+                onChange={(e) => setFiltroCurvaOportunidade(e.target.value as any)}
+                className="bg-[#060a12] border border-slate-800 text-slate-200 text-xs font-bold rounded-xl px-2.5 py-2 outline-none focus:border-emerald-500 cursor-pointer"
+              >
+                <option value="TODAS">Curvas (Todas)</option>
+                <option value="A">Curva A</option>
+                <option value="B">Curva B</option>
+                <option value="C">Curva C</option>
+              </select>
+
+              {/* Faixa de Desconto */}
+              <select
+                value={filtroFaixaDesconto}
+                onChange={(e) => setFiltroFaixaDesconto(e.target.value as any)}
+                className="bg-[#060a12] border border-slate-800 text-slate-200 text-xs font-bold rounded-xl px-2.5 py-2 outline-none focus:border-emerald-500 cursor-pointer"
+              >
+                <option value="TODOS">Todos Descontos</option>
+                <option value="MAIOR_10">&gt; 10% Desconto</option>
+                <option value="MAIOR_20">&gt; 20% Desconto</option>
+                <option value="MAIOR_30">&gt; 30% Desconto</option>
+              </select>
+
+              {/* Ordenação */}
+              <select
+                value={ordenacaoOportunidade}
+                onChange={(e) => setOrdenacaoOportunidade(e.target.value as any)}
+                className="bg-[#060a12] border border-slate-800 text-cyan-300 text-xs font-bold rounded-xl px-2.5 py-2 outline-none focus:border-cyan-500 cursor-pointer"
+              >
+                <option value="desconto_pct">🔻 Maior % Desconto</option>
+                <option value="economia_total">💰 Maior Economia Total (R$)</option>
+                <option value="preco_menor">🏷️ Menor Preço Cotado</option>
+                <option value="curva_abc">⚡ Curva ABC (A → C)</option>
+                <option value="giro_vmd">📦 Maior VMD / Giro</option>
+              </select>
+
+              {/* Alternador Tabela / Cards */}
+              <div className="flex items-center bg-[#060a12] border border-slate-800 rounded-xl p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setModoViewOportunidades('tabela')}
+                  className={`p-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    modoViewOportunidades === 'tabela'
+                      ? 'bg-emerald-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                  title="Visualizar em Tabela de Alta Densidade"
+                >
+                  <Table className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setModoViewOportunidades('cards')}
+                  className={`p-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    modoViewOportunidades === 'cards'
+                      ? 'bg-emerald-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                  title="Visualizar em Cards"
+                >
+                  <Grid className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* TABELA DE OPORTUNIDADES (ALTA DENSIDADE) */}
+          {metricasOportunidades.totalItens === 0 ? (
+            <div className="bg-[#0b1222] border border-slate-800 rounded-2xl p-10 text-center flex flex-col items-center justify-center gap-3">
+              <CheckCircle2 className="w-12 h-12 text-slate-500" />
+              <h3 className="text-base font-black text-white">Nenhuma oportunidade encontrada com esses filtros</h3>
+              <p className="text-xs text-slate-400 max-w-md">
+                Tente alterar os filtros de distribuidora, curva ou limpar o termo de pesquisa.
+              </p>
+            </div>
+          ) : modoViewOportunidades === 'tabela' ? (
+            <div className="bg-[#0b1222] border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="bg-[#08101e] border-b border-slate-800 text-slate-400 text-[11px] font-black uppercase tracking-wider">
+                      <th className="px-3 py-2.5 text-center whitespace-nowrap w-10">#</th>
+                      <th className="px-3 py-2.5 whitespace-nowrap">Produto / Apresentação</th>
+                      <th className="px-3 py-2.5 text-right whitespace-nowrap w-24">Estoque &amp; VMD</th>
+                      <th className="px-3 py-2.5 text-right whitespace-nowrap w-24">Últ. Compra</th>
+                      <th className="px-3 py-2.5 text-right whitespace-nowrap w-24">Preço Cotado</th>
+                      <th className="px-3 py-2.5 text-right whitespace-nowrap w-32">Economia Unit.</th>
+                      <th className="px-3 py-2.5 whitespace-nowrap w-36">Distribuidora</th>
+                      <th className="px-3 py-2.5 text-center whitespace-nowrap w-28">Qtd Compra</th>
+                      <th className="px-3 py-2.5 text-right whitespace-nowrap w-28">Total Cotado</th>
+                      <th className="px-3 py-2.5 text-center whitespace-nowrap w-28">Ação</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60">
+                    {oportunidadesFiltradas.map((item, idx) => {
+                      const subtotal = Number((item.precoCot * (item.qtd_sugerida_7d || 1)).toFixed(2));
+                      const econTotal = Number((item.diffUnit * (item.qtd_sugerida_7d || 1)).toFixed(2));
+                      return (
+                        <tr key={item.produto_id} className="hover:bg-slate-800/40 transition-colors">
+                          <td className="px-3 py-2 text-center font-bold text-slate-500 whitespace-nowrap">
+                            {idx + 1}
+                          </td>
+                          <td className="px-3 py-2">
+                            <div className="flex flex-col">
+                              <span className="font-bold text-white text-xs truncate max-w-md" title={item.descricao}>
+                                {item.descricao}
+                              </span>
+                              <div className="inline-flex items-center gap-2 text-[10px] text-slate-400 mt-0.5">
+                                <span className="font-mono">{item.ean || '—'}</span>
+                                {item.ean && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCopiarEan(item.ean, `opt-${item.produto_id}`)}
+                                    className="text-slate-400 hover:text-cyan-300 cursor-pointer"
+                                    title="Copiar EAN"
+                                  >
+                                    {copiadoId === `opt-${item.produto_id}` ? (
+                                      <Check className="w-3 h-3 text-emerald-400" />
+                                    ) : (
+                                      <Copy className="w-3 h-3" />
+                                    )}
+                                  </button>
+                                )}
+                                <span>•</span>
+                                <span className="px-1.5 py-0.2 rounded font-bold bg-slate-800 text-amber-300 border border-slate-700">
+                                  Curva {item.curva_abc}
+                                </span>
+                                {item.apresentacao && (
+                                  <>
+                                    <span>•</span>
+                                    <span className="truncate max-w-[120px]">{item.apresentacao}</span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-3 py-2 text-right whitespace-nowrap">
+                            <div className="flex flex-col items-end">
+                              <span className={`font-bold ${item.saldo <= 0 ? 'text-rose-400' : 'text-slate-200'}`}>
+                                {item.saldo} un
+                              </span>
+                              <span className="text-[10px] text-slate-400">
+                                VMD: {Number(item.vmd_ponderado).toFixed(1)}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="px-3 py-2 text-right whitespace-nowrap">
+                            <span className="font-mono text-slate-400 line-through">
+                              R$ {item.precoUlt.toFixed(2)}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 text-right whitespace-nowrap">
+                            <span className="font-mono font-black text-emerald-400 text-sm">
+                              R$ {item.precoCot.toFixed(2)}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 text-right whitespace-nowrap">
+                            <span className="inline-flex items-center gap-1 font-mono font-bold text-xs px-2 py-0.5 rounded-lg bg-emerald-950/80 text-emerald-300 border border-emerald-700/60">
+                              <TrendingDown className="w-3 h-3 text-emerald-400" />
+                              -R$ {item.diffUnit.toFixed(2)} (-{item.diffPct.toFixed(1)}%)
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 whitespace-nowrap">
+                            <div className="flex flex-col">
+                              <span className="font-black text-cyan-300 uppercase truncate max-w-[140px]" title={item.fornecedorVencedor}>
+                                {item.fornecedorVencedor}
+                              </span>
+                              {item.melhor_fora_janela && item.melhor_fora_janela.distribuidora === item.fornecedorVencedor ? (
+                                <span className="text-[9px] text-amber-400 font-bold">Fora Janela</span>
+                              ) : (
+                                <span className="text-[9px] text-emerald-400 font-bold">Janela OK</span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-3 py-2 text-center whitespace-nowrap">
+                            <div className="inline-flex items-center border border-slate-700 rounded-lg overflow-hidden bg-[#060a12]">
+                              <button
+                                type="button"
+                                disabled={(item.qtd_sugerida_7d || 1) <= 1}
+                                onClick={() => onAlterarQtd(item.produto_id, Math.max(1, (item.qtd_sugerida_7d || 1) - 1))}
+                                className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-white disabled:opacity-40 cursor-pointer"
+                                title="Diminuir quantidade"
+                              >
+                                <Minus className="w-3 h-3" />
+                              </button>
+                              <input
+                                type="number"
+                                min={1}
+                                value={item.qtd_sugerida_7d || 1}
+                                onChange={(e) => onAlterarQtd(item.produto_id, Math.max(1, parseInt(e.target.value) || 1))}
+                                className="w-10 text-center bg-transparent text-white font-bold text-xs focus:outline-none"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => onAlterarQtd(item.produto_id, (item.qtd_sugerida_7d || 1) + 1)}
+                                className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-white cursor-pointer"
+                                title="Aumentar quantidade"
+                              >
+                                <Plus className="w-3 h-3" />
+                              </button>
+                            </div>
+                          </td>
+                          <td className="px-3 py-2 text-right whitespace-nowrap">
+                            <div className="flex flex-col items-end">
+                              <span className="font-mono font-bold text-white">
+                                R$ {subtotal.toFixed(2)}
+                              </span>
+                              <span className="font-mono text-[10px] text-emerald-400 font-bold">
+                                Economia: R$ {econTotal.toFixed(2)}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="px-3 py-2 text-center whitespace-nowrap">
+                            <button
+                              type="button"
+                              onClick={() => handleAdicionarAoCarrinho(item, item.fornecedorVencedor, item.precoCot, item.qtd_sugerida_7d)}
+                              className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs uppercase flex items-center justify-center gap-1.5 shadow-md active:scale-95 transition-all cursor-pointer w-full"
+                              title={`Colocar ${item.qtd_sugerida_7d || 1} un no carrinho da ${item.fornecedorVencedor}`}
+                            >
+                              <ShoppingCart className="w-3.5 h-3.5" />
+                              <span>Carrinho</span>
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot className="bg-[#08101e] border-t-2 border-slate-700 font-black text-xs">
+                    <tr>
+                      <td colSpan={3} className="px-3 py-2.5 text-right uppercase text-slate-400">
+                        Totais das Oportunidades Filtradas:
+                      </td>
+                      <td className="px-3 py-2.5 text-right font-mono text-slate-400 line-through">
+                        R$ {oportunidadesFiltradas.reduce((acc, it) => acc + (it.precoUlt * (it.qtd_sugerida_7d || 1)), 0).toFixed(2)}
+                      </td>
+                      <td className="px-3 py-2.5 text-right font-mono text-emerald-400">
+                        R$ {metricasOportunidades.totalInvestimento.toFixed(2)}
+                      </td>
+                      <td className="px-3 py-2.5 text-right font-mono text-emerald-300">
+                        -R$ {metricasOportunidades.totalEconomia.toFixed(2)} (-{metricasOportunidades.mediaDesconto.toFixed(1)}%)
+                      </td>
+                      <td colSpan={2}></td>
+                      <td className="px-3 py-2.5 text-right font-mono text-white text-sm">
+                        R$ {metricasOportunidades.totalInvestimento.toFixed(2)}
+                      </td>
+                      <td></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+          ) : (
+            /* MODO CARDS DE OPORTUNIDADES */
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {oportunidadesFiltradas.map((item) => {
+                const subtotal = Number((item.precoCot * (item.qtd_sugerida_7d || 1)).toFixed(2));
+                return (
+                  <div
+                    key={item.produto_id}
+                    className="bg-[#0b1222] border border-emerald-900/60 hover:border-emerald-500 rounded-2xl p-4 shadow-lg flex flex-col justify-between gap-3 transition-all group"
+                  >
+                    <div>
+                      {/* Top Badge: Desconto */}
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <span className="px-2.5 py-1 rounded-lg bg-emerald-950 border border-emerald-700/80 text-emerald-300 font-mono font-black text-xs flex items-center gap-1 shadow-sm">
+                          <TrendingDown className="w-3.5 h-3.5 text-emerald-400" />
+                          -{item.diffPct.toFixed(1)}% de Desconto
+                        </span>
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-amber-300 border border-slate-700">
+                          Curva {item.curva_abc}
+                        </span>
+                      </div>
+
+                      {/* Nome do Produto */}
+                      <h3 className="font-black text-white text-sm line-clamp-2" title={item.descricao}>
+                        {item.descricao}
+                      </h3>
+
+                      {/* Metadados */}
+                      <div className="flex items-center gap-2 text-xs text-slate-400 mt-1">
+                        <span className="font-mono">{item.ean || '—'}</span>
+                        <span>•</span>
+                        <span>Saldo: <b className={item.saldo <= 0 ? 'text-rose-400' : 'text-slate-200'}>{item.saldo} un</b></span>
+                        <span>•</span>
+                        <span>VMD: <b>{Number(item.vmd_ponderado).toFixed(1)}</b></span>
+                      </div>
+
+                      {/* Comparativo de Preço */}
+                      <div className="bg-[#060a12] border border-slate-800 rounded-xl p-2.5 mt-3 flex items-center justify-between">
+                        <div>
+                          <span className="text-[10px] uppercase font-bold text-slate-500 block">Última Compra</span>
+                          <span className="font-mono text-xs text-slate-400 line-through">
+                            R$ {item.precoUlt.toFixed(2)}
+                          </span>
+                        </div>
+                        <ArrowRight className="w-4 h-4 text-emerald-500" />
+                        <div className="text-right">
+                          <span className="text-[10px] uppercase font-bold text-emerald-400 block">Oferta Atual</span>
+                          <span className="font-mono text-base font-black text-emerald-400">
+                            R$ {item.precoCot.toFixed(2)}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Distribuidora & Economia Unitária */}
+                      <div className="flex items-center justify-between text-xs text-slate-300 mt-2 px-1">
+                        <span className="font-bold text-cyan-300 uppercase">{item.fornecedorVencedor}</span>
+                        <span className="font-mono font-bold text-emerald-400">
+                          Economia: -R$ {item.diffUnit.toFixed(2)}/un
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Footer com Stepper de Quantidade e Botão Carrinho */}
+                    <div className="border-t border-slate-800 pt-3 flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5">
+                        <div className="inline-flex items-center border border-slate-700 rounded-lg overflow-hidden bg-[#060a12]">
+                          <button
+                            type="button"
+                            disabled={(item.qtd_sugerida_7d || 1) <= 1}
+                            onClick={() => onAlterarQtd(item.produto_id, Math.max(1, (item.qtd_sugerida_7d || 1) - 1))}
+                            className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-white disabled:opacity-40 cursor-pointer"
+                          >
+                            <Minus className="w-3 h-3" />
+                          </button>
+                          <span className="w-8 text-center text-white font-bold text-xs">
+                            {item.qtd_sugerida_7d || 1}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => onAlterarQtd(item.produto_id, (item.qtd_sugerida_7d || 1) + 1)}
+                            className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-white cursor-pointer"
+                          >
+                            <Plus className="w-3 h-3" />
+                          </button>
+                        </div>
+                        <div className="text-right pl-1">
+                          <span className="font-mono text-xs font-bold text-white block">
+                            R$ {subtotal.toFixed(2)}
+                          </span>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleAdicionarAoCarrinho(item, item.fornecedorVencedor, item.precoCot, item.qtd_sugerida_7d)}
+                        className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs uppercase flex items-center gap-1.5 shadow-md active:scale-95 transition-all cursor-pointer"
+                      >
+                        <ShoppingCart className="w-4 h-4" />
+                        <span>Carrinho</span>
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      ) : (
+        <>
+          {/* ─── 2. BARRA DE PESQUISA RÁPIDA INTEGRADA (TOPO) ────────────────────── */}
+          <div className="p-3 sm:p-4 max-w-7xl mx-auto w-full flex flex-col gap-2 shrink-0">
+            <div className="relative flex items-center">
+              <Search className="w-4 h-4 text-cyan-400 absolute left-3.5 pointer-events-none" />
+              <input
+                type="text"
+                value={termoBusca}
+                onChange={(e) => setTermoBusca(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') handleExecutarBusca(termoBusca);
             }}
@@ -2007,6 +2988,8 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
           </div>
         )}
       </div>
+        </>
+      )}
 
       {/* ─── MODAL DO BANCO DE RESERVA ────────────────────────────────────────── */}
       {modalBancoAberto && (
@@ -2138,12 +3121,53 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
               </div>
             </div>
 
-            <div className="bg-[#060a12] border border-slate-800 rounded-xl p-3 text-xs text-slate-300 flex flex-col gap-1">
-              <span className="font-bold text-white">{modalCarrinho.descricao}</span>
-              <div className="flex items-center justify-between text-slate-400 pt-1">
-                <span>EAN: {modalCarrinho.ean}</span>
-                <span>Qtd: <b className="text-white">{modalCarrinho.quantidade} un</b></span>
-                <span className="font-mono text-cyan-300 font-bold">R$ {(modalCarrinho.quantidade * modalCarrinho.preco).toFixed(2)}</span>
+            <div className="bg-[#060a12] border border-slate-800 rounded-xl p-3 text-xs text-slate-300 flex flex-col gap-2">
+              <span className="font-bold text-white text-sm">{modalCarrinho.descricao}</span>
+              <div className="flex items-center justify-between text-slate-400">
+                <span>EAN: <b className="font-mono text-slate-300">{modalCarrinho.ean}</b></span>
+                {modalCarrinho.precoUlt && modalCarrinho.precoUlt > modalCarrinho.preco ? (
+                  <span className="text-emerald-400 font-bold bg-emerald-950/60 border border-emerald-800/80 px-2 py-0.5 rounded text-[11px]">
+                    Economia: -R$ {((modalCarrinho.precoUlt - modalCarrinho.preco) * modalCarrinho.quantidade).toFixed(2)} (-{(((modalCarrinho.precoUlt - modalCarrinho.preco) / modalCarrinho.precoUlt) * 100).toFixed(1)}%)
+                  </span>
+                ) : null}
+              </div>
+              <div className="flex items-center justify-between border-t border-slate-800/80 pt-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-bold text-slate-400 uppercase">Quantidade:</span>
+                  <div className="flex items-center border border-slate-700 rounded-lg overflow-hidden bg-[#0b1222]">
+                    <button
+                      type="button"
+                      disabled={modalCarrinho.quantidade <= 1}
+                      onClick={() => setModalCarrinho(prev => ({ ...prev, quantidade: Math.max(1, prev.quantidade - 1) }))}
+                      className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-white disabled:opacity-40 cursor-pointer"
+                    >
+                      <Minus className="w-3 h-3" />
+                    </button>
+                    <input
+                      type="number"
+                      min={1}
+                      value={modalCarrinho.quantidade}
+                      onChange={(e) => {
+                        const val = Math.max(1, parseInt(e.target.value) || 1);
+                        setModalCarrinho(prev => ({ ...prev, quantidade: val }));
+                      }}
+                      className="w-12 text-center bg-transparent text-white font-bold text-xs focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setModalCarrinho(prev => ({ ...prev, quantidade: prev.quantidade + 1 }))}
+                      className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-white cursor-pointer"
+                    >
+                      <Plus className="w-3 h-3" />
+                    </button>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <span className="text-[10px] text-slate-400 block">Subtotal</span>
+                  <span className="font-mono text-cyan-300 font-black text-sm">
+                    R$ {(modalCarrinho.quantidade * modalCarrinho.preco).toFixed(2)}
+                  </span>
+                </div>
               </div>
             </div>
 

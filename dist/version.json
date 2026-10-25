@@ -1,9 +1,14 @@
 {
   "version": "1.2.0",
-  "commitHash": "2eed791",
-  "commitMessage": "feat(belaped): exibe economia e variacao de preco na cotacao da semana na tela e no relatorio impresso",
-  "buildTime": "24/10/2026, 19:46:15",
+  "commitHash": "cd43bdf",
+  "commitMessage": "feat(belaped): adiciona checkbox para ocultar itens e botao apenas nomes no relatorio HTML",
+  "buildTime": "25/10/2026, 10:18:49",
   "recentCommits": [
+    {
+      "hash": "cd43bdf",
+      "date": "24/10/2026",
+      "message": "feat(belaped): adiciona checkbox para ocultar itens e botao apenas nomes no relatorio HTML"
+    },
     {
       "hash": "2eed791",
       "date": "24/10/2026",
@@ -58,11 +63,6 @@
       "hash": "5b821a3",
       "date": "24/10/2026",
       "message": "feat(belaped): aba de pesquisa multi-distribuidora com veredito e restricao de robo ao critico da semana"
-    },
-    {
-      "hash": "370d044",
-      "date": "24/10/2026",
-      "message": "feat(belaped): lista de extrema necessidade com orcamento semanal, janelas de pagamento e banco de espera"
     }
   ]
 }

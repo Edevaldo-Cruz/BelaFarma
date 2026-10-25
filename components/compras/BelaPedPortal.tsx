@@ -213,7 +213,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
   const { addToast } = useToast();
   
   // Abas de Navegação do BelaPed (Decisão de Compras como aba inicial prioritária)
-  const [activeTab, setActiveTab] = useState<'pesquisa_precos' | 'decisao' | 'cotacoes_matriz' | 'faltas' | 'cotacao' | 'orcamento' | 'relatorios' | 'pedidos' | 'simulador'>('decisao');
+  const [activeTab, setActiveTab] = useState<'pesquisa_precos' | 'decisao' | 'oportunidades' | 'cotacoes_matriz' | 'faltas' | 'cotacao' | 'orcamento' | 'relatorios' | 'pedidos' | 'simulador'>('decisao');
   const [produtoSimuladorId, setProdutoSimuladorId] = useState<number | null>(null);
   const [versionModalOpen, setVersionModalOpen] = useState(false);
 
@@ -3929,9 +3929,21 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     }));
   };
 
+  // Total de Oportunidades (itens cotados com valor abaixo da última compra)
+  const totalOportunidadesCount = useMemo(() => {
+    return faltas.filter(f => {
+      const precoUlt = Number(f.preco_ult_compra) || Number(f.custo_unitario) || 0;
+      const precoCot = Number(f.preco_1) || 0;
+      const forn = String(f.fornecedor_1 || '').trim().toLowerCase();
+      const temCotacao = precoCot > 0 && forn && !forn.includes('sem estoque') && !forn.includes('esgotado') && !forn.includes('sem cotac');
+      return !f.nao_cotar && temCotacao && precoUlt > 0 && precoCot < precoUlt;
+    }).length;
+  }, [faltas]);
+
   // Lista unificada de Módulos para Navegação Desktop e Mobile
   const modulosNav = useMemo(() => [
     { id: 'decisao' as const, label: '🎯 Orçamento Semanal & Decisão', shortLabel: 'Orçamento & Decisão', icon: <Sparkles className="w-4 h-4 text-amber-400" />, badge: itensPendentesDecisaoCount },
+    { id: 'oportunidades' as const, label: '🔥 Oportunidades de Compra', shortLabel: 'Oportunidades', icon: <TrendingDown className="w-4 h-4 text-emerald-400" />, badge: totalOportunidadesCount },
     { id: 'cotacoes_matriz' as const, label: '📊 Tabela de Cotações', shortLabel: 'Cotações', icon: <Table className="w-4 h-4 text-emerald-400" />, badge: 0 },
     { id: 'faltas' as const, label: '1. Extrema Necessidade', shortLabel: 'Extrema Necessidade', icon: <AlertTriangle className="w-4 h-4 text-amber-400" />, badge: faltas.length },
     { id: 'cotacao' as const, label: '2. Portais & Carrinho', shortLabel: 'Portais', icon: <Globe className="w-4 h-4 text-blue-400" />, badge: carrinhosOtimizados.length },
@@ -3939,7 +3951,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     { id: 'orcamento' as const, label: '4. Radar de Orçamento', shortLabel: 'Orçamento', icon: <DollarSign className="w-4 h-4 text-emerald-400" />, badge: 0 },
     { id: 'relatorios' as const, label: '5. Relatórios & Preços', shortLabel: 'Relatórios', icon: <BarChart3 className="w-4 h-4 text-purple-400" />, badge: 0 },
     { id: 'simulador' as const, label: '6. Simulador de Giro', shortLabel: 'Giro', icon: <Calendar className="w-4 h-4 text-teal-400" />, badge: 0 }
-  ], [itensPendentesDecisaoCount, faltas.length, carrinhosOtimizados.length]);
+  ], [itensPendentesDecisaoCount, totalOportunidadesCount, faltas.length, carrinhosOtimizados.length]);
 
   return (
     <div className="flex-1 flex flex-col h-screen w-screen overflow-hidden bg-[#070b14] text-slate-100 font-sans selection:bg-cyan-500/30 selection:text-cyan-200">
@@ -4468,8 +4480,8 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
           />
         )}
 
-        {/* ─── ABA 0: ORÇAMENTO SEMANAL & DECISÃO DE COMPRAS (GRADE & CARROSSEL) ─── */}
-        {activeTab === 'decisao' && (
+        {/* ─── ABA 0: ORÇAMENTO SEMANAL & DECISÃO DE COMPRAS (GRADE, CARROSSEL E OPORTUNIDADES) ─── */}
+        {(activeTab === 'decisao' || activeTab === 'oportunidades') && (
           <BelaPedDecisaoTab
             faltas={faltas}
             portais={portais}
@@ -4484,6 +4496,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
             orcamentoInfo={orcamentoInfo}
             janelaAlvoSelecionada={janelaAlvoSelecionada}
             setJanelaAlvoSelecionada={handleMudarJanelaAlvo}
+            abaInicial={activeTab === 'oportunidades' ? 'oportunidades' : 'pedido_semana'}
           />
         )}
 
@@ -9919,7 +9932,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
             statusCotacao={statusCotacao}
             onDispararRobo={(fornecedor = 'TODOS', lote = 40, prio = 'TODOS') => handleIniciarCotacaoAoVivo(fornecedor, lote, prio)}
             onDadosAtualizados={() => carregarDados(true)}
-            modoDiscreto={activeTab === 'decisao'}
+            modoDiscreto={activeTab === 'decisao' || activeTab === 'oportunidades'}
           />
         );
       })()}
