@@ -10,6 +10,11 @@ async function delay(ms) {
 }
 
 async function postarStatusDiario() {
+  const STATUS_ROBOT_ENABLED = process.env.STATUS_ROBOT_ENABLED === 'true';
+  if (!STATUS_ROBOT_ENABLED) {
+    console.log('[WhatsAppStatus] ⏸️ Robô de postagem de Status está desativado a pedido do usuário.');
+    return;
+  }
   try {
     console.log('[WhatsAppStatus] Iniciando a rotina diária de postagem de Status (08:00)...');
 

@@ -4361,6 +4361,8 @@ cron.schedule('10 8-20 * * 1-6', async () => {
 }, { timezone: 'America/Sao_Paulo' });
 console.log('[CRON] 🤖 Robô de Ofertas JIT agendado para rodar a cada hora (:10) das 08h às 20h, Seg-Sáb.');
 
+// Robô de Status desativado a pedido do usuário
+/*
 cron.schedule('0 8 * * 1-6', async () => {
   try {
     await postarStatusDiario();
@@ -4369,7 +4371,8 @@ cron.schedule('0 8 * * 1-6', async () => {
     require('./services/watcher.service.js').registerServiceRun('robo_status', 'FAILED', err.message);
   }
 }, { timezone: 'America/Sao_Paulo' });
-console.log('[CRON] 🤖 Robô de Status agendado para rodar às 08h00, Seg-Sáb.');
+*/
+console.log('[CRON] ⏸️ Robô de postagem de Status DESATIVADO a pedido do usuário.');
 
 // Endpoint para disparar o JIT manualmente (para testes)
 app.post('/api/whatsapp/offers-bank/trigger-jit', async (req, res) => {

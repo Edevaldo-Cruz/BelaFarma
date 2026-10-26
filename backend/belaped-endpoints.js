@@ -593,7 +593,29 @@ function belapedEndpoints(db) {
       );
       CREATE INDEX IF NOT EXISTS idx_radar_segmento ON belaped_radar_segmentos(segmento);
       CREATE INDEX IF NOT EXISTS idx_radar_ean ON belaped_radar_segmentos(ean);
+
+      CREATE TABLE IF NOT EXISTS belaped_config (
+        chave TEXT PRIMARY KEY,
+        valor TEXT,
+        updated_at DATETIME
+      );
     `);
+
+    try {
+      db.prepare(`
+        INSERT OR IGNORE INTO belaped_config (chave, valor, updated_at)
+        VALUES ('cotacao_horario_diario', '07:20', datetime('now', 'localtime'))
+      `).run();
+      db.prepare(`
+        INSERT OR IGNORE INTO belaped_config (chave, valor, updated_at)
+        VALUES ('cotacao_automatica_ativa', '1', datetime('now', 'localtime'))
+      `).run();
+      const hojeStr = new Date().toISOString().split('T')[0];
+      db.prepare(`
+        INSERT OR IGNORE INTO belaped_config (chave, valor, updated_at)
+        VALUES ('ultima_cotacao_diaria_data', ?, datetime('now', 'localtime'))
+      `).run(hojeStr);
+    } catch (eCfg) {}
 
     // Seed inicial de campanhas da Distrimed caso a tabela esteja vazia
     const qtdCampanhas = db.prepare('SELECT count(*) as count FROM belaped_distrimed_campanhas').get().count;
@@ -624,6 +646,25 @@ function belapedEndpoints(db) {
   } catch (e) {
     console.error('[BelaPed] Erro ao inicializar tabelas:', e.message);
   }
+
+  const getConfig = (chave, padrao = null) => {
+    try {
+      const row = db.prepare('SELECT valor FROM belaped_config WHERE chave = ?').get(chave);
+      return row && row.valor !== null ? row.valor : padrao;
+    } catch (e) {
+      return padrao;
+    }
+  };
+
+  const setConfig = (chave, valor) => {
+    try {
+      db.prepare(`
+        INSERT INTO belaped_config (chave, valor, updated_at)
+        VALUES (?, ?, datetime('now', 'localtime'))
+        ON CONFLICT(chave) DO UPDATE SET valor = excluded.valor, updated_at = excluded.updated_at
+      `).run(chave, String(valor));
+    } catch (e) {}
+  };
 
   /**
    * POST /api/belaped/expurgar-inconsistencias
@@ -4104,20 +4145,35 @@ function belapedEndpoints(db) {
         } else if (fornecedor === 'HYMPAR' || fornecedor === 'HYMPARHUB') {
           await executarRoboParaFornecedor('HYMPARHUB', HymparRobot);
         } else if (fornecedor === 'TODOS') {
-          await Promise.all([
-            executarRoboParaFornecedor('PROFARMA', ProfarmaRobot, 0),
-            executarRoboParaFornecedor('DPC DISTRIBUIDORA', DpcRobot, 1200),
-            executarRoboParaFornecedor('SOTON FARMA', SotonRobot, 2400),
-            executarRoboParaFornecedor('DISTRIMED', DistrimedRobot, 3600),
-            executarRoboParaFornecedor('DIVIMED', DivimedRobot, 4800),
-            executarRoboParaFornecedor('MARTINS ATACADO', MartinsRobot, 6000),
-            executarRoboParaFornecedor('ORIENTE FARMA', OrienteRobot, 7200),
-            executarRoboParaFornecedor('PANPHARMA', PanpharmaRobot, 8400),
-            executarRoboParaFornecedor('MG MEDICAMENTOS', MgMedicamentosRobot, 9600),
-            executarRoboParaFornecedor('ORGAFARMA', OrgafarmaRobot, 10800),
-            executarRoboParaFornecedor('FARMIX', FarmixRobot, 12000),
-            executarRoboParaFornecedor('HYMPARHUB', HymparRobot, 13200)
-          ]);
+          const listaRobos = [
+            { nome: 'PROFARMA', classe: ProfarmaRobot },
+            { nome: 'DPC DISTRIBUIDORA', classe: DpcRobot },
+            { nome: 'SOTON FARMA', classe: SotonRobot },
+            { nome: 'DISTRIMED', classe: DistrimedRobot },
+            { nome: 'DIVIMED', classe: DivimedRobot },
+            { nome: 'MARTINS ATACADO', classe: MartinsRobot },
+            { nome: 'ORIENTE FARMA', classe: OrienteRobot },
+            { nome: 'PANPHARMA', classe: PanpharmaRobot },
+            { nome: 'MG MEDICAMENTOS', classe: MgMedicamentosRobot },
+            { nome: 'ORGAFARMA', classe: OrgafarmaRobot },
+            { nome: 'FARMIX', classe: FarmixRobot },
+            { nome: 'HYMPARHUB', classe: HymparRobot }
+          ];
+
+          // Executa com limite rigoroso de concorrência (máx 2 navegadores simultâneos)
+          // Isso impede que 12 navegadores Chrome abram ao mesmo tempo e congelem a máquina
+          const fila = [...listaRobos];
+          const maxConcorrencia = 2;
+          const workers = Array.from({ length: Math.min(maxConcorrencia, fila.length) }, async () => {
+            while (fila.length > 0) {
+              if (cotacaoStatus.solicitouParar) break;
+              const proximo = fila.shift();
+              if (proximo) {
+                await executarRoboParaFornecedor(proximo.nome, proximo.classe, 0);
+              }
+            }
+          });
+          await Promise.all(workers);
         } else {
           await executarRoboParaFornecedor('PROFARMA', ProfarmaRobot);
         }
@@ -4194,8 +4250,9 @@ function belapedEndpoints(db) {
   // 2. 12:30 - Meio-Dia / Almoço (antes do corte de faturamento dos CDs: 14h-16h)
   // 3. 17:45 - Fim de Tarde / Noturno (fechamento comercial para entregas matinais)
   // =========================================================================
-  const HORARIOS_ESTRATEGICOS = ['06:30', '12:30', '17:45'];
-  let ultimoMinutoAgendado = '';
+  const tempoInicioServidor = Date.now();
+  const DELAY_CATCHUP_BOOT_MS = 90 * 1000; // 90s após inicialização para estabilizar o sistema antes de catch-up
+  let executandoCicloDiario = false;
 
   async function verificarERodarCotacaoSegundoPlano(origem = 'BACKGROUND_WORKER') {
     try {
@@ -4217,10 +4274,15 @@ function belapedEndpoints(db) {
     }
   }
 
-  // Checagem a cada 30 segundos se o relógio atingiu algum dos horários estratégicos
+  // Checagem periódica a cada 30 segundos
   setInterval(() => {
     try {
       const agora = new Date();
+      const ano = agora.getFullYear();
+      const mes = String(agora.getMonth() + 1).padStart(2, '0');
+      const dia = String(agora.getDate()).padStart(2, '0');
+      const dataHoje = `${ano}-${mes}-${dia}`;
+
       const horaMinutoAtual = agora.toLocaleTimeString('pt-BR', {
         timeZone: 'America/Sao_Paulo',
         hour: '2-digit',
@@ -4228,16 +4290,39 @@ function belapedEndpoints(db) {
         hour12: false
       });
 
-      if (HORARIOS_ESTRATEGICOS.includes(horaMinutoAtual) && ultimoMinutoAgendado !== horaMinutoAtual) {
-        ultimoMinutoAgendado = horaMinutoAtual;
-        console.log(`[BelaPed Agendador] >>> HORÁRIO ESTRATÉGICO (${horaMinutoAtual}): Disparando cotação nos 7 portais! <<<`);
-        verificarERodarCotacaoSegundoPlano(`HORARIO_ESTRATEGICO_${horaMinutoAtual}`);
+      const horarioAlvo = getConfig('cotacao_horario_diario', '07:20');
+      const automaticaAtiva = getConfig('cotacao_automatica_ativa', '1') === '1';
+
+      // 1. Cotação Única Diária (com recuperação catch-up caso ligue após 07:20)
+      if (automaticaAtiva && !executandoCicloDiario && !cotacaoStatus.emAndamento) {
+        const ultimaDataExecutada = getConfig('ultima_cotacao_diaria_data', '');
+
+        // Condição: ainda não rodou hoje E já atingiu ou ultrapassou 07:20 da manhã
+        if (ultimaDataExecutada !== dataHoje && horaMinutoAtual >= horarioAlvo) {
+          // Aguarda estabilização do boot (90 segundos após o servidor iniciar)
+          if (Date.now() - tempoInicioServidor >= DELAY_CATCHUP_BOOT_MS) {
+            executandoCicloDiario = true;
+            // Registra a data imediatamente para NUNCA rodar mais de uma vez no mesmo dia
+            setConfig('ultima_cotacao_diaria_data', dataHoje);
+            setConfig('ultima_cotacao_diaria_horario', horaMinutoAtual);
+
+            const motivo = (horaMinutoAtual === horarioAlvo)
+              ? `HORARIO_OFICIAL_${horarioAlvo}`
+              : `RECUPERACAO_POS_${horarioAlvo}_AS_${horaMinutoAtual}`;
+
+            console.log(`[BelaPed Agendador] >>> EXECUTANDO COTAÇÃO ÚNICA DIÁRIA (${motivo}) <<<`);
+            verificarERodarCotacaoSegundoPlano(motivo)
+              .finally(() => {
+                executandoCicloDiario = false;
+              });
+          }
+        }
       }
 
-      // Agendador Quinzenal de Auditoria Segura de Prazos de Boletos e Pedidos Mínimos (Dias 1 e 16 às 06:15)
+      // 2. Auditoria Quinzenal de Prazos de Boletos e Pedidos Mínimos (Dias 1 e 16 às 06:15)
       const diaDoMes = agora.getDate();
-      if ((diaDoMes === 1 || diaDoMes === 16) && horaMinutoAtual === '06:15' && ultimoMinutoAgendado !== 'AUDITORIA_06:15') {
-        ultimoMinutoAgendado = 'AUDITORIA_06:15';
+      if ((diaDoMes === 1 || diaDoMes === 16) && horaMinutoAtual === '06:15' && getConfig('ultimo_disparo_auditoria', '') !== `${dataHoje}_06:15`) {
+        setConfig('ultimo_disparo_auditoria', `${dataHoje}_06:15`);
         console.log('[BelaPed Agendador] >>> DISPARO QUINZENAL: Iniciando Auditoria Segura de Prazos e Pedidos Mínimos <<<');
         auditarTodasDistribuidoras(db).catch(e => console.error('[BelaPed Agendador] Erro na auditoria quinzenal:', e.message));
       }
@@ -4245,6 +4330,57 @@ function belapedEndpoints(db) {
       console.error('[BelaPed Agendador] Erro no timer estratégico:', schedErr.message);
     }
   }, 30000);
+
+  /**
+   * GET /api/belaped/config-agendador
+   * Retorna o status e configuração do agendamento de cotações
+   */
+  router.get('/config-agendador', (req, res) => {
+    try {
+      const ativo = getConfig('cotacao_automatica_ativa', '1') === '1';
+      const horario = getConfig('cotacao_horario_diario', '07:20');
+      const ultimaData = getConfig('ultima_cotacao_diaria_data', null);
+      const ultimoHorario = getConfig('ultima_cotacao_diaria_horario', null);
+      res.json({
+        success: true,
+        ativo,
+        horario,
+        frequencia: '1x ao dia',
+        recuperacaoAtiva: true,
+        ultimaExecucao: ultimaData ? `${ultimaData} às ${ultimoHorario || ''}` : 'Nenhuma registrada hoje',
+        modo: ativo ? `AUTOMATICO_DIARIO_${horario}` : 'SOMENTE_QUANDO_SOLICITADO'
+      });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  /**
+   * POST /api/belaped/config-agendador
+   * Permite alternar entre execução diária automática ou somente quando solicitado
+   */
+  router.post('/config-agendador', (req, res) => {
+    try {
+      const { ativo, horario } = req.body;
+      if (typeof ativo === 'boolean') {
+        setConfig('cotacao_automatica_ativa', ativo ? '1' : '0');
+      }
+      if (horario && typeof horario === 'string' && /^\d{2}:\d{2}$/.test(horario)) {
+        setConfig('cotacao_horario_diario', horario);
+      }
+      const isAtivo = getConfig('cotacao_automatica_ativa', '1') === '1';
+      const horaCfg = getConfig('cotacao_horario_diario', '07:20');
+      res.json({
+        success: true,
+        message: 'Configurações do agendador de cotação atualizadas.',
+        ativo: isAtivo,
+        horario: horaCfg,
+        modo: isAtivo ? `AUTOMATICO_DIARIO_${horaCfg}` : 'SOMENTE_QUANDO_SOLICITADO'
+      });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
 
   /**
    * POST /api/belaped/parar-cotacao
