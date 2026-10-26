@@ -678,6 +678,10 @@ async function recalcularTodosEstoqueMinimo(margemSegurancaPercent = 15, options
       p.PROD_ESTMINIMO as EST_MINIMO_DIGIFARMA,
       COALESCE(NULLIF(p.PROD_CMV, 0), NULLIF(p.VALOR_ULT_COMPRA, 0), p.PROD_PRCOMPRA, 0) as CUSTO_UNITARIO,
       COALESCE(NULLIF(p.PROD_CMV, 0), p.VALOR_ULT_COMPRA, 0) as ULTIMA_COMPRA_VALOR,
+      p.PROD_PRVENDA,
+      p.PROD_PRPROMOCAO,
+      p.INICIO_PROMOCAO,
+      p.TERMINO_PROMOCAO,
       p.PROD_ATIVO,
       COALESCE(v30.QTD_30D, 0) as VENDAS_30D,
       COALESCE(v60.QTD_31_60D, 0) as VENDAS_31_60D,
@@ -857,6 +861,21 @@ async function recalcularTodosEstoqueMinimo(margemSegurancaPercent = 15, options
       listaParaSync.push({ produtoId: pId, estoqueMinimo: calculo.estoqueMinimoSugerido });
     }
 
+    const prVenda = Number(p.PROD_PRVENDA) || 0;
+    const prPromo = Number(p.PROD_PRPROMOCAO) || 0;
+    let precoVigente = prVenda;
+    if (prPromo > 0) {
+      const now = new Date();
+      let promoAtiva = true;
+      if (p.INICIO_PROMOCAO && new Date(p.INICIO_PROMOCAO) > now) promoAtiva = false;
+      if (p.TERMINO_PROMOCAO) {
+        const term = new Date(p.TERMINO_PROMOCAO);
+        term.setHours(23, 59, 59, 999);
+        if (now > term) promoAtiva = false;
+      }
+      if (promoAtiva) precoVigente = prPromo;
+    }
+
     resultadosCache.push({
       produto_id: pId,
       descricao: descricaoCompleta || 'PRODUTO',
@@ -878,7 +897,10 @@ async function recalcularTodosEstoqueMinimo(margemSegurancaPercent = 15, options
       custo_unitario: custo,
       ultima_compra_valor: ultCompra,
       status_ruptura: statusRuptura,
-      margem_seguranca_aplicada: calculo.margemSegurancaPercent
+      margem_seguranca_aplicada: calculo.margemSegurancaPercent,
+      preco_venda_vigente: precoVigente,
+      preco_normal: prVenda,
+      preco_promocional: prPromo
     });
   }
 
@@ -890,6 +912,7 @@ async function recalcularTodosEstoqueMinimo(margemSegurancaPercent = 15, options
       vendas_30d, vendas_31_60d, vendas_61_90d, ciclo_vida, custo_unitario, ultima_compra_valor,
       status_ruptura, margem_seguranca_aplicada, dias_sem_venda,
       ativo_10m, vendas_10m, entradas_10m,
+      preco_venda_vigente, preco_normal, preco_promocional,
       sincronizado_em, atualizado_em
     ) VALUES (
       ?, ?, ?, ?, ?, ?,
@@ -897,6 +920,9 @@ async function recalcularTodosEstoqueMinimo(margemSegurancaPercent = 15, options
       ?, ?, ?, ?, ?, ?,
       ?, ?, 0,
       ?, ?, ?,
+      COALESCE(NULLIF(?, 0), (SELECT preco_venda_vigente FROM compras_estoque_cache WHERE produto_id = ?), 0),
+      COALESCE(NULLIF(?, 0), (SELECT preco_normal FROM compras_estoque_cache WHERE produto_id = ?), 0),
+      COALESCE(NULLIF(?, 0), (SELECT preco_promocional FROM compras_estoque_cache WHERE produto_id = ?), 0),
       (SELECT sincronizado_em FROM compras_estoque_cache WHERE produto_id = ?),
       datetime('now', 'localtime')
     )
@@ -926,6 +952,12 @@ async function recalcularTodosEstoqueMinimo(margemSegurancaPercent = 15, options
         item.ativo_10m,
         item.vendas_10m,
         item.entradas_10m,
+        item.preco_venda_vigente,
+        item.produto_id,
+        item.preco_normal,
+        item.produto_id,
+        item.preco_promocional,
+        item.produto_id,
         item.produto_id
       );
     }

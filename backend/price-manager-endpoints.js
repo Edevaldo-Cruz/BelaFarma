@@ -181,7 +181,7 @@ async function processScheduledPriceSteps(db) {
       SET preco_venda = ?,
           preco_normal = ?,
           atualizado_em = ?
-      WHERE produto_id = ?
+      WHERE produto_id = ? OR CAST(produto_id AS INTEGER) = ?
     `);
 
     const updateComprasCacheStmt = db.prepare(`
@@ -189,7 +189,7 @@ async function processScheduledPriceSteps(db) {
       SET preco_venda_vigente = ?,
           preco_normal = ?,
           atualizado_em = ?
-      WHERE produto_id = ?
+      WHERE produto_id = ? OR CAST(produto_id AS TEXT) = ?
     `);
 
     const insertSnapshotStmt = db.prepare(`
@@ -239,13 +239,22 @@ async function processScheduledPriceSteps(db) {
           step.criado_por || 'Sistema Automático'
         );
 
-        // Atualiza Digifarma Firebird
-        await queryDigifarma('UPDATE PRODUTOS SET PROD_PRVENDA = ? WHERE PRODUTO_ID = ?', [nextPrice, prodId]);
-        await queryDigifarma('UPDATE PRODUTOS SET PROD_PRPROMOCAO = ? WHERE PRODUTO_ID = ? AND PROD_PRPROMOCAO > 0', [nextPrice, prodId]);
+        // Atualiza Digifarma Firebird com flags completas para o PDV / Caixas
+        await queryDigifarma(`
+          UPDATE PRODUTOS 
+          SET 
+            PROD_PRVENDA = ?,
+            PROD_PRPROMOCAO = CASE WHEN PROD_PRPROMOCAO > 0 THEN ? ELSE PROD_PRPROMOCAO END,
+            PRECO_ANTERIOR = COALESCE(?, PROD_PRVENDA),
+            LASTUPDATE = CURRENT_TIMESTAMP,
+            ATUALIZAR_PRECO = 'S',
+            ITEM_REAJUSTADO = 1
+          WHERE PRODUTO_ID = ?
+        `, [nextPrice, nextPrice, currentPrice, prodId]);
 
         // Atualiza SQLite cache
-        updateCacheStmt.run(nextPrice, nextPrice, new Date().toISOString(), prodId);
-        try { updateComprasCacheStmt.run(nextPrice, nextPrice, new Date().toISOString(), prodId); } catch(e) {}
+        updateCacheStmt.run(nextPrice, nextPrice, new Date().toISOString(), String(prodId), prodId);
+        try { updateComprasCacheStmt.run(nextPrice, nextPrice, new Date().toISOString(), prodId, String(prodId)); } catch(e) {}
 
         // Atualiza status do agendamento
         const isComplete = nextPrice === targetPrice || step.etapa_atual >= step.total_etapas;
@@ -615,23 +624,32 @@ module.exports = function (db) {
         );
       } catch (logErr) {}
 
-      // 3. Atualizar no Digifarma Firebird
-      await queryDigifarma('UPDATE PRODUTOS SET PROD_PRVENDA = ? WHERE PRODUTO_ID = ?', [finalPrice, prodId]);
-      await queryDigifarma('UPDATE PRODUTOS SET PROD_PRPROMOCAO = ? WHERE PRODUTO_ID = ? AND PROD_PRPROMOCAO > 0', [finalPrice, prodId]);
+      // 3. Atualizar no Digifarma Firebird com atomicidade e flags completas para PDV / Caixas
+      await queryDigifarma(`
+        UPDATE PRODUTOS 
+        SET 
+          PROD_PRVENDA = ?,
+          PROD_PRPROMOCAO = CASE WHEN PROD_PRPROMOCAO > 0 THEN ? ELSE PROD_PRPROMOCAO END,
+          PRECO_ANTERIOR = COALESCE(?, PROD_PRVENDA),
+          LASTUPDATE = CURRENT_TIMESTAMP,
+          ATUALIZAR_PRECO = 'S',
+          ITEM_REAJUSTADO = 1
+        WHERE PRODUTO_ID = ?
+      `, [finalPrice, finalPrice, previousPrice, prodId]);
 
-      // 4. Atualizar no SQLite Cache Local
+      // 4. Atualizar no SQLite Cache Local garantindo compatibilidade de tipos (TEXT e INTEGER)
       db.prepare(`
         UPDATE digifarma_products_cache 
-        SET preco_venda = ?, preco_normal = ?, atualizado_em = datetime('now', 'localtime')
-        WHERE produto_id = ?
-      `).run(finalPrice, finalPrice, prodId);
+        SET preco_venda = ?, preco_normal = ?, preco_promocao = CASE WHEN preco_promocao > 0 THEN ? ELSE preco_promocao END, atualizado_em = datetime('now', 'localtime')
+        WHERE produto_id = ? OR CAST(produto_id AS INTEGER) = ? OR (codigo_barras != '' AND codigo_barras = ?)
+      `).run(finalPrice, finalPrice, finalPrice, String(prodId), prodId, String(codBarras || ''));
 
       try {
         db.prepare(`
           UPDATE compras_estoque_cache 
-          SET preco_venda_vigente = ?, preco_normal = ?, atualizado_em = datetime('now', 'localtime')
-          WHERE produto_id = ?
-        `).run(finalPrice, finalPrice, prodId);
+          SET preco_venda_vigente = ?, preco_normal = ?, preco_promocional = CASE WHEN preco_promocional > 0 THEN ? ELSE preco_promocional END, atualizado_em = datetime('now', 'localtime')
+          WHERE produto_id = ? OR CAST(produto_id AS TEXT) = ? OR (ean != '' AND ean = ?)
+        `).run(finalPrice, finalPrice, finalPrice, prodId, String(prodId), String(codBarras || ''));
       } catch (ceErr) {}
 
       res.json({
@@ -713,23 +731,32 @@ module.exports = function (db) {
         usuario || 'Administrador'
       );
 
-      // 2. Atualiza Digifarma Firebird na 1ª etapa
-      await queryDigifarma('UPDATE PRODUTOS SET PROD_PRVENDA = ? WHERE PRODUTO_ID = ?', [firstStepPrice, prodId]);
-      await queryDigifarma('UPDATE PRODUTOS SET PROD_PRPROMOCAO = ? WHERE PRODUTO_ID = ? AND PROD_PRPROMOCAO > 0', [firstStepPrice, prodId]);
+      // 2. Atualiza Digifarma Firebird na 1ª etapa com atomicidade e flags para caixas
+      await queryDigifarma(`
+        UPDATE PRODUTOS 
+        SET 
+          PROD_PRVENDA = ?,
+          PROD_PRPROMOCAO = CASE WHEN PROD_PRPROMOCAO > 0 THEN ? ELSE PROD_PRPROMOCAO END,
+          PRECO_ANTERIOR = COALESCE(?, PROD_PRVENDA),
+          LASTUPDATE = CURRENT_TIMESTAMP,
+          ATUALIZAR_PRECO = 'S',
+          ITEM_REAJUSTADO = 1
+        WHERE PRODUTO_ID = ?
+      `, [firstStepPrice, firstStepPrice, currentPrice, prodId]);
 
       // 3. Atualiza SQLite Cache
       db.prepare(`
         UPDATE digifarma_products_cache 
-        SET preco_venda = ?, preco_normal = ?, atualizado_em = datetime('now', 'localtime')
-        WHERE produto_id = ?
-      `).run(firstStepPrice, firstStepPrice, prodId);
+        SET preco_venda = ?, preco_normal = ?, preco_promocao = CASE WHEN preco_promocao > 0 THEN ? ELSE preco_promocao END, atualizado_em = datetime('now', 'localtime')
+        WHERE produto_id = ? OR CAST(produto_id AS INTEGER) = ? OR (codigo_barras != '' AND codigo_barras = ?)
+      `).run(firstStepPrice, firstStepPrice, firstStepPrice, String(prodId), prodId, String(prodCache.codigo_barras || ''));
 
       try {
         db.prepare(`
           UPDATE compras_estoque_cache 
-          SET preco_venda_vigente = ?, preco_normal = ?, atualizado_em = datetime('now', 'localtime')
-          WHERE produto_id = ?
-        `).run(firstStepPrice, firstStepPrice, prodId);
+          SET preco_venda_vigente = ?, preco_normal = ?, preco_promocional = CASE WHEN preco_promocional > 0 THEN ? ELSE preco_promocional END, atualizado_em = datetime('now', 'localtime')
+          WHERE produto_id = ? OR CAST(produto_id AS TEXT) = ? OR (ean != '' AND ean = ?)
+        `).run(firstStepPrice, firstStepPrice, firstStepPrice, prodId, String(prodId), String(prodCache.codigo_barras || ''));
       } catch (ceErr) {}
 
       // 4. Insere registro de agendamento escalonado
@@ -1015,16 +1042,32 @@ module.exports = function (db) {
 
       revertPrice = roundUpToAcceptedCents(revertPrice);
 
-      // 1. Reverte no Digifarma Firebird
-      await queryDigifarma('UPDATE PRODUTOS SET PROD_PRVENDA = ? WHERE PRODUTO_ID = ?', [revertPrice, prodId]);
-      await queryDigifarma('UPDATE PRODUTOS SET PROD_PRPROMOCAO = ? WHERE PRODUTO_ID = ? AND PROD_PRPROMOCAO > 0', [revertPrice, prodId]);
+      // 1. Reverte no Digifarma Firebird com atomicidade e flags para caixas
+      await queryDigifarma(`
+        UPDATE PRODUTOS 
+        SET 
+          PROD_PRVENDA = ?,
+          PROD_PRPROMOCAO = CASE WHEN PROD_PRPROMOCAO > 0 THEN ? ELSE PROD_PRPROMOCAO END,
+          LASTUPDATE = CURRENT_TIMESTAMP,
+          ATUALIZAR_PRECO = 'S',
+          ITEM_REAJUSTADO = 1
+        WHERE PRODUTO_ID = ?
+      `, [revertPrice, revertPrice, prodId]);
 
-      // 2. Reverte no SQLite Cache
+      // 2. Reverte no SQLite Cache garantindo compatibilidade de tipos
       db.prepare(`
         UPDATE digifarma_products_cache 
-        SET preco_venda = ?, preco_normal = ?, atualizado_em = datetime('now', 'localtime')
-        WHERE produto_id = ?
-      `).run(revertPrice, revertPrice, prodId);
+        SET preco_venda = ?, preco_normal = ?, preco_promocao = CASE WHEN preco_promocao > 0 THEN ? ELSE preco_promocao END, atualizado_em = datetime('now', 'localtime')
+        WHERE produto_id = ? OR CAST(produto_id AS INTEGER) = ? OR (codigo_barras != '' AND codigo_barras = ?)
+      `).run(revertPrice, revertPrice, revertPrice, String(prodId), prodId, String(snapshot.cod_barras || ''));
+
+      try {
+        db.prepare(`
+          UPDATE compras_estoque_cache 
+          SET preco_venda_vigente = ?, preco_normal = ?, preco_promocional = CASE WHEN preco_promocional > 0 THEN ? ELSE preco_promocional END, atualizado_em = datetime('now', 'localtime')
+          WHERE produto_id = ? OR CAST(produto_id AS TEXT) = ? OR (ean != '' AND ean = ?)
+        `).run(revertPrice, revertPrice, revertPrice, prodId, String(prodId), String(snapshot.cod_barras || ''));
+      } catch (ceErr) {}
 
       // 3. Atualiza o snapshot com o preco_anterior corrigido e marca como Revertido
       db.prepare(`
