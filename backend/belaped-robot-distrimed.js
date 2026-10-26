@@ -224,6 +224,10 @@ class DistrimedRobot {
     }
   }
 
+  async buscarTermo(termo) {
+    return await this._buscarNoCatalogo(termo);
+  }
+
   async _buscarNoCatalogo(termo) {
     if (!this.page || !termo) return [];
 

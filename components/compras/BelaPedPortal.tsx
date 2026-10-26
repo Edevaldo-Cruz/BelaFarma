@@ -20,6 +20,7 @@ import {
   Percent,
   Building2,
   TrendingUp,
+  TrendingDown,
   Sliders,
   Filter,
   ChevronLeft,

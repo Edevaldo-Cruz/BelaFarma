@@ -120,6 +120,10 @@ class SotonRobot {
     console.log('[SotonRobot] Login na Soton efetuado com sucesso!');
   }
 
+  async buscarTermo(termo) {
+    return await this._buscarTermoNaSoton(termo);
+  }
+
   async _buscarTermoNaSoton(termo) {
     const urlBusca = `https://sotonfarma.meuspedidos.com.br/?busca=${encodeURIComponent(termo)}`;
     await this.page.goto(urlBusca, { waitUntil: 'networkidle2', timeout: 25000 });

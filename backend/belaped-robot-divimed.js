@@ -125,6 +125,10 @@ class DivimedRobot {
     console.log('[DivimedRobot] Login na Divimed efetuado com sucesso!');
   }
 
+  async buscarTermo(termo) {
+    return await this._buscarProdutosDivimed(termo);
+  }
+
   /**
    * Executa busca de produtos na API do catálogo da Divimed
    */

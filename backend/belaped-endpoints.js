@@ -34,6 +34,7 @@ const farmacoMatcher = require('./belaped-farmaco-matcher');
 const motorEssencia = require('./belaped-motor-essencia');
 const { auditarPortalSeguro, auditarTodasDistribuidoras } = require('./belaped-auditoria-prazos');
 const { executarCheckoutRobo } = require('./belaped-checkout');
+const radarIaService = require('./services/radar-ia.service');
 
 function gerarUrlDistribuidoraProduto(fornecedorNome, ean, descricao) {
   const f = (fornecedorNome || '').toUpperCase();
@@ -571,6 +572,27 @@ function belapedEndpoints(db) {
         observacao TEXT,
         data_auditoria TEXT DEFAULT CURRENT_TIMESTAMP
       );
+
+      CREATE TABLE IF NOT EXISTS belaped_radar_segmentos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        segmento TEXT NOT NULL,
+        ean TEXT,
+        descricao TEXT NOT NULL,
+        marca_laboratorio TEXT,
+        distribuidora TEXT NOT NULL,
+        preco_distribuidora REAL NOT NULL,
+        estoque_status TEXT DEFAULT 'DISPONIVEL',
+        preco_venda_sugerido REAL,
+        margem_estimada_pct REAL,
+        nicho_ia TEXT,
+        destaque_ouro INTEGER DEFAULT 0,
+        motivo_destaque TEXT,
+        dados_ia_json TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_radar_segmento ON belaped_radar_segmentos(segmento);
+      CREATE INDEX IF NOT EXISTS idx_radar_ean ON belaped_radar_segmentos(ean);
     `);
 
     // Seed inicial de campanhas da Distrimed caso a tabela esteja vazia
@@ -9200,6 +9222,250 @@ function belapedEndpoints(db) {
       });
     } catch (err) {
       console.error('[BelaPed] Erro em simulador-giro:', err.message);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * ─────────────────────────────────────────────────────────────────────────────
+   * RADAR DE OPORTUNIDADES POR SEGMENTO & PRODUTOS SIMILARES (IA GEMINI)
+   * ─────────────────────────────────────────────────────────────────────────────
+   */
+
+  /**
+   * GET /api/belaped/radar-segmentos/lista-segmentos
+   * Retorna os segmentos padrão e a contagem de ofertas salvas no radar
+   */
+  router.get('/radar-segmentos/lista-segmentos', (req, res) => {
+    try {
+      const segmentos = radarIaService.SEGMENTOS_PADRAO.map(seg => {
+        const row = db.prepare('SELECT count(*) as count, max(updated_at) as ultima_atualizacao FROM belaped_radar_segmentos WHERE segmento = ?').get(seg.id);
+        return {
+          ...seg,
+          total_ofertas: row ? row.count : 0,
+          ultima_atualizacao: row ? row.ultima_atualizacao : null
+        };
+      });
+
+      const totalGeral = db.prepare('SELECT count(*) as count FROM belaped_radar_segmentos').get().count;
+
+      res.json({
+        success: true,
+        segmentos,
+        totalGeral
+      });
+    } catch (err) {
+      console.error('[RadarSegmentos] Erro ao listar segmentos:', err.message);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/belaped/radar-segmentos
+   * Consulta os produtos curados de um segmento (ou todos) no radar
+   */
+  router.get('/radar-segmentos', (req, res) => {
+    try {
+      const { segmento, busca, distribuidora, ordenacao = 'margem_desc' } = req.query;
+
+      let sql = 'SELECT * FROM belaped_radar_segmentos WHERE 1=1';
+      const params = [];
+
+      if (segmento && segmento !== 'TODOS') {
+        sql += ' AND segmento = ?';
+        params.push(segmento);
+      }
+
+      if (distribuidora && distribuidora !== 'TODAS') {
+        sql += ' AND upper(distribuidora) = ?';
+        params.push(distribuidora.toUpperCase());
+      }
+
+      if (busca && busca.trim()) {
+        const termoLike = `%${busca.trim()}%`;
+        sql += ' AND (descricao LIKE ? OR ean LIKE ? OR marca_laboratorio LIKE ?)';
+        params.push(termoLike, termoLike, termoLike);
+      }
+
+      switch (ordenacao) {
+        case 'margem_desc':
+          sql += ' ORDER BY margem_estimada_pct DESC, preco_distribuidora ASC';
+          break;
+        case 'preco_asc':
+          sql += ' ORDER BY preco_distribuidora ASC';
+          break;
+        case 'preco_desc':
+          sql += ' ORDER BY preco_distribuidora DESC';
+          break;
+        case 'destaque':
+          sql += ' ORDER BY destaque_ouro DESC, margem_estimada_pct DESC';
+          break;
+        default:
+          sql += ' ORDER BY margem_estimada_pct DESC, preco_distribuidora ASC';
+      }
+
+      sql += ' LIMIT 200';
+
+      const itens = db.prepare(sql).all(...params);
+
+      const totalItens = itens.length;
+      const destaquesOuro = itens.filter(i => i.destaque_ouro).length;
+      const margemMedia = totalItens > 0 
+        ? Number((itens.reduce((acc, i) => acc + (Number(i.margem_estimada_pct) || 0), 0) / totalItens).toFixed(1)) 
+        : 0;
+
+      res.json({
+        success: true,
+        total: totalItens,
+        destaques_ouro: destaquesOuro,
+        margem_media: margemMedia,
+        itens
+      });
+    } catch (err) {
+      console.error('[RadarSegmentos] Erro ao buscar radar:', err.message);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * POST /api/belaped/radar-segmentos/garimpar
+   * Garimpa e cura produtos para o segmento via base local + robôs + IA Gemini
+   */
+  router.post('/radar-segmentos/garimpar', async (req, res) => {
+    try {
+      const { segmento, termoBusca, distribuidoras = [] } = req.body;
+      const segId = segmento || 'geral';
+
+      const segPredef = radarIaService.SEGMENTOS_PADRAO.find(s => s.id === segId);
+      const termos = [];
+      if (termoBusca && termoBusca.trim()) {
+        termos.push(termoBusca.trim());
+      } else if (segPredef && Array.isArray(segPredef.termos)) {
+        termos.push(...segPredef.termos);
+      } else {
+        termos.push(segId);
+      }
+
+      console.log(`[RadarSegmentos] ⚡ Garimpando segmento "${segId}" com termos: ${termos.join(', ')}`);
+
+      const ofertasBrutas = [];
+      const vistosChave = new Set();
+
+      for (const t of termos) {
+        const termoLike = `%${t}%`;
+        const cotacoes = db.prepare(`
+          SELECT ean, fornecedor as distribuidora, preco, disponivel, descricao, laboratorio, url_produto
+          FROM belaped_cotacoes_reais
+          WHERE (descricao LIKE ? OR ean LIKE ?) AND preco > 0 AND disponivel = 1
+          ORDER BY preco ASC
+          LIMIT 30
+        `).all(termoLike, termoLike);
+
+        cotacoes.forEach(c => {
+          const k = `${c.ean || ''}_${c.distribuidora}_${c.preco}`;
+          if (!vistosChave.has(k)) {
+            vistosChave.add(k);
+            ofertasBrutas.push(c);
+          }
+        });
+      }
+
+      if (ofertasBrutas.length < 15) {
+        for (const t of termos) {
+          const termoLike = `%${t}%`;
+          const estoqueItens = db.prepare(`
+            SELECT ean, descricao, custo_unitario as preco, 1 as disponivel, preco_venda_vigente
+            FROM compras_estoque_cache
+            WHERE (descricao LIKE ? OR ean LIKE ?) AND custo_unitario > 0
+            LIMIT 20
+          `).all(termoLike, termoLike);
+
+          estoqueItens.forEach(e => {
+            const k = `${e.ean || ''}_ESTOQUE_${e.preco}`;
+            if (!vistosChave.has(k)) {
+              vistosChave.add(k);
+              ofertasBrutas.push({
+                ...e,
+                distribuidora: 'Estoque Loja',
+                laboratorio: 'Referência Loja'
+              });
+            }
+          });
+        }
+      }
+
+      console.log(`[RadarSegmentos] 🧠 Enviando ${ofertasBrutas.length} ofertas para curadoria com IA...`);
+      const ofertasCuradas = await radarIaService.curarOfertasComIA(segPredef ? segPredef.label : segId, ofertasBrutas);
+
+      const stmtSalvar = db.prepare(`
+        INSERT INTO belaped_radar_segmentos (
+          segmento, ean, descricao, marca_laboratorio, distribuidora, preco_distribuidora, 
+          estoque_status, preco_venda_sugerido, margem_estimada_pct, nicho_ia, destaque_ouro, motivo_destaque, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      `);
+
+      const stmtExiste = db.prepare(`
+        SELECT id FROM belaped_radar_segmentos WHERE segmento = ? AND ean = ? AND distribuidora = ?
+      `);
+      const stmtUpdate = db.prepare(`
+        UPDATE belaped_radar_segmentos SET
+          preco_distribuidora = ?, preco_venda_sugerido = ?, margem_estimada_pct = ?, nicho_ia = ?,
+          destaque_ouro = ?, motivo_destaque = ?, updated_at = datetime('now')
+        WHERE id = ?
+      `);
+
+      const transacaoSalvar = db.transaction((itens) => {
+        for (const it of itens) {
+          const existe = it.ean ? stmtExiste.get(segId, it.ean, it.distribuidora) : null;
+          if (existe) {
+            stmtUpdate.run(
+              it.preco_distribuidora, it.preco_venda_sugerido, it.margem_estimada_pct,
+              it.nicho_ia, it.destaque_ouro, it.motivo_destaque, existe.id
+            );
+          } else {
+            stmtSalvar.run(
+              segId, it.ean, it.descricao, it.marca_laboratorio, it.distribuidora,
+              it.preco_distribuidora, it.estoque_status, it.preco_venda_sugerido,
+              it.margem_estimada_pct, it.nicho_ia, it.destaque_ouro, it.motivo_destaque
+            );
+          }
+        }
+      });
+
+      transacaoSalvar(ofertasCuradas);
+
+      res.json({
+        success: true,
+        count: ofertasCuradas.length,
+        destaques: ofertasCuradas.filter(i => i.destaque_ouro).length,
+        itens: ofertasCuradas
+      });
+    } catch (err) {
+      console.error('[RadarSegmentos] Erro ao garimpar ofertas:', err.message);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * POST /api/belaped/radar-segmentos/salvar-item
+   * Adiciona o item curado do radar na lista de itens avulsos da loja
+   */
+  router.post('/radar-segmentos/salvar-item', (req, res) => {
+    try {
+      const { ean, descricao, preco_sugerido, motivo } = req.body;
+      if (!descricao) {
+        return res.status(400).json({ success: false, error: 'Descrição é obrigatória.' });
+      }
+
+      const stmt = db.prepare(`
+        INSERT INTO belaped_itens_avulsos (ean, descricao, quantidade, motivo, preco_alvo, criado_por, status)
+        VALUES (?, ?, 1, ?, ?, 'RADAR_IA', 'PENDENTE')
+      `);
+      stmt.run(ean || null, descricao, motivo || 'Oportunidade de Segmento identificada pelo Radar IA', preco_sugerido || null);
+
+      res.json({ success: true, message: 'Item salvo no radar da farmácia com sucesso!' });
+    } catch (err) {
+      console.error('[RadarSegmentos] Erro ao salvar item avulso:', err.message);
       res.status(500).json({ success: false, error: err.message });
     }
   });

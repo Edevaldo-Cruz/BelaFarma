@@ -34,7 +34,11 @@ import {
   HelpCircle,
   Printer,
   Table,
-  Filter
+  Filter,
+  Bot,
+  Flame,
+  Compass,
+  BookmarkPlus
 } from 'lucide-react';
 import { useToast } from '../ToastContext';
 
@@ -167,6 +171,21 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
   const [filtroFaixaDesconto, setFiltroFaixaDesconto] = useState<'TODOS' | 'MAIOR_10' | 'MAIOR_20' | 'MAIOR_30'>('TODOS');
   const [ordenacaoOportunidade, setOrdenacaoOportunidade] = useState<'desconto_pct' | 'economia_total' | 'preco_menor' | 'curva_abc' | 'giro_vmd'>('desconto_pct');
   const [modoViewOportunidades, setModoViewOportunidades] = useState<'tabela' | 'cards'>('tabela');
+
+  // Sub-aba dentro de Oportunidades: 'abaixo_ultima_compra' | 'radar_segmentos'
+  const [subAbaOportunidades, setSubAbaOportunidades] = useState<'abaixo_ultima_compra' | 'radar_segmentos'>('abaixo_ultima_compra');
+
+  // Estados do Radar de Segmentos & Similares com IA
+  const [segmentosRadar, setSegmentosRadar] = useState<any[]>([]);
+  const [segmentoAtivo, setSegmentoAtivo] = useState<string>('sabonetes');
+  const [termoBuscaSegmento, setTermoBuscaSegmento] = useState<string>('');
+  const [itensRadar, setItensRadar] = useState<any[]>([]);
+  const [carregandoRadar, setCarregandoRadar] = useState<boolean>(false);
+  const [garimpandoIa, setGarimpandoIa] = useState<boolean>(false);
+  const [filtroNichoRadar, setFiltroNichoRadar] = useState<string>('TODOS');
+  const [filtroDistRadar, setFiltroDistRadar] = useState<string>('TODAS');
+  const [ordenacaoRadar, setOrdenacaoRadar] = useState<'margem_desc' | 'preco_asc' | 'preco_desc' | 'destaque'>('margem_desc');
+  const [modoViewRadar, setModoViewRadar] = useState<'tabela' | 'cards'>('tabela');
 
   // Modo de exibição: Grade Compacta ou Carrossel Focal 1 a 1
   const [modoVisualizacao, setModoVisualizacao] = useState<'grade' | 'carrossel'>(() => {
@@ -626,6 +645,36 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
       maiorDescontoItem
     };
   }, [oportunidadesFiltradas]);
+
+  // Métricas e Filtros do Radar de Segmentos com IA
+  const itensRadarFiltrados = useMemo(() => {
+    let filtrados = [...itensRadar];
+
+    if (filtroNichoRadar === 'OURO') {
+      filtrados = filtrados.filter(i => i.destaque_ouro);
+    } else if (filtroNichoRadar !== 'TODOS') {
+      filtrados = filtrados.filter(i => i.nicho_ia === filtroNichoRadar);
+    }
+
+    if (filtroDistRadar !== 'TODAS') {
+      filtrados = filtrados.filter(i => (i.distribuidora || '').toUpperCase() === filtroDistRadar.toUpperCase());
+    }
+
+    return filtrados;
+  }, [itensRadar, filtroNichoRadar, filtroDistRadar]);
+
+  const metricasRadar = useMemo(() => {
+    const total = itensRadarFiltrados.length;
+    const destaquesOuro = itensRadarFiltrados.filter(i => i.destaque_ouro).length;
+    const margemMedia = total > 0 
+      ? Number((itensRadarFiltrados.reduce((acc, i) => acc + (Number(i.margem_estimada_pct) || 0), 0) / total).toFixed(1))
+      : 0;
+    const menorCusto = total > 0
+      ? Math.min(...itensRadarFiltrados.map(i => Number(i.preco_distribuidora) || 9999))
+      : 0;
+
+    return { total, destaquesOuro, margemMedia, menorCusto: menorCusto === 9999 ? 0 : menorCusto };
+  }, [itensRadarFiltrados]);
 
   // Ajusta índice ativo no carrossel para não sair do limite
   useEffect(() => {
@@ -1777,6 +1826,95 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
     }
   };
 
+  // ─── RADAR DE SEGMENTOS COM IA: CARREGADORES E DISPAROS ───
+  const carregarListaSegmentos = async () => {
+    try {
+      const res = await fetch('/api/belaped/radar-segmentos/lista-segmentos');
+      const data = await res.json();
+      if (data.success && Array.isArray(data.segmentos)) {
+        setSegmentosRadar(data.segmentos);
+      }
+    } catch (e) {
+      console.warn('Erro ao carregar lista de segmentos:', e);
+    }
+  };
+
+  const carregarItensRadar = async (segId = segmentoAtivo, busca = termoBuscaSegmento, ord = ordenacaoRadar) => {
+    setCarregandoRadar(true);
+    try {
+      const q = new URLSearchParams();
+      if (segId) q.set('segmento', segId);
+      if (busca) q.set('busca', busca);
+      if (ord) q.set('ordenacao', ord);
+
+      const res = await fetch(`/api/belaped/radar-segmentos?${q.toString()}`);
+      const data = await res.json();
+      if (data.success && Array.isArray(data.itens)) {
+        setItensRadar(data.itens);
+      }
+    } catch (e) {
+      console.warn('Erro ao carregar itens do radar:', e);
+    } finally {
+      setCarregandoRadar(false);
+    }
+  };
+
+  useEffect(() => {
+    if (abaDecisaoAtiva === 'oportunidades' && subAbaOportunidades === 'radar_segmentos') {
+      carregarListaSegmentos();
+      carregarItensRadar(segmentoAtivo, termoBuscaSegmento, ordenacaoRadar);
+    }
+  }, [abaDecisaoAtiva, subAbaOportunidades, segmentoAtivo, ordenacaoRadar]);
+
+  const handleDispararGarimpoIa = async () => {
+    setGarimpandoIa(true);
+    try {
+      addToast(`🤖 Inteligência Artificial (Gemini) garimpando ofertas para ${segmentoAtivo.toUpperCase()}...`, 'info');
+      const res = await fetch('/api/belaped/radar-segmentos/garimpar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          segmento: segmentoAtivo,
+          termoBusca: termoBuscaSegmento,
+          garimparAoVivo: true
+        })
+      });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.itens)) {
+        setItensRadar(data.itens);
+        addToast(`✅ IA curou ${data.count} ofertas no segmento (${data.destaques || 0} destaques de ouro)!`, 'success');
+        carregarListaSegmentos();
+      } else {
+        addToast(data.error || 'Não foi possível garimpar o segmento no momento.', 'error');
+      }
+    } catch (err: any) {
+      addToast(`Erro ao garimpar via IA: ${err.message}`, 'error');
+    } finally {
+      setGarimpandoIa(false);
+    }
+  };
+
+  const handleSalvarItemNoRadar = async (item: any) => {
+    try {
+      const res = await fetch('/api/belaped/radar-segmentos/salvar-item', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ean: item.ean,
+          descricao: item.descricao,
+          preco_sugerido: item.preco_venda_sugerido,
+          motivo: `Oportunidade do Segmento ${item.segmento}: ${item.motivo_destaque || 'Margem alta'}`
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        addToast(`Item "${item.descricao}" registrado no radar de compras da loja!`, 'success');
+      }
+    } catch (e: any) {
+      addToast('Erro ao salvar item no radar', 'error');
+    }
+  };
+
   // 7. PESQUISA RÁPIDA NO TOPO
   const handleExecutarBusca = async (termo: string) => {
     const q = termo.trim();
@@ -2147,7 +2285,47 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
       {abaDecisaoAtiva === 'oportunidades' ? (
         /* ─── GUIA OPORTUNIDADES: CABEÇALHO, KPIS, FILTROS E TABELA/CARDS ─── */
         <div className="flex-1 flex flex-col p-3 sm:p-4 max-w-7xl mx-auto w-full gap-3 pb-16">
-          {/* Header da Guia Oportunidades */}
+          {/* ─── SELETOR DE SUB-ABA: ABAIXO DA ÚLTIMA COMPRA vs RADAR DE SEGMENTOS (IA) ─── */}
+          <div className="flex items-center gap-2 border-b border-slate-800 pb-2">
+            <button
+              type="button"
+              onClick={() => setSubAbaOportunidades('abaixo_ultima_compra')}
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer ${
+                subAbaOportunidades === 'abaixo_ultima_compra'
+                  ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-950/50 border border-emerald-400'
+                  : 'bg-[#060a12] text-slate-400 hover:text-white hover:bg-slate-800/60 border border-slate-800'
+              }`}
+            >
+              <TrendingDown className="w-3.5 h-3.5" />
+              <span>📉 Abaixo da Última Compra</span>
+              <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-700">
+                {oportunidadesCompra.length}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setSubAbaOportunidades('radar_segmentos');
+                if (segmentosRadar.length === 0) carregarListaSegmentos();
+              }}
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer ${
+                subAbaOportunidades === 'radar_segmentos'
+                  ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-sm shadow-cyan-950/50 border border-cyan-400'
+                  : 'bg-[#060a12] text-slate-400 hover:text-white hover:bg-slate-800/60 border border-slate-800'
+              }`}
+            >
+              <Bot className="w-3.5 h-3.5 text-cyan-300" />
+              <span>🎯 Radar de Segmentos & Similares</span>
+              <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-cyan-950 text-cyan-300 border border-cyan-700">
+                IA Gemini
+              </span>
+            </button>
+          </div>
+
+          {subAbaOportunidades === 'abaixo_ultima_compra' ? (
+            <>
+              {/* Header da Guia Oportunidades */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-[#0b1222] border border-emerald-900/40 p-3.5 sm:p-4 rounded-2xl shadow-lg">
             <div className="flex items-center gap-3">
               <div className="p-2.5 bg-gradient-to-br from-emerald-500/20 to-teal-500/20 border border-emerald-500/40 rounded-xl text-emerald-400">
@@ -2622,6 +2800,437 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
                   </div>
                 );
               })}
+            </div>
+          )}
+            </>
+          ) : (
+            /* ─── RADAR DE SEGMENTOS & SIMILARES WORKSPACE (IA GEMINI) ─── */
+            <div className="flex flex-col gap-3">
+              {/* Header do Radar com IA */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-[#0b1222] border border-cyan-900/40 p-3.5 sm:p-4 rounded-2xl shadow-lg">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-gradient-to-br from-cyan-500/20 to-blue-500/20 border border-cyan-500/40 rounded-xl text-cyan-400">
+                    <Bot className="w-6 h-6 animate-pulse" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h2 className="text-base sm:text-lg font-black text-white flex items-center gap-2">
+                        Radar de Segmentos & Similares
+                      </h2>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-cyan-950 text-cyan-300 border border-cyan-700/80">
+                        Curadoria Inteligente Gemini
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Garimpe departamentos e categorias inteiras nas distribuidoras para descobrir oportunidades com alta margem de gôndola.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Botão Garimpar ao Vivo */}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleDispararGarimpoIa}
+                    disabled={garimpandoIa}
+                    className="px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-black text-xs uppercase flex items-center gap-2 shadow-lg shadow-cyan-950/50 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    {garimpandoIa ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin text-cyan-200" />
+                        <span>Garimpando com IA...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-4 h-4 text-cyan-200" />
+                        <span>⚡ Garimpar ao Vivo com IA</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* Pílulas / Chips Rápidos de Segmentos */}
+              <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-thin">
+                {segmentosRadar.map(seg => {
+                  const isAtivo = segmentoAtivo === seg.id;
+                  return (
+                    <button
+                      key={seg.id}
+                      type="button"
+                      onClick={() => {
+                        setSegmentoAtivo(seg.id);
+                        setTermoBuscaSegmento('');
+                        carregarItensRadar(seg.id, '');
+                      }}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 shrink-0 cursor-pointer ${
+                        isAtivo 
+                          ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-md shadow-cyan-950/40 border border-cyan-400' 
+                          : 'bg-[#0b1222] text-slate-300 hover:text-white hover:bg-slate-800 border border-slate-800'
+                      }`}
+                    >
+                      <span>{seg.icon || '📦'}</span>
+                      <span>{seg.label}</span>
+                      {typeof seg.total_ofertas === 'number' && seg.total_ofertas > 0 && (
+                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
+                          isAtivo ? 'bg-cyan-950 text-cyan-200 border border-cyan-700' : 'bg-slate-800 text-slate-400'
+                        }`}>
+                          {seg.total_ofertas}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Barra de Filtros e Busca Livre */}
+              <div className="bg-[#0b1222] border border-cyan-900/40 p-3 rounded-2xl flex flex-col md:flex-row gap-2.5 items-stretch md:items-center justify-between">
+                {/* Campo de Busca Livre por Termo */}
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 text-cyan-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={termoBuscaSegmento}
+                    onChange={(e) => setTermoBuscaSegmento(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') carregarItensRadar(segmentoAtivo, termoBuscaSegmento);
+                    }}
+                    placeholder={`Pesquisar marca ou produto em ${segmentoAtivo} (ex: Dove, aerosol, líquido)...`}
+                    className="w-full bg-[#060a12] border border-slate-800 focus:border-cyan-500 rounded-xl pl-9 pr-20 py-2 text-xs text-white placeholder-slate-500 focus:outline-none transition-all"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => carregarItensRadar(segmentoAtivo, termoBuscaSegmento)}
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 px-2.5 py-1 bg-cyan-700 hover:bg-cyan-600 text-white text-[11px] font-bold rounded-lg cursor-pointer"
+                  >
+                    Filtrar
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-2 flex-wrap">
+                  {/* Filtro por Nicho IA */}
+                  <select
+                    value={filtroNichoRadar}
+                    onChange={(e) => setFiltroNichoRadar(e.target.value)}
+                    className="bg-[#060a12] border border-slate-800 text-slate-300 text-xs rounded-xl px-2.5 py-2 focus:outline-none focus:border-cyan-500 cursor-pointer"
+                  >
+                    <option value="TODOS">Todos os Nichos</option>
+                    <option value="OURO">⭐ Destaques de Ouro</option>
+                    <option value="Giro Alto">🏷️ Giro Alto</option>
+                    <option value="Econômico">💰 Econômico</option>
+                    <option value="Premium / Dermo">💎 Premium / Dermo</option>
+                    <option value="Infantil">👶 Infantil</option>
+                    <option value="Família / Multi-pack">📦 Multi-pack</option>
+                  </select>
+
+                  {/* Ordenação */}
+                  <select
+                    value={ordenacaoRadar}
+                    onChange={(e) => {
+                      const novaOrd = e.target.value as any;
+                      setOrdenacaoRadar(novaOrd);
+                      carregarItensRadar(segmentoAtivo, termoBuscaSegmento, novaOrd);
+                    }}
+                    className="bg-[#060a12] border border-slate-800 text-slate-300 text-xs rounded-xl px-2.5 py-2 focus:outline-none focus:border-cyan-500 cursor-pointer"
+                  >
+                    <option value="margem_desc">Maior Margem %</option>
+                    <option value="preco_asc">Menor Preço de Custo</option>
+                    <option value="preco_desc">Maior Preço de Custo</option>
+                    <option value="destaque">Destaques Ouro Primeiro</option>
+                  </select>
+
+                  {/* Alternar Tabela / Cards */}
+                  <div className="flex items-center bg-[#060a12] border border-slate-800 rounded-xl p-0.5">
+                    <button
+                      type="button"
+                      onClick={() => setModoViewRadar('tabela')}
+                      className={`p-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        modoViewRadar === 'tabela' ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-white'
+                      }`}
+                      title="Visualização em Tabela Compacta"
+                    >
+                      <Table className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setModoViewRadar('cards')}
+                      className={`p-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        modoViewRadar === 'cards' ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-white'
+                      }`}
+                      title="Visualização em Cards"
+                    >
+                      <Grid className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* KPIs do Radar */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                <div className="bg-[#0b1222] border border-slate-800 p-3 rounded-2xl flex flex-col">
+                  <span className="text-[10px] uppercase font-black tracking-wider text-slate-400">Total no Radar</span>
+                  <span className="text-lg font-black text-white font-mono mt-0.5">
+                    {metricasRadar.total} <span className="text-xs text-slate-500 font-normal">produtos</span>
+                  </span>
+                </div>
+
+                <div className="bg-[#0b1222] border border-amber-900/40 p-3 rounded-2xl flex flex-col">
+                  <span className="text-[10px] uppercase font-black tracking-wider text-amber-400 flex items-center gap-1">
+                    <Flame className="w-3 h-3" /> Destaques Ouro
+                  </span>
+                  <span className="text-lg font-black text-amber-300 font-mono mt-0.5">
+                    {metricasRadar.destaquesOuro} <span className="text-xs text-amber-500/80 font-normal">oportunidades</span>
+                  </span>
+                </div>
+
+                <div className="bg-[#0b1222] border border-cyan-900/40 p-3 rounded-2xl flex flex-col">
+                  <span className="text-[10px] uppercase font-black tracking-wider text-cyan-400">Margem Média Projetada</span>
+                  <span className="text-lg font-black text-cyan-300 font-mono mt-0.5">
+                    {metricasRadar.margemMedia > 0 ? `+${metricasRadar.margemMedia}%` : '0%'}
+                  </span>
+                </div>
+
+                <div className="bg-[#0b1222] border border-emerald-900/40 p-3 rounded-2xl flex flex-col">
+                  <span className="text-[10px] uppercase font-black tracking-wider text-emerald-400">Menor Custo do Segmento</span>
+                  <span className="text-lg font-black text-emerald-300 font-mono mt-0.5">
+                    R$ {metricasRadar.menorCusto.toFixed(2)}
+                  </span>
+                </div>
+              </div>
+
+              {/* Tabela ou Cards do Radar */}
+              {carregandoRadar ? (
+                <div className="py-16 flex flex-col items-center justify-center gap-3 text-slate-400">
+                  <RefreshCw className="w-8 h-8 animate-spin text-cyan-400" />
+                  <span className="text-sm">Carregando oportunidades do segmento...</span>
+                </div>
+              ) : itensRadarFiltrados.length === 0 ? (
+                <div className="bg-[#0b1222] border border-slate-800 rounded-2xl p-10 text-center flex flex-col items-center gap-3">
+                  <Bot className="w-12 h-12 text-slate-600" />
+                  <h3 className="text-sm font-bold text-slate-300">Nenhum produto mapeado neste segmento ainda</h3>
+                  <p className="text-xs text-slate-500 max-w-md">
+                    Clique em <b>"⚡ Garimpar ao Vivo com IA"</b> para que a Inteligência Artificial e os robôs consultem os fornecedores e tragam as melhores ofertas de {segmentoAtivo}.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleDispararGarimpoIa}
+                    disabled={garimpandoIa}
+                    className="mt-2 px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 text-white font-bold text-xs uppercase flex items-center gap-2 cursor-pointer shadow-md"
+                  >
+                    <Sparkles className="w-4 h-4" />
+                    <span>Garimpar Agora</span>
+                  </button>
+                </div>
+              ) : modoViewRadar === 'tabela' ? (
+                /* TABELA DE ALTA DENSIDADE (UI/UX 1 LINHA COMPACTA) */
+                <div className="bg-[#0b1222] border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="bg-[#060a12] border-b border-slate-800 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                          <th className="py-2.5 px-3 whitespace-nowrap w-24">Nicho IA</th>
+                          <th className="py-2.5 px-3 whitespace-nowrap">Produto / Marca</th>
+                          <th className="py-2.5 px-3 whitespace-nowrap">Distribuidora</th>
+                          <th className="py-2.5 px-3 whitespace-nowrap text-right">Custo</th>
+                          <th className="py-2.5 px-3 whitespace-nowrap text-right">Venda Sugerida</th>
+                          <th className="py-2.5 px-3 whitespace-nowrap text-right">Margem Bruta</th>
+                          <th className="py-2.5 px-3 whitespace-nowrap text-center w-28">Ações</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/60 font-mono">
+                        {itensRadarFiltrados.map((it, idx) => (
+                          <tr key={it.id || idx} className="hover:bg-slate-800/40 transition-colors">
+                            {/* Nicho IA */}
+                            <td className="py-2 px-3 whitespace-nowrap">
+                              {it.destaque_ouro ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-950 text-amber-300 border border-amber-700 shadow-sm" title={it.motivo_destaque || 'Oportunidade Ouro'}>
+                                  <Flame className="w-3 h-3 text-amber-400" /> OURO
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-900 text-cyan-300 border border-slate-700">
+                                  {it.nicho_ia || 'Geral'}
+                                </span>
+                              )}
+                            </td>
+
+                            {/* Descrição e EAN em 1 linha */}
+                            <td className="py-2 px-3">
+                              <div className="flex items-center gap-2 truncate max-w-md font-sans">
+                                <span className="font-bold text-white text-xs truncate" title={it.descricao}>
+                                  {it.descricao}
+                                </span>
+                                {it.ean && (
+                                  <span className="text-[10px] text-slate-500 font-mono shrink-0">
+                                    [{it.ean}]
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+
+                            {/* Distribuidora */}
+                            <td className="py-2 px-3 whitespace-nowrap font-sans">
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#060a12] text-slate-300 border border-slate-700">
+                                {it.distribuidora}
+                              </span>
+                            </td>
+
+                            {/* Custo Distribuidora */}
+                            <td className="py-2 px-3 text-right whitespace-nowrap font-bold text-slate-200">
+                              R$ {Number(it.preco_distribuidora || 0).toFixed(2)}
+                            </td>
+
+                            {/* Venda Sugerida */}
+                            <td className="py-2 px-3 text-right whitespace-nowrap text-cyan-300">
+                              R$ {Number(it.preco_venda_sugerido || 0).toFixed(2)}
+                            </td>
+
+                            {/* Margem Estimada % */}
+                            <td className="py-2 px-3 text-right whitespace-nowrap font-black text-emerald-400">
+                              +{Number(it.margem_estimada_pct || 0).toFixed(1)}%
+                            </td>
+
+                            {/* Ações */}
+                            <td className="py-2 px-3 whitespace-nowrap text-center">
+                              <div className="flex items-center justify-center gap-1.5 font-sans">
+                                <button
+                                  type="button"
+                                  onClick={() => handleAdicionarAoCarrinho(
+                                    {
+                                      produto_id: it.id || 99999,
+                                      descricao: it.descricao,
+                                      ean: it.ean || '',
+                                      preco_1: it.preco_distribuidora,
+                                      fornecedor_1: it.distribuidora,
+                                      qtd_sugerida_7d: 1,
+                                      curva_abc: 'A',
+                                      saldo: 0,
+                                      vmd_ponderado: 1,
+                                      custo_unitario: it.preco_distribuidora,
+                                      subtotal_7d: it.preco_distribuidora
+                                    } as any,
+                                    it.distribuidora,
+                                    it.preco_distribuidora,
+                                    1
+                                  )}
+                                  className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[11px] uppercase flex items-center gap-1 shadow-sm active:scale-95 transition-all cursor-pointer"
+                                  title="Enviar para o carrinho da distribuidora via robô"
+                                >
+                                  <ShoppingCart className="w-3.5 h-3.5" />
+                                  <span>Carrinho</span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleSalvarItemNoRadar(it)}
+                                  className="p-1 rounded-lg bg-[#060a12] border border-slate-700 hover:border-cyan-500 text-slate-400 hover:text-cyan-300 transition-all cursor-pointer"
+                                  title="Salvar produto no radar da farmácia para compras futuras"
+                                >
+                                  <BookmarkPlus className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : (
+                /* MODO CARDS */
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {itensRadarFiltrados.map((it, idx) => (
+                    <div
+                      key={it.id || idx}
+                      className="bg-[#0b1222] border border-slate-800 hover:border-cyan-800/80 p-3.5 rounded-2xl flex flex-col justify-between gap-3 shadow-md transition-all"
+                    >
+                      <div>
+                        <div className="flex items-center justify-between gap-2">
+                          {it.destaque_ouro ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-950 text-amber-300 border border-amber-700">
+                              <Flame className="w-3 h-3 text-amber-400" /> DESTAQUE OURO
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-900 text-cyan-300 border border-slate-700">
+                              {it.nicho_ia || 'Geral'}
+                            </span>
+                          )}
+
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#060a12] text-slate-300 border border-slate-700">
+                            {it.distribuidora}
+                          </span>
+                        </div>
+
+                        <h4 className="font-bold text-white text-xs sm:text-sm mt-2 line-clamp-2" title={it.descricao}>
+                          {it.descricao}
+                        </h4>
+                        {it.ean && <span className="text-[11px] text-slate-500 font-mono">EAN: {it.ean}</span>}
+
+                        {it.motivo_destaque && (
+                          <p className="text-[11px] text-amber-300/90 italic bg-amber-950/30 border border-amber-900/40 p-1.5 rounded-lg mt-2">
+                            💡 {it.motivo_destaque}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="border-t border-slate-800/80 pt-2.5 flex items-center justify-between">
+                        <div>
+                          <div className="text-[10px] text-slate-400">Custo no Distribuidor</div>
+                          <div className="font-mono font-black text-sm text-white">
+                            R$ {Number(it.preco_distribuidora || 0).toFixed(2)}
+                          </div>
+                        </div>
+
+                        <div className="text-right">
+                          <div className="text-[10px] text-slate-400">Venda Sugerida / Margem</div>
+                          <div className="flex items-baseline gap-1 justify-end font-mono">
+                            <span className="text-xs text-cyan-300">R$ {Number(it.preco_venda_sugerido || 0).toFixed(2)}</span>
+                            <span className="text-xs font-black text-emerald-400">
+                              (+{Number(it.margem_estimada_pct || 0).toFixed(0)}%)
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => handleAdicionarAoCarrinho(
+                            {
+                              produto_id: it.id || 99999,
+                              descricao: it.descricao,
+                              ean: it.ean || '',
+                              preco_1: it.preco_distribuidora,
+                              fornecedor_1: it.distribuidora,
+                              qtd_sugerida_7d: 1,
+                              curva_abc: 'A',
+                              saldo: 0,
+                              vmd_ponderado: 1,
+                              custo_unitario: it.preco_distribuidora,
+                              subtotal_7d: it.preco_distribuidora
+                            } as any,
+                            it.distribuidora,
+                            it.preco_distribuidora,
+                            1
+                          )}
+                          className="flex-1 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs uppercase flex items-center justify-center gap-1.5 shadow-md active:scale-95 transition-all cursor-pointer"
+                        >
+                          <ShoppingCart className="w-4 h-4" />
+                          <span>Adicionar Carrinho</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleSalvarItemNoRadar(it)}
+                          className="p-2 rounded-xl bg-[#060a12] border border-slate-700 hover:border-cyan-500 text-slate-400 hover:text-cyan-300 transition-all cursor-pointer"
+                          title="Salvar no radar da farmácia"
+                        >
+                          <BookmarkPlus className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>

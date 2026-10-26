@@ -1,9 +1,14 @@
 {
   "version": "1.2.0",
-  "commitHash": "cd43bdf",
-  "commitMessage": "feat(belaped): adiciona checkbox para ocultar itens e botao apenas nomes no relatorio HTML",
-  "buildTime": "25/10/2026, 10:18:49",
+  "commitHash": "15a9baf",
+  "commitMessage": "feat(belaped): adiciona guia Oportunidades com itens cotados abaixo da ultima compra e envio ao carrinho",
+  "buildTime": "26/10/2026, 08:51:58",
   "recentCommits": [
+    {
+      "hash": "15a9baf",
+      "date": "25/10/2026",
+      "message": "feat(belaped): adiciona guia Oportunidades com itens cotados abaixo da ultima compra e envio ao carrinho"
+    },
     {
       "hash": "cd43bdf",
       "date": "24/10/2026",
@@ -58,11 +63,6 @@
       "hash": "b428935",
       "date": "24/10/2026",
       "message": "feat(pwa): expoe versao e descricao com changelog, banner de atualizacao e badge no BelaPed"
-    },
-    {
-      "hash": "5b821a3",
-      "date": "24/10/2026",
-      "message": "feat(belaped): aba de pesquisa multi-distribuidora com veredito e restricao de robo ao critico da semana"
     }
   ]
 }

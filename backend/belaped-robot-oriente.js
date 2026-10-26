@@ -200,6 +200,10 @@ class OrienteRobot {
     return 96; // PE ORIENTE FARMA (GERAL)
   }
 
+  async buscarTermo(termo) {
+    return await this._filtrarTabelaOriente(termo);
+  }
+
   /**
    * Filtra e extrai os produtos da Oriente Farma (Modo Turbo via API REST Direta + Fallback DOM)
    */

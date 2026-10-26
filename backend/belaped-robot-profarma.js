@@ -169,6 +169,10 @@ class ProfarmaRobot {
     return Boolean(this.catalogo);
   }
 
+  async buscarTermo(termo) {
+    return this._buscarNoCatalogoMemoria(termo);
+  }
+
   /**
    * Busca no catálogo em memória (por EAN ou por termos de essência)
    */

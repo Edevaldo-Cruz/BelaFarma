@@ -104,6 +104,10 @@ class DpcRobot {
   /**
    * Consulta um EAN no catálogo da DPC
    */
+  async buscarTermo(termo) {
+    return await this._buscarNoCatalogoDpc(termo);
+  }
+
   /**
    * Busca produtos no catálogo da DPC
    */
