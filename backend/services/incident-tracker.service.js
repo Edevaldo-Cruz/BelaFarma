@@ -243,6 +243,11 @@ function registerGlobalHandlers() {
  * Notifica e registra desconexão do WhatsApp Baileys.
  */
 function notifyWhatsappDisconnect(instanceName, statusCode, reason, isFullReset = false) {
+  // Evita duplicar incidentes se o WhatsApp já estiver com status de desconectado aberto
+  if (instanceName === 'principal' && lastWhatsappIncidentId) {
+    return lastWhatsappIncidentId;
+  }
+
   const title = `WhatsApp ${instanceName === 'secundario' ? 'Secundário' : 'Principal'} Desconectado (Código: ${statusCode || 'N/A'})`;
   const details = `Motivo: ${reason}\nNecessitou reset completo de sessão: ${isFullReset ? 'Sim (novo QR Code exigido)' : 'Não (tentando reconectar automaticamente)'}`;
   const severity = (statusCode === 401 || isFullReset) ? 'CRITICAL' : 'WARNING';

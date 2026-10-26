@@ -35,22 +35,55 @@ app.use(express.static(path.join(__dirname, '../dist')));
 app.use('/uploads', security.uploadsAuthMiddleware, express.static(path.join(__dirname, 'uploads')));
 
 // Redirecionar logs para arquivo persistente (volume Docker /data)
+// Redirecionar logs para arquivo persistente com rotação automática inteligente (máx 10MB)
 const LOG_DIR = process.platform === 'win32' 
   ? path.join(__dirname) 
   : path.join(__dirname, 'data');
 if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
-const logStream = fs.createWriteStream(path.join(LOG_DIR, 'backend.log'), { flags: 'a' });
+const LOG_FILE = path.join(LOG_DIR, 'backend.log');
+const OLD_LOG_FILE = path.join(LOG_DIR, 'backend.old.log');
+const MAX_LOG_SIZE = 10 * 1024 * 1024; // 10MB
+
+let currentLogSize = 0;
+try {
+  if (fs.existsSync(LOG_FILE)) {
+    currentLogSize = fs.statSync(LOG_FILE).size;
+  }
+} catch (e) {}
+
+let logStream = fs.createWriteStream(LOG_FILE, { flags: 'a' });
 const originalLog = console.log;
 const originalError = console.error;
 
+function checkAndRotateLog(additionalBytes) {
+  currentLogSize += additionalBytes;
+  if (currentLogSize > MAX_LOG_SIZE) {
+    try {
+      logStream.end();
+      if (fs.existsSync(OLD_LOG_FILE)) {
+        try { fs.unlinkSync(OLD_LOG_FILE); } catch (e) {}
+      }
+      if (fs.existsSync(LOG_FILE)) {
+        fs.renameSync(LOG_FILE, OLD_LOG_FILE);
+      }
+      logStream = fs.createWriteStream(LOG_FILE, { flags: 'a' });
+      currentLogSize = 0;
+    } catch (e) {
+      currentLogSize = 0;
+    }
+  }
+}
+
 console.log = (...args) => {
     const msg = `[${new Date().toISOString()}] ${args.join(' ')}\n`;
+    checkAndRotateLog(Buffer.byteLength(msg));
     logStream.write(msg);
     originalLog.apply(console, args);
 };
 
 console.error = (...args) => {
     const msg = `[${new Date().toISOString()}] ❌ ERROR: ${args.join(' ')}\n`;
+    checkAndRotateLog(Buffer.byteLength(msg));
     logStream.write(msg);
     originalError.apply(console, args);
 };

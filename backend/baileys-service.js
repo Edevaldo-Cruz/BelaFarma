@@ -216,9 +216,16 @@ async function connect(db) {
           return;
         }
 
-        // Reconexão transparente para restartRequired (515), timeout (408), connectionLost, etc.
-        const delay = (statusCode === DisconnectReason?.restartRequired || statusCode === 515) ? 1000 : 3000;
-        console.log(`[Baileys] 🔄 Reconectando sessão existente em ${delay}ms (Código: ${statusCode})...`);
+        // Reconexão inteligente: 515 (restart rápido), 408 (QR timeout sem scan - aguarda 60s), outros 5s
+        let delay = 5000;
+        if (statusCode === DisconnectReason?.restartRequired || statusCode === 515) {
+          delay = 1000;
+        } else if (statusCode === 408) {
+          delay = 60000; // Aguarda 1 minuto se ninguém escaneou o QR Code para não travar o servidor
+          console.log(`[Baileys] ⏳ QR Code expirou sem leitura (408). Aguardando ${delay / 1000}s para poupar CPU e disco...`);
+        } else {
+          console.log(`[Baileys] 🔄 Reconectando sessão existente em ${delay}ms (Código: ${statusCode})...`);
+        }
         if (reconnectTimer) clearTimeout(reconnectTimer);
         reconnectTimer = setTimeout(() => connect(savedDb), delay);
       }

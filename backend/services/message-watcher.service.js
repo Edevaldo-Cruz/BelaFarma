@@ -89,26 +89,30 @@ const scanPendingMessages = async () => {
                 const result = await messageSender.sendMessage(phone, textMessage, true);
                 const isSent = result.success;
                 const isNetworkError = result.isNetworkError;
-                const isPersistentFailure = !isSent && !isNetworkError;
+                const attempts = (messageData.attempts || 0) + 1;
+                messageData.attempts = attempts;
+                const isPersistentFailure = (!isSent && !isNetworkError) || attempts >= 5;
 
                 processedThisCycle++;
 
-                // Registro no Banco de Dados
-                try {
-                   const stmt = db.prepare(`
-                      INSERT INTO message_log (id, phone, type, status, errorMessage, sentAt)
-                      VALUES (?, ?, ?, ?, ?, ?)
-                   `);
-                   stmt.run(
-                      `msg_${Date.now()}_${Math.random().toString(36).substring(2,7)}`, 
-                      phone, 
-                      'file_watcher', 
-                      isSent ? 'enviado' : (isNetworkError ? 'pendente_offline' : 'falhou'),
-                      isSent ? null : (isNetworkError ? 'Aguardando Evolution API ficar online.' : result.error || 'Erro desconhecido'),
-                      new Date().toISOString()
-                   );
-                } catch(dbErr) {
-                   console.error("[Message Watcher] Falha ao registrar log no banco:", dbErr);
+                // Registro no Banco de Dados SOMENTE em eventos definitivos (sucesso ou falha final)
+                if (isSent || isPersistentFailure) {
+                    try {
+                       const stmt = db.prepare(`
+                          INSERT INTO message_log (id, phone, type, status, errorMessage, sentAt)
+                          VALUES (?, ?, ?, ?, ?, ?)
+                       `);
+                       stmt.run(
+                          `msg_${Date.now()}_${Math.random().toString(36).substring(2,7)}`, 
+                          phone, 
+                          'file_watcher', 
+                          isSent ? 'enviado' : 'falhou',
+                          isSent ? null : (isNetworkError ? 'Excedido limite de tentativas (API offline).' : result.error || 'Erro desconhecido'),
+                          new Date().toISOString()
+                       );
+                    } catch(dbErr) {
+                       console.error("[Message Watcher] Falha ao registrar log no banco:", dbErr);
+                    }
                 }
                 
                 if (isSent) {
@@ -116,9 +120,11 @@ const scanPendingMessages = async () => {
                     console.log(`[Message Watcher] ✅ Enviado e movido para enviadas: ${file}`);
                 } else if (isPersistentFailure) {
                     fs.renameSync(filePath, path.join(ERROS_DIR, file));
-                    console.log(`[Message Watcher] ❌ Falhou permanentemente. Movido para erros: ${file}`);
+                    console.log(`[Message Watcher] ❌ Falhou permanentemente (${attempts} tentativas). Movido para erros: ${file}`);
                 } else {
-                    console.log(`[Message Watcher] ⏳ API offline para ${phone}. Mantendo em pendentes.`);
+                    // Atualiza contagem de tentativas no arquivo sem spam no banco
+                    try { fs.writeFileSync(filePath, JSON.stringify(messageData, null, 2)); } catch(e) {}
+                    console.log(`[Message Watcher] ⏳ API offline para ${phone} (tentativa ${attempts}/5). Mantendo em pendentes.`);
                 }
                 
             } catch (err) {
@@ -135,8 +141,8 @@ const scanPendingMessages = async () => {
 
 // Inicia um "Cron/Loop"
 const startWatching = () => {
-    // Escaneia a cada 30 segundos
-    const INTERVAL = 30000;
+    // Escaneia a cada 60 segundos
+    const INTERVAL = 60000;
     
     console.log(`[Message Watcher] Iniciado. Observando arquivos na pasta: ${PENDENTES_DIR}`);
     
