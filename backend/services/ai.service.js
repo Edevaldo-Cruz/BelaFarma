@@ -107,7 +107,8 @@ async function callAI(prompt, systemPrompt = '', options = {}) {
     const fullPrompt = systemPrompt ? `${systemPrompt}\n\n${prompt}` : prompt;
     
     if (provider === 'openai') {
-      const model = process.env.GPT_MODEL || 'gpt-4o-mini';
+      let model = process.env.GPT_MODEL || 'gpt-4o-mini';
+      if (model === 'gpt-3.5-turbo') model = 'gpt-4o-mini';
       console.log(`[AI] Tentando OpenAI: ${model} ${imageData ? '(com imagem)' : ''}`);
       
       const messages = [
@@ -115,6 +116,13 @@ async function callAI(prompt, systemPrompt = '', options = {}) {
       ];
 
       if (imageData) {
+        let dataUrl = imageData;
+        if (Buffer.isBuffer(imageData)) {
+          dataUrl = `data:${options.mimeType || 'image/jpeg'};base64,${imageData.toString('base64')}`;
+        } else if (typeof imageData === 'string' && !imageData.startsWith('data:')) {
+          dataUrl = `data:${options.mimeType || 'image/jpeg'};base64,${imageData}`;
+        }
+
         messages.push({
           role: 'user',
           content: [
@@ -122,7 +130,7 @@ async function callAI(prompt, systemPrompt = '', options = {}) {
             {
               type: 'image_url',
               image_url: {
-                url: imageData.startsWith('data:') ? imageData : `data:image/jpeg;base64,${imageData}`
+                url: dataUrl
               }
             }
           ]
@@ -131,23 +139,26 @@ async function callAI(prompt, systemPrompt = '', options = {}) {
         messages.push({ role: 'user', content: prompt });
       }
 
-      const response = await openai.chat.completions.create({
+      const completionParams = {
         model: model,
         messages: messages,
         temperature: temperature,
         max_tokens: maxTokens,
-      });
+      };
+
+      if (options.responseMimeType === 'application/json' || options.jsonMode) {
+        completionParams.response_format = { type: 'json_object' };
+      }
+
+      const response = await openai.chat.completions.create(completionParams);
       return response.choices[0].message.content.trim();
     } 
     
     if (provider === 'gemini') {
-      const model = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
+      const configuredModel = process.env.GEMINI_MODEL;
       const apiKey = process.env.GEMINI_API_KEY;
       if (!apiKey) throw new Error('GEMINI_API_KEY não configurada.');
 
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-      console.log(`[AI] Tentando Gemini: ${model} ${imageData ? '(com imagem)' : ''}`);
-      
       const contents = [];
       const parts = [{ text: fullPrompt }];
 
@@ -155,14 +166,18 @@ async function callAI(prompt, systemPrompt = '', options = {}) {
         let mimeType = options.mimeType || 'image/jpeg';
         let base64Content = imageData;
 
-        if (imageData.startsWith('data:')) {
-          const match = imageData.match(/^data:([^;]+);base64,(.+)$/);
-          if (match) {
-            mimeType = match[1];
-            base64Content = match[2];
+        if (Buffer.isBuffer(imageData)) {
+          base64Content = imageData.toString('base64');
+        } else if (typeof imageData === 'string') {
+          if (imageData.startsWith('data:')) {
+            const match = imageData.match(/^data:([^;]+);base64,(.+)$/);
+            if (match) {
+              mimeType = match[1];
+              base64Content = match[2];
+            }
+          } else if (imageData.includes('base64,')) {
+            base64Content = imageData.split('base64,')[1];
           }
-        } else if (imageData.includes('base64,')) {
-          base64Content = imageData.split('base64,')[1];
         }
 
         parts.push({
@@ -175,21 +190,50 @@ async function callAI(prompt, systemPrompt = '', options = {}) {
 
       contents.push({ parts });
 
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: contents,
-          generationConfig: {
-            temperature: temperature,
-            maxOutputTokens: maxTokens,
-          }
-        })
-      });
+      const generationConfig = {
+        temperature: temperature,
+        maxOutputTokens: maxTokens,
+      };
 
-      if (!response.ok) {
-        const err = await response.text();
-        throw new Error(`Gemini Error: ${err}`);
+      if (options.responseMimeType) {
+        generationConfig.responseMimeType = options.responseMimeType;
+      } else if (options.jsonMode) {
+        generationConfig.responseMimeType = 'application/json';
+      }
+
+      const candidateModels = (configuredModel && configuredModel !== 'gemini-3.6-flash')
+        ? [configuredModel, 'gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-3.8-flash']
+        : ['gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-3.8-flash'];
+
+      let response = null;
+      let lastErrText = '';
+
+      for (const mName of candidateModels) {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${mName}:generateContent?key=${apiKey}`;
+        console.log(`[AI] Tentando Gemini: ${mName} ${imageData ? '(com imagem)' : ''}`);
+
+        response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: contents,
+            generationConfig: generationConfig
+          })
+        });
+
+        if (response.ok) break;
+
+        lastErrText = await response.text();
+        if (response.status === 404) {
+          console.warn(`[AI] Modelo ${mName} retornou 404 no Gemini. Tentando próximo modelo...`);
+          continue;
+        } else {
+          throw new Error(`Gemini Error: ${lastErrText}`);
+        }
+      }
+
+      if (!response || !response.ok) {
+        throw new Error(`Gemini Error: ${lastErrText}`);
       }
 
       const data = await response.json();

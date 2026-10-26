@@ -69,7 +69,8 @@ const STOP_WORDS_NAME = [
   'contato', 'equipe', 'supervisor', 'supervisora', 'diretor', 'diretora',
   'santa', 'cruz', 'profarma', 'panpharma', 'cimed',
   'ems', 'medcom', 'gam', 'dimebras', 'eurofarma', 'distribuidora', 'laboratorio',
-  'com', 'para', 'em', 'tudo', 'bem', 'ola', 'olá', 'bom', 'dia', 'tarde', 'noite'
+  'com', 'para', 'em', 'tudo', 'bem', 'ola', 'olá', 'bom', 'dia', 'tarde', 'noite',
+  'pessoal', 'galera', 'turma', 'gente', 'amigos', 'amigo', 'amiga', 'estou', 'estamos', 'por', 'aqui'
 ];
 
 // ──────────────────────────────────────────────────────────
@@ -91,10 +92,15 @@ function normalizeText(str) {
  * Converte valor em formato string brasileira ("1.250,50" ou "12,90" ou "12.90") para Number.
  */
 function parsePriceValue(priceStr) {
-  if (typeof priceStr === 'number') return priceStr;
+  if (typeof priceStr === 'number') return isNaN(priceStr) || priceStr <= 0 ? 0 : priceStr;
   if (!priceStr) return 0;
   
-  let clean = String(priceStr).replace(/R\$/gi, '').trim();
+  const raw = String(priceStr).trim();
+  if (raw.startsWith('-') || raw.includes('-R$')) return 0;
+
+  let clean = raw.replace(/R\$/gi, '').trim();
+  if (clean.startsWith('-')) return 0;
+
   if (clean.includes(',') && clean.includes('.')) {
     // Ex: 1.250,50 -> 1250.50
     clean = clean.replace(/\./g, '').replace(',', '.');
@@ -103,7 +109,7 @@ function parsePriceValue(priceStr) {
     clean = clean.replace(',', '.');
   }
   const val = parseFloat(clean);
-  return isNaN(val) ? 0 : val;
+  return isNaN(val) || val <= 0 ? 0 : val;
 }
 
 /**
@@ -140,7 +146,7 @@ function extrairPrazos(texto) {
 function extrairPedidoMinimo(texto) {
   if (!texto) return { valor: 0, condicoes: null };
 
-  const regexMinimo = /(?:pedido\s*m[íi]n(?:imo)?|faturamento\s*m[íi]n(?:imo)?|fechamento\s*m[íi]n(?:imo)?|m[íi]nimo\s*(?:de)?|m[íi]n\s*(?:de)?)\s*(?:[eé:]|\s+de)?\s*(?:r\$)?\s*([\d\.,]+)(?:\s*(?:reais))?/i;
+  const regexMinimo = /(?:pedido\s*m[íi]n(?:imo)?|faturamento\s*m[íi]n(?:imo)?|fechamento\s*m[íi]n(?:imo)?|m[íi]nimo\s*(?:de)?|m[íi]n\s*(?:de)?)\s*(?:exigido|necess[áa]rio|[eé:]|\s+de|\s+para)?\s*:?\s*(?:r\$)?\s*([\d\.,]+)(?:\s*(?:reais))?/i;
   const match = regexMinimo.exec(texto);
 
   if (match && match[1]) {
@@ -220,7 +226,8 @@ function extrairNomeRepresentante(texto, pushName = null, distribuidora = null, 
       /(?:representante|vendedor(?:a)?|consultor(?:a)?)(?:\s*[:,-]\s*|\s+)([A-ZÀ-Úa-zà-ú]+(?:\s+[A-ZÀ-Úa-zà-ú]+)?)/i,
       /(?:falar\s+com|atenciosamente|att:?|abraço(?:s)?|grato,?|obrigado,?)(?:\s*[:,-]\s*|\s+)([A-ZÀ-Úa-zà-ú]+(?:\s+[A-ZÀ-Úa-zà-ú]+)?)/i,
       /(?:fala|olá|ola|bom\s+dia|boa\s+tarde|boa\s+noite)[,\s]+(?:aqui\s+[ée]\s+(?:o|a)?\s+)?([A-ZÀ-Úa-zà-ú]+)\s+da\s+([A-ZÀ-Úa-zà-ú]+)/i,
-      /(?:quem\s+fala\s+[ée]\s+)([A-ZÀ-Úa-zà-ú]+)/i
+      /(?:quem\s+fala\s+[ée]\s+)([A-ZÀ-Úa-zà-ú]+)/i,
+      /(?:^|[.!?\n]\s*|\b)([A-ZÀ-Úa-zà-ú]{2,20})\s+aqui\b/i
     ];
 
     for (const regex of padroes) {
@@ -313,8 +320,8 @@ function extrairValidadeDaMensagem(texto, dataReferencia = new Date()) {
   const pad = (n) => String(n).padStart(2, '0');
   const formatYMD = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 
-  // 1. Data fixa: "válido até 15/09", "promoção até 15/09/2026", "validade: 20/09"
-  const dateRegex = /\b(?:v[áa]lid[ao]\s+at[ée]|promo[çc][ãa]o\s+at[ée]|at[ée]\s+o\s+dia|vig[êe]ncia\s+at[ée]|validade\s*:?)\s*(\d{1,2})[\/\.-](\d{1,2})(?:[\/\.-](\d{2,4}))?/i;
+  // 1. Data fixa: "válido até 15/09", "promoção até 15/09/2026", "validade: 20/09", "validade: até 30/10/2026"
+  const dateRegex = /\b(?:v[áa]lid[ao](?:\s+at[ée])?|promo[çc][ãa]o\s+at[ée]|at[ée]\s+(?:o\s+dia\s+)?|vig[êe]ncia\s+at[ée]|validade\s*:?(?:\s*at[ée])?)\s*(\d{1,2})[\/\.-](\d{1,2})(?:[\/\.-](\d{2,4}))?/i;
   const mDate = dateRegex.exec(texto);
   if (mDate) {
     const dia = parseInt(mDate[1], 10);
@@ -391,6 +398,31 @@ function extrairValidadeDaMensagem(texto, dataReferencia = new Date()) {
         validadeTexto: mHoras[0].trim()
       };
     }
+  }
+
+  // 6. Expressões com "hoje" ou validade textual genérica (ex: "válido apenas hoje até as 18 horas")
+  const textualRegex = /\b(v[áa]lid[ao][^\n\r.!?;]+)/i;
+  const mTextual = textualRegex.exec(texto);
+  if (mTextual) {
+    const rawMatch = mTextual[1].trim();
+    const dateInText = /(\d{1,2})[\/\.-](\d{1,2})(?:[\/\.-](\d{2,4}))?/.exec(rawMatch);
+    if (dateInText) {
+      const dia = parseInt(dateInText[1], 10);
+      const mes = parseInt(dateInText[2], 10);
+      let ano = dateInText[3] ? parseInt(dateInText[3], 10) : ref.getFullYear();
+      if (ano < 100) ano += 2000;
+      if (mes >= 1 && mes <= 12 && dia >= 1 && dia <= 31) {
+        const dAlvo = new Date(ano, mes - 1, dia, 23, 59, 59);
+        return {
+          validadeOferta: formatYMD(dAlvo),
+          validadeTexto: rawMatch
+        };
+      }
+    }
+    return {
+      validadeOferta: rawMatch,
+      validadeTexto: rawMatch
+    };
   }
 
   return { validadeOferta: null, validadeTexto: null };
@@ -660,6 +692,11 @@ function extrairLinhasDeOferta(texto) {
     const trimmed = linha.trim();
     if (!trimmed || trimmed.length < 3) continue;
 
+    // Descarte de linha com preço negativo explícito (ex: "DIPIRONA 500MG -R$ 15,00")
+    if (/(?:^|\s)-R\$/i.test(trimmed)) {
+      continue;
+    }
+
     // Detecta cabeçalhos de combos / pacotes / kits promocionais
     const mCombo = /^(?:COMBO|PACOTE|KIT|OFERTA\s+COMBINADA)\b[\s:]*(.*)/i.exec(trimmed);
     if (mCombo && !/(?:R\$|[\d]{1,4}[,\.]\d{2})/i.test(trimmed)) {
@@ -682,7 +719,7 @@ function extrairLinhasDeOferta(texto) {
     }
 
     // Verificação de Linha de Faixa Escalonada / Quantidade Mínima (ex: "• 1 un. → R$ 8,29", "• 6 un. → R$ 7,69", "30 un: 1,75")
-    const tierRegex = /^[^0-9a-zÀ-ÿ]*(?:(?:a\s+partir\s+de|acima\s+de|m[íi]n(?:imo)?)\s*:?\s*)?(\d+)(?:\s*(?:a|-)\s*\d+)?\s*(?:\+)?\s*(?:unidades?|un|cx|caixas?|fr|frascos?|display|pct)?\.?\s*(?:[.:\-=~>\u2190-\u21FF]+|a|por|cada|\s*(?=R?\$))\s*(?:R\$\s*)?([\d]{1,4}[,\.]\d{2})/i;
+    const tierRegex = /^[^0-9a-zÀ-ÿ]*(?:(?:a\s+partir\s+de|acima\s+de|m[íi]n(?:imo)?)\s*:?\s*)?(\d+)(?:\s*(?:a|-)\s*\d+)?\s*(?:\+)?\s*(?:unidades?|un|cx|caixas?|fr|frascos?|display|pct)?\.?\s*(?:[.:\-=~>\u2190-\u21FF]+|a|por|cada|\s*(?=R?\$))\s*(?:R\$\s*)?([\d]{1,3}(?:\.\d{3})+,\d{2}|[\d]{1,6}[,\.]\d{2})/i;
     const tierMatch = tierRegex.exec(trimmed);
     if (tierMatch && ultimoContextoProduto) {
       const cleanContexto = ultimoContextoProduto.trim();
@@ -731,21 +768,21 @@ function extrairLinhasDeOferta(texto) {
     let matchedRegex = null;
     let priceMatch = null;
     
-    const explicitRegex = /(?:R\$|por\s+|cada\s+|un\s*:\s*|un\s+)\s*([\d]{1,4}[,\.]\d{2})/i;
+    const explicitRegex = /(?:R\$|por\s+|cada\s+|un\s*:\s*|un\s+)\s*([\d]{1,3}(?:\.\d{3})+,\d{2}|[\d]{1,6}[,\.]\d{2})/i;
     let m = explicitRegex.exec(trimmed);
     if (m) {
       priceMatch = m;
       matchedRegex = explicitRegex;
     } else {
       // 2. Preço com traço separador (ex: LISMED - 16,50)
-      const dashRegex = /(?:-|\u2013|\u2014)\s*([\d]{1,4}[,\.]\d{2})(?!\s*(?:ml|mg|g|mcg|%))/i;
+      const dashRegex = /(?:-|\u2013|\u2014)\s*([\d]{1,3}(?:\.\d{3})+,\d{2}|[\d]{1,6}[,\.]\d{2})(?!\s*(?:ml|mg|g|mcg|%))/i;
       m = dashRegex.exec(trimmed);
       if (m) {
         priceMatch = m;
         matchedRegex = dashRegex;
       } else {
         // 3. Preço no final da linha (ignorando parênteses no final)
-        const endRegex = /(?:^|\s)([\d]{1,4}[,\.]\d{2})(?:\s*(?:reais|un|cx|fr|pct))?(?:\s*\(.*)?\s*$/i;
+        const endRegex = /(?:^|\s)([\d]{1,3}(?:\.\d{3})+,\d{2}|[\d]{1,6}[,\.]\d{2})(?:\s*(?:reais|un|cx|fr|pct))?(?:\s*\(.*)?\s*$/i;
         m = endRegex.exec(trimmed);
         if (m) {
           const val = parsePriceValue(m[1]);
@@ -786,6 +823,11 @@ function extrairLinhasDeOferta(texto) {
         .replace(/\b(?:un|unidades?|cx|cxs|caixas?|fr|frascos?)\b[.:\->→=~]*$/gi, '')
         .replace(/\s+/g, ' ')
         .trim();
+
+      // Se for combo e o nome resultante for genérico (ex: "Valor do combo"), herda o título do combo
+      if (comboAtual && /^(?:valor\s+do\s+combo|pre[çc]o\s+do\s+combo|combo|kit|pacote)\b/i.test(nomeProduto)) {
+        nomeProduto = comboAtual.nome;
+      }
 
       // Se a linha for apenas embalagem/unidade (ex: "C30", "C/30", "C2"):
       if (isApenasEmbalagemOuQuantidade(nomeProduto)) {
@@ -4339,6 +4381,7 @@ module.exports = {
   extrairTermosBuscaProduto,
   pontuarCorrespondencia,
   extrairBonificacaoDetalhada,
+  extrairValidadeDaMensagem,
   DISTRIBUIDORAS_CONHECIDAS,
   LABORATORIOS_CONHECIDOS,
   CATEGORIAS_PADRAO

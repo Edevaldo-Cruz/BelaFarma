@@ -268,23 +268,24 @@ async function connect(db) {
         else if (contentMsg?.ephemeralMessage?.message) contentMsg = contentMsg.ephemeralMessage.message;
         else if (contentMsg?.documentWithCaptionMessage?.message) contentMsg = contentMsg.documentWithCaptionMessage.message;
 
-        const messageType = Object.keys(contentMsg)[0] || '';
         let text = null;
         let mediaType = 'texto';
 
-        if (messageType === 'conversation') {
-          text = contentMsg.conversation;
-        } else if (messageType === 'extendedTextMessage') {
-          text = contentMsg.extendedTextMessage?.text;
-        } else if (messageType === 'imageMessage') {
-          text = contentMsg.imageMessage?.caption || '[📷 Imagem de Tabela/Oferta]';
+        if (contentMsg?.imageMessage) {
+          text = contentMsg.imageMessage.caption || '[📷 Imagem de Tabela/Oferta]';
           mediaType = 'imagem';
-        } else if (messageType === 'documentMessage') {
-          text = contentMsg.documentMessage?.caption || `[📄 Documento: ${contentMsg.documentMessage?.fileName || 'anexo'}]`;
+        } else if (contentMsg?.documentMessage) {
+          text = contentMsg.documentMessage.caption || `[📄 Documento: ${contentMsg.documentMessage.fileName || 'anexo'}]`;
           mediaType = 'documento';
-        } else if (messageType === 'audioMessage') {
+        } else if (contentMsg?.audioMessage) {
           text = '[🎙️ Áudio]';
           mediaType = 'audio';
+        } else if (contentMsg?.conversation) {
+          text = contentMsg.conversation;
+          mediaType = 'texto';
+        } else if (contentMsg?.extendedTextMessage?.text) {
+          text = contentMsg.extendedTextMessage.text;
+          mediaType = 'texto';
         }
 
         const phone = remoteJid.split('@')[0];
@@ -319,7 +320,7 @@ async function connect(db) {
               dateStr
             );
 
-            // Se for mensagem recebida (não enviada por nós), ativa o Agente Horácio e a Mineração
+            // Se for mensagem recebida (não enviada por nós), ativa Belinha Compras, Horácio e Mineração
             if (!fromMe) {
               const horacioAgent = require('./services/horacio-agent.service');
 
@@ -327,9 +328,30 @@ async function connect(db) {
               if (mediaType === 'imagem' || mediaType === 'documento') {
                 try {
                   const { downloadMediaMessage } = require('@whiskeysockets/baileys');
-                  const buffer = await downloadMediaMessage(msg, 'buffer', {});
+                  const buffer = await downloadMediaMessage(msg, 'buffer', {}, {
+                    logger: sock?.logger,
+                    reuploadRequest: sock?.updateMediaMessage
+                  });
                   const mime = contentMsg.imageMessage?.mimetype || contentMsg.documentMessage?.mimetype || (mediaType === 'imagem' ? 'image/jpeg' : 'application/pdf');
                   if (buffer) {
+                    // Belinha Compras: extração multimodal direta (Gemini Vision + JSON estrito + Radar BelaPed)
+                    try {
+                      const belinhaComprasService = require('./services/belinha-compras.service');
+                      await belinhaComprasService.processarMensagemComercial({
+                        messageId,
+                        remoteJid,
+                        phone,
+                        pushName: contactName,
+                        buffer,
+                        mimeType: mime,
+                        caption: contentMsg.imageMessage?.caption || '',
+                        db: savedDb
+                      });
+                    } catch (belinhaErr) {
+                      console.warn('[Baileys-Compras] Erro na Belinha Compras (mídia):', belinhaErr.message);
+                    }
+
+                    // Suporte retroativo para Horácio
                     await horacioAgent.processarMidiaMultimodal(buffer, mime, contactName, phone, savedDb);
                   }
                 } catch(mediaErr) {
@@ -339,6 +361,21 @@ async function connect(db) {
 
               // 2. Processamento de Texto e Mineração de Ofertas
               if (text && !text.startsWith('[📷') && !text.startsWith('[📄') && !text.startsWith('[🎙️')) {
+                // Belinha Compras: extração comercial especializada e alimentação BelaPed
+                try {
+                  const belinhaComprasService = require('./services/belinha-compras.service');
+                  await belinhaComprasService.processarMensagemComercial({
+                    messageId,
+                    remoteJid,
+                    phone,
+                    pushName: contactName,
+                    text,
+                    db: savedDb
+                  });
+                } catch (belinhaErr) {
+                  console.warn('[Baileys-Compras] Erro na Belinha Compras (texto):', belinhaErr.message);
+                }
+
                 const comprasMineracaoService = require('./services/compras-mineracao.service');
                 const resultadoMineracao = await comprasMineracaoService.processarMensagemRecebida({
                   id: messageId,
