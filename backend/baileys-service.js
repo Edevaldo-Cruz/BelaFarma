@@ -216,13 +216,13 @@ async function connect(db) {
           return;
         }
 
-        // Reconexão inteligente: 515 (restart rápido), 408 (QR timeout sem scan - aguarda 60s), outros 5s
+        // Reconexão inteligente: 515 (restart rápido), 408 (QR timeout sem scan - pausa loop automático), outros 5s
         let delay = 5000;
         if (statusCode === DisconnectReason?.restartRequired || statusCode === 515) {
           delay = 1000;
         } else if (statusCode === 408) {
-          delay = 60000; // Aguarda 1 minuto se ninguém escaneou o QR Code para não travar o servidor
-          console.log(`[Baileys] ⏳ QR Code expirou sem leitura (408). Aguardando ${delay / 1000}s para poupar CPU e disco...`);
+          console.log(`[Baileys] ⏳ QR Code expirou sem leitura (408). Pausando reconexão automática para poupar CPU e disco. Gere novo QR manualmente na tela quando desejar conectar.`);
+          return;
         } else {
           console.log(`[Baileys] 🔄 Reconectando sessão existente em ${delay}ms (Código: ${statusCode})...`);
         }

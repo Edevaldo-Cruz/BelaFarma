@@ -1139,16 +1139,18 @@ RETORNE EXATAMENTE UM JSON E NADA MAIS. FORMATO ESPERADO:
   } catch (err) {
     const errStr = (err.message || '').toLowerCase();
     if (
+      errStr.includes('402') ||
       errStr.includes('429') ||
       errStr.includes('credit') ||
+      errStr.includes('depleted') ||
       errStr.includes('exhausted') ||
       errStr.includes('quota') ||
       errStr.includes('billing') ||
       errStr.includes('timeout') ||
       errStr.includes('404')
     ) {
-      console.warn(`[Compras-Mineração] ⚠️ Quota ou falha na IA (${err.message}). Ativando modo nativo/regex por 15 minutos.`);
-      aiQuotaExceededUntil = Date.now() + 15 * 60 * 1000;
+      console.warn(`[Compras-Mineração] ⚠️ Quota ou falha na IA (${err.message}). Ativando modo nativo/regex por 6 horas.`);
+      aiQuotaExceededUntil = Date.now() + 6 * 60 * 60 * 1000;
     }
     return minerarTextoLivre(texto, remetenteInfo);
   }

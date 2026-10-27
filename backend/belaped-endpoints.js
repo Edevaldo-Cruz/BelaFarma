@@ -4160,10 +4160,10 @@ function belapedEndpoints(db) {
             { nome: 'HYMPARHUB', classe: HymparRobot }
           ];
 
-          // Executa com limite rigoroso de concorrência (máx 2 navegadores simultâneos)
-          // Isso impede que 12 navegadores Chrome abram ao mesmo tempo e congelem a máquina
+          // Executa com limite rigoroso de concorrência (máx 1 navegador por vez - fila sequencial)
+          // Isso impede que múltiplos navegadores Chrome abram ao mesmo tempo e esgotem os 8GB de RAM
           const fila = [...listaRobos];
-          const maxConcorrencia = 2;
+          const maxConcorrencia = 1;
           const workers = Array.from({ length: Math.min(maxConcorrencia, fila.length) }, async () => {
             while (fila.length > 0) {
               if (cotacaoStatus.solicitouParar) break;
@@ -4629,9 +4629,9 @@ function belapedEndpoints(db) {
       const campanhasDistrimed = db.prepare('SELECT * FROM belaped_distrimed_campanhas WHERE ativo = 1').all();
       const resultadosFinais = [];
 
-      await Promise.allSettled(portaisParaCotar.map(async (nomePortal) => {
+      for (const nomePortal of portaisParaCotar) {
         const RobotCls = MAPA_CLASSES[nomePortal];
-        if (!RobotCls) return;
+        if (!RobotCls) continue;
         const rob = new RobotCls({ headless: true });
         try {
           await rob.iniciar();
@@ -4715,7 +4715,7 @@ function belapedEndpoints(db) {
         } finally {
           await rob.fechar().catch(() => {});
         }
-      }));
+      }
 
       res.json({
         success: true,

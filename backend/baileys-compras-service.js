@@ -162,35 +162,9 @@ async function connect(db) {
           }
         }
 
-        // 🤖 Automação: Disparar varredura das últimas 2 semanas (14 dias) automaticamente após conexão
-        setTimeout(async () => {
-          try {
-            console.log('[Baileys-Compras] 🤖 Iniciando varredura automática das últimas 2 semanas de ofertas...');
-            const comprasMineracaoService = require('./services/compras-mineracao.service');
-            await comprasMineracaoService.executarVarreduraRetroativa90Dias(savedDb, { dias: 14 });
-          } catch (autoErr) {
-            console.warn('[Baileys-Compras] Aviso na varredura automática inicial:', autoErr.message);
-          }
-        }, 2000);
-
-        // Iniciar ciclo de varredura periódica em background a cada 5 minutos (Segunda a Sábado)
-        if (!global.comprasAutoMinerInterval) {
-          global.comprasAutoMinerInterval = setInterval(async () => {
-            try {
-              // Domingo o bot não precisa trabalhar
-              if (new Date().getDay() === 0) {
-                return;
-              }
-
-              if (savedDb) {
-                const comprasMineracaoService = require('./services/compras-mineracao.service');
-                await comprasMineracaoService.executarVarreduraRetroativa90Dias(savedDb, { dias: 1 });
-              }
-            } catch (cronErr) {
-              console.warn('[Baileys-Compras] Aviso no ciclo periódico de mineração (5m):', cronErr.message);
-            }
-          }, 5 * 60 * 1000);
-        }
+        // 🛡️ OTIMIZAÇÃO DE PERFORMANCE: Varreduras em massa de 14 dias e ciclos de 5m desativados em background
+        // A mineração em massa agora roda exclusivamente sob demanda quando acionada pelo usuário na Central de Compras.
+        console.log('[Baileys-Compras] ⚡ Modo econômico de recursos ativo (varredura pesada sob demanda).');
       }
 
       if (connection === 'close') {
@@ -235,16 +209,7 @@ async function connect(db) {
       const { messages } = history;
       if (!messages || messages.length === 0) return;
 
-      console.log(`[Baileys-Compras] 📥 Histórico recebido na instância de compras: ${messages.length} mensagens.`);
-      
-      if (savedDb) {
-        try {
-          const comprasMineracaoService = require('./services/compras-mineracao.service');
-          await comprasMineracaoService.processarMensagensEmLote(messages, savedDb);
-        } catch (minErr) {
-          console.error('[Baileys-Compras] Erro ao processar histórico para mineração:', minErr.message);
-        }
-      }
+      console.log(`[Baileys-Compras] 📥 Histórico recebido na instância de compras (${messages.length} msgs). Mineração em lote aguardando acionamento sob demanda.`);
     });
 
     // ── Mensagens Recebidas em Tempo Real ────────────────────────────
