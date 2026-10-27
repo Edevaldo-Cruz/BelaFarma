@@ -1,11 +1,11 @@
 const firebird = require('node-firebird');
 
 const options = {
-    host: '127.0.0.1',
-    port: 3050,
-    database: 'C:\\Digifarma\\Dados\\digifarma6.fdb',
-    user: 'SYSDBA',
-    password: 'masterkey',
+    host: process.env.DIGIFARMA_HOST || '127.0.0.1',
+    port: parseInt(process.env.DIGIFARMA_PORT || '3050', 10),
+    database: process.env.DIGIFARMA_DB_PATH || 'C:\\Digifarma\\Dados\\digifarma6.fdb',
+    user: process.env.DIGIFARMA_USER || 'SYSDBA',
+    password: process.env.DIGIFARMA_PASSWORD || 'masterkey',
     lowercase_keys: false,
     role: null,
     pageSize: 4096
