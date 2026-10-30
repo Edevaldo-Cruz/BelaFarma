@@ -429,6 +429,11 @@ function isPublicApiRoute(req) {
     return true;
   }
 
+  // Termo Digital do Cartão BelaFarma (acesso do cliente pelo WhatsApp)
+  if (reqPath.startsWith('/cards/terms/')) {
+    return true;
+  }
+
   // Registro de visitantes (Vitrine / App)
   if (reqPath === '/system/visitors/record' && method === 'POST') {
     return true;

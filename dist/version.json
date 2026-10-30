@@ -1,9 +1,24 @@
 {
   "version": "1.2.0",
-  "commitHash": "dd78660",
-  "commitMessage": "feat(pricing): script de populacao e organizacao das porcentagens para todos os 4017 produtos ativos da loja",
-  "buildTime": "30/10/2026, 08:48:15",
+  "commitHash": "72d77e0",
+  "commitMessage": "merge: reconciliar main local com origin/main mantendo correcoes do vigilante e belaped",
+  "buildTime": "30/10/2026, 09:38:40",
   "recentCommits": [
+    {
+      "hash": "72d77e0",
+      "date": "30/10/2026",
+      "message": "merge: reconciliar main local com origin/main mantendo correcoes do vigilante e belaped"
+    },
+    {
+      "hash": "a6f7847",
+      "date": "30/10/2026",
+      "message": "feat(belaped): atualizacoes de promocoes whatsapp, compras e rotinas gerais"
+    },
+    {
+      "hash": "e8f4025",
+      "date": "30/10/2026",
+      "message": "fix(watcher): guardiao de recursos, auto-correcao e correcao de vazamento no robot hympar"
+    },
     {
       "hash": "dd78660",
       "date": "29/10/2026",
@@ -15,54 +30,39 @@
       "message": "feat(pricing): script de reorganizacao proporcional das porcentagens de custo fixo (30%), pro-labore (16%) e lucro (2.5%)"
     },
     {
-      "hash": "6804665",
-      "date": "05/09/2026",
-      "message": "fix(compras): priorizar PROD_CMV do Digifarma sobre VALOR_ULT_COMPRA na sincronizacao e avaliacao de custos"
+      "hash": "d3a31ea",
+      "date": "27/10/2026",
+      "message": "perf(backend): otimizacao de recursos em baileys-compras, qr loop e fila sequencial belaped"
     },
     {
-      "hash": "88bebf6",
-      "date": "05/09/2026",
-      "message": "feat(compras): filtrar produtos no Agente Horacio considerando apenas itens com estoque > 0 ou movimentacao nos ultimos 10 meses"
+      "hash": "73f95d5",
+      "date": "27/10/2026",
+      "message": "feat(digifarma): suporte a DIGIFARMA_HOST configuravel via env para migracao de maquina"
     },
     {
-      "hash": "4d42d55",
-      "date": "04/09/2026",
-      "message": "fix(compras): padronizacao do CMV na mineracao e relatorio Horacio com calculo de desconto/acrescimo"
+      "hash": "967d2e4",
+      "date": "26/10/2026",
+      "message": "feat(belinha-compras): especialista autonoma de compras, pipeline multimodal e integracao radar BelaPed"
     },
     {
-      "hash": "7097f0b",
-      "date": "04/09/2026",
-      "message": "fix(horacio): corrigir matching de dosagem/XR e padronizar preco historico de CMV oficial para GLIFAGE 500XR"
+      "hash": "084aeb6",
+      "date": "26/10/2026",
+      "message": "fix(price-manager): corrige atualizacao de precos no Firebird e SQLite"
     },
     {
-      "hash": "d8c6ab3",
-      "date": "04/09/2026",
-      "message": "feat(cmv): padronizar valor de CMV oficial em todos os modulos com base em VALOR_ULT_COMPRA do Digifarma"
+      "hash": "cacf91f",
+      "date": "26/10/2026",
+      "message": "feat(perf): desativar robo de status do whatsapp e otimizar concorrencia"
     },
     {
-      "hash": "0030bcc",
-      "date": "04/09/2026",
-      "message": "chore(sync): ajustar agendamento diario para 08:45 e 15:45"
+      "hash": "9e1ce0a",
+      "date": "26/10/2026",
+      "message": "fix(perf): otimizar loops de reconexao, deduplicar incidentes e implementar rotacao de logs"
     },
     {
-      "hash": "a6877d5",
-      "date": "04/09/2026",
-      "message": "feat(compras): motor unificado de busca e inteligencia de estoque de medicamentos"
-    },
-    {
-      "hash": "4e10d66",
-      "date": "03/09/2026",
-      "message": "docs(audit): relatorios de auditoria independente da correcao de ultima compra"
-    },
-    {
-      "hash": "0541a3c",
-      "date": "03/09/2026",
-      "message": "build: atualiza bundle de producao dist com melhorias de ultima compra"
-    },
-    {
-      "hash": "d6a6e01",
-      "date": "03/09/2026",
-      "message": "fix(compras-mineracao): correcao de escopo estItem, fracionamento bonificado, status consistente e formatacao UI"
+      "hash": "e5661ac",
+      "date": "26/10/2026",
+      "message": "fix(belaped): corrige import de TrendingDown e implementa Radar de Segmentos com IA Gemini"
     }
   ]
 }

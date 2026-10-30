@@ -4627,6 +4627,11 @@ const muralObj = muralEndpointsModule(db);
 app.use('/api/mural', muralObj.router);
 console.log('📌 Módulo Mural de Pendências e Produtos Parados 90d+ inicializado.');
 
+// Cartão BelaFarma (Private Label) & Fidelidade NFC
+const createCardEndpoints = require('./crediario-card-endpoints.js');
+app.use('/api/cards', createCardEndpoints(db));
+console.log('💳 Módulo Cartão BelaFarma (Private Label) & Fidelidade NFC inicializado em /api/cards.');
+
 // Rotina matinal diária para gerar lista de produtos parados nos dias úteis (roda a cada 1 hora para checar)
 setInterval(async () => {
   try {

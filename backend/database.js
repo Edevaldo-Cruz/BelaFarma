@@ -2855,7 +2855,119 @@ try {
       CREATE INDEX IF NOT EXISTS idx_sec_audit_cat ON security_audit_logs(action_category);
       CREATE INDEX IF NOT EXISTS idx_sec_audit_user ON security_audit_logs(user_id);
     `);
-    console.log('🛡️ Segurança Fase 3: Tabela security_audit_logs criada/verificada com sucesso.');
+    // 💳 Módulo Cartão BelaFarma (Private Label) & Fidelidade NFC
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS belafarma_cards (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        customer_id TEXT,
+        customer_name TEXT NOT NULL,
+        phone TEXT NOT NULL,
+        cpf TEXT,
+        card_uid TEXT UNIQUE,
+        card_number TEXT NOT NULL,
+        credit_limit REAL NOT NULL DEFAULT 300.0,
+        used_limit REAL NOT NULL DEFAULT 0.0,
+        due_day INTEGER NOT NULL DEFAULT 10,
+        closing_offset_days INTEGER NOT NULL DEFAULT 10,
+        status TEXT NOT NULL DEFAULT 'pending_signature',
+        active_fee_amount REAL NOT NULL DEFAULT 4.90,
+        late_fine_percent REAL NOT NULL DEFAULT 2.00,
+        late_interest_monthly_percent REAL NOT NULL DEFAULT 2.90,
+        notes TEXT,
+        created_at TEXT DEFAULT (datetime('now', 'localtime')),
+        updated_at TEXT DEFAULT (datetime('now', 'localtime'))
+      );
+
+      CREATE TABLE IF NOT EXISTS card_legal_signatures (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        card_id INTEGER NOT NULL,
+        customer_id TEXT,
+        token TEXT UNIQUE NOT NULL,
+        full_name TEXT NOT NULL,
+        cpf TEXT,
+        phone TEXT NOT NULL,
+        address TEXT,
+        due_day INTEGER NOT NULL DEFAULT 10,
+        credit_limit REAL NOT NULL DEFAULT 300.0,
+        active_fee_amount REAL NOT NULL DEFAULT 4.90,
+        late_fine_percent REAL NOT NULL DEFAULT 2.00,
+        late_interest_monthly_percent REAL NOT NULL DEFAULT 2.90,
+        terms_text TEXT,
+        status TEXT NOT NULL DEFAULT 'pending',
+        ip_address TEXT,
+        user_agent TEXT,
+        signed_at TEXT,
+        created_at TEXT DEFAULT (datetime('now', 'localtime')),
+        FOREIGN KEY (card_id) REFERENCES belafarma_cards(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS card_invoices (
+        id TEXT PRIMARY KEY,
+        card_id INTEGER NOT NULL,
+        customer_id TEXT,
+        reference_month TEXT NOT NULL,
+        closing_date TEXT NOT NULL,
+        due_date TEXT NOT NULL,
+        purchases_total REAL NOT NULL DEFAULT 0.0,
+        fee_active_invoice REAL NOT NULL DEFAULT 0.0,
+        late_interest REAL NOT NULL DEFAULT 0.0,
+        late_fine REAL NOT NULL DEFAULT 0.0,
+        total_due REAL NOT NULL DEFAULT 0.0,
+        paid_amount REAL NOT NULL DEFAULT 0.0,
+        paid_at TEXT,
+        status TEXT NOT NULL DEFAULT 'open',
+        boleto_id TEXT,
+        boleto_url TEXT,
+        boleto_barcode TEXT,
+        pix_copia_cola TEXT,
+        serasa_status TEXT DEFAULT 'none',
+        serasa_notified_at TEXT,
+        serasa_negativado_at TEXT,
+        created_at TEXT DEFAULT (datetime('now', 'localtime')),
+        updated_at TEXT DEFAULT (datetime('now', 'localtime')),
+        FOREIGN KEY (card_id) REFERENCES belafarma_cards(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS card_invoice_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        invoice_id TEXT NOT NULL,
+        card_id INTEGER NOT NULL,
+        sale_id TEXT,
+        description TEXT NOT NULL,
+        amount REAL NOT NULL,
+        payment_method TEXT DEFAULT 'CREDITO_PROPRIO',
+        purchased_at TEXT DEFAULT (datetime('now', 'localtime')),
+        FOREIGN KEY (invoice_id) REFERENCES card_invoices(id),
+        FOREIGN KEY (card_id) REFERENCES belafarma_cards(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS nfc_loyalty_cashback (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        customer_id TEXT,
+        customer_name TEXT,
+        phone TEXT NOT NULL,
+        card_uid TEXT,
+        sale_id TEXT,
+        purchase_amount REAL NOT NULL,
+        payment_method TEXT NOT NULL,
+        cashback_percent REAL NOT NULL,
+        cashback_amount REAL NOT NULL,
+        balance_available REAL NOT NULL,
+        expires_at TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'active',
+        created_at TEXT DEFAULT (datetime('now', 'localtime'))
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_bf_cards_uid ON belafarma_cards(card_uid);
+      CREATE INDEX IF NOT EXISTS idx_bf_cards_phone ON belafarma_cards(phone);
+      CREATE INDEX IF NOT EXISTS idx_bf_cards_status ON belafarma_cards(status);
+      CREATE INDEX IF NOT EXISTS idx_card_sig_token ON card_legal_signatures(token);
+      CREATE INDEX IF NOT EXISTS idx_card_inv_due ON card_invoices(due_date);
+      CREATE INDEX IF NOT EXISTS idx_card_inv_status ON card_invoices(status);
+      CREATE INDEX IF NOT EXISTS idx_nfc_cb_phone ON nfc_loyalty_cashback(phone);
+      CREATE INDEX IF NOT EXISTS idx_nfc_cb_status ON nfc_loyalty_cashback(status);
+    `);
+    console.log('💳 Cartão BelaFarma (Private Label) & Fidelidade NFC: Tabelas criadas/verificadas com sucesso.');
 
     console.log('Tabelas verificadas/criadas com sucesso.');
   };

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { CreditCard, Calendar, Search, CheckCircle, MessageSquare } from 'lucide-react';
 import { useToast } from './ToastContext';
+import { CrediarioNfcWidget } from './CrediarioNfcWidget';
 
 interface CrediarioDigifarma {
   id: string;
@@ -249,6 +250,9 @@ export const CrediarioReport: React.FC = () => {
         </div>
       </header>
       
+      {/* 💳 NOVO: TERMINAL CARTÃO BELAFARMA (PRIVATE LABEL) & FIDELIDADE NFC */}
+      <CrediarioNfcWidget />
+
       <div className="bg-white rounded-[2.5rem] border-2 border-slate-100 shadow-sm overflow-hidden">
         <div className="p-6 flex justify-between items-center bg-slate-50 border-b border-slate-100">
             <div>

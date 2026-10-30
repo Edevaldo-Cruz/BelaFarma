@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Termo de Adesão - Cartão BelaFarma</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Plus Jakarta Sans"', 'sans-serif'],
+          },
+          colors: {
+            brand: {
+              50: '#ecfdf5',
+              100: '#d1fae5',
+              500: '#10b981',
+              600: '#059669',
+              700: '#047857',
+              800: '#065f46',
+              900: '#064e3b',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    .card-gradient {
+      background: linear-gradient(135deg, #064e3b 0%, #0e7490 50%, #1e293b 100%);
+    }
+    .chip-gold {
+      background: linear-gradient(135deg, #fef08a 0%, #f59e0b 50%, #b45309 100%);
+    }
+  </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen font-sans flex flex-col justify-between selection:bg-brand-500 selection:text-white">
+
+  <!-- CABEÇALHO -->
+  <header class="w-full bg-slate-950/80 backdrop-blur border-b border-white/10 px-4 py-3.5 sticky top-0 z-50">
+    <div class="max-w-md mx-auto flex items-center justify-between">
+      <div class="flex items-center gap-2.5">
+        <div class="w-8 h-8 rounded-lg bg-emerald-500 text-slate-950 flex items-center justify-center font-black text-lg">
+          +
+        </div>
+        <span class="font-extrabold text-lg text-white tracking-tight">Bela<span class="text-emerald-400">Farma</span> Card</span>
+      </div>
+      <div class="flex items-center gap-1.5 text-xs font-semibold text-emerald-400 bg-emerald-950/60 border border-emerald-500/30 px-2.5 py-1 rounded-full">
+        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+        Ambiente Seguro
+      </div>
+    </div>
+  </header>
+
+  <!-- CONTEÚDO PRINCIPAL -->
+  <main class="max-w-md mx-auto w-full px-4 py-6 space-y-6 flex-1">
+
+    <!-- ESTADO: CARREGANDO -->
+    <div id="loadingState" class="py-20 text-center space-y-4">
+      <div class="w-12 h-12 border-4 border-emerald-500/20 border-t-emerald-400 rounded-full animate-spin mx-auto"></div>
+      <p class="text-sm text-slate-400 font-medium">Carregando seus dados com segurança...</p>
+    </div>
+
+    <!-- ESTADO: ERRO -->
+    <div id="errorState" class="hidden p-6 rounded-2xl bg-rose-950/50 border border-rose-500/30 text-center space-y-3">
+      <div class="w-12 h-12 rounded-full bg-rose-500/20 text-rose-400 flex items-center justify-center text-xl font-bold mx-auto">✕</div>
+      <h2 class="text-base font-bold text-white">Termo não encontrado</h2>
+      <p id="errorMessage" class="text-xs text-rose-300">Este link expirou ou é inválido. Por favor, solicite um novo link pelo WhatsApp da farmácia.</p>
+    </div>
+
+    <!-- ESTADO: JÁ ASSINADO -->
+    <div id="alreadySignedState" class="hidden p-6 rounded-3xl bg-slate-800/80 border border-emerald-500/30 text-center space-y-4 shadow-xl">
+      <div class="w-14 h-14 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-2xl font-bold mx-auto">✓</div>
+      <h2 class="text-lg font-bold text-white">Cartão Já Ativado!</h2>
+      <p class="text-xs text-slate-300 leading-relaxed">
+        Você já assinou este termo eletronicamente. Seu cartão está 100% ativo e liberado para compras por aproximação no balcão da BelaFarma!
+      </p>
+      <div class="pt-2">
+        <a href="https://wa.me/553232150000" class="inline-block w-full py-3 rounded-xl bg-emerald-600 text-white font-bold text-sm shadow-lg hover:bg-emerald-500 transition">
+          Falar com a Farmácia no WhatsApp
+        </a>
+      </div>
+    </div>
+
+    <!-- FORMULÁRIO DO TERMO -->
+    <div id="termContent" class="hidden space-y-6">
+
+      <!-- MOCKUP DO CARTÃO -->
+      <div class="w-full rounded-2xl p-5 card-gradient text-white shadow-xl border border-white/20 relative overflow-hidden">
+        <div class="flex justify-between items-start mb-4">
+          <div>
+            <div class="text-[9px] uppercase tracking-widest text-emerald-300 font-bold">Cartão Fidelidade & Crédito</div>
+            <div class="text-xl font-black tracking-tight">Bela<span class="text-emerald-400">Farma</span></div>
+          </div>
+          <div class="flex items-center gap-1 text-[10px] uppercase font-bold text-emerald-200">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0"></path></svg>
+            NFC
+          </div>
+        </div>
+
+        <div class="w-10 h-7 rounded chip-gold mb-4 border border-amber-300/60 flex items-center justify-center">
+          <div class="w-6 h-4 border border-amber-800/40 rounded-sm"></div>
+        </div>
+
+        <div id="cardMaskedNumber" class="font-mono text-sm tracking-widest text-slate-200 mb-4">
+          5489 •••• •••• 0000
+        </div>
+
+        <div class="flex justify-between items-end border-t border-white/10 pt-3">
+          <div>
+            <div class="text-[9px] text-slate-300 uppercase">Titular</div>
+            <div id="cardCustomerName" class="font-bold text-xs tracking-wide text-white uppercase truncate max-w-[180px]">
+              CLIENTE
+            </div>
+          </div>
+          <div class="text-right">
+            <div class="text-[9px] text-slate-300 uppercase">Limite Aprovado</div>
+            <div id="cardCreditLimit" class="font-black text-sm text-emerald-300">
+              R$ 300,00
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- BOAS-VINDAS E RESUMO -->
+      <div class="space-y-1">
+        <h1 class="text-xl font-bold text-white tracking-tight">Termo de Adesão e Ativação</h1>
+        <p class="text-xs text-slate-400">Leia com atenção os termos e condições do seu cartão próprio BelaFarma.</p>
+      </div>
+
+      <!-- REGRAS CLARAS EM CARDS -->
+      <div class="grid grid-cols-2 gap-2.5 text-left">
+        <div class="p-3 rounded-xl bg-slate-800/60 border border-white/10">
+          <div class="text-[10px] text-slate-400 font-semibold uppercase">Vencimento da Fatura</div>
+          <div id="dueDaySummary" class="text-sm font-extrabold text-emerald-400 mt-0.5">Todo dia 10</div>
+          <div class="text-[10px] text-slate-400 mt-1">Fechamento 10 dias antes</div>
+        </div>
+        <div class="p-3 rounded-xl bg-slate-800/60 border border-white/10">
+          <div class="text-[10px] text-slate-400 font-semibold uppercase">Tarifa de Fatura Ativa</div>
+          <div class="text-sm font-extrabold text-cyan-400 mt-0.5">R$ 4,90 <span class="text-[9px] font-normal text-slate-400">/mês de uso</span></div>
+          <div class="text-[10px] text-slate-400 mt-1">Se não usar no mês: R$ 0</div>
+        </div>
+      </div>
+
+      <!-- CAIXA DO CONTRATO COMPLETO COM ROLAGEM -->
+      <div class="space-y-2">
+        <label class="text-xs font-bold text-slate-300 flex items-center justify-between">
+          <span>Condições Gerais do Cartão:</span>
+          <span class="text-[10px] text-slate-400 font-normal">Role para ler</span>
+        </label>
+        <div class="h-44 overflow-y-auto p-3.5 rounded-xl bg-slate-950/80 border border-white/10 text-xs text-slate-300 space-y-2.5 leading-relaxed font-normal shadow-inner">
+          <p><strong>1. DA EMISSÃO E USO:</strong> O Cartão BelaFarma é pessoal e intransferível, emitido para compras exclusivas na rede BelaFarma em formato de crediário próprio.</p>
+          <p><strong>2. DO LIMITE:</strong> O limite de crédito concedido poderá ser utilizado para compras parceladas ou à vista. O limite é restabelecido à medida que as faturas forem liquidadas.</p>
+          <p><strong>3. DA FATURA E TARIFA:</strong> A fatura mensal será enviada em formato digital no WhatsApp do(a) titular e/ou entregue fisicamente em seu endereço de cobrança com boleto bancário oficial. A tarifa de manutenção de fatura ativa é de R$ 4,90, devida única e exclusivamente nos meses em que houver compras ou saldo devedor faturado.</p>
+          <p><strong>4. DOS ENCARGOS POR ATRASO:</strong> Em caso de pagamento após o vencimento, incidirá multa moratória de 2% (dois por cento) sobre o valor devido, em conformidade com o Art. 52, § 1º do Código de Defesa do Consumidor, além de juros de mora pro-rata die de 2,9% ao mês até a efetiva quitação.</p>
+          <div class="p-2.5 rounded-lg bg-rose-950/40 border border-rose-500/30 text-rose-200 text-[11px] font-semibold">
+            ⚠️ <strong>5. DA CLÁUSULA DE NEGATIVAÇÃO (SPC / SERASA):</strong> Decorridos 30 (trinta) dias de inadimplência contados da data de vencimento da fatura sem a devida quitação ou renegociação, o(a) titular autoriza expressamente a inclusão de seus dados nos cadastros de inadimplentes dos órgãos de proteção ao crédito (SPC, Serasa Experian e Boa Vista) e o protesto em cartório.
+          </div>
+          <p><strong>6. DO BLOQUEIO POR ATRASO:</strong> O cartão será automaticamente bloqueado para novas compras no caixa após 2 (dois) dias de atraso na fatura.</p>
+        </div>
+      </div>
+
+      <!-- CAMPOS DE CONFIRMAÇÃO DO CLIENTE -->
+      <form id="signForm" class="space-y-4">
+        <div>
+          <label class="block text-xs font-bold text-slate-300 mb-1">Confirme seu CPF:</label>
+          <input type="text" id="cpfInput" required placeholder="000.000.000-00" maxlength="14"
+            class="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-white/20 text-white font-mono text-sm placeholder-slate-500 focus:outline-none focus:border-emerald-400 transition">
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold text-slate-300 mb-1">Endereço de Cobrança / Entrega do Boleto:</label>
+          <input type="text" id="addressInput" required placeholder="Rua, número e bairro"
+            class="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-white/20 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-emerald-400 transition">
+        </div>
+
+        <!-- CHECKBOX DE ACEITE -->
+        <label class="flex items-start gap-2.5 cursor-pointer pt-1">
+          <input type="checkbox" id="acceptCheckbox" required class="mt-0.5 w-4 h-4 rounded text-emerald-500 focus:ring-emerald-400 focus:ring-offset-slate-900 border-white/30 bg-slate-800">
+          <span class="text-xs text-slate-300 leading-snug">
+            Li e aceito expressamente todos os termos, taxas e a cláusula de autorização de negativação no SPC/Serasa em caso de inadimplência.
+          </span>
+        </label>
+
+        <!-- BOTÃO DE ASSINATURA -->
+        <button type="submit" id="submitBtn"
+          class="w-full py-3.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-slate-950 font-extrabold text-sm tracking-wide shadow-lg shadow-emerald-500/20 active:scale-[0.99] transition flex items-center justify-center gap-2">
+          <span>Assinar e Ativar meu Cartão 🚀</span>
+        </button>
+      </form>
+
+    </div>
+
+    <!-- TELA DE SUCESSO PÓS-ASSINATURA -->
+    <div id="successState" class="hidden p-6 rounded-3xl bg-slate-800/90 border border-emerald-400/40 text-center space-y-4 shadow-2xl animate-fade-in">
+      <div class="w-16 h-16 rounded-full bg-emerald-500 text-slate-950 flex items-center justify-center text-3xl font-black mx-auto shadow-lg shadow-emerald-500/30">
+        ✓
+      </div>
+      <h2 class="text-xl font-extrabold text-white">Cartão Ativado com Sucesso!</h2>
+      <p class="text-xs text-slate-300 leading-relaxed">
+        Parabéns! Sua assinatura digital foi registrada com segurança jurídica. O seu Cartão BelaFarma já está liberado para compras por aproximação ou com o seu WhatsApp no balcão da farmácia.
+      </p>
+      <div class="p-3 rounded-xl bg-emerald-950/50 border border-emerald-500/30 text-xs text-emerald-300 font-semibold">
+        🎁 Seu bônus de R$ 3,00 já está disponível para sua próxima compra!
+      </div>
+      <div class="pt-2">
+        <a href="https://wa.me/553232150000" class="inline-block w-full py-3 rounded-xl bg-slate-700 hover:bg-slate-600 text-white font-bold text-xs transition">
+          Voltar para o WhatsApp
+        </a>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- RODAPÉ JURÍDICO -->
+  <footer class="w-full text-center py-4 text-[10px] text-slate-500 border-t border-white/5">
+    BelaFarma Drogaria • CNPJ & Inscrição Ativos • Juiz de Fora - MG<br>
+    Assinatura Eletrônica em conformidade com a Lei Federal nº 14.063/2020.
+  </footer>
+
+  <script>
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token');
+
+    // Máscara de CPF
+    const cpfInput = document.getElementById('cpfInput');
+    cpfInput.addEventListener('input', (e) => {
+      let v = e.target.value.replace(/\D/g, '');
+      if (v.length > 11) v = v.slice(0, 11);
+      if (v.length > 9) v = v.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+      else if (v.length > 6) v = v.replace(/(\d{3})(\d{3})(\d{1,3})/, '$1.$2.$3');
+      else if (v.length > 3) v = v.replace(/(\d{3})(\d{1,3})/, '$1.$2');
+      e.target.value = v;
+    });
+
+    async function loadTerm() {
+      if (!token) {
+        showError('Token de acesso não informado.');
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/cards/terms/${encodeURIComponent(token)}`);
+        const data = await res.json();
+
+        if (!res.ok || !data.success) {
+          showError(data.error || 'Termo não localizado.');
+          return;
+        }
+
+        const t = data.term;
+        if (t.status === 'signed') {
+          document.getElementById('loadingState').classList.add('hidden');
+          document.getElementById('alreadySignedState').classList.remove('hidden');
+          return;
+        }
+
+        // Preencher dados na tela
+        document.getElementById('cardCustomerName').innerText = t.full_name;
+        document.getElementById('cardMaskedNumber').innerText = t.card_number || '5489 •••• •••• 0000';
+        document.getElementById('cardCreditLimit').innerText = Number(t.credit_limit).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+        document.getElementById('dueDaySummary').innerText = `Todo dia ${t.due_day}`;
+        if (t.cpf) {
+          cpfInput.value = t.cpf;
+        }
+        if (t.address) {
+          document.getElementById('addressInput').value = t.address;
+        }
+
+        document.getElementById('loadingState').classList.add('hidden');
+        document.getElementById('termContent').classList.remove('hidden');
+      } catch (err) {
+        showError('Erro de conexão ao carregar o termo.');
+      }
+    }
+
+    function showError(msg) {
+      document.getElementById('loadingState').classList.add('hidden');
+      document.getElementById('errorMessage').innerText = msg;
+      document.getElementById('errorState').classList.remove('hidden');
+    }
+
+    // Submissão do formulário
+    document.getElementById('signForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const submitBtn = document.getElementById('submitBtn');
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = '<span>Processando Assinatura... ⏳</span>';
+
+      const cpfVal = cpfInput.value.replace(/\D/g, '');
+      const addrVal = document.getElementById('addressInput').value.trim();
+
+      try {
+        const res = await fetch(`/api/cards/terms/${encodeURIComponent(token)}/sign`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cpf: cpfVal, address: addrVal })
+        });
+        const result = await res.json();
+
+        if (res.ok && result.success) {
+          document.getElementById('termContent').classList.add('hidden');
+          document.getElementById('successState').classList.remove('hidden');
+        } else {
+          alert('Erro ao assinar termo: ' + (result.error || 'Tente novamente.'));
+          submitBtn.disabled = false;
+          submitBtn.innerHTML = '<span>Assinar e Ativar meu Cartão 🚀</span>';
+        }
+      } catch (err) {
+        alert('Erro ao enviar assinatura. Verifique sua conexão.');
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<span>Assinar e Ativar meu Cartão 🚀</span>';
+      }
+    });
+
+    loadTerm();
+  </script>
+</body>
+</html>
