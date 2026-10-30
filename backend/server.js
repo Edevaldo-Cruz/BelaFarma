@@ -5820,5 +5820,15 @@ const gracefulShutdown = (signal) => {
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
+// Tratamento de erros globais para evitar que timeouts do Digifarma ou serviços externos derrubem o servidor
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[Process] ⚠️ Rejeição de Promise não tratada interceptada (o servidor continua rodando):', reason?.message || reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('[Process] ❌ Exceção não capturada interceptada (o servidor continua rodando):', err?.message || err);
+});
+
+
 
 
