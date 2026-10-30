@@ -1,9 +1,14 @@
 {
   "version": "1.2.0",
-  "commitHash": "03ecb9b",
-  "commitMessage": "fix(sidebar): abrir modo de limpeza desativado por padrao e fixar Promocao WhatsApp no topo do menu com destaque",
-  "buildTime": "30/10/2026, 15:56:18",
+  "commitHash": "90494ec",
+  "commitMessage": "fix(pdv): campo emitir nota desativado por padrao, modal de cancelamento de vendas com estorno e formatacao de impressao termica 80mm",
+  "buildTime": "30/10/2026, 16:18:30",
   "recentCommits": [
+    {
+      "hash": "90494ec",
+      "date": "30/10/2026",
+      "message": "fix(pdv): campo emitir nota desativado por padrao, modal de cancelamento de vendas com estorno e formatacao de impressao termica 80mm"
+    },
     {
       "hash": "03ecb9b",
       "date": "30/10/2026",
@@ -58,11 +63,6 @@
       "hash": "0076a09",
       "date": "30/10/2026",
       "message": "feat(ux): desativar popups iniciais, tela dedicada de promocao whatsapp e correcao do botao limpeza"
-    },
-    {
-      "hash": "d4b16a7",
-      "date": "30/10/2026",
-      "message": "feat(pricing): garantir que todos os produtos que entrarem na loja obedeçam às porcentagens estabelecidas"
     }
   ]
 }

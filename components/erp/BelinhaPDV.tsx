@@ -25,6 +25,7 @@ import {
 import { useToast } from '../ToastContext';
 import { DanfeNfceModal } from './DanfeNfceModal';
 import { FiscalSettingsModal } from './FiscalSettingsModal';
+import { imprimirCupomVenda } from '../../utils/thermalPrinter';
 
 interface CartItem {
   code: string;
@@ -91,6 +92,20 @@ export const BelinhaPDV: React.FC = () => {
   const [emitNfce, setEmitNfce] = useState<boolean>(false); // Padrão DESATIVADO conforme solicitado
   const [activeDanfeModal, setActiveDanfeModal] = useState<any | null>(null);
   const [isFiscalSettingsOpen, setIsFiscalSettingsOpen] = useState<boolean>(false);
+  const [autoPrintCupom, setAutoPrintCupom] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('belaped_auto_print') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const toggleAutoPrint = (checked: boolean) => {
+    setAutoPrintCupom(checked);
+    try {
+      localStorage.setItem('belaped_auto_print', checked ? 'true' : 'false');
+    } catch {}
+  };
 
   // Modal de Histórico e Cancelamento Rápido no PDV
   const [isRecentSalesOpen, setIsRecentSalesOpen] = useState<boolean>(false);
@@ -356,18 +371,26 @@ export const BelinhaPDV: React.FC = () => {
 
       const json = await res.json();
       if (res.ok && json.success) {
-        setCompletedSale({
+        const saleData = {
           sale_id: json.sale_id,
           date: json.sale_date,
           time: json.sale_time,
-          items: cart,
+          items: [...cart],
           total_items_value: subtotal,
           discount_value: discount,
           total_final: totalFinal,
           payment: paymentPayload,
           customer_name: selectedCustomer?.name,
           change: cashChange
-        });
+        };
+
+        setCompletedSale(saleData);
+
+        if (autoPrintCupom && !emitNfce) {
+          setTimeout(() => {
+            imprimirCupomVenda(saleData);
+          }, 150);
+        }
 
         // Limpar carrinho e fechar modal
         setCart([]);
@@ -493,6 +516,19 @@ export const BelinhaPDV: React.FC = () => {
             <kbd className="px-1.5 py-0.5 rounded bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-[10px] font-black">F2</kbd>
             <Search className="w-3.5 h-3.5" />
             Buscar Produto
+          </button>
+
+          <button
+            onClick={() => toggleAutoPrint(!autoPrintCupom)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm border ${
+              autoPrintCupom
+                ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700'
+            }`}
+            title="Alternar Impressão Automática na Bematech MP-4200 TH ao finalizar venda"
+          >
+            <Printer className={`w-3.5 h-3.5 ${autoPrintCupom ? 'text-emerald-600' : 'text-slate-400'}`} />
+            <span>MP-4200: {autoPrintCupom ? 'Auto ON' : 'Manual'}</span>
           </button>
 
           <button
@@ -1103,13 +1139,14 @@ export const BelinhaPDV: React.FC = () => {
             </div>
 
             {/* BOTÕES DE AÇÃO */}
-            <div className="flex flex-col gap-2 no-print">
+            <div className="flex flex-col gap-2.5 no-print">
               <div className="flex gap-2">
                 <button
-                  onClick={() => window.print()}
-                  className="flex-1 py-3 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-800 dark:text-slate-200 font-bold rounded-xl text-xs flex items-center justify-center gap-2 cursor-pointer shadow-sm"
+                  onClick={() => imprimirCupomVenda(completedSale)}
+                  className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 cursor-pointer shadow-sm transition-all"
+                  title="Imprime cupom isolado na Bematech MP-4200 TH (80mm)"
                 >
-                  <Printer className="w-4 h-4" />
+                  <Printer className="w-4 h-4 text-emerald-400" />
                   Imprimir Térmica (80mm)
                 </button>
                 <button
@@ -1117,11 +1154,22 @@ export const BelinhaPDV: React.FC = () => {
                     setCompletedSale(null);
                     focusBarcodeInput();
                   }}
-                  className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl text-xs cursor-pointer shadow-md"
+                  className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl text-xs cursor-pointer shadow-md transition-all"
                 >
                   Nova Venda (ESC)
                 </button>
               </div>
+
+              {/* OPÇÃO DE IMPRESSÃO AUTOMÁTICA DIRETA */}
+              <label className="flex items-center justify-center gap-2 text-[11px] text-slate-600 dark:text-slate-400 cursor-pointer py-1 select-none">
+                <input
+                  type="checkbox"
+                  checked={autoPrintCupom}
+                  onChange={(e) => toggleAutoPrint(e.target.checked)}
+                  className="w-4 h-4 text-emerald-600 rounded border-slate-300 dark:border-slate-700 focus:ring-emerald-500 cursor-pointer"
+                />
+                <span>Imprimir cupom automaticamente na Bematech ao finalizar</span>
+              </label>
 
               <button
                 onClick={() => {

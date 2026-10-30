@@ -1,5 +1,6 @@
 import React, { useRef } from 'react';
 import { Printer, X, CheckCircle2, ShieldCheck, QrCode } from 'lucide-react';
+import { imprimirDanfeNfce } from '../../utils/thermalPrinter';
 
 interface DanfeNfceModalProps {
   danfe: {
@@ -47,7 +48,7 @@ export const DanfeNfceModal: React.FC<DanfeNfceModalProps> = ({ danfe, onClose }
   const printAreaRef = useRef<HTMLDivElement>(null);
 
   const handlePrint = () => {
-    window.print();
+    imprimirDanfeNfce(danfe);
   };
 
   return (
