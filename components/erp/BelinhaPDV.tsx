@@ -18,7 +18,9 @@ import {
   Clock,
   User,
   DollarSign,
-  ShieldCheck
+  ShieldCheck,
+  RotateCcw,
+  History
 } from 'lucide-react';
 import { useToast } from '../ToastContext';
 import { DanfeNfceModal } from './DanfeNfceModal';
@@ -86,9 +88,17 @@ export const BelinhaPDV: React.FC = () => {
   // Cupom Concluído e Fiscal
   const [completedSale, setCompletedSale] = useState<any | null>(null);
   const [customerCpf, setCustomerCpf] = useState<string>('');
-  const [emitNfce, setEmitNfce] = useState<boolean>(true);
+  const [emitNfce, setEmitNfce] = useState<boolean>(false); // Padrão DESATIVADO conforme solicitado
   const [activeDanfeModal, setActiveDanfeModal] = useState<any | null>(null);
   const [isFiscalSettingsOpen, setIsFiscalSettingsOpen] = useState<boolean>(false);
+
+  // Modal de Histórico e Cancelamento Rápido no PDV
+  const [isRecentSalesOpen, setIsRecentSalesOpen] = useState<boolean>(false);
+  const [recentSales, setRecentSales] = useState<any[]>([]);
+  const [isLoadingRecent, setIsLoadingRecent] = useState<boolean>(false);
+  const [saleToCancel, setSaleToCancel] = useState<any | null>(null);
+  const [cancelReason, setCancelReason] = useState<string>('');
+  const [isCancelling, setIsCancelling] = useState<boolean>(false);
 
   // Refs de Foco
   const barcodeInputRef = useRef<HTMLInputElement>(null);
@@ -400,6 +410,56 @@ export const BelinhaPDV: React.FC = () => {
     }
   };
 
+  // Buscar vendas recentes do dia para consulta/cancelamento rápido
+  const fetchRecentSales = async () => {
+    setIsLoadingRecent(true);
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const res = await fetch(`/api/erp/sales?dataInicio=${today}&dataFim=${today}&limit=20`);
+      if (res.ok) {
+        const json = await res.json();
+        setRecentSales(json.data || []);
+      }
+    } catch (e) {
+      addToast('Erro ao carregar últimas vendas.', 'error');
+    } finally {
+      setIsLoadingRecent(false);
+    }
+  };
+
+  const handleOpenRecentSales = () => {
+    setIsRecentSalesOpen(true);
+    fetchRecentSales();
+  };
+
+  const handleConfirmCancelSale = async () => {
+    if (!saleToCancel) return;
+    setIsCancelling(true);
+    try {
+      const res = await fetch(`/api/erp/pos/cancel/${saleToCancel.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: cancelReason || 'Cancelamento solicitado no balcão' })
+      });
+      const json = await res.json();
+      if (res.ok && json.success) {
+        addToast(`Venda #${saleToCancel.id} cancelada e estoque estornado com sucesso!`, 'success');
+        setSaleToCancel(null);
+        setCancelReason('');
+        if (completedSale?.sale_id === saleToCancel.id) {
+          setCompletedSale(null);
+        }
+        fetchRecentSales();
+      } else {
+        addToast(json.error || 'Erro ao cancelar venda.', 'error');
+      }
+    } catch (e) {
+      addToast('Erro de comunicação ao cancelar venda.', 'error');
+    } finally {
+      setIsCancelling(false);
+    }
+  };
+
   return (
     <div className="flex flex-col h-[calc(100vh-5rem)] bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 p-3 sm:p-5">
       {/* 1. TOPO: Status do Caixa & Atalhos */}
@@ -442,6 +502,16 @@ export const BelinhaPDV: React.FC = () => {
           >
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
             Config. Fiscal
+          </button>
+
+          <button
+            onClick={handleOpenRecentSales}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900/60 text-xs font-bold transition-all shadow-sm"
+            title="Ver últimas vendas e cancelar venda com estorno de estoque (F7)"
+          >
+            <kbd className="px-1.5 py-0.5 rounded bg-white dark:bg-slate-900 border border-rose-300 dark:border-rose-800 text-[10px] font-black text-rose-700 dark:text-rose-400">F7</kbd>
+            <RotateCcw className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
+            Cancelar Venda
           </button>
 
           <button
@@ -933,81 +1003,274 @@ export const BelinhaPDV: React.FC = () => {
         </div>
       )}
 
-      {/* 5. MODAL: CUPOM DE VENDA FINALIZADA & IMPRESSÃO */}
+      {/* 5. MODAL: CUPOM DE VENDA FINALIZADA & IMPRESSÃO TÉRMICA */}
       {completedSale && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          {/* Estilos dedicados para impressora térmica de bobina 80mm/58mm */}
+          <style>{`
+            @media print {
+              @page {
+                size: 80mm auto;
+                margin: 0mm;
+              }
+              html, body {
+                margin: 0 !important;
+                padding: 0 !important;
+                background: #ffffff !important;
+                color: #000000 !important;
+                width: 100% !important;
+              }
+              body * {
+                visibility: hidden !important;
+              }
+              #thermal-pdv-receipt, #thermal-pdv-receipt * {
+                visibility: visible !important;
+              }
+              #thermal-pdv-receipt {
+                position: absolute !important;
+                left: 0 !important;
+                top: 0 !important;
+                width: 72mm !important;
+                max-width: 72mm !important;
+                margin: 0 auto !important;
+                padding: 2mm !important;
+                font-family: 'Courier New', Courier, monospace !important;
+                font-size: 11px !important;
+                line-height: 1.25 !important;
+                color: #000000 !important;
+                background: #ffffff !important;
+                box-shadow: none !important;
+                border: none !important;
+              }
+              .no-print {
+                display: none !important;
+              }
+            }
+          `}</style>
+
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl max-w-md w-full p-6 animate-in fade-in zoom-in-95 duration-200">
-            <div className="text-center border-b border-dashed border-slate-300 dark:border-slate-700 pb-4 mb-4">
-              <div className="w-12 h-12 bg-emerald-100 dark:bg-emerald-950/60 rounded-full flex items-center justify-center text-emerald-600 mx-auto mb-2">
-                <CheckCircle2 className="w-6 h-6" />
+            <div id="thermal-pdv-receipt">
+              <div className="text-center border-b border-dashed border-slate-300 dark:border-slate-700 pb-4 mb-4">
+                <div className="w-12 h-12 bg-emerald-100 dark:bg-emerald-950/60 rounded-full flex items-center justify-center text-emerald-600 mx-auto mb-2 no-print">
+                  <CheckCircle2 className="w-6 h-6" />
+                </div>
+                <div className="font-bold text-xs uppercase">DROGARIA BELA FARMA</div>
+                <div className="text-[10px] text-slate-500">Comprovante de Venda • Não Fiscal</div>
+                <h3 className="font-black text-sm text-slate-900 dark:text-white mt-1">CUPOM #{completedSale.sale_id}</h3>
+                <p className="text-[11px] text-slate-500">{completedSale.date} às {completedSale.time}</p>
+                {completedSale.customer_name && (
+                  <p className="text-[11px] font-bold text-slate-700 dark:text-slate-300 mt-0.5">Cliente: {completedSale.customer_name}</p>
+                )}
               </div>
-              <h3 className="font-black text-lg text-slate-900 dark:text-white">VENDA FINALIZADA COM SUCESSO!</h3>
-              <p className="font-mono text-xs text-slate-500 mt-0.5">Cupom: {completedSale.sale_id}</p>
-              <p className="text-[11px] text-slate-400">{completedSale.date} às {completedSale.time}</p>
-            </div>
 
-            {/* ITENS DO CUPOM */}
-            <div className="border-b border-dashed border-slate-300 dark:border-slate-700 pb-3 mb-3 max-h-48 overflow-y-auto space-y-1.5 font-mono text-xs">
-              {completedSale.items.map((it: any, i: number) => (
-                <div key={i} className="flex justify-between">
-                  <span className="truncate pr-2">{it.quantity}x {it.name}</span>
-                  <span className="font-bold">R$ {it.total_price.toFixed(2)}</span>
-                </div>
-              ))}
-            </div>
+              {/* ITENS DO CUPOM */}
+              <div className="border-b border-dashed border-slate-300 dark:border-slate-700 pb-3 mb-3 max-h-48 overflow-y-auto space-y-1.5 font-mono text-xs">
+                {completedSale.items.map((it: any, i: number) => (
+                  <div key={i} className="flex justify-between">
+                    <span className="truncate pr-2">{it.quantity}x {it.name}</span>
+                    <span className="font-bold">R$ {it.total_price.toFixed(2)}</span>
+                  </div>
+                ))}
+              </div>
 
-            {/* TOTAIS DO CUPOM */}
-            <div className="space-y-1 font-mono text-xs mb-4">
-              <div className="flex justify-between text-slate-600 dark:text-slate-400">
-                <span>Subtotal:</span>
-                <span>R$ {completedSale.total_items_value.toFixed(2)}</span>
-              </div>
-              {completedSale.discount_value > 0 && (
-                <div className="flex justify-between text-amber-600">
-                  <span>Desconto:</span>
-                  <span>- R$ {completedSale.discount_value.toFixed(2)}</span>
+              {/* TOTAIS DO CUPOM */}
+              <div className="space-y-1 font-mono text-xs mb-4">
+                <div className="flex justify-between text-slate-600 dark:text-slate-400">
+                  <span>Subtotal:</span>
+                  <span>R$ {completedSale.total_items_value.toFixed(2)}</span>
                 </div>
-              )}
-              <div className="flex justify-between font-black text-base text-slate-900 dark:text-white pt-1 border-t border-slate-200 dark:border-slate-700">
-                <span>TOTAL:</span>
-                <span className="text-emerald-600 dark:text-emerald-400">R$ {completedSale.total_final.toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between text-slate-500 pt-1">
-                <span>Forma de Pagto:</span>
-                <span className="font-bold">{completedSale.payment.method}</span>
-              </div>
-              {completedSale.change > 0 && (
-                <div className="flex justify-between text-emerald-600 font-bold">
-                  <span>Troco Devolvido:</span>
-                  <span>R$ {completedSale.change.toFixed(2)}</span>
+                {completedSale.discount_value > 0 && (
+                  <div className="flex justify-between text-amber-600">
+                    <span>Desconto:</span>
+                    <span>- R$ {completedSale.discount_value.toFixed(2)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between font-black text-base text-slate-900 dark:text-white pt-1 border-t border-slate-200 dark:border-slate-700">
+                  <span>TOTAL:</span>
+                  <span className="text-emerald-600 dark:text-emerald-400">R$ {completedSale.total_final.toFixed(2)}</span>
                 </div>
-              )}
+                <div className="flex justify-between text-slate-500 pt-1">
+                  <span>Forma de Pagto:</span>
+                  <span className="font-bold">{completedSale.payment.method}</span>
+                </div>
+                {completedSale.change > 0 && (
+                  <div className="flex justify-between text-emerald-600 font-bold">
+                    <span>Troco Devolvido:</span>
+                    <span>R$ {completedSale.change.toFixed(2)}</span>
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* BOTÕES DE AÇÃO */}
-            <div className="flex gap-2">
-              <button
-                onClick={() => window.print()}
-                className="flex-1 py-3 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-800 dark:text-slate-200 font-bold rounded-xl text-xs flex items-center justify-center gap-2"
-              >
-                <Printer className="w-4 h-4" />
-                Imprimir Cupom
-              </button>
+            <div className="flex flex-col gap-2 no-print">
+              <div className="flex gap-2">
+                <button
+                  onClick={() => window.print()}
+                  className="flex-1 py-3 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-800 dark:text-slate-200 font-bold rounded-xl text-xs flex items-center justify-center gap-2 cursor-pointer shadow-sm"
+                >
+                  <Printer className="w-4 h-4" />
+                  Imprimir Térmica (80mm)
+                </button>
+                <button
+                  onClick={() => {
+                    setCompletedSale(null);
+                    focusBarcodeInput();
+                  }}
+                  className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl text-xs cursor-pointer shadow-md"
+                >
+                  Nova Venda (ESC)
+                </button>
+              </div>
+
               <button
                 onClick={() => {
-                  setCompletedSale(null);
-                  focusBarcodeInput();
+                  setSaleToCancel({ id: completedSale.sale_id, total_value: completedSale.total_final });
                 }}
-                className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl text-xs"
+                className="w-full py-2 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 text-rose-700 dark:text-rose-300 font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 border border-rose-200 dark:border-rose-900 cursor-pointer"
               >
-                Nova Venda (ESC)
+                <RotateCcw className="w-3.5 h-3.5" />
+                Errou algo? Cancelar esta venda agora
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* 6. MODAL: DANFE NFC-e COM QR CODE SEFAZ */}
+      {/* 6. MODAL: HISTÓRICO RÁPIDO & CANCELAMENTO DE VENDAS (F7) */}
+      {isRecentSalesOpen && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl max-w-2xl w-full p-5 max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800 mb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-rose-500/10 text-rose-600 flex items-center justify-center font-bold">
+                  <RotateCcw className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900 dark:text-white">
+                    Últimas Vendas • Cancelar & Consultar
+                  </h3>
+                  <p className="text-xs text-slate-500">Selecione uma venda para cancelar e estornar o estoque na hora</p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setIsRecentSalesOpen(false);
+                  setSaleToCancel(null);
+                  focusBarcodeInput();
+                }}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Listagem de Vendas */}
+            <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+              {isLoadingRecent ? (
+                <div className="text-center py-10 text-slate-500 text-xs">Carregando histórico do dia...</div>
+              ) : recentSales.length === 0 ? (
+                <div className="text-center py-10 text-slate-500 text-xs">Nenhuma venda realizada hoje até o momento.</div>
+              ) : (
+                recentSales.map((s) => (
+                  <div
+                    key={s.id}
+                    className={`p-3 rounded-2xl border flex items-center justify-between gap-3 ${
+                      s.status === 'CANCELADA'
+                        ? 'bg-rose-50/50 dark:bg-rose-950/20 border-rose-200 dark:border-rose-900/40 opacity-75'
+                        : 'bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700/60'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono font-bold text-xs text-slate-900 dark:text-white">
+                          #{s.id}
+                        </span>
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                          s.status === 'CANCELADA'
+                            ? 'bg-rose-100 dark:bg-rose-900/60 text-rose-700 dark:text-rose-300'
+                            : 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'
+                        }`}>
+                          {s.status}
+                        </span>
+                        <span className="text-[11px] text-slate-500">
+                          {s.sale_time}
+                        </span>
+                      </div>
+                      <div className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
+                        {s.total_items} item(s) • Pagto: <strong className="text-slate-700 dark:text-slate-300">{s.payment_methods}</strong>
+                        {s.customer_name ? ` • Cliente: ${s.customer_name}` : ''}
+                      </div>
+                      {s.cancellation_reason && (
+                        <div className="text-[10px] text-rose-600 dark:text-rose-400 mt-0.5 italic">
+                          Motivo: {s.cancellation_reason}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <span className="text-base font-black font-mono text-slate-900 dark:text-white">
+                        R$ {Number(s.total_value).toFixed(2)}
+                      </span>
+                      {s.status !== 'CANCELADA' && (
+                        <button
+                          onClick={() => setSaleToCancel(s)}
+                          className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs flex items-center gap-1 shadow-sm transition-all cursor-pointer"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                          Cancelar
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Submodal de Confirmação de Cancelamento */}
+            {saleToCancel && (
+              <div className="mt-3 p-4 bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-900/80 rounded-2xl animate-in fade-in duration-150">
+                <h4 className="text-xs font-black uppercase tracking-wider text-rose-800 dark:text-rose-300 flex items-center gap-1.5 mb-2">
+                  <AlertCircle className="w-4 h-4" />
+                  Confirmar Cancelamento da Venda #{saleToCancel.id}?
+                </h4>
+                <p className="text-xs text-rose-700 dark:text-rose-300 mb-2">
+                  O valor de R$ {Number(saleToCancel.total_value).toFixed(2)} será estornado e os produtos voltarão automaticamente para o estoque.
+                </p>
+                <input
+                  type="text"
+                  value={cancelReason}
+                  onChange={(e) => setCancelReason(e.target.value)}
+                  placeholder="Motivo do cancelamento (Ex: Erro no valor, desistência do cliente...)"
+                  autoFocus
+                  className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-rose-300 dark:border-rose-800 text-xs font-medium text-slate-900 dark:text-white placeholder-slate-400 mb-3"
+                />
+                <div className="flex justify-end gap-2">
+                  <button
+                    onClick={() => {
+                      setSaleToCancel(null);
+                      setCancelReason('');
+                    }}
+                    className="px-3 py-1.5 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800"
+                  >
+                    Voltar
+                  </button>
+                  <button
+                    onClick={handleConfirmCancelSale}
+                    disabled={isCancelling}
+                    className="px-4 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white font-black text-xs flex items-center gap-1.5 shadow-md"
+                  >
+                    {isCancelling ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
+                    Confirmar Estorno
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 7. MODAL: DANFE NFC-e COM QR CODE SEFAZ */}
       {activeDanfeModal && (
         <DanfeNfceModal
           danfe={activeDanfeModal}
@@ -1018,7 +1281,7 @@ export const BelinhaPDV: React.FC = () => {
         />
       )}
 
-      {/* 7. MODAL: CONFIGURAÇÕES FISCAIS & CERTIFICADO A1 */}
+      {/* 8. MODAL: CONFIGURAÇÕES FISCAIS & CERTIFICADO A1 */}
       {isFiscalSettingsOpen && (
         <FiscalSettingsModal
           isOpen={isFiscalSettingsOpen}

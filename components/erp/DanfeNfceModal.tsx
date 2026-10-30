@@ -52,6 +52,48 @@ export const DanfeNfceModal: React.FC<DanfeNfceModalProps> = ({ danfe, onClose }
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+      {/* Estilos dedicados para impressoras térmicas de cupom (80mm e 58mm) */}
+      <style>{`
+        @media print {
+          @page {
+            size: 80mm auto;
+            margin: 0mm;
+          }
+          html, body {
+            margin: 0 !important;
+            padding: 0 !important;
+            background: #ffffff !important;
+            color: #000000 !important;
+            width: 100% !important;
+          }
+          body * {
+            visibility: hidden !important;
+          }
+          #thermal-danfe-cupom, #thermal-danfe-cupom * {
+            visibility: visible !important;
+          }
+          #thermal-danfe-cupom {
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 72mm !important;
+            max-width: 72mm !important;
+            margin: 0 auto !important;
+            padding: 2mm !important;
+            font-family: 'Courier New', Courier, monospace !important;
+            font-size: 11px !important;
+            line-height: 1.25 !important;
+            color: #000000 !important;
+            background: #ffffff !important;
+            box-shadow: none !important;
+            border: none !important;
+          }
+          .no-print {
+            display: none !important;
+          }
+        }
+      `}</style>
+
       {/* Container Principal */}
       <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
         {/* Header Superior com Ações */}
@@ -87,7 +129,8 @@ export const DanfeNfceModal: React.FC<DanfeNfceModalProps> = ({ danfe, onClose }
         <div className="flex-1 overflow-y-auto p-4 flex justify-center bg-slate-950">
           <div
             ref={printAreaRef}
-            className="w-full max-w-[320px] bg-white text-black p-4 font-mono text-[11px] leading-tight shadow-lg border border-slate-300 rounded-sm print:shadow-none print:border-none print:m-0 print:p-2"
+            id="thermal-danfe-cupom"
+            className="w-full max-w-[320px] bg-white text-black p-4 font-mono text-[11px] leading-tight shadow-lg border border-slate-300 rounded-sm"
           >
             {/* Cabeçalho Empresa */}
             <div className="text-center border-b border-dashed border-gray-400 pb-2 mb-2">

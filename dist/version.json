@@ -1,9 +1,14 @@
 {
   "version": "1.2.0",
-  "commitHash": "35b3d2b",
-  "commitMessage": "fix(pixbot): filtrar webhooks connection.update antes do log para evitar estouro de buffer",
-  "buildTime": "30/10/2026, 15:36:36",
+  "commitHash": "03ecb9b",
+  "commitMessage": "fix(sidebar): abrir modo de limpeza desativado por padrao e fixar Promocao WhatsApp no topo do menu com destaque",
+  "buildTime": "30/10/2026, 15:56:18",
   "recentCommits": [
+    {
+      "hash": "03ecb9b",
+      "date": "30/10/2026",
+      "message": "fix(sidebar): abrir modo de limpeza desativado por padrao e fixar Promocao WhatsApp no topo do menu com destaque"
+    },
     {
       "hash": "35b3d2b",
       "date": "30/10/2026",
@@ -58,11 +63,6 @@
       "hash": "d4b16a7",
       "date": "30/10/2026",
       "message": "feat(pricing): garantir que todos os produtos que entrarem na loja obedeçam às porcentagens estabelecidas"
-    },
-    {
-      "hash": "4095262",
-      "date": "30/10/2026",
-      "message": "feat(cartao): implementar Cartao BelaFarma Private Label com NFC, termos juridicos no WhatsApp, limites e controle de inadimplencia"
     }
   ]
 }
