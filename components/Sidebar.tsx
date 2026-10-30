@@ -363,9 +363,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
       return merged;
     });
 
-    if (data.isPeriodCompleted && (data.abandonedCount || 0) > 0) {
-      setIsAuditModeActive(true);
-    }
+    // O modo de limpeza/auditoria NUNCA deve abrir ativado automaticamente
+    setIsAuditModeActive(false);
   }, []);
 
   React.useEffect(() => {
@@ -405,12 +404,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
   });
 
 
-  // Reordena alfabeticamente exceto Dashboard (fixo no topo) e Configurações (fixo no final)
+  // Fixa itens prioritários estratégicos logo no topo após o Dashboard
+  const priorityTopIds = ['promocoes-whatsapp', 'belaped', 'belinha-pdv'];
+  const topItems = priorityTopIds
+    .map(id => filteredMenuItems.find(i => i.id === id))
+    .filter(Boolean) as typeof menuItems;
+
+  const otherItems = filteredMenuItems
+    .filter(i => i.id !== 'dashboard' && i.id !== 'settings' && !priorityTopIds.includes(i.id))
+    .sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'));
+
   const sortedMenuItems = [
     filteredMenuItems.find(i => i.id === 'dashboard')!,
-    ...filteredMenuItems
-      .filter(i => i.id !== 'dashboard' && i.id !== 'settings')
-      .sort((a, b) => a.label.localeCompare(b.label, 'pt-BR')),
+    ...topItems,
+    ...otherItems,
     filteredMenuItems.find(i => i.id === 'settings')!
   ].filter(Boolean);
 
@@ -708,6 +715,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {sortedMenuItems.map((item) => {
               const Icon = item.icon;
               const isActive = currentView === item.id;
+              const isPromocoesWa = item.id === 'promocoes-whatsapp';
               const isVendas = item.id === 'whatsapp-vendas';
               const auditInfo = auditMap[item.id];
               const isItemAbandoned = Boolean(auditInfo?.isAbandoned && !auditInfo?.isProtected && auditInfo?.status !== 'UNINSTALLED');
@@ -718,7 +726,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
               let buttonStyle: React.CSSProperties = {};
               let iconStyle: React.CSSProperties = {};
 
-              if (isVendas) {
+              if (isPromocoesWa) {
+                if (isActive) {
+                  buttonClass = 'bg-gradient-to-r from-emerald-600 to-green-600 text-white shadow-md font-black';
+                  iconClass = 'text-white';
+                } else {
+                  buttonClass = 'bg-gradient-to-r from-emerald-500/20 via-green-500/20 to-teal-500/10 dark:from-emerald-950/60 dark:via-green-950/60 dark:to-teal-950/40 text-emerald-900 dark:text-emerald-200 border border-emerald-400/80 dark:border-emerald-500/50 hover:bg-emerald-500/30 font-black shadow-sm';
+                  iconClass = 'text-emerald-600 dark:text-emerald-400';
+                }
+              } else if (isVendas) {
                 if (isActive) {
                   buttonClass = 'bg-gradient-to-r from-amber-500 to-orange-600 text-white shadow-md font-black';
                   iconClass = 'text-white';
@@ -783,6 +799,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         title="0 acessos nos últimos 15 dias"
                       >
                         0 usos
+                      </span>
+                    )}
+                    {isPromocoesWa && !showCleanupCheckboxes && (
+                      <span className={`ml-auto px-2 py-0.5 text-[10px] font-black uppercase rounded-full shadow-sm tracking-wider ${
+                        isActive ? 'bg-white text-emerald-700' : 'bg-emerald-600 text-white animate-pulse'
+                      }`}>
+                        Novo
                       </span>
                     )}
                     {isVendas && !showCleanupCheckboxes && (

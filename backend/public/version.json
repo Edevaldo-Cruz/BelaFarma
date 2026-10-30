@@ -1,9 +1,19 @@
 {
   "version": "1.2.0",
-  "commitHash": "515e7a5",
-  "commitMessage": "feat(fiscal): implementar emissao direta de NFC-e na SEFAZ-MG com assinatura XMLDSig e contingencia automatica",
-  "buildTime": "30/10/2026, 15:24:05",
+  "commitHash": "35b3d2b",
+  "commitMessage": "fix(pixbot): filtrar webhooks connection.update antes do log para evitar estouro de buffer",
+  "buildTime": "30/10/2026, 15:36:36",
   "recentCommits": [
+    {
+      "hash": "35b3d2b",
+      "date": "30/10/2026",
+      "message": "fix(pixbot): filtrar webhooks connection.update antes do log para evitar estouro de buffer"
+    },
+    {
+      "hash": "08d2da0",
+      "date": "30/10/2026",
+      "message": "fix(updater): sincronizar version.json em backend/public, adicionar rota sem cache e recompilar bundle de producao"
+    },
     {
       "hash": "515e7a5",
       "date": "30/10/2026",
@@ -53,16 +63,6 @@
       "hash": "4095262",
       "date": "30/10/2026",
       "message": "feat(cartao): implementar Cartao BelaFarma Private Label com NFC, termos juridicos no WhatsApp, limites e controle de inadimplencia"
-    },
-    {
-      "hash": "72d77e0",
-      "date": "30/10/2026",
-      "message": "merge: reconciliar main local com origin/main mantendo correcoes do vigilante e belaped"
-    },
-    {
-      "hash": "a6f7847",
-      "date": "30/10/2026",
-      "message": "feat(belaped): atualizacoes de promocoes whatsapp, compras e rotinas gerais"
     }
   ]
 }

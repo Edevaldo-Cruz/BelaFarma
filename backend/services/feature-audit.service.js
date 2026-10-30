@@ -8,6 +8,11 @@ const ARCHIVE_DIR = path.join(ROOT_DIR, '_archived_features');
 const FEATURE_CATALOG = {
   'dashboard': { label: 'Dashboard', protected: true, componentName: 'Dashboard', files: ['components/Dashboard.tsx'] },
   'settings': { label: 'Configurações', protected: true, componentName: 'Settings', files: ['components/Settings.tsx'] },
+  'promocoes-whatsapp': { label: 'Promoção WhatsApp', protected: true, componentName: 'BelaPedPortal', files: ['components/compras/BelaPedPortal.tsx'] },
+  'belinha-pdv': { label: 'Belinha PDV', protected: true, componentName: 'PdvModule', files: ['components/erp/PdvModule.tsx'] },
+  'erp-vendas': { label: 'Vendas do Caixa', protected: true, componentName: 'ErpVendas', files: ['components/erp/ErpVendas.tsx'] },
+  'erp-produtos': { label: 'Estoque ERP', protected: true, componentName: 'ErpProdutos', files: ['components/erp/ErpProdutos.tsx'] },
+  'erp-nfe': { label: 'Entrada NF-e', protected: true, componentName: 'ErpNfe', files: ['components/erp/ErpNfe.tsx'] },
   'anvisa-alerts': { label: 'Alertas ANVISA', protected: false, componentName: 'AnvisaAlerts', files: ['components/AnvisaAlerts.tsx'] },
   'logs': { label: 'Auditoria', protected: false, componentName: 'Logs', files: ['components/Logs.tsx'] },
   'belaped': { label: 'BelaPed Compras', protected: false, componentName: 'BelaPedPortal', files: ['components/compras/BelaPedPortal.tsx'] },
