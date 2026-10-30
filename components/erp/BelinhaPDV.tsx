@@ -1139,15 +1139,26 @@ export const BelinhaPDV: React.FC = () => {
             </div>
 
             {/* BOTÕES DE AÇÃO */}
-            <div className="flex flex-col gap-2.5 no-print">
+            <div className="flex flex-col gap-2 no-print">
+              {autoPrintCupom && (
+                <div className="flex items-center justify-center gap-1.5 py-1 px-3 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-xl text-xs font-bold">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Cupom enviado para a Bematech MP-4200 TH</span>
+                </div>
+              )}
+
               <div className="flex gap-2">
                 <button
                   onClick={() => imprimirCupomVenda(completedSale)}
-                  className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 cursor-pointer shadow-sm transition-all"
+                  className={`flex-1 py-3 font-bold rounded-xl text-xs flex items-center justify-center gap-2 cursor-pointer shadow-sm transition-all ${
+                    autoPrintCupom
+                      ? 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300'
+                      : 'bg-emerald-700 hover:bg-emerald-800 text-white shadow-md'
+                  }`}
                   title="Imprime cupom isolado na Bematech MP-4200 TH (80mm)"
                 >
-                  <Printer className="w-4 h-4 text-emerald-400" />
-                  Imprimir Térmica (80mm)
+                  <Printer className="w-4 h-4" />
+                  {autoPrintCupom ? 'Reimprimir 2ª Via' : 'Imprimir Cupom (80mm)'}
                 </button>
                 <button
                   onClick={() => {
@@ -1159,17 +1170,6 @@ export const BelinhaPDV: React.FC = () => {
                   Nova Venda (ESC)
                 </button>
               </div>
-
-              {/* OPÇÃO DE IMPRESSÃO AUTOMÁTICA DIRETA */}
-              <label className="flex items-center justify-center gap-2 text-[11px] text-slate-600 dark:text-slate-400 cursor-pointer py-1 select-none">
-                <input
-                  type="checkbox"
-                  checked={autoPrintCupom}
-                  onChange={(e) => toggleAutoPrint(e.target.checked)}
-                  className="w-4 h-4 text-emerald-600 rounded border-slate-300 dark:border-slate-700 focus:ring-emerald-500 cursor-pointer"
-                />
-                <span>Imprimir cupom automaticamente na Bematech ao finalizar</span>
-              </label>
 
               <button
                 onClick={() => {

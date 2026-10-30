@@ -1,9 +1,14 @@
 {
   "version": "1.2.0",
-  "commitHash": "90494ec",
-  "commitMessage": "fix(pdv): campo emitir nota desativado por padrao, modal de cancelamento de vendas com estorno e formatacao de impressao termica 80mm",
-  "buildTime": "30/10/2026, 16:18:30",
+  "commitHash": "f547534",
+  "commitMessage": "feat(pdv): impressao termica isolada 80mm para Bematech MP-4200 TH com suporte a kiosk-printing",
+  "buildTime": "30/10/2026, 16:36:00",
   "recentCommits": [
+    {
+      "hash": "f547534",
+      "date": "30/10/2026",
+      "message": "feat(pdv): impressao termica isolada 80mm para Bematech MP-4200 TH com suporte a kiosk-printing"
+    },
     {
       "hash": "90494ec",
       "date": "30/10/2026",
@@ -58,11 +63,6 @@
       "hash": "7ebb7a5",
       "date": "30/10/2026",
       "message": "feat(evolution): suporte ao Evolution API v2 no Raspberry Pi 5 e ajuste no watcher"
-    },
-    {
-      "hash": "0076a09",
-      "date": "30/10/2026",
-      "message": "feat(ux): desativar popups iniciais, tela dedicada de promocao whatsapp e correcao do botao limpeza"
     }
   ]
 }
