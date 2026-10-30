@@ -1,9 +1,14 @@
 {
   "version": "1.2.0",
-  "commitHash": "b01d223",
-  "commitMessage": "fix(webhook): descarte imediato de eventos nao mensagens para manter backend estavel e leve",
-  "buildTime": "30/10/2026, 19:39:41",
+  "commitHash": "20b75c2",
+  "commitMessage": "feat(vendas): implementar guia de Vendas do Dia com filtros por data e por todas as formas de pagamento",
+  "buildTime": "30/10/2026, 20:26:53",
   "recentCommits": [
+    {
+      "hash": "20b75c2",
+      "date": "30/10/2026",
+      "message": "feat(vendas): implementar guia de Vendas do Dia com filtros por data e por todas as formas de pagamento"
+    },
     {
       "hash": "b01d223",
       "date": "30/10/2026",
@@ -58,11 +63,6 @@
       "hash": "73f4a34",
       "date": "30/10/2026",
       "message": "feat(erp): implementar modulo completo de entrada de notas fiscais (NF-e XML)"
-    },
-    {
-      "hash": "2b09dae",
-      "date": "30/10/2026",
-      "message": "feat(erp): tela de catalogo e estoque nativo do Belinha ERP com ajuste rapido de precos e saldo"
     }
   ]
 }

@@ -49,6 +49,7 @@ interface SaleSummary {
   nfe_number?: number;
   nfe_series?: number;
   access_key?: string;
+  origin?: 'BELINHA' | 'DIGIFARMA';
 }
 
 interface ResumoDia {
@@ -76,8 +77,16 @@ export const SalesHistory: React.FC = () => {
   const [resumoDia, setResumoDia] = useState<ResumoDia | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
+  // Helper para data YYYY-MM-DD no fuso horário local (evita pular de dia após às 21h em UTC-3)
+  const getLocalDateStr = (d: Date = new Date()) => {
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
   // Filtros
-  const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState(() => getLocalDateStr());
   const [searchFilter, setSearchFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState<'TODOS' | 'CONCLUIDA' | 'CANCELADA'>('TODOS');
   const [paymentFilter, setPaymentFilter] = useState<string>('TODOS');
@@ -96,16 +105,16 @@ export const SalesHistory: React.FC = () => {
   const [isCancelling, setIsCancelling] = useState(false);
 
   // Datas de atalho
-  const getTodayStr = () => new Date().toISOString().split('T')[0];
+  const getTodayStr = () => getLocalDateStr();
   const getYesterdayStr = () => {
     const d = new Date();
     d.setDate(d.getDate() - 1);
-    return d.toISOString().split('T')[0];
+    return getLocalDateStr(d);
   };
   const getBeforeYesterdayStr = () => {
     const d = new Date();
     d.setDate(d.getDate() - 2);
-    return d.toISOString().split('T')[0];
+    return getLocalDateStr(d);
   };
 
   // Carregar Vendas e Resumo do Dia
@@ -610,7 +619,21 @@ export const SalesHistory: React.FC = () => {
                 <tr>
                   <td colSpan={10} className="py-12 text-center text-slate-400">
                     <Receipt className="w-8 h-8 mx-auto mb-2 opacity-40" />
-                    Nenhuma venda encontrada para esta data com os filtros selecionados.
+                    <p className="font-semibold text-slate-600 dark:text-slate-300 mb-2">
+                      Nenhuma venda encontrada para esta data com os filtros selecionados.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedDate(getTodayStr());
+                        setSearchFilter('');
+                        setStatusFilter('TODOS');
+                        setPaymentFilter('TODOS');
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm transition-all cursor-pointer"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" /> Ver todas as vendas de hoje
+                    </button>
                   </td>
                 </tr>
               ) : (
@@ -624,9 +647,20 @@ export const SalesHistory: React.FC = () => {
 
                   return (
                     <tr key={s.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors">
-                      {/* Cupom ID */}
+                      {/* Cupom ID & Origem */}
                       <td className="py-2.5 px-4 font-mono font-bold text-slate-900 dark:text-slate-100 whitespace-nowrap">
-                        {s.id}
+                        <div className="flex items-center gap-1.5">
+                          <span>{s.id}</span>
+                          {s.origin === 'DIGIFARMA' || s.id.startsWith('DIGI-') ? (
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-500/15 text-blue-600 dark:text-blue-400 border border-blue-500/25" title="Venda originada no Digifarma">
+                              Digifarma
+                            </span>
+                          ) : (
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25" title="Venda originada no Belinha PDV">
+                              Belinha
+                            </span>
+                          )}
+                        </div>
                       </td>
 
                       {/* Horário */}
@@ -746,7 +780,7 @@ export const SalesHistory: React.FC = () => {
                             </button>
                           )}
 
-                          {isConcluida && (
+                          {isConcluida && !s.id.startsWith('DIGI-') && (
                             <button
                               type="button"
                               onClick={() => setSaleToCancel(s)}

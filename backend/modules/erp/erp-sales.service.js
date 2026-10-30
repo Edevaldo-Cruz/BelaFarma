@@ -6,7 +6,145 @@
 const { db } = require('./erp-database');
 
 /**
+ * Retorna string YYYY-MM-DD no fuso horário local
+ */
+function getLocalDateStr(date = new Date()) {
+  const d = new Date(date);
+  const pad = n => String(n).padStart(2, '0');
+  return `${pad(d.getFullYear())}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/**
+ * Normaliza os métodos de pagamento do Digifarma para o padrão do ERP
+ */
+function mapDigifarmaPayment(fp) {
+  const id = fp.id;
+  const desc = (fp.descricao || '').toUpperCase();
+  const valor = parseFloat(fp.valor || 0);
+
+  let method = 'OUTROS';
+  let card_brand = desc || undefined;
+
+  if (id === 1) {
+    method = 'DINHEIRO';
+  } else if (id === 4) {
+    if (desc.includes('DEBITO') || desc.includes('DÉBITO')) {
+      method = 'CARTAO_DEBITO';
+    } else {
+      method = 'CARTAO_CREDITO';
+    }
+  } else if (id === 5) {
+    method = 'CREDIARIO';
+  } else if (id === 8 || id === 15 || id === 14) {
+    method = 'PIX';
+  } else {
+    method = 'OUTROS';
+  }
+
+  return {
+    method,
+    amount: valor,
+    card_brand
+  };
+}
+
+/**
+ * Lê e mapeia as vendas do Digifarma sincronizadas no cache SQLite
+ */
+function obterVendasDigifarmaCache({ dataInicio, dataFim, status, paymentMethod } = {}) {
+  try {
+    const todayStr = getLocalDateStr();
+    // digifarma_vendas_hoje_cache armazena as vendas de hoje
+    // Se o filtro de data foi passado e NÃO cobre hoje, não aplica o cache
+    if (dataInicio && dataFim) {
+      if (todayStr < dataInicio || todayStr > dataFim) {
+        return [];
+      }
+    } else if (dataInicio && dataInicio !== todayStr) {
+      return [];
+    }
+
+    const rows = db.prepare('SELECT * FROM digifarma_vendas_hoje_cache').all();
+    if (!rows || rows.length === 0) return [];
+
+    const mapped = [];
+    for (const r of rows) {
+      const isCancelada = r.cancelado === 'S';
+      const saleStatus = isCancelada ? 'CANCELADA' : 'CONCLUIDA';
+
+      if (status && status !== 'TODOS' && status !== saleStatus) {
+        continue;
+      }
+
+      let dateStr = todayStr;
+      let timeStr = '12:00:00';
+      try {
+        const d = new Date(r.data_hora);
+        if (!isNaN(d.getTime())) {
+          dateStr = getLocalDateStr(d);
+          const pad = n => String(n).padStart(2, '0');
+          timeStr = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+        }
+      } catch (e) {}
+
+      if (dataInicio && dataFim) {
+        if (dateStr < dataInicio || dateStr > dataFim) continue;
+      } else if (dataInicio && dateStr !== dataInicio) continue;
+
+      let rawPayments = [];
+      try {
+        rawPayments = JSON.parse(r.formas_pagamento || '[]');
+      } catch (e) {
+        rawPayments = [];
+      }
+
+      const payments = rawPayments.map(mapDigifarmaPayment);
+
+      // Filtro de forma de pagamento
+      if (paymentMethod && paymentMethod !== 'TODOS') {
+        const pm = paymentMethod.toUpperCase();
+        const hasPayment = payments.some(p => {
+          const m = p.method.toUpperCase();
+          if (pm === 'CARTAO_DEBITO' || pm === 'DEBITO') return m.includes('DEBITO');
+          if (pm === 'CARTAO_CREDITO' || pm === 'CREDITO') return m.includes('CREDITO');
+          if (pm === 'CREDIARIO' || pm === 'CONVENIO') return m.includes('CREDIARIO') || m.includes('CONVENIO');
+          return m === pm;
+        });
+        if (!hasPayment) continue;
+      }
+
+      const methodNames = Array.from(new Set(payments.map(p => p.method)));
+      const payment_methods = methodNames.join(', ') || 'DINHEIRO';
+
+      mapped.push({
+        id: `DIGI-${r.venda_nota_id}`,
+        sale_date: dateStr,
+        sale_time: timeStr,
+        total_items_value: parseFloat(r.valor_total || 0),
+        discount_value: 0,
+        total_value: parseFloat(r.valor_total || 0),
+        customer_name: 'Balcão / Digifarma',
+        user_name: 'Caixa Digifarma',
+        status: saleStatus,
+        total_items: parseInt(r.total_itens || 0, 10),
+        payment_methods,
+        payments,
+        fiscal_status: 'EMITIDO',
+        nfe_number: r.venda_nota_id,
+        origin: 'DIGIFARMA'
+      });
+    }
+
+    return mapped;
+  } catch (err) {
+    console.warn('[ERP Sales] Erro ao obter cache de vendas do Digifarma:', err.message);
+    return [];
+  }
+}
+
+/**
  * Lista vendas com filtros rápidos por data, status e forma de pagamento
+ * Unifica vendas do PDV Belinha e do Digifarma
  */
 function listarVendas({ dataInicio, dataFim, status, paymentMethod, limit = 100, offset = 0 } = {}) {
   let where = '1=1';
@@ -48,13 +186,11 @@ function listarVendas({ dataInicio, dataFim, status, paymentMethod, limit = 100,
     FROM sales s
     WHERE ${where}
     ORDER BY s.sale_date DESC, s.sale_time DESC
-    LIMIT ? OFFSET ?
   `;
 
-  params.push(limit, offset);
   const rows = db.prepare(sql).all(...params);
 
-  return rows.map(r => {
+  const belinhaSales = rows.map(r => {
     let paymentsParsed = [];
     try {
       if (r.payments_json) {
@@ -65,15 +201,79 @@ function listarVendas({ dataInicio, dataFim, status, paymentMethod, limit = 100,
     }
     return {
       ...r,
+      origin: 'BELINHA',
       payments: paymentsParsed
     };
   });
+
+  // 2. Vendas do Digifarma (Cache SQLite)
+  const digiSales = obterVendasDigifarmaCache({ dataInicio, dataFim, status, paymentMethod });
+
+  // 3. Unificar e ordenar por data e horário decrescentes
+  const combined = [...belinhaSales, ...digiSales];
+  combined.sort((a, b) => {
+    const dtA = `${a.sale_date} ${a.sale_time}`;
+    const dtB = `${b.sale_date} ${b.sale_time}`;
+    return dtB.localeCompare(dtA);
+  });
+
+  return combined.slice(offset, offset + limit);
 }
 
 /**
  * Retorna os detalhes completos de uma venda específica (itens + formas de pagamento)
  */
 function obterVendaDetalhada(saleId) {
+  if (String(saleId).startsWith('DIGI-')) {
+    const notaId = parseInt(saleId.replace('DIGI-', ''), 10);
+    const row = db.prepare('SELECT * FROM digifarma_vendas_hoje_cache WHERE venda_nota_id = ?').get(notaId);
+    if (!row) return null;
+
+    let payments = [];
+    try {
+      const raw = JSON.parse(row.formas_pagamento || '[]');
+      payments = raw.map(mapDigifarmaPayment);
+    } catch (e) {}
+
+    let dateStr = getLocalDateStr();
+    let timeStr = '12:00:00';
+    try {
+      const d = new Date(row.data_hora);
+      dateStr = getLocalDateStr(d);
+      const pad = n => String(n).padStart(2, '0');
+      timeStr = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    } catch (e) {}
+
+    return {
+      id: saleId,
+      sale_date: dateStr,
+      sale_time: timeStr,
+      total_items_value: parseFloat(row.valor_total || 0),
+      discount_value: 0,
+      total_value: parseFloat(row.valor_total || 0),
+      customer_name: 'Balcão / Digifarma',
+      user_name: 'Caixa Digifarma',
+      status: row.cancelado === 'S' ? 'CANCELADA' : 'CONCLUIDA',
+      total_items: parseInt(row.total_itens || 0, 10),
+      payment_methods: payments.map(p => p.method).join(', ') || 'DINHEIRO',
+      fiscal_status: 'EMITIDO',
+      nfe_number: notaId,
+      origin: 'DIGIFARMA',
+      items: [
+        {
+          id: 1,
+          product_name: `Venda #${notaId} processada no Caixa Digifarma`,
+          barcode: 'DIGI-POS',
+          quantity: parseInt(row.total_itens || 1, 10),
+          unit_price: parseFloat(row.valor_total || 0) / (parseInt(row.total_itens || 1, 10) || 1),
+          discount_value: 0,
+          total_price: parseFloat(row.valor_total || 0)
+        }
+      ],
+      payments
+    };
+  }
+
   const sale = db.prepare('SELECT * FROM sales WHERE id = ?').get(saleId);
   if (!sale) return null;
 
@@ -82,6 +282,7 @@ function obterVendaDetalhada(saleId) {
 
   return {
     ...sale,
+    origin: 'BELINHA',
     items,
     payments
   };
@@ -89,9 +290,10 @@ function obterVendaDetalhada(saleId) {
 
 /**
  * Resumo de movimentação de caixa de uma data específica
+ * Consolida vendas do Belinha PDV e do Digifarma
  */
 function obterResumoCaixaDoDia(dataRef) {
-  const targetDate = dataRef || new Date().toISOString().split('T')[0];
+  const targetDate = dataRef || getLocalDateStr();
 
   const totalVendas = db.prepare(`
     SELECT 
@@ -145,15 +347,53 @@ function obterResumoCaixaDoDia(dataRef) {
     }
   }
 
+  let totalCupons = totalVendas.total_cupons || 0;
+  let totalFaturado = totalVendas.total_faturado || 0;
+  let totalDescontos = totalVendas.total_descontos || 0;
+  let canceladasCount = canceladas.total_canceladas || 0;
+  let canceladasValor = canceladas.valor_cancelado || 0;
+
+  // Se a data de referência for a data de hoje, consolidar também as vendas do Digifarma
+  const todayStr = getLocalDateStr();
+  if (targetDate === todayStr) {
+    const digiSales = obterVendasDigifarmaCache({ dataInicio: todayStr, dataFim: todayStr });
+    for (const s of digiSales) {
+      if (s.status === 'CONCLUIDA') {
+        totalCupons += 1;
+        totalFaturado += s.total_value;
+        for (const p of s.payments) {
+          const m = (p.method || '').toUpperCase();
+          const val = p.amount || 0;
+          if (m === 'DINHEIRO') pagamentosMap.DINHEIRO += val;
+          else if (m === 'CARTAO_DEBITO') pagamentosMap.CARTAO_DEBITO += val;
+          else if (m === 'CARTAO_CREDITO') pagamentosMap.CARTAO_CREDITO += val;
+          else if (m === 'PIX') pagamentosMap.PIX += val;
+          else if (m === 'CREDIARIO') pagamentosMap.CREDIARIO += val;
+          else pagamentosMap.OUTROS += val;
+        }
+      } else if (s.status === 'CANCELADA') {
+        canceladasCount += 1;
+        canceladasValor += s.total_value;
+      }
+    }
+  }
+
   return {
     data: targetDate,
-    total_cupons: totalVendas.total_cupons || 0,
-    total_faturado: totalVendas.total_faturado || 0,
-    total_descontos: totalVendas.total_descontos || 0,
-    pagamentos: pagamentosMap,
+    total_cupons: totalCupons,
+    total_faturado: Math.round(totalFaturado * 100) / 100,
+    total_descontos: Math.round(totalDescontos * 100) / 100,
+    pagamentos: {
+      DINHEIRO: Math.round(pagamentosMap.DINHEIRO * 100) / 100,
+      CARTAO_DEBITO: Math.round(pagamentosMap.CARTAO_DEBITO * 100) / 100,
+      CARTAO_CREDITO: Math.round(pagamentosMap.CARTAO_CREDITO * 100) / 100,
+      PIX: Math.round(pagamentosMap.PIX * 100) / 100,
+      CREDIARIO: Math.round(pagamentosMap.CREDIARIO * 100) / 100,
+      OUTROS: Math.round(pagamentosMap.OUTROS * 100) / 100
+    },
     cancelamentos: {
-      total: canceladas.total_canceladas || 0,
-      valor: canceladas.valor_cancelado || 0
+      total: canceladasCount,
+      valor: Math.round(canceladasValor * 100) / 100
     }
   };
 }

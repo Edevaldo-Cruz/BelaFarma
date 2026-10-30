@@ -167,7 +167,10 @@ router.get('/sales', (req, res) => {
       offset: parseInt(offset, 10) || 0
     });
 
-    const dateRef = dataInicio || dataFim || new Date().toISOString().split('T')[0];
+    const now = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    const todayLocal = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+    const dateRef = dataInicio || dataFim || todayLocal;
     const resumo = obterResumoCaixaDoDia(dateRef);
 
     res.json({
