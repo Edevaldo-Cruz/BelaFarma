@@ -8,6 +8,8 @@ const router = express.Router();
 
 const {
   buscarProdutos,
+  buscarProdutosPaginados,
+  obterMetricasEstoque,
   obterProdutoPorCodigo,
   cadastrarProduto,
   atualizarPrecoEEstoque
@@ -32,6 +34,31 @@ const {
 // ==========================================
 // 1. ROTAS DE PRODUTOS & ESTOQUE
 // ==========================================
+router.get('/products/stats', (req, res) => {
+  try {
+    const stats = obterMetricasEstoque();
+    res.json({ success: true, data: stats });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+router.get('/products/catalog', (req, res) => {
+  try {
+    const { q, page, limit, stockFilter, curve } = req.query;
+    const resultado = buscarProdutosPaginados({
+      query: q,
+      page: parseInt(page, 10) || 1,
+      limit: parseInt(limit, 10) || 50,
+      stockFilter: stockFilter || 'all',
+      curve: curve || 'all'
+    });
+    res.json({ success: true, ...resultado });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 router.get('/products', (req, res) => {
   try {
     const { q, limit, onlyWithStock } = req.query;

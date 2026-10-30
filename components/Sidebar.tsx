@@ -265,6 +265,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'belinha-pdv', label: 'Belinha PDV', icon: DollarSign },
     { id: 'erp-vendas', label: 'Vendas do Caixa', icon: Receipt },
+    { id: 'erp-produtos', label: 'Estoque ERP', icon: Package },
     { id: 'anvisa-alerts', label: 'Alertas ANVISA', icon: ShieldAlert },
     { id: 'logs', label: 'Auditoria', icon: History },
     { id: 'belaped', label: 'BelaPed Compras', icon: ShoppingBag },

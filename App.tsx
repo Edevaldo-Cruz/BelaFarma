@@ -73,6 +73,7 @@ import { VitrineAniversario } from "./components/vitrine/VitrineAniversario";
 import { isPublicVitrineRoute } from "./components/vitrine/vitrineTypes";
 import { BelinhaPDV } from "./components/erp/BelinhaPDV";
 import { SalesHistory } from "./components/erp/SalesHistory";
+import { ProductsCatalog } from "./components/erp/ProductsCatalog";
 
 
 import {
@@ -1321,6 +1322,9 @@ const App: React.FC = () => {
               )}
               {currentView === "erp-vendas" && (
                 <SalesHistory />
+              )}
+              {currentView === "erp-produtos" && (
+                <ProductsCatalog />
               )}
               {currentView === "central-compras" && user.role === UserRole.ADM && (
                 <CentralCompras

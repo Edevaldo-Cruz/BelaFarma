@@ -1,9 +1,14 @@
 {
   "version": "1.2.0",
-  "commitHash": "7ebb7a5",
-  "commitMessage": "feat(evolution): suporte ao Evolution API v2 no Raspberry Pi 5 e ajuste no watcher",
-  "buildTime": "30/10/2026, 10:55:39",
+  "commitHash": "ea12cbf",
+  "commitMessage": "feat(erp): implantacao do Belinha ERP independente com PDV, Clean Schema e migracao",
+  "buildTime": "30/10/2026, 11:08:47",
   "recentCommits": [
+    {
+      "hash": "ea12cbf",
+      "date": "30/10/2026",
+      "message": "feat(erp): implantacao do Belinha ERP independente com PDV, Clean Schema e migracao"
+    },
     {
       "hash": "7ebb7a5",
       "date": "30/10/2026",
@@ -58,11 +63,6 @@
       "hash": "73f95d5",
       "date": "27/10/2026",
       "message": "feat(digifarma): suporte a DIGIFARMA_HOST configuravel via env para migracao de maquina"
-    },
-    {
-      "hash": "967d2e4",
-      "date": "26/10/2026",
-      "message": "feat(belinha-compras): especialista autonoma de compras, pipeline multimodal e integracao radar BelaPed"
     }
   ]
 }
