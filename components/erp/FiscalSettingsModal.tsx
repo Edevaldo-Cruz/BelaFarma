@@ -11,7 +11,10 @@ import {
   X,
   Lock,
   Save,
-  FileText
+  FileText,
+  Activity,
+  Wifi,
+  WifiOff
 } from 'lucide-react';
 import { useToast } from '../ToastContext';
 
@@ -50,6 +53,32 @@ export const FiscalSettingsModal: React.FC<FiscalSettingsModalProps> = ({ isOpen
   const [certificatePfxBase64, setCertificatePfxBase64] = useState<string | null>(null);
   const [certificateFileName, setCertificateFileName] = useState('');
   const [certificatePassword, setCertificatePassword] = useState('');
+
+  // Diagnóstico de Conexão SEFAZ
+  const [isCheckingSefaz, setIsCheckingSefaz] = useState(false);
+  const [sefazStatusResult, setSefazStatusResult] = useState<any>(null);
+
+  const handleTestarSefaz = async () => {
+    setIsCheckingSefaz(true);
+    try {
+      const res = await fetch('/api/erp/fiscal/status-sefaz');
+      const data = await res.json();
+      setSefazStatusResult(data);
+
+      if (data.online) {
+        addToast(`SEFAZ-MG Operacional! (${data.tempoRespostaMs}ms) - [${data.cStat}] ${data.xMotivo}`, 'success');
+      } else if (data.configured) {
+        addToast(`SEFAZ-MG: [${data.cStat || 'Aviso'}] ${data.xMotivo || data.message || data.error}`, 'error');
+      } else {
+        addToast('Salve o Certificado Digital A1 antes de testar a SEFAZ.', 'info');
+      }
+    } catch (err: any) {
+      console.error('Erro ao testar status da SEFAZ:', err);
+      addToast(err.message || 'Falha ao comunicar com a SEFAZ.', 'error');
+    } finally {
+      setIsCheckingSefaz(false);
+    }
+  };
 
   useEffect(() => {
     if (isOpen) {
@@ -448,13 +477,88 @@ export const FiscalSettingsModal: React.FC<FiscalSettingsModalProps> = ({ isOpen
 
                   <div>
                     <label className="block text-slate-400 font-semibold mb-1">Senha do Certificado Digital</label>
-                    <input
-                      type="password"
-                      value={certificatePassword}
-                      placeholder={hasCertificate ? '•••••••• (Preencha apenas se quiser alterar)' : 'Digite a senha do certificado'}
-                      onChange={(e) => setCertificatePassword(e.target.value)}
-                      className="w-full md:w-80 px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-emerald-500"
-                    />
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                      <input
+                        type="password"
+                        value={certificatePassword}
+                        placeholder={hasCertificate ? '•••••••• (Preencha apenas se quiser alterar)' : 'Digite a senha do certificado'}
+                        onChange={(e) => setCertificatePassword(e.target.value)}
+                        className="w-full sm:w-80 px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-emerald-500"
+                      />
+                      <button
+                        type="button"
+                        disabled={isCheckingSefaz}
+                        onClick={handleTestarSefaz}
+                        className="px-4 py-2 bg-slate-700 hover:bg-slate-600 active:bg-slate-800 disabled:opacity-50 text-white rounded-lg font-semibold text-xs transition-colors flex items-center justify-center gap-2 border border-slate-600"
+                        title="Verifica disponibilidade dos servidores da SEFAZ com mTLS"
+                      >
+                        {isCheckingSefaz ? (
+                          <>
+                            <RefreshCw className="w-4 h-4 animate-spin text-emerald-400" />
+                            Consultando SEFAZ...
+                          </>
+                        ) : (
+                          <>
+                            <Activity className="w-4 h-4 text-emerald-400" />
+                            Testar Conexão SEFAZ
+                          </>
+                        )}
+                      </button>
+                    </div>
+
+                    {/* Resultado do Teste SEFAZ */}
+                    {sefazStatusResult && (
+                      <div className={`mt-3 p-3.5 rounded-xl border text-xs ${
+                        sefazStatusResult.online
+                          ? 'bg-emerald-950/30 border-emerald-500/40 text-emerald-200'
+                          : 'bg-rose-950/30 border-rose-500/40 text-rose-200'
+                      }`}>
+                        <div className="flex items-center justify-between mb-2 pb-2 border-b border-white/10">
+                          <div className="flex items-center gap-2 font-bold">
+                            {sefazStatusResult.online ? (
+                              <>
+                                <Wifi className="w-4 h-4 text-emerald-400" />
+                                <span>SEFAZ-MG Operacional</span>
+                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-mono">
+                                  {sefazStatusResult.tempoRespostaMs}ms
+                                </span>
+                              </>
+                            ) : (
+                              <>
+                                <WifiOff className="w-4 h-4 text-rose-400" />
+                                <span>SEFAZ Indisponível ou Erro</span>
+                              </>
+                            )}
+                          </div>
+                          <span className="text-[10px] uppercase font-bold opacity-80">
+                            {sefazStatusResult.ambiente || ambiente}
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+                          <div>
+                            <span className="opacity-70">Retorno SEFAZ: </span>
+                            <span className="font-semibold font-mono">
+                              [{sefazStatusResult.cStat || 'OFF'}] {sefazStatusResult.xMotivo || sefazStatusResult.message || sefazStatusResult.error}
+                            </span>
+                          </div>
+
+                          {sefazStatusResult.certificado && (
+                            <div>
+                              <span className="opacity-70">Certificado: </span>
+                              <span className="font-semibold">
+                                {sefazStatusResult.certificado.cnpj ? `CNPJ ${sefazStatusResult.certificado.cnpj}` : sefazStatusResult.certificado.titular}
+                                {sefazStatusResult.certificado.isExpired ? (
+                                  <span className="ml-1 text-rose-400 font-bold">(EXPIRADO)</span>
+                                ) : (
+                                  <span className="ml-1 text-emerald-400 font-bold">(Válido até {new Date(sefazStatusResult.certificado.validTo).toLocaleDateString('pt-BR')})</span>
+                                )}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>

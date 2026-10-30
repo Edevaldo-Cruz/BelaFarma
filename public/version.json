@@ -1,9 +1,14 @@
 {
   "version": "1.2.0",
-  "commitHash": "d61fd4a",
-  "commitMessage": "feat(erp): implementar modulo completo de emissao de cupom fiscal NFC-e Modelo 65 e DANFE termico com QR Code",
-  "buildTime": "30/10/2026, 12:53:45",
+  "commitHash": "4341e45",
+  "commitMessage": "fix(erp): corrigir comunicacao xml nf-e e consolidar vendas do belinha pdv no fechamento de caixa",
+  "buildTime": "30/10/2026, 13:19:32",
   "recentCommits": [
+    {
+      "hash": "4341e45",
+      "date": "30/10/2026",
+      "message": "fix(erp): corrigir comunicacao xml nf-e e consolidar vendas do belinha pdv no fechamento de caixa"
+    },
     {
       "hash": "d61fd4a",
       "date": "30/10/2026",
@@ -58,11 +63,6 @@
       "hash": "e8f4025",
       "date": "30/10/2026",
       "message": "fix(watcher): guardiao de recursos, auto-correcao e correcao de vazamento no robot hympar"
-    },
-    {
-      "hash": "dd78660",
-      "date": "29/10/2026",
-      "message": "feat(pricing): script de populacao e organizacao das porcentagens para todos os 4017 produtos ativos da loja"
     }
   ]
 }

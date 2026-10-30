@@ -47,7 +47,8 @@ const {
   emitirCupomFiscal,
   obterDanfeNfce,
   cancelarCupomFiscal,
-  listarCuponsEmitidos
+  listarCuponsEmitidos,
+  consultarStatusSefaz
 } = require('./erp-fiscal.service');
 
 // ==========================================
@@ -300,6 +301,16 @@ router.post('/fiscal/settings', (req, res) => {
     res.json({ success: true, data: config });
   } catch (err) {
     res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// Consulta status operacional do WebService da SEFAZ-MG
+router.get('/fiscal/status-sefaz', async (req, res) => {
+  try {
+    const status = await consultarStatusSefaz();
+    res.json(status);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 

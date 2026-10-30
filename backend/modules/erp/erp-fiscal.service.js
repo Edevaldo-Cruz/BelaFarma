@@ -8,6 +8,8 @@
 const crypto = require('crypto');
 const QRCode = require('qrcode');
 const { db, initErpDatabase } = require('./erp-database');
+const { extrairDadosCertificadoA1, assinarXmlNfe } = require('./erp-sefaz-signer');
+const { consultarStatusServicoSefaz, transmitirNfceSefaz } = require('./erp-sefaz-client');
 
 // Tabela de códigos IBGE por UF
 const CODIGOS_UF = {
@@ -323,68 +325,86 @@ async function emitirCupomFiscal(saleId, options = {}) {
     color: { dark: '#000000', light: '#ffffff' }
   });
 
-  const protocolNumber = `${tpAmb === '1' ? '131' : '231'}${now.getFullYear()}${String(Date.now()).slice(-9)}`;
+  // 7. Processamento com Certificado Digital A1 e SEFAZ-MG
+  let finalStatus = contingency ? 'CONTINGENCIA' : 'EMITIDO';
+  let finalProtocolNumber = null;
+  let finalContingencyReason = contingency ? (contingency_reason || 'Contingência solicitada pelo operador') : null;
+  let xmlParaSalvar = null;
 
-  // 7. Constrói representação XML resumida e estruturada
-  const xmlContent = `<?xml version="1.0" encoding="UTF-8"?>
-<NFe xmlns="http://www.portalfiscal.inf.br/nfe">
-  <infNFe Id="NFe${chaveAcesso}" versao="4.00">
-    <ide>
-      <cUF>${CODIGOS_UF[config.uf] || '31'}</cUF>
-      <cNF>${chaveAcesso.slice(35, 43)}</cNF>
-      <natOp>VENDA MERCADORIA CONSUMIDOR FINAL</natOp>
-      <mod>65</mod>
-      <serie>${serie}</serie>
-      <nNF>${nNF}</nNF>
-      <dhEmi>${dhEmi}</dhEmi>
-      <tpNF>1</tpNF>
-      <idDest>1</idDest>
-      <cMunFG>${config.cod_municipio_ibge}</cMunFG>
-      <tpImp>4</tpImp>
-      <tpEmis>${tpEmis}</tpEmis>
-      <cDV>${chaveAcesso.slice(-1)}</cDV>
-      <tpAmb>${tpAmb}</tpAmb>
-      <finNFe>1</finNFe>
-      <indFinal>1</indFinal>
-      <indPres>1</indPres>
-    </ide>
-    <emit>
-      <CNPJ>${config.cnpj}</CNPJ>
-      <xNome>${config.razao_social}</xNome>
-      <xFant>${config.nome_fantasia}</xFant>
-      <enderEmit>
-        <xLgr>${config.logradouro}</xLgr>
-        <nro>${config.numero}</nro>
-        <xBairro>${config.bairro}</xBairro>
-        <cMun>${config.cod_municipio_ibge}</cMun>
-        <xMun>${config.municipio}</xMun>
-        <UF>${config.uf}</UF>
-        <CEP>${config.cep}</CEP>
-      </enderEmit>
-      <IE>${config.inscricao_estadual}</IE>
-      <CRT>${config.regime_tributario}</CRT>
-    </emit>
-    ${customer_cpf ? `<dest><CPF>${customer_cpf.replace(/\D/g, '')}</CPF></dest>` : ''}
-    <total>
-      <ICMSTot>
-        <vProd>${sale.total_items_value.toFixed(2)}</vProd>
-        <vDesc>${sale.discount_value.toFixed(2)}</vDesc>
-        <vNF>${sale.total_value.toFixed(2)}</vNF>
-        <vTotTrib>${totalTributosAprox.toFixed(2)}</vTotTrib>
-      </ICMSTot>
-    </total>
-  </infNFe>
-  <protNFe versao="4.00">
-    <infProt>
-      <tpAmb>${tpAmb}</tpAmb>
-      <chNFe>${chaveAcesso}</chNFe>
-      <dhRecbto>${dhEmi}</dhRecbto>
-      <nProt>${protocolNumber}</nProt>
-      <cStat>100</cStat>
-      <xMotivo>Autorizado o uso da NF-e</xMotivo>
-    </infProt>
-  </protNFe>
-</NFe>`;
+  const temCertificado = Boolean(config.certificate_pfx_base64);
+
+  if (temCertificado) {
+    const certData = extrairDadosCertificadoA1(config.certificate_pfx_base64, config.certificate_password);
+
+    // Constrói XML oficial da NF-e (Modelo 65)
+    const xmlNfeCru = `<?xml version="1.0" encoding="UTF-8"?><NFe xmlns="http://www.portalfiscal.inf.br/nfe"><infNFe Id="NFe${chaveAcesso}" versao="4.00"><ide><cUF>${CODIGOS_UF[config.uf] || '31'}</cUF><cNF>${chaveAcesso.slice(35, 43)}</cNF><natOp>VENDA AO CONSUMIDOR</natOp><mod>65</mod><serie>${serie}</serie><nNF>${nNF}</nNF><dhEmi>${dhEmi}</dhEmi><tpNF>1</tpNF><idDest>1</idDest><cMunFG>${config.cod_municipio_ibge}</cMunFG><tpImp>4</tpImp><tpEmis>${tpEmis}</tpEmis><cDV>${chaveAcesso.slice(-1)}</cDV><tpAmb>${tpAmb}</tpAmb><finNFe>1</finNFe><indFinal>1</indFinal><indPres>1</indPres><procEmi>0</procEmi><verProc>Belinha_1.0</verProc>${tpEmis === '9' ? `<dhCont>${dhEmi}</dhCont><xJust>${finalContingencyReason || 'SEFAZ OFFLINE'}</xJust>` : ''}</ide><emit><CNPJ>${config.cnpj}</CNPJ><xNome>${config.razao_social}</xNome><xFant>${config.nome_fantasia}</xFant><enderEmit><xLgr>${config.logradouro}</xLgr><nro>${config.numero}</nro><xBairro>${config.bairro}</xBairro><cMun>${config.cod_municipio_ibge}</cMun><xMun>${config.municipio}</xMun><UF>${config.uf}</UF><CEP>${config.cep}</CEP></enderEmit><IE>${config.inscricao_estadual}</IE><CRT>${config.regime_tributario}</CRT></emit>${customer_cpf ? `<dest><CPF>${customer_cpf.replace(/\D/g, '')}</CPF><indIEDest>9</indIEDest></dest>` : ''}${itensFiscais.map(it => `
+<det nItem="${it.nItem}">
+  <prod>
+    <cProd>${it.code}</cProd>
+    <cEAN>${it.barcode && it.barcode.length >= 8 && it.barcode !== 'SEM GTIN' ? it.barcode : 'SEM GTIN'}</cEAN>
+    <xProd>${it.name.slice(0, 120)}</xProd>
+    <NCM>${it.ncm}</NCM>
+    <CFOP>${it.cfop}</CFOP>
+    <uCom>${it.uCom}</uCom>
+    <qCom>${Number(it.qCom).toFixed(4)}</qCom>
+    <vUnCom>${Number(it.vUnCom).toFixed(4)}</vUnCom>
+    <vProd>${Number(it.vProd).toFixed(2)}</vProd>
+    <cEANTrib>${it.barcode && it.barcode.length >= 8 && it.barcode !== 'SEM GTIN' ? it.barcode : 'SEM GTIN'}</cEANTrib>
+    <uTrib>${it.uCom}</uTrib>
+    <qTrib>${Number(it.qCom).toFixed(4)}</qTrib>
+    <vUnTrib>${Number(it.vUnCom).toFixed(4)}</vUnTrib>
+    <indTot>1</indTot>
+  </prod>
+  <imposto>
+    <vTotTrib>${Number(it.tributo_aprox).toFixed(2)}</vTotTrib>
+    <ICMS>
+      <ICMSSN102>
+        <orig>0</orig>
+        <CSOSN>102</CSOSN>
+      </ICMSSN102>
+    </ICMS>
+    <PIS><PISNT><CST>07</CST></PISNT></PIS>
+    <COFINS><COFINSNT><CST>07</CST></COFINSNT></COFINS>
+  </imposto>
+</det>`).join('')}<total><ICMSTot><vBC>0.00</vBC><vICMS>0.00</vICMS><vICMSDeson>0.00</vICMSDeson><vFCPUFDest>0.00</vFCPUFDest><vICMSUFDest>0.00</vICMSUFDest><vICMSUFRemet>0.00</vICMSUFRemet><vFCP>0.00</vFCP><vBCST>0.00</vBCST><vST>0.00</vST><vFCPST>0.00</vFCPST><vFCPSTRet>0.00</vFCPSTRet><vProd>${sale.total_items_value.toFixed(2)}</vProd><vFrete>0.00</vFrete><vSeg>0.00</vSeg><vDesc>${sale.discount_value.toFixed(2)}</vDesc><vII>0.00</vII><vIPI>0.00</vIPI><vIPIDevol>0.00</vIPIDevol><vPIS>0.00</vPIS><vCOFINS>0.00</vCOFINS><vOutro>0.00</vOutro><vNF>${sale.total_value.toFixed(2)}</vNF><vTotTrib>${totalTributosAprox.toFixed(2)}</vTotTrib></ICMSTot></total><transp><modFrete>9</modFrete></transp><pag>${payments.length > 0 ? payments.map(p => `<detPag><tPag>${mapearTipoPagamentoNfce(p.payment_method)}</tPag><vPag>${Number(p.amount).toFixed(2)}</vPag></detPag>`).join('') : `<detPag><tPag>01</tPag><vPag>${sale.total_value.toFixed(2)}</vPag></detPag>`}</pag><infAdic><infCpl>Trib aprox R$ ${totalTributosAprox.toFixed(2)} Fonte: IBPT. Venda PDV Belinha #${saleId}.</infCpl></infAdic></infNFe><infNFeSupl><qrCode><![CDATA[${qrCodeUrl}]]></qrCode><urlChave>http://nfce.fazenda.mg.gov.br/portalnfce/sistema/qrcode.xhtml</urlChave></infNFeSupl></NFe>`;
+
+    // Assina digitalmente o XML via XMLDSig (RSA-SHA1)
+    const xmlAssinado = assinarXmlNfe(xmlNfeCru, chaveAcesso, certData.privateKeyPem, certData.certificateClean);
+    xmlParaSalvar = xmlAssinado;
+
+    if (!contingency) {
+      // Tenta transmissão síncrona com a SEFAZ-MG
+      try {
+        const retornoSefaz = await transmitirNfceSefaz(
+          xmlAssinado,
+          certData.pfxBuffer,
+          config.certificate_password,
+          config.ambiente || 'homologacao'
+        );
+
+        if (retornoSefaz.success) {
+          finalStatus = 'EMITIDO';
+          finalProtocolNumber = retornoSefaz.nProt;
+          xmlParaSalvar = retornoSefaz.xmlDistribuicao || xmlAssinado;
+          console.log(`[Belinha Fiscal] ✅ NFC-e #${nNF} autorizada pela SEFAZ-MG! Protocolo: ${finalProtocolNumber}`);
+        } else {
+          throw new Error(`Rejeição SEFAZ [${retornoSefaz.cStat}]: ${retornoSefaz.xMotivo}`);
+        }
+      } catch (commsErr) {
+        if (commsErr.message && commsErr.message.startsWith('Rejeição SEFAZ')) {
+          throw commsErr;
+        }
+        console.warn(`[Belinha Fiscal] ⚠️ SEFAZ Offline ou Inacessível (${commsErr.message}). Emitindo em Contingência Offline (tpEmis=9)...`);
+        finalStatus = 'CONTINGENCIA';
+        finalContingencyReason = `Falha de conexão com SEFAZ: ${commsErr.message}`;
+        finalProtocolNumber = null;
+      }
+    }
+  } else {
+    // Modo Simulado (sem certificado A1 cadastrado)
+    finalProtocolNumber = `${tpAmb === '1' ? '131' : '231'}${now.getFullYear()}${String(Date.now()).slice(-9)}`;
+    xmlParaSalvar = `<?xml version="1.0" encoding="UTF-8"?><NFe xmlns="http://www.portalfiscal.inf.br/nfe"><infNFe Id="NFe${chaveAcesso}" versao="4.00"><ide><cUF>${CODIGOS_UF[config.uf] || '31'}</cUF><nNF>${nNF}</nNF><serie>${serie}</serie></ide></infNFe><protNFe versao="4.00"><infProt><chNFe>${chaveAcesso}</chNFe><nProt>${finalProtocolNumber}</nProt><cStat>100</cStat><xMotivo>Autorizado o uso da NF-e (Modo Simulado)</xMotivo></infProt></protNFe></NFe>`;
+  }
 
   // 8. Atualização Atômica no Banco de Dados
   const transaction = db.transaction(() => {
@@ -406,22 +426,22 @@ async function emitirCupomFiscal(saleId, options = {}) {
           contingency_reason = ?
       WHERE id = ?
     `).run(
-      contingency ? 'CONTINGENCIA' : 'EMITIDO',
+      finalStatus,
       nNF,
       serie,
       chaveAcesso,
-      protocolNumber,
+      finalProtocolNumber,
       qrCodeUrl,
       customer_cpf || sale.customer_cpf || null,
-      xmlContent,
-      contingency ? contingency_reason : null,
+      xmlParaSalvar,
+      finalContingencyReason,
       saleId
     );
   });
 
   transaction();
 
-  console.log(`[Belinha Fiscal] ✅ NFC-e #${nNF} (Série ${serie}) emitida com sucesso para a venda ${saleId}! Chave: ${chaveAcesso}`);
+  console.log(`[Belinha Fiscal] ✅ NFC-e #${nNF} (Série ${serie}) gravada com sucesso para a venda ${saleId}! Status: ${finalStatus}, Chave: ${chaveAcesso}`);
 
   return obterDanfeNfce(saleId, qrCodeBase64);
 }
@@ -563,6 +583,91 @@ function listarCuponsEmitidos({ limit = 50, offset = 0, search = '', status = ''
   return db.prepare(sql).all(...params);
 }
 
+/**
+ * Converte a forma de pagamento do PDV no código oficial da SEFAZ
+ */
+function mapearTipoPagamentoNfce(method) {
+  if (!method) return '99';
+  const m = String(method).toUpperCase();
+  if (m.includes('DINHEIRO')) return '01';
+  if (m.includes('PIX')) return '17';
+  if (m.includes('DEBITO') || m.includes('DÉBITO')) return '04';
+  if (m.includes('CREDITO') || m.includes('CRÉDITO')) return '03';
+  if (m.includes('CONVENIO') || m.includes('CONVÊNIO') || m.includes('CREDIARIO') || m.includes('CREDIÁRIO')) return '05';
+  return '99';
+}
+
+/**
+ * Consulta o status operacional do WebService da SEFAZ-MG com o Certificado Digital A1
+ */
+async function consultarStatusSefaz() {
+  initErpDatabase();
+  const config = db.prepare('SELECT * FROM fiscal_settings WHERE id = ?').get('primary');
+  if (!config || !config.certificate_pfx_base64) {
+    return {
+      success: false,
+      configured: false,
+      message: 'Certificado Digital A1 (.pfx) não configurado.'
+    };
+  }
+
+  let certData;
+  try {
+    certData = extrairDadosCertificadoA1(config.certificate_pfx_base64, config.certificate_password);
+  } catch (err) {
+    return {
+      success: false,
+      configured: true,
+      error: `Erro ao abrir certificado A1: ${err.message}`,
+      message: err.message
+    };
+  }
+
+  try {
+    const statusRes = await consultarStatusServicoSefaz(
+      certData.pfxBuffer,
+      config.certificate_password,
+      config.ambiente || 'homologacao',
+      config.uf || 'MG'
+    );
+
+    return {
+      success: true,
+      configured: true,
+      online: statusRes.online,
+      cStat: statusRes.cStat,
+      xMotivo: statusRes.xMotivo,
+      tempoRespostaMs: statusRes.tempoRespostaMs,
+      ambiente: statusRes.ambiente,
+      uf: config.uf || 'MG',
+      dhRecbto: statusRes.dhRecbto,
+      certificado: {
+        titular: certData.commonName,
+        cnpj: certData.cnpjTitular,
+        validFrom: certData.validFrom,
+        validTo: certData.validTo,
+        isExpired: certData.isExpired
+      }
+    };
+  } catch (err) {
+    return {
+      success: false,
+      configured: true,
+      online: false,
+      error: err.message,
+      message: `Falha ao conectar com SEFAZ: ${err.message}`,
+      ambiente: config.ambiente === 'producao' ? 'Produção' : 'Homologação',
+      certificado: {
+        titular: certData.commonName,
+        cnpj: certData.cnpjTitular,
+        validFrom: certData.validFrom,
+        validTo: certData.validTo,
+        isExpired: certData.isExpired
+      }
+    };
+  }
+}
+
 module.exports = {
   obterConfiguracoesFiscais,
   salvarConfiguracoesFiscais,
@@ -572,5 +677,7 @@ module.exports = {
   emitirCupomFiscal,
   obterDanfeNfce,
   cancelarCupomFiscal,
-  listarCuponsEmitidos
+  listarCuponsEmitidos,
+  mapearTipoPagamentoNfce,
+  consultarStatusSefaz
 };
