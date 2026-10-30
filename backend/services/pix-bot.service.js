@@ -19,16 +19,13 @@ class PixBotService {
    * Processa uma mensagem recebida do webhook
    */
   async processMessage(payload) {
-    const event = payload.event;
-    const data = payload.data;
+    const event = payload?.event;
+    const data = payload?.data;
+
+    if (!event || event.toLowerCase() !== 'messages.upsert' || !data || data.key?.fromMe) return;
 
     console.log(`[PixBot] 📥 Webhook recebido - Evento: "${event}", fromMe: ${data?.key?.fromMe}, temImagem: ${!!(data?.message?.imageMessage)}`);
-    console.log(`[PixBot] 🔍 Chaves do payload:`, Object.keys(payload));
-    console.log(`[PixBot] 🔍 Chaves do data:`, data ? Object.keys(data) : 'null');
-    console.log(`[PixBot] 🔍 Chaves do message:`, data?.message ? Object.keys(data.message) : 'null');
     console.log(`[PixBot] 🔍 messageType:`, data?.messageType || 'N/A');
-
-    if (!event || event.toLowerCase() !== 'messages.upsert' || !data || data.key.fromMe) return;
 
     const message = data.message;
     const remoteJid = data.key.remoteJid || '';
