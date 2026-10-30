@@ -597,6 +597,7 @@ const App: React.FC = () => {
       // initStartupPopups();
       // checkPendingTempPrint();
 
+
       return () => {
         events.forEach((event) => window.removeEventListener(event, reset));
         if (logoutTimerRef.current) clearTimeout(logoutTimerRef.current);

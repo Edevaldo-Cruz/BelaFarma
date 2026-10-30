@@ -5077,7 +5077,6 @@ app.get('/api/run-auto-shortages', async (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
 });
-
 try {
   app.listen(80, () => {
     console.log('[Server] 🌐 Servidor escutando também na porta 80 (compatibilidade com Cloudflare Tunnel)');
