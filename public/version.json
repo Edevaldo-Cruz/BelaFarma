@@ -1,9 +1,14 @@
 {
   "version": "1.2.0",
-  "commitHash": "73f4a34",
-  "commitMessage": "feat(erp): implementar modulo completo de entrada de notas fiscais (NF-e XML)",
-  "buildTime": "30/10/2026, 12:01:30",
+  "commitHash": "d61fd4a",
+  "commitMessage": "feat(erp): implementar modulo completo de emissao de cupom fiscal NFC-e Modelo 65 e DANFE termico com QR Code",
+  "buildTime": "30/10/2026, 12:53:45",
   "recentCommits": [
+    {
+      "hash": "d61fd4a",
+      "date": "30/10/2026",
+      "message": "feat(erp): implementar modulo completo de emissao de cupom fiscal NFC-e Modelo 65 e DANFE termico com QR Code"
+    },
     {
       "hash": "73f4a34",
       "date": "30/10/2026",
@@ -58,11 +63,6 @@
       "hash": "dd78660",
       "date": "29/10/2026",
       "message": "feat(pricing): script de populacao e organizacao das porcentagens para todos os 4017 produtos ativos da loja"
-    },
-    {
-      "hash": "0e1a898",
-      "date": "29/10/2026",
-      "message": "feat(pricing): script de reorganizacao proporcional das porcentagens de custo fixo (30%), pro-labore (16%) e lucro (2.5%)"
     }
   ]
 }

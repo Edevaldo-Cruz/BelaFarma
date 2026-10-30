@@ -225,14 +225,16 @@ router.post('/invoices/preview-xml', uploadXml.single('xmlFile'), (req, res) => 
     let xmlContent = '';
     if (req.file && req.file.buffer) {
       xmlContent = req.file.buffer.toString('utf-8');
+    } else if (req.body && req.body.xml) {
+      xmlContent = req.body.xml;
     } else if (req.body && req.body.xmlString) {
       xmlContent = req.body.xmlString;
     } else {
-      return res.status(400).json({ success: false, error: 'Envie um arquivo .xml ou o texto da NF-e no campo xmlString.' });
+      return res.status(400).json({ success: false, error: 'Envie um arquivo .xml ou o texto da NF-e no campo xml ou xmlString.' });
     }
 
     const preview = processarPreviewNfe(xmlContent);
-    res.json(preview);
+    res.json({ success: true, data: preview, ...preview });
   } catch (err) {
     res.status(400).json({ success: false, error: err.message });
   }
@@ -245,7 +247,7 @@ router.post('/invoices/confirm-import', (req, res) => {
       ...req.body,
       created_by: userName
     });
-    res.status(201).json(result);
+    res.status(201).json({ success: true, data: result, ...result });
   } catch (err) {
     res.status(400).json({ success: false, error: err.message });
   }

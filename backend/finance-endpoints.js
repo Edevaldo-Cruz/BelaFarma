@@ -199,64 +199,80 @@ module.exports = function (db) {
         ORDER BY ABERTURA DESC
       `;
 
-      // Executa as consultas de forma sequencial para evitar deadlocks/timeouts na conexão do Firebird
-      const vendasResult = await queryDigifarma(sqlVendas, [businessDayStart]);
-      const pagResult = await queryDigifarma(sqlPagamentos, [businessDayStart]);
-      const fundoCaixaResult = await queryDigifarma(sqlFundoCaixa, []);
+      const { obterVendasBelinhaLive } = require('./modules/erp/erp-sales.service');
+      const belinha = obterVendasBelinhaLive(businessDayStart);
 
-      let qtdVendas = 0;
-      if (vendasResult && vendasResult.length > 0) {
-        qtdVendas = vendasResult[0].QTD_VENDAS || 0;
-      }
+      let digiVendas = 0;
+      let digiFundoCaixa = 0;
+      let digiDinheiro = 0, digiCredit = 0, digiDebit = 0, digiPix = 0, digiCrediario = 0, digiOutros = 0;
+      let digiCrediarioList = [];
+      let digiOffline = false;
 
-      let fundoCaixa = 0;
-      if (fundoCaixaResult && fundoCaixaResult.length > 0) {
-        fundoCaixa = fundoCaixaResult[0].VALOR_ABERTURA || 0;
-      }
+      try {
+        // Executa as consultas de forma sequencial para evitar deadlocks/timeouts na conexão do Firebird
+        const vendasResult = await queryDigifarma(sqlVendas, [businessDayStart]);
+        const pagResult = await queryDigifarma(sqlPagamentos, [businessDayStart]);
+        const fundoCaixaResult = await queryDigifarma(sqlFundoCaixa, []);
 
-      let dinheiro = 0, credit = 0, debit = 0, pix = 0, crediario = 0, outros = 0;
+        if (vendasResult && vendasResult.length > 0) {
+          digiVendas = vendasResult[0].QTD_VENDAS || 0;
+        }
 
-      if (pagResult && pagResult.length > 0) {
-        for (const row of pagResult) {
-          const tipo = row.TIPO_PAGAMENTO_ID;
-          const bandeira = (row.BANDEIRA || '').toUpperCase();
-          const valor = row.TOTAL || 0;
+        if (fundoCaixaResult && fundoCaixaResult.length > 0) {
+          digiFundoCaixa = fundoCaixaResult[0].VALOR_ABERTURA || 0;
+        }
 
-          if (tipo === 1) {
-            dinheiro += valor;
-          } else if (tipo === 4) {
-            // Cartão: separar débito e crédito pela BANDEIRA
-            if (bandeira.includes('DEBITO')) {
-              debit += valor;
+        if (pagResult && pagResult.length > 0) {
+          for (const row of pagResult) {
+            const tipo = row.TIPO_PAGAMENTO_ID;
+            const bandeira = (row.BANDEIRA || '').toUpperCase();
+            const valor = row.TOTAL || 0;
+
+            if (tipo === 1) {
+              digiDinheiro += valor;
+            } else if (tipo === 4) {
+              if (bandeira.includes('DEBITO')) {
+                digiDebit += valor;
+              } else {
+                digiCredit += valor;
+              }
+            } else if (tipo === 5) {
+              digiCrediario += valor;
+            } else if (tipo === 8 || tipo === 15) {
+              digiPix += valor;
             } else {
-              credit += valor;
+              digiOutros += valor;
             }
-          } else if (tipo === 5) {
-            crediario += valor;
-          } else if (tipo === 8 || tipo === 15) {
-            pix += valor;
-          } else {
-            outros += valor;
           }
         }
+
+        // Buscar lista de crediários do dia no Digifarma
+        try {
+          const { listarCrediarioDoDia } = require('./services/crediario.service');
+          digiCrediarioList = await listarCrediarioDoDia(businessDayStart);
+        } catch (cErr) {
+          console.warn('[Finance] Erro ao buscar crediários do dia no Digifarma:', cErr.message);
+        }
+
+        if (digiCrediario === 0 && digiCrediarioList.length > 0) {
+          digiCrediario = digiCrediarioList.reduce((acc, item) => acc + (item.val || 0), 0);
+        }
+      } catch (fbErr) {
+        console.warn('[Finance] Digifarma offline ou inacessível no live-closing:', fbErr.message);
+        digiOffline = true;
       }
 
-      // O valor líquido real é a soma de todos os recebimentos reais de hoje
-      const totalSales = dinheiro + credit + debit + pix + crediario + outros;
-
-      // Buscar lista de crediários do dia no Digifarma
-      let crediarioList = [];
-      try {
-        const { listarCrediarioDoDia } = require('./services/crediario.service');
-        crediarioList = await listarCrediarioDoDia(businessDayStart);
-      } catch (cErr) {
-        console.warn('[Finance] Erro ao buscar crediários do dia no Digifarma:', cErr.message);
-      }
-
-      // Se não encontrou no pagResult mas há itens em crediarioList, soma o total
-      if (crediario === 0 && crediarioList.length > 0) {
-        crediario = crediarioList.reduce((acc, item) => acc + (item.val || 0), 0);
-      }
+      // Soma consolidada (Digifarma + Belinha PDV)
+      const dinheiro = Math.round((digiDinheiro + belinha.dinheiro) * 100) / 100;
+      const credit = Math.round((digiCredit + belinha.credit) * 100) / 100;
+      const debit = Math.round((digiDebit + belinha.debit) * 100) / 100;
+      const pix = Math.round((digiPix + belinha.pix) * 100) / 100;
+      const crediario = Math.round((digiCrediario + belinha.crediario) * 100) / 100;
+      const outros = Math.round((digiOutros + belinha.outros) * 100) / 100;
+      const crediarioList = [...digiCrediarioList, ...belinha.crediarioList];
+      const qtdVendas = digiVendas + belinha.qtdVendas;
+      const totalSales = Math.round((dinheiro + credit + debit + pix + crediario + outros) * 100) / 100;
+      const fundoCaixa = digiFundoCaixa;
 
       const payload = {
         totalSales,
@@ -268,7 +284,9 @@ module.exports = function (db) {
         crediarioList,
         outros,
         qtdVendas,
-        fundoCaixa
+        fundoCaixa,
+        digifarmaOffline: digiOffline,
+        belinhaSalesCount: belinha.qtdVendas
       };
 
       // Atualiza o cache e o timestamp do cache
@@ -277,18 +295,8 @@ module.exports = function (db) {
 
       res.json(payload);
     } catch (err) {
-      const mockPayload = {
-        totalSales: 1250.50,
-        dinheiro: 450.00,
-        credit: 350.00,
-        debit: 200.00,
-        pix: 250.50,
-        crediario: 0,
-        outros: 0,
-        qtdVendas: 35,
-        fundoCaixa: 250.00
-      };
-      return handleDigifarmaError(err, res, '/live-closing', mockPayload);
+      console.error('[Finance] Erro fatal no live-closing:', err);
+      res.status(500).json({ error: err.message });
     }
   });
 
