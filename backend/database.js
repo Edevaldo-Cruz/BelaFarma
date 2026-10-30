@@ -2974,6 +2974,14 @@ try {
 
   createTables();
 
+  // Garantir que todos os produtos da loja obedeçam às porcentagens estabelecidas
+  try {
+    const { sincronizarPorcentagensProdutos } = require('./services/pricing-customizations.service');
+    sincronizarPorcentagensProdutos(db, { apenasFaltantes: true, atualizadoPor: 'Startup Check' });
+  } catch (errSyncPricing) {
+    console.warn('Aviso ao sincronizar porcentagens iniciais de precificação:', errSyncPricing.message);
+  }
+
 } catch (err) {
   console.error('Erro ao conectar ou configurar o banco de dados:', err.message);
   // Se houver um erro na conexão, o `db` pode não ser exportado ou ser `undefined`

@@ -1,6 +1,7 @@
 const { queryDigifarma } = require('./digifarma.service');
 const db = require('../database');
 const crypto = require('crypto');
+const { calcularPrecoSugeridoMarkup, calcularPorcentagensProduto } = require('./pricing-customizations.service');
 
 /**
  * Formata número para 2 casas decimais
@@ -125,6 +126,7 @@ async function buscarRelatorioEntradas({ dias = 30, dataInicio, dataFim, notaFis
           p.PRODUTO,
           p.APRESENTACAO,
           p.COD_BARRAS,
+          p.CATEGORIA_ID,
           p.PROD_PRVENDA,
           p.PROD_PRPROMOCAO,
           i.ITEM_NOTAS_QUANT,
@@ -191,7 +193,59 @@ async function buscarRelatorioEntradas({ dias = 30, dataInicio, dataFim, notaFis
             precoVendaSugerido = round2(precoVendaAtual * (1 + variacaoPercentual / 100));
           }
         } else if (custoAtual > 0) {
-          precoVendaSugerido = round2(custoAtual * 1.5); // Fallback padrão 50%
+          // Preço sugerido formado pelo Markup Divisor com base nas porcentagens estabelecidas da BelaFarma
+          precoVendaSugerido = calcularPrecoSugeridoMarkup(custoAtual, item.CATEGORIA_ID || 0);
+        }
+
+        // Garante que o produto que deu entrada na loja obedeça às porcentagens estabelecidas
+        const precoReferencia = precoVendaAtual > 0 ? precoVendaAtual : precoVendaSugerido;
+        if (precoReferencia > 0 && custoAtual > 0 && db) {
+          try {
+            const perc = calcularPorcentagensProduto(precoReferencia, custoAtual, item.CATEGORIA_ID || 0);
+            db.prepare(`
+              INSERT INTO product_pricing_customizations (
+                produto_id, descricao, cod_barras, cmv, imposto_pct, taxa_cartao_pct, custos_variaveis_pct,
+                custo_fixo_pct, pro_labore_1_pct, pro_labore_2_pct, pro_labore_total_pct, margem_liquida_pct,
+                preco_venda, preco_anterior, markup_divisor, markup_multiplicador, categoria_preset, categoria_nome,
+                estoque, atualizado_por, atualizado_em
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Entrada de Nota Fiscal', datetime('now', 'localtime'))
+              ON CONFLICT(produto_id) DO UPDATE SET
+                cmv = excluded.cmv,
+                imposto_pct = excluded.imposto_pct,
+                taxa_cartao_pct = excluded.taxa_cartao_pct,
+                custos_variaveis_pct = excluded.custos_variaveis_pct,
+                custo_fixo_pct = excluded.custo_fixo_pct,
+                pro_labore_1_pct = excluded.pro_labore_1_pct,
+                pro_labore_2_pct = excluded.pro_labore_2_pct,
+                pro_labore_total_pct = excluded.pro_labore_total_pct,
+                margem_liquida_pct = excluded.margem_liquida_pct,
+                preco_venda = excluded.preco_venda,
+                markup_divisor = excluded.markup_divisor,
+                markup_multiplicador = excluded.markup_multiplicador,
+                atualizado_por = 'Entrada de Nota Fiscal',
+                atualizado_em = datetime('now', 'localtime')
+            `).run(
+              item.PRODUTO_ID,
+              produtoNome,
+              (item.COD_BARRAS || '').trim(),
+              custoAtual,
+              perc.impostoPct,
+              perc.taxaCartaoPct,
+              perc.custosVarPct,
+              perc.custoFixoPct,
+              perc.proLabore1Pct,
+              perc.proLabore2Pct,
+              perc.proLaboreTotalPct,
+              perc.margemLiquidaPct,
+              precoReferencia,
+              precoReferencia,
+              perc.markupDivisor,
+              perc.markupMultiplicador,
+              perc.categoriaPreset,
+              perc.categoriaNome,
+              item.ITEM_NOTAS_QUANT || 0
+            );
+          } catch (ePpc) {}
         }
 
         // Margem nova se mantiver o preço de venda atual com o novo custo

@@ -4343,6 +4343,14 @@ async function sincronizarUltimasComprasDigifarma(dbInstance, options = {}) {
     console.warn('[Sync Últimas Compras] Aviso: Falha ao recalcular ofertas:', err.message);
   }
 
+  // Assegura que todos os produtos com novas compras obedeçam às porcentagens estabelecidas
+  try {
+    const { sincronizarPorcentagensProdutos } = require('./pricing-customizations.service');
+    sincronizarPorcentagensProdutos(db, { apenasFaltantes: false, atualizadoPor: 'Sync Últimas Compras' });
+  } catch (errSyncPricing) {
+    console.warn('[Sync Últimas Compras] Aviso ao sincronizar porcentagens com product_pricing_customizations:', errSyncPricing.message);
+  }
+
   return {
     success: true,
     firebirdConectado,

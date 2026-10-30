@@ -993,6 +993,14 @@ async function recalcularTodosEstoqueMinimo(margemSegurancaPercent = 15, options
     console.warn('[Compras Estoque] Aviso ao sincronizar digifarma_products_cache:', eSyncCache.message);
   }
 
+  // Sincronizar automaticamente as porcentagens estabelecidas para todos os produtos ativos que entraram ou atualizaram
+  try {
+    const { sincronizarPorcentagensProdutos } = require('./pricing-customizations.service');
+    sincronizarPorcentagensProdutos(db, { apenasFaltantes: false, atualizadoPor: 'Sincronização ERP Digifarma' });
+  } catch (errPricingSync) {
+    console.warn('[Compras Estoque] Aviso ao sincronizar porcentagens com product_pricing_customizations:', errPricingSync.message);
+  }
+
   let sincronizados = 0;
   if (options.autoSyncDigifarma && listaParaSync.length > 0 && !fromCacheFallback) {
     const resSync = await sincronizarLoteEstoqueMinimoDigifarma(listaParaSync);

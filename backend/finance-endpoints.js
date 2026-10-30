@@ -6,6 +6,7 @@ const {
   analisarRelatorioDigifarma
 } = require('./services/finance-agent.service');
 const { queryDigifarma } = require('./services/digifarma.service');
+const { calcularPorcentagensProduto } = require('./services/pricing-customizations.service');
 
 // Configuração de upload recebendo via memória/disco
 // Para preservar a leitura segura por FS, salvar numa temp dir segura
@@ -1077,11 +1078,49 @@ module.exports = function (db) {
         const unitDiscount = Math.max(0, refPrice - parseFloat(r.ITEMVEND_PRVENDA || 0));
         const totalDiscount = unitDiscount * qtd;
 
-        const pPct = cust ? (cust.pro_labore_total_pct || 12) : 12;
-        const s1Pct = cust ? (cust.pro_labore_1_pct || (pPct / 2)) : 6;
-        const s2Pct = cust ? (cust.pro_labore_2_pct || (pPct / 2)) : 6;
-        const lPct = cust ? (cust.margem_liquida_pct || 1) : 1;
-        const iPct = cust ? (cust.imposto_pct || 4) : 4;
+        let pPct = 16.0;
+        let s1Pct = 8.0;
+        let s2Pct = 8.0;
+        let lPct = 2.5;
+        let iPct = 4.0;
+
+        if (cust) {
+          pPct = cust.pro_labore_total_pct || 16.0;
+          s1Pct = cust.pro_labore_1_pct || (pPct / 2);
+          s2Pct = cust.pro_labore_2_pct || (pPct / 2);
+          lPct = cust.margem_liquida_pct !== undefined ? cust.margem_liquida_pct : 2.5;
+          iPct = cust.imposto_pct || 4.0;
+        } else if (refPrice > 0 && db) {
+          try {
+            const cacheRow = db.prepare('SELECT custo_unitario, ultima_compra_valor, categoria_id, ean FROM compras_estoque_cache WHERE produto_id = ?').get(r.PRODUTO_ID);
+            const cmvCalc = cacheRow ? (cacheRow.custo_unitario || cacheRow.ultima_compra_valor || 0) : 0;
+            const catIdCalc = cacheRow ? (cacheRow.categoria_id || 0) : 0;
+            const perc = calcularPorcentagensProduto(refPrice, cmvCalc, catIdCalc);
+            pPct = perc.proLaboreTotalPct;
+            s1Pct = perc.proLabore1Pct;
+            s2Pct = perc.proLabore2Pct;
+            lPct = perc.margemLiquidaPct;
+            iPct = perc.impostoPct;
+
+            customMap.set(r.PRODUTO_ID, {
+              produto_id: r.PRODUTO_ID,
+              descricao: r.NOME_PRODUTO,
+              cod_barras: cacheRow?.ean || '',
+              cmv: cmvCalc,
+              imposto_pct: iPct,
+              taxa_cartao_pct: perc.taxaCartaoPct,
+              custos_variaveis_pct: perc.custosVarPct,
+              custo_fixo_pct: perc.custoFixoPct,
+              pro_labore_1_pct: s1Pct,
+              pro_labore_2_pct: s2Pct,
+              pro_labore_total_pct: pPct,
+              margem_liquida_pct: lPct,
+              preco_venda: refPrice,
+              markup_divisor: perc.markupDivisor,
+              markup_multiplicador: perc.markupMultiplicador
+            });
+          } catch (eCalc) {}
+        }
 
         const iVal = salesVal * (iPct / 100);
         let lVal = salesVal * (lPct / 100);
@@ -1202,11 +1241,49 @@ module.exports = function (db) {
           const unitDiscount = Math.max(0, refPrice - unitPrice);
           const totalDiscount = unitDiscount * qtd;
 
-          const pPct = cust ? (cust.pro_labore_total_pct || 12) : 12;
-          const s1Pct = cust ? (cust.pro_labore_1_pct || (pPct / 2)) : 6;
-          const s2Pct = cust ? (cust.pro_labore_2_pct || (pPct / 2)) : 6;
-          const lPct = cust ? (cust.margem_liquida_pct || 1) : 1;
-          const iPct = cust ? (cust.imposto_pct || 4) : 4;
+          let pPct = 16.0;
+          let s1Pct = 8.0;
+          let s2Pct = 8.0;
+          let lPct = 2.5;
+          let iPct = 4.0;
+
+          if (cust) {
+            pPct = cust.pro_labore_total_pct || 16.0;
+            s1Pct = cust.pro_labore_1_pct || (pPct / 2);
+            s2Pct = cust.pro_labore_2_pct || (pPct / 2);
+            lPct = cust.margem_liquida_pct !== undefined ? cust.margem_liquida_pct : 2.5;
+            iPct = cust.imposto_pct || 4.0;
+          } else if (refPrice > 0 && db) {
+            try {
+              const cacheRow = db.prepare('SELECT custo_unitario, ultima_compra_valor, categoria_id, ean FROM compras_estoque_cache WHERE produto_id = ?').get(am.PRODUTO_ID);
+              const cmvCalc = cacheRow ? (cacheRow.custo_unitario || cacheRow.ultima_compra_valor || 0) : 0;
+              const catIdCalc = cacheRow ? (cacheRow.categoria_id || 0) : 0;
+              const perc = calcularPorcentagensProduto(refPrice, cmvCalc, catIdCalc);
+              pPct = perc.proLaboreTotalPct;
+              s1Pct = perc.proLabore1Pct;
+              s2Pct = perc.proLabore2Pct;
+              lPct = perc.margemLiquidaPct;
+              iPct = perc.impostoPct;
+
+              customMap.set(am.PRODUTO_ID, {
+                produto_id: am.PRODUTO_ID,
+                descricao: r?.NOME_PRODUTO || '',
+                cod_barras: cacheRow?.ean || '',
+                cmv: cmvCalc,
+                imposto_pct: iPct,
+                taxa_cartao_pct: perc.taxaCartaoPct,
+                custos_variaveis_pct: perc.custosVarPct,
+                custo_fixo_pct: perc.custoFixoPct,
+                pro_labore_1_pct: s1Pct,
+                pro_labore_2_pct: s2Pct,
+                pro_labore_total_pct: pPct,
+                margem_liquida_pct: lPct,
+                preco_venda: refPrice,
+                markup_divisor: perc.markupDivisor,
+                markup_multiplicador: perc.markupMultiplicador
+              });
+            } catch (eCalc) {}
+          }
 
           const iVal = valPago * (iPct / 100);
           let lVal = valPago * (lPct / 100);
