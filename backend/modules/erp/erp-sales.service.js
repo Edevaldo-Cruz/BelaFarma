@@ -6,30 +6,45 @@
 const { db } = require('./erp-database');
 
 /**
- * Lista vendas com filtros rápidos
+ * Lista vendas com filtros rápidos por data, status e forma de pagamento
  */
-function listarVendas({ dataInicio, dataFim, status, limit = 50, offset = 0 } = {}) {
+function listarVendas({ dataInicio, dataFim, status, paymentMethod, limit = 100, offset = 0 } = {}) {
   let where = '1=1';
   const params = [];
 
   if (dataInicio && dataFim) {
-    where += ' AND sale_date BETWEEN ? AND ?';
+    where += ' AND s.sale_date BETWEEN ? AND ?';
     params.push(dataInicio, dataFim);
   } else if (dataInicio) {
-    where += ' AND sale_date >= ?';
+    where += ' AND s.sale_date = ?';
     params.push(dataInicio);
   }
 
-  if (status) {
-    where += ' AND status = ?';
+  if (status && status !== 'TODOS') {
+    where += ' AND s.status = ?';
     params.push(status);
+  }
+
+  if (paymentMethod && paymentMethod !== 'TODOS') {
+    const pm = paymentMethod.toUpperCase();
+    if (pm === 'CARTAO_DEBITO' || pm === 'DEBITO') {
+      where += " AND EXISTS (SELECT 1 FROM sale_payments sp WHERE sp.sale_id = s.id AND (UPPER(sp.payment_method) LIKE '%DEBITO%' OR UPPER(sp.payment_method) LIKE '%DÉBITO%'))";
+    } else if (pm === 'CARTAO_CREDITO' || pm === 'CREDITO') {
+      where += " AND EXISTS (SELECT 1 FROM sale_payments sp WHERE sp.sale_id = s.id AND (UPPER(sp.payment_method) LIKE '%CREDITO%' OR UPPER(sp.payment_method) LIKE '%CRÉDITO%'))";
+    } else if (pm === 'CREDIARIO' || pm === 'CONVENIO') {
+      where += " AND EXISTS (SELECT 1 FROM sale_payments sp WHERE sp.sale_id = s.id AND (UPPER(sp.payment_method) LIKE '%CREDIARIO%' OR UPPER(sp.payment_method) LIKE '%CREDIÁRIO%' OR UPPER(sp.payment_method) LIKE '%CONVENIO%' OR UPPER(sp.payment_method) LIKE '%CONVÊNIO%'))";
+    } else {
+      where += " AND EXISTS (SELECT 1 FROM sale_payments sp WHERE sp.sale_id = s.id AND UPPER(sp.payment_method) = ?)";
+      params.push(pm);
+    }
   }
 
   const sql = `
     SELECT 
       s.*,
       (SELECT COUNT(*) FROM sale_items WHERE sale_id = s.id) as total_items,
-      (SELECT GROUP_CONCAT(payment_method, ', ') FROM sale_payments WHERE sale_id = s.id) as payment_methods
+      (SELECT GROUP_CONCAT(payment_method, ', ') FROM sale_payments WHERE sale_id = s.id) as payment_methods,
+      (SELECT json_group_array(json_object('method', payment_method, 'amount', amount, 'card_brand', card_brand)) FROM sale_payments WHERE sale_id = s.id) as payments_json
     FROM sales s
     WHERE ${where}
     ORDER BY s.sale_date DESC, s.sale_time DESC
@@ -37,7 +52,22 @@ function listarVendas({ dataInicio, dataFim, status, limit = 50, offset = 0 } = 
   `;
 
   params.push(limit, offset);
-  return db.prepare(sql).all(...params);
+  const rows = db.prepare(sql).all(...params);
+
+  return rows.map(r => {
+    let paymentsParsed = [];
+    try {
+      if (r.payments_json) {
+        paymentsParsed = JSON.parse(r.payments_json);
+      }
+    } catch (e) {
+      paymentsParsed = [];
+    }
+    return {
+      ...r,
+      payments: paymentsParsed
+    };
+  });
 }
 
 /**
@@ -99,10 +129,19 @@ function obterResumoCaixaDoDia(dataRef) {
 
   for (const p of pagamentos) {
     const m = (p.payment_method || '').toUpperCase();
-    if (pagamentosMap.hasOwnProperty(m)) {
-      pagamentosMap[m] = p.total_valor;
+    const val = parseFloat(p.total_valor) || 0;
+    if (m === 'DINHEIRO') {
+      pagamentosMap.DINHEIRO += val;
+    } else if (m === 'CARTAO_DEBITO' || m.includes('DEBITO') || m.includes('DÉBITO')) {
+      pagamentosMap.CARTAO_DEBITO += val;
+    } else if (m === 'CARTAO_CREDITO' || m.includes('CREDITO') || m.includes('CRÉDITO')) {
+      pagamentosMap.CARTAO_CREDITO += val;
+    } else if (m === 'PIX') {
+      pagamentosMap.PIX += val;
+    } else if (m === 'CREDIARIO' || m === 'CREDIÁRIO' || m.includes('CONVENIO') || m.includes('CONVÊNIO')) {
+      pagamentosMap.CREDIARIO += val;
     } else {
-      pagamentosMap.OUTROS += p.total_valor;
+      pagamentosMap.OUTROS += val;
     }
   }
 

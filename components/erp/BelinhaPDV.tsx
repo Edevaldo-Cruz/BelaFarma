@@ -20,7 +20,8 @@ import {
   DollarSign,
   ShieldCheck,
   RotateCcw,
-  History
+  History,
+  Receipt
 } from 'lucide-react';
 import { useToast } from '../ToastContext';
 import { DanfeNfceModal } from './DanfeNfceModal';
@@ -62,7 +63,11 @@ interface CustomerOption {
   phone: string;
 }
 
-export const BelinhaPDV: React.FC = () => {
+interface BelinhaPDVProps {
+  onNavigate?: (view: any) => void;
+}
+
+export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
   const { addToast } = useToast();
 
   // Estados do Carrinho
@@ -530,6 +535,17 @@ export const BelinhaPDV: React.FC = () => {
             <Printer className={`w-3.5 h-3.5 ${autoPrintCupom ? 'text-emerald-600' : 'text-slate-400'}`} />
             <span>MP-4200: {autoPrintCupom ? 'Auto ON' : 'Manual'}</span>
           </button>
+
+          {onNavigate && (
+            <button
+              onClick={() => onNavigate('erp-vendas')}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-xs font-bold transition-all shadow-sm"
+              title="Abrir Guia de Vendas do Dia e Conferência"
+            >
+              <Receipt className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+              <span>Vendas do Dia</span>
+            </button>
+          )}
 
           <button
             onClick={() => setIsFiscalSettingsOpen(true)}

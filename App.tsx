@@ -1319,7 +1319,7 @@ const App: React.FC = () => {
                 />
               )}
               {currentView === "belinha-pdv" && (
-                <BelinhaPDV />
+                <BelinhaPDV onNavigate={handleNavigate} />
               )}
               {currentView === "erp-vendas" && (
                 <SalesHistory />

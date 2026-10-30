@@ -157,15 +157,25 @@ router.post('/pos/cancel/:id', (req, res) => {
 // ==========================================
 router.get('/sales', (req, res) => {
   try {
-    const { dataInicio, dataFim, status, limit, offset } = req.query;
+    const { dataInicio, dataFim, status, paymentMethod, limit, offset } = req.query;
     const vendas = listarVendas({
       dataInicio,
       dataFim,
       status,
-      limit: parseInt(limit, 10) || 50,
+      paymentMethod,
+      limit: parseInt(limit, 10) || 150,
       offset: parseInt(offset, 10) || 0
     });
-    res.json({ success: true, count: vendas.length, data: vendas });
+
+    const dateRef = dataInicio || dataFim || new Date().toISOString().split('T')[0];
+    const resumo = obterResumoCaixaDoDia(dateRef);
+
+    res.json({
+      success: true,
+      count: vendas.length,
+      data: vendas,
+      resumo
+    });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }

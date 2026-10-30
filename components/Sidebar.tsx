@@ -265,7 +265,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'belinha-pdv', label: 'Belinha PDV', icon: DollarSign },
-    { id: 'erp-vendas', label: 'Vendas do Caixa', icon: Receipt },
+    { id: 'erp-vendas', label: 'Vendas do Dia', icon: Receipt },
     { id: 'erp-produtos', label: 'Estoque ERP', icon: Package },
     { id: 'erp-nfe', label: 'Entrada NF-e', icon: FileSpreadsheet },
     { id: 'anvisa-alerts', label: 'Alertas ANVISA', icon: ShieldAlert },
@@ -405,7 +405,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
 
   // Fixa itens prioritários estratégicos logo no topo após o Dashboard
-  const priorityTopIds = ['promocoes-whatsapp', 'belaped', 'belinha-pdv'];
+  const priorityTopIds = ['promocoes-whatsapp', 'belaped', 'belinha-pdv', 'erp-vendas'];
   const topItems = priorityTopIds
     .map(id => filteredMenuItems.find(i => i.id === id))
     .filter(Boolean) as typeof menuItems;

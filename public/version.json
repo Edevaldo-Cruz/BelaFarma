@@ -1,9 +1,19 @@
 {
   "version": "1.2.0",
-  "commitHash": "f547534",
-  "commitMessage": "feat(pdv): impressao termica isolada 80mm para Bematech MP-4200 TH com suporte a kiosk-printing",
-  "buildTime": "30/10/2026, 16:36:00",
+  "commitHash": "b01d223",
+  "commitMessage": "fix(webhook): descarte imediato de eventos nao mensagens para manter backend estavel e leve",
+  "buildTime": "30/10/2026, 19:39:41",
   "recentCommits": [
+    {
+      "hash": "b01d223",
+      "date": "30/10/2026",
+      "message": "fix(webhook): descarte imediato de eventos nao mensagens para manter backend estavel e leve"
+    },
+    {
+      "hash": "6a03e57",
+      "date": "30/10/2026",
+      "message": "fix(pdv): tipografia encorpada sem falhas na Bematech e script dedicado para terminal Caixa"
+    },
     {
       "hash": "f547534",
       "date": "30/10/2026",
@@ -53,16 +63,6 @@
       "hash": "2b09dae",
       "date": "30/10/2026",
       "message": "feat(erp): tela de catalogo e estoque nativo do Belinha ERP com ajuste rapido de precos e saldo"
-    },
-    {
-      "hash": "ea12cbf",
-      "date": "30/10/2026",
-      "message": "feat(erp): implantacao do Belinha ERP independente com PDV, Clean Schema e migracao"
-    },
-    {
-      "hash": "7ebb7a5",
-      "date": "30/10/2026",
-      "message": "feat(evolution): suporte ao Evolution API v2 no Raspberry Pi 5 e ajuste no watcher"
     }
   ]
 }
