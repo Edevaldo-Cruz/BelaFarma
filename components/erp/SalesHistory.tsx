@@ -13,9 +13,12 @@ import {
   TrendingUp, 
   RefreshCw,
   X,
-  CreditCard
+  CreditCard,
+  ShieldCheck,
+  Printer
 } from 'lucide-react';
 import { useToast } from '../ToastContext';
+import { DanfeNfceModal } from './DanfeNfceModal';
 
 interface SaleSummary {
   id: string;
@@ -30,6 +33,10 @@ interface SaleSummary {
   total_items: number;
   payment_methods: string;
   cancellation_reason?: string;
+  fiscal_status?: string;
+  nfe_number?: number;
+  nfe_series?: number;
+  access_key?: string;
 }
 
 export const SalesHistory: React.FC = () => {
@@ -43,6 +50,10 @@ export const SalesHistory: React.FC = () => {
   // Detalhes da Venda
   const [activeSaleDetail, setActiveSaleDetail] = useState<any | null>(null);
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
+
+  // Fiscal
+  const [activeDanfeModal, setActiveDanfeModal] = useState<any | null>(null);
+  const [isEmittingFiscal, setIsEmittingFiscal] = useState<string | null>(null);
 
   // Modal de Cancelamento
   const [saleToCancel, setSaleToCancel] = useState<SaleSummary | null>(null);
@@ -109,6 +120,45 @@ export const SalesHistory: React.FC = () => {
       addToast('Erro de comunicação ao cancelar venda.', 'error');
     } finally {
       setIsCancelling(false);
+    }
+  };
+
+  // Abrir DANFE NFC-e com QR Code
+  const handleImprimirDanfe = async (saleId: string) => {
+    try {
+      const res = await fetch(`/api/erp/fiscal/danfe/${encodeURIComponent(saleId)}`);
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setActiveDanfeModal(data);
+      } else {
+        addToast(data.error || 'Não foi possível carregar o cupom fiscal.', 'error');
+      }
+    } catch (err) {
+      addToast('Erro ao carregar DANFE NFC-e.', 'error');
+    }
+  };
+
+  // Emitir Cupom Fiscal para venda que não foi emitida
+  const handleEmitirNfce = async (saleId: string) => {
+    setIsEmittingFiscal(saleId);
+    try {
+      const res = await fetch(`/api/erp/fiscal/emit/${encodeURIComponent(saleId)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        addToast(`NFC-e #${data.nfe_number} emitida com sucesso!`, 'success');
+        setActiveDanfeModal(data);
+        fetchSales();
+      } else {
+        addToast(data.error || 'Erro ao emitir NFC-e.', 'error');
+      }
+    } catch (err) {
+      addToast('Erro ao comunicar com o emissor fiscal.', 'error');
+    } finally {
+      setIsEmittingFiscal(null);
     }
   };
 
@@ -234,13 +284,14 @@ export const SalesHistory: React.FC = () => {
                 <th className="py-3 px-4 whitespace-nowrap">Formas de Pagto</th>
                 <th className="py-3 px-4 text-right whitespace-nowrap">Total</th>
                 <th className="py-3 px-4 text-center whitespace-nowrap">Status</th>
+                <th className="py-3 px-4 text-center whitespace-nowrap">Cupom Fiscal</th>
                 <th className="py-3 px-4 text-center whitespace-nowrap">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {filteredSales.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="py-8 text-center text-slate-400 text-xs font-bold">
+                  <td colSpan={10} className="py-8 text-center text-slate-400 text-xs font-bold">
                     Nenhuma venda encontrada para esta data.
                   </td>
                 </tr>
@@ -281,7 +332,28 @@ export const SalesHistory: React.FC = () => {
                         </span>
                       </td>
                       <td className="py-3 px-4 text-center whitespace-nowrap">
-                        <div className="flex items-center justify-center gap-2">
+                        {s.fiscal_status === 'EMITIDO' ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-500 border border-emerald-500/30">
+                            <ShieldCheck className="w-3 h-3" />
+                            NFC-e #{s.nfe_number}
+                          </span>
+                        ) : s.fiscal_status === 'CONTINGENCIA' ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                            <ShieldCheck className="w-3 h-3" />
+                            Contingência #{s.nfe_number}
+                          </span>
+                        ) : s.fiscal_status === 'CANCELADO' ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-red-500/15 text-red-400 border border-red-500/30">
+                            NFC-e Cancelada
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-slate-400 font-medium">
+                            Não Emitido
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4 text-center whitespace-nowrap">
+                        <div className="flex items-center justify-center gap-1.5">
                           <button
                             onClick={() => handleOpenDetail(s.id)}
                             className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-300"
@@ -289,6 +361,34 @@ export const SalesHistory: React.FC = () => {
                           >
                             <Eye className="w-3.5 h-3.5" />
                           </button>
+
+                          {/* Botão Imprimir DANFE se emitido */}
+                          {(s.fiscal_status === 'EMITIDO' || s.fiscal_status === 'CONTINGENCIA') && (
+                            <button
+                              onClick={() => handleImprimirDanfe(s.id)}
+                              className="p-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 text-emerald-600 dark:text-emerald-400"
+                              title="Imprimir DANFE NFC-e com QR Code"
+                            >
+                              <Printer className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+
+                          {/* Botão Emitir NFC-e se concluída e não emitida */}
+                          {isConcluida && (!s.fiscal_status || s.fiscal_status === 'NAO_EMITIDO') && (
+                            <button
+                              onClick={() => handleEmitirNfce(s.id)}
+                              disabled={isEmittingFiscal === s.id}
+                              className="p-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 text-emerald-600 dark:text-emerald-400"
+                              title="Emitir Cupom Fiscal (NFC-e)"
+                            >
+                              {isEmittingFiscal === s.id ? (
+                                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                <ShieldCheck className="w-3.5 h-3.5" />
+                              )}
+                            </button>
+                          )}
+
                           {isConcluida && (
                             <button
                               onClick={() => setSaleToCancel(s)}
@@ -402,6 +502,14 @@ export const SalesHistory: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* 6. MODAL: DANFE NFC-e COM QR CODE */}
+      {activeDanfeModal && (
+        <DanfeNfceModal
+          danfe={activeDanfeModal}
+          onClose={() => setActiveDanfeModal(null)}
+        />
       )}
     </div>
   );

@@ -70,12 +70,25 @@ function initErpDatabase() {
     if (!sCols.includes('created_at')) db.prepare(`ALTER TABLE sales ADD COLUMN created_at TEXT`).run();
     if (!sCols.includes('cancelled_at')) db.prepare(`ALTER TABLE sales ADD COLUMN cancelled_at TEXT`).run();
     if (!sCols.includes('cancellation_reason')) db.prepare(`ALTER TABLE sales ADD COLUMN cancellation_reason TEXT`).run();
+    
+    // Colunas fiscais (NFC-e Modelo 65)
+    if (!sCols.includes('fiscal_status')) db.prepare(`ALTER TABLE sales ADD COLUMN fiscal_status TEXT DEFAULT 'NAO_EMITIDO'`).run();
+    if (!sCols.includes('nfe_number')) db.prepare(`ALTER TABLE sales ADD COLUMN nfe_number INTEGER`).run();
+    if (!sCols.includes('nfe_series')) db.prepare(`ALTER TABLE sales ADD COLUMN nfe_series INTEGER DEFAULT 1`).run();
+    if (!sCols.includes('access_key')) db.prepare(`ALTER TABLE sales ADD COLUMN access_key TEXT`).run();
+    if (!sCols.includes('protocol_number')) db.prepare(`ALTER TABLE sales ADD COLUMN protocol_number TEXT`).run();
+    if (!sCols.includes('qr_code_url')) db.prepare(`ALTER TABLE sales ADD COLUMN qr_code_url TEXT`).run();
+    if (!sCols.includes('customer_cpf')) db.prepare(`ALTER TABLE sales ADD COLUMN customer_cpf TEXT`).run();
+    if (!sCols.includes('issued_at')) db.prepare(`ALTER TABLE sales ADD COLUMN issued_at TEXT`).run();
+    if (!sCols.includes('xml_content')) db.prepare(`ALTER TABLE sales ADD COLUMN xml_content TEXT`).run();
+    if (!sCols.includes('contingency_reason')) db.prepare(`ALTER TABLE sales ADD COLUMN contingency_reason TEXT`).run();
   } catch (err) {
     console.warn('[Belinha ERP DB] Aviso ao verificar colunas sales:', err.message);
   }
 
   db.prepare(`CREATE INDEX IF NOT EXISTS idx_sales_date ON sales (sale_date)`).run();
   db.prepare(`CREATE INDEX IF NOT EXISTS idx_sales_status ON sales (status)`).run();
+  db.prepare(`CREATE INDEX IF NOT EXISTS idx_sales_fiscal ON sales (fiscal_status)`).run();
   db.prepare(`CREATE INDEX IF NOT EXISTS idx_sales_customer ON sales (customer_id)`).run();
 
   // 3. Itens da Venda
@@ -159,6 +172,43 @@ function initErpDatabase() {
       summary TEXT
     )
   `).run();
+
+  // 7. Tabela de Parâmetros Fiscais (NFC-e & Certificado Digital A1)
+  db.prepare(`
+    CREATE TABLE IF NOT EXISTS fiscal_settings (
+      id TEXT PRIMARY KEY DEFAULT 'primary',
+      cnpj TEXT DEFAULT '47378578000140',
+      razao_social TEXT DEFAULT 'BELA FARMA SUL LTDA',
+      nome_fantasia TEXT DEFAULT 'DROGARIA BELA FARMA',
+      inscricao_estadual TEXT DEFAULT '0041234560089',
+      logradouro TEXT DEFAULT 'RUA PREVIDENCIARIOS',
+      numero TEXT DEFAULT '100',
+      bairro TEXT DEFAULT 'PREVIDENCIARIOS',
+      municipio TEXT DEFAULT 'JUIZ DE FORA',
+      cod_municipio_ibge TEXT DEFAULT '3136702',
+      uf TEXT DEFAULT 'MG',
+      cep TEXT DEFAULT '36033000',
+      regime_tributario INTEGER DEFAULT 1, -- 1=Simples Nacional, 3=Regime Normal
+      ambiente TEXT DEFAULT 'homologacao', -- 'homologacao' | 'producao'
+      nfe_series INTEGER DEFAULT 1,
+      next_nfe_number INTEGER DEFAULT 1,
+      csc TEXT DEFAULT '1234567890ABCDEF1234567890ABCDEF',
+      id_csc TEXT DEFAULT '000001',
+      certificate_pfx_base64 TEXT,
+      certificate_password TEXT,
+      certificate_expiry TEXT,
+      updated_at TEXT DEFAULT (datetime('now', 'localtime'))
+    )
+  `).run();
+
+  // Garante um registro padrão em fiscal_settings se estiver vazia
+  const existingFiscal = db.prepare('SELECT id FROM fiscal_settings WHERE id = ?').get('primary');
+  if (!existingFiscal) {
+    db.prepare(`
+      INSERT INTO fiscal_settings (id, cnpj, razao_social, nome_fantasia, uf, cod_municipio_ibge, ambiente, nfe_series, next_nfe_number)
+      VALUES ('primary', '47378578000140', 'BELA FARMA SUL LTDA', 'DROGARIA BELA FARMA', 'MG', '3136702', 'homologacao', 1, 1)
+    `).run();
+  }
 
   console.log('[Belinha ERP DB] ✅ Schema limpo do ERP verificado e pronto!');
   return true;

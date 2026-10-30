@@ -1,9 +1,14 @@
 {
   "version": "1.2.0",
-  "commitHash": "2b09dae",
-  "commitMessage": "feat(erp): tela de catalogo e estoque nativo do Belinha ERP com ajuste rapido de precos e saldo",
-  "buildTime": "30/10/2026, 11:28:02",
+  "commitHash": "73f4a34",
+  "commitMessage": "feat(erp): implementar modulo completo de entrada de notas fiscais (NF-e XML)",
+  "buildTime": "30/10/2026, 12:01:30",
   "recentCommits": [
+    {
+      "hash": "73f4a34",
+      "date": "30/10/2026",
+      "message": "feat(erp): implementar modulo completo de entrada de notas fiscais (NF-e XML)"
+    },
     {
       "hash": "2b09dae",
       "date": "30/10/2026",
@@ -58,11 +63,6 @@
       "hash": "0e1a898",
       "date": "29/10/2026",
       "message": "feat(pricing): script de reorganizacao proporcional das porcentagens de custo fixo (30%), pro-labore (16%) e lucro (2.5%)"
-    },
-    {
-      "hash": "d3a31ea",
-      "date": "27/10/2026",
-      "message": "perf(backend): otimizacao de recursos em baileys-compras, qr loop e fila sequencial belaped"
     }
   ]
 }

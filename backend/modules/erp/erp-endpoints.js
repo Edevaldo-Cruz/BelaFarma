@@ -41,6 +41,15 @@ const {
   obterNotaDetalhada
 } = require('./erp-nfe-inbound.service');
 
+const {
+  obterConfiguracoesFiscais,
+  salvarConfiguracoesFiscais,
+  emitirCupomFiscal,
+  obterDanfeNfce,
+  cancelarCupomFiscal,
+  listarCuponsEmitidos
+} = require('./erp-fiscal.service');
+
 // ==========================================
 // 1. ROTAS DE PRODUTOS & ESTOQUE
 // ==========================================
@@ -263,6 +272,82 @@ router.get('/invoices/:id', (req, res) => {
       return res.status(404).json({ success: false, error: 'Nota fiscal não encontrada.' });
     }
     res.json({ success: true, data: nota });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ==========================================
+// 6. ROTAS FISCAIS (EMISSÃO DE CUPOM FISCAL NFC-e)
+// ==========================================
+
+// Obtém configurações fiscais da farmácia
+router.get('/fiscal/settings', (req, res) => {
+  try {
+    const config = obterConfiguracoesFiscais();
+    res.json({ success: true, data: config });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Atualiza configurações fiscais e Certificado Digital A1
+router.post('/fiscal/settings', (req, res) => {
+  try {
+    const config = salvarConfiguracoesFiscais(req.body);
+    res.json({ success: true, data: config });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// Emite cupom fiscal (NFC-e Modelo 65) para uma venda
+router.post('/fiscal/emit/:saleId', async (req, res) => {
+  try {
+    const { customer_cpf, contingency, contingency_reason } = req.body;
+    const danfe = await emitirCupomFiscal(req.params.saleId, {
+      customer_cpf,
+      contingency,
+      contingency_reason
+    });
+    res.json(danfe);
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// Obtém os dados completos do DANFE NFC-e com QR Code para impressão térmica
+router.get('/fiscal/danfe/:saleId', async (req, res) => {
+  try {
+    const danfe = await obterDanfeNfce(req.params.saleId);
+    res.json(danfe);
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// Cancela NFC-e emitida
+router.post('/fiscal/cancel/:saleId', (req, res) => {
+  try {
+    const { motivo } = req.body;
+    const resultado = cancelarCupomFiscal(req.params.saleId, motivo);
+    res.json(resultado);
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// Lista cupons fiscais emitidos
+router.get('/fiscal/cupons', (req, res) => {
+  try {
+    const { limit, offset, search, status } = req.query;
+    const cupons = listarCuponsEmitidos({
+      limit: parseInt(limit, 10) || 50,
+      offset: parseInt(offset, 10) || 0,
+      search,
+      status
+    });
+    res.json({ success: true, count: cupons.length, data: cupons });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }

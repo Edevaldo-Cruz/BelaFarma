@@ -17,9 +17,12 @@ import {
   RefreshCw,
   Clock,
   User,
-  DollarSign
+  DollarSign,
+  ShieldCheck
 } from 'lucide-react';
 import { useToast } from '../ToastContext';
+import { DanfeNfceModal } from './DanfeNfceModal';
+import { FiscalSettingsModal } from './FiscalSettingsModal';
 
 interface CartItem {
   code: string;
@@ -80,8 +83,12 @@ export const BelinhaPDV: React.FC = () => {
   const [customersList, setCustomersList] = useState<CustomerOption[]>([]);
   const [customerSearch, setCustomerSearch] = useState('');
 
-  // Cupom Concluído
+  // Cupom Concluído e Fiscal
   const [completedSale, setCompletedSale] = useState<any | null>(null);
+  const [customerCpf, setCustomerCpf] = useState<string>('');
+  const [emitNfce, setEmitNfce] = useState<boolean>(true);
+  const [activeDanfeModal, setActiveDanfeModal] = useState<any | null>(null);
+  const [isFiscalSettingsOpen, setIsFiscalSettingsOpen] = useState<boolean>(false);
 
   // Refs de Foco
   const barcodeInputRef = useRef<HTMLInputElement>(null);
@@ -359,7 +366,30 @@ export const BelinhaPDV: React.FC = () => {
         setSelectedCustomer(null);
         setIsPaymentOpen(false);
 
-        addToast('Venda finalizada com sucesso!', 'success');
+        // Se solicitado, emite o Cupom Fiscal NFC-e imediatamente
+        if (emitNfce) {
+          try {
+            const fiscalRes = await fetch(`/api/erp/fiscal/emit/${encodeURIComponent(json.sale_id)}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ customer_cpf: customerCpf || null })
+            });
+            const fiscalData = await fiscalRes.json();
+            if (fiscalRes.ok && fiscalData.success) {
+              setActiveDanfeModal(fiscalData);
+              addToast(`NFC-e #${fiscalData.nfe_number} emitida com sucesso!`, 'success');
+            } else {
+              addToast(`Venda salva, mas a emissão fiscal retornou: ${fiscalData.error || 'Erro'}`, 'warning');
+            }
+          } catch (fiscalErr) {
+            console.error('Erro ao emitir NFC-e automática:', fiscalErr);
+            addToast('Venda salva! Emissão fiscal pode ser feita no Histórico.', 'info');
+          }
+        } else {
+          addToast('Venda finalizada com sucesso!', 'success');
+        }
+
+        setCustomerCpf('');
       } else {
         addToast(json.error || 'Erro ao registrar venda.', 'error');
       }
@@ -403,6 +433,15 @@ export const BelinhaPDV: React.FC = () => {
             <kbd className="px-1.5 py-0.5 rounded bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-[10px] font-black">F2</kbd>
             <Search className="w-3.5 h-3.5" />
             Buscar Produto
+          </button>
+
+          <button
+            onClick={() => setIsFiscalSettingsOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-bold transition-all shadow-sm"
+            title="Configurações Fiscais e Certificado Digital A1"
+          >
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
+            Config. Fiscal
           </button>
 
           <button
@@ -848,6 +887,39 @@ export const BelinhaPDV: React.FC = () => {
               )}
             </div>
 
+            {/* SEÇÃO FISCAL: CPF NA NOTA E EMISSÃO DE NFC-e */}
+            <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-2xl p-3 mb-4 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4 text-emerald-500" />
+                  Cupom Fiscal (NFC-e)
+                </span>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={emitNfce}
+                    onChange={(e) => setEmitNfce(e.target.checked)}
+                    className="w-4 h-4 text-emerald-600 rounded border-slate-300 dark:border-slate-700 focus:ring-emerald-500"
+                  />
+                  <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+                    Emitir NFC-e
+                  </span>
+                </label>
+              </div>
+
+              {emitNfce && (
+                <div>
+                  <input
+                    type="text"
+                    value={customerCpf}
+                    onChange={(e) => setCustomerCpf(e.target.value)}
+                    placeholder="CPF do Consumidor (Opcional - Ex: 123.456.789-00)"
+                    className="w-full px-3 py-1.5 text-xs font-mono rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+              )}
+            </div>
+
             {/* BOTÃO CONFIRMAR FINALIZAÇÃO */}
             <button
               onClick={handleConfirmCheckout}
@@ -933,6 +1005,28 @@ export const BelinhaPDV: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* 6. MODAL: DANFE NFC-e COM QR CODE SEFAZ */}
+      {activeDanfeModal && (
+        <DanfeNfceModal
+          danfe={activeDanfeModal}
+          onClose={() => {
+            setActiveDanfeModal(null);
+            focusBarcodeInput();
+          }}
+        />
+      )}
+
+      {/* 7. MODAL: CONFIGURAÇÕES FISCAIS & CERTIFICADO A1 */}
+      {isFiscalSettingsOpen && (
+        <FiscalSettingsModal
+          isOpen={isFiscalSettingsOpen}
+          onClose={() => {
+            setIsFiscalSettingsOpen(false);
+            focusBarcodeInput();
+          }}
+        />
       )}
     </div>
   );
