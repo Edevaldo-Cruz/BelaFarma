@@ -1,9 +1,14 @@
 {
   "version": "1.2.0",
-  "commitHash": "4341e45",
-  "commitMessage": "fix(erp): corrigir comunicacao xml nf-e e consolidar vendas do belinha pdv no fechamento de caixa",
-  "buildTime": "30/10/2026, 13:19:32",
+  "commitHash": "515e7a5",
+  "commitMessage": "feat(fiscal): implementar emissao direta de NFC-e na SEFAZ-MG com assinatura XMLDSig e contingencia automatica",
+  "buildTime": "30/10/2026, 15:24:05",
   "recentCommits": [
+    {
+      "hash": "515e7a5",
+      "date": "30/10/2026",
+      "message": "feat(fiscal): implementar emissao direta de NFC-e na SEFAZ-MG com assinatura XMLDSig e contingencia automatica"
+    },
     {
       "hash": "4341e45",
       "date": "30/10/2026",
@@ -58,11 +63,6 @@
       "hash": "a6f7847",
       "date": "30/10/2026",
       "message": "feat(belaped): atualizacoes de promocoes whatsapp, compras e rotinas gerais"
-    },
-    {
-      "hash": "e8f4025",
-      "date": "30/10/2026",
-      "message": "fix(watcher): guardiao de recursos, auto-correcao e correcao de vazamento no robot hympar"
     }
   ]
 }

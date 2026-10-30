@@ -1,6 +1,68 @@
 {
-  "version": "1.1.0",
-  "commitHash": "6e5c80e",
-  "commitMessage": "feat(belaped): otimizacao espaco tabela expandida, integracao livro de faltas balcao belinha, fonte plus jakarta sans e trava anti-auto-cotacao",
-  "buildTime": "13/10/2026, 10:58:09"
+  "version": "1.2.0",
+  "commitHash": "515e7a5",
+  "commitMessage": "feat(fiscal): implementar emissao direta de NFC-e na SEFAZ-MG com assinatura XMLDSig e contingencia automatica",
+  "buildTime": "30/10/2026, 15:24:05",
+  "recentCommits": [
+    {
+      "hash": "515e7a5",
+      "date": "30/10/2026",
+      "message": "feat(fiscal): implementar emissao direta de NFC-e na SEFAZ-MG com assinatura XMLDSig e contingencia automatica"
+    },
+    {
+      "hash": "4341e45",
+      "date": "30/10/2026",
+      "message": "fix(erp): corrigir comunicacao xml nf-e e consolidar vendas do belinha pdv no fechamento de caixa"
+    },
+    {
+      "hash": "d61fd4a",
+      "date": "30/10/2026",
+      "message": "feat(erp): implementar modulo completo de emissao de cupom fiscal NFC-e Modelo 65 e DANFE termico com QR Code"
+    },
+    {
+      "hash": "73f4a34",
+      "date": "30/10/2026",
+      "message": "feat(erp): implementar modulo completo de entrada de notas fiscais (NF-e XML)"
+    },
+    {
+      "hash": "2b09dae",
+      "date": "30/10/2026",
+      "message": "feat(erp): tela de catalogo e estoque nativo do Belinha ERP com ajuste rapido de precos e saldo"
+    },
+    {
+      "hash": "ea12cbf",
+      "date": "30/10/2026",
+      "message": "feat(erp): implantacao do Belinha ERP independente com PDV, Clean Schema e migracao"
+    },
+    {
+      "hash": "7ebb7a5",
+      "date": "30/10/2026",
+      "message": "feat(evolution): suporte ao Evolution API v2 no Raspberry Pi 5 e ajuste no watcher"
+    },
+    {
+      "hash": "0076a09",
+      "date": "30/10/2026",
+      "message": "feat(ux): desativar popups iniciais, tela dedicada de promocao whatsapp e correcao do botao limpeza"
+    },
+    {
+      "hash": "d4b16a7",
+      "date": "30/10/2026",
+      "message": "feat(pricing): garantir que todos os produtos que entrarem na loja obedeçam às porcentagens estabelecidas"
+    },
+    {
+      "hash": "4095262",
+      "date": "30/10/2026",
+      "message": "feat(cartao): implementar Cartao BelaFarma Private Label com NFC, termos juridicos no WhatsApp, limites e controle de inadimplencia"
+    },
+    {
+      "hash": "72d77e0",
+      "date": "30/10/2026",
+      "message": "merge: reconciliar main local com origin/main mantendo correcoes do vigilante e belaped"
+    },
+    {
+      "hash": "a6f7847",
+      "date": "30/10/2026",
+      "message": "feat(belaped): atualizacoes de promocoes whatsapp, compras e rotinas gerais"
+    }
+  ]
 }

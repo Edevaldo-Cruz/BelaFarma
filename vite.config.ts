@@ -27,22 +27,26 @@ try {
 const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8'));
 const appVersion = pkg.version || '1.2.0';
 
-// Grava arquivo public/version.json para auditoria e checagem remota
+// Grava arquivo public/version.json e backend/public/version.json para auditoria e checagem remota
 try {
+  const versionPayload = JSON.stringify({
+    version: appVersion,
+    commitHash,
+    commitMessage,
+    buildTime,
+    recentCommits
+  }, null, 2);
+
   const publicDir = path.resolve(__dirname, 'public');
   if (!fs.existsSync(publicDir)) fs.mkdirSync(publicDir, { recursive: true });
-  fs.writeFileSync(
-    path.join(publicDir, 'version.json'),
-    JSON.stringify({
-      version: appVersion,
-      commitHash,
-      commitMessage,
-      buildTime,
-      recentCommits
-    }, null, 2)
-  );
+  fs.writeFileSync(path.join(publicDir, 'version.json'), versionPayload);
+
+  const backendPublicDir = path.resolve(__dirname, 'backend/public');
+  if (fs.existsSync(backendPublicDir)) {
+    fs.writeFileSync(path.join(backendPublicDir, 'version.json'), versionPayload);
+  }
 } catch (e) {
-  console.warn('Falha ao gerar public/version.json:', e);
+  console.warn('Falha ao gerar version.json:', e);
 }
 
 export default defineConfig(({ mode }) => {
