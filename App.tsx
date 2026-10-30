@@ -71,6 +71,8 @@ import { LiquidacaoCaixa } from "./components/LiquidacaoCaixa";
 import { VitrineSplash } from "./components/vitrine/VitrineSplash";
 import { VitrineAniversario } from "./components/vitrine/VitrineAniversario";
 import { isPublicVitrineRoute } from "./components/vitrine/vitrineTypes";
+import { BelinhaPDV } from "./components/erp/BelinhaPDV";
+import { SalesHistory } from "./components/erp/SalesHistory";
 
 
 import {
@@ -1313,6 +1315,12 @@ const App: React.FC = () => {
                   onUpdateBoletos={handleUpdateBoletos}
                   isMobile={isMobile}
                 />
+              )}
+              {currentView === "belinha-pdv" && (
+                <BelinhaPDV />
+              )}
+              {currentView === "erp-vendas" && (
+                <SalesHistory />
               )}
               {currentView === "central-compras" && user.role === UserRole.ADM && (
                 <CentralCompras

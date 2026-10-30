@@ -4627,6 +4627,11 @@ const muralObj = muralEndpointsModule(db);
 app.use('/api/mural', muralObj.router);
 console.log('📌 Módulo Mural de Pendências e Produtos Parados 90d+ inicializado.');
 
+// Belinha ERP - Frente de Caixa (PDV), Produtos, Estoque e Vendas Nativas
+const erpEndpoints = require('./modules/erp/erp-endpoints.js');
+app.use('/api/erp', erpEndpoints);
+console.log('🏪 Belinha ERP Nativo inicializado em /api/erp (PDV, Estoque e Vendas).');
+
 // Rotina matinal diária para gerar lista de produtos parados nos dias úteis (roda a cada 1 hora para checar)
 setInterval(async () => {
   try {

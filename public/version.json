@@ -1,9 +1,19 @@
 {
   "version": "1.2.0",
-  "commitHash": "d4b16a7",
-  "commitMessage": "feat(pricing): garantir que todos os produtos que entrarem na loja obedeçam às porcentagens estabelecidas",
-  "buildTime": "30/10/2026, 10:06:58",
+  "commitHash": "7ebb7a5",
+  "commitMessage": "feat(evolution): suporte ao Evolution API v2 no Raspberry Pi 5 e ajuste no watcher",
+  "buildTime": "30/10/2026, 10:55:39",
   "recentCommits": [
+    {
+      "hash": "7ebb7a5",
+      "date": "30/10/2026",
+      "message": "feat(evolution): suporte ao Evolution API v2 no Raspberry Pi 5 e ajuste no watcher"
+    },
+    {
+      "hash": "0076a09",
+      "date": "30/10/2026",
+      "message": "feat(ux): desativar popups iniciais, tela dedicada de promocao whatsapp e correcao do botao limpeza"
+    },
     {
       "hash": "d4b16a7",
       "date": "30/10/2026",
@@ -53,16 +63,6 @@
       "hash": "967d2e4",
       "date": "26/10/2026",
       "message": "feat(belinha-compras): especialista autonoma de compras, pipeline multimodal e integracao radar BelaPed"
-    },
-    {
-      "hash": "084aeb6",
-      "date": "26/10/2026",
-      "message": "fix(price-manager): corrige atualizacao de precos no Firebird e SQLite"
-    },
-    {
-      "hash": "cacf91f",
-      "date": "26/10/2026",
-      "message": "feat(perf): desativar robo de status do whatsapp e otimizar concorrencia"
     }
   ]
 }
