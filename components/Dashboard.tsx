@@ -213,9 +213,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   
   const [statusModalOrder, setStatusModalOrder] = React.useState<Order | null>(null);
 
-  const [showGoalPopup, setShowGoalPopup] = React.useState(() => {
-    return !sessionStorage.getItem('hasSeenGoalPopup');
-  });
+  const [showGoalPopup, setShowGoalPopup] = React.useState(false);
 
   const handleCloseGoalPopup = () => {
     sessionStorage.setItem('hasSeenGoalPopup', 'true');

@@ -76,12 +76,14 @@ import { BelaPedConcorrentesModal } from './BelaPedConcorrentesModal';
 import BelaPedDecisaoTab from './BelaPedDecisaoTab';
 import BelaPedCotacoesMatrizTab from './BelaPedCotacoesMatrizTab';
 import { BelaPedPesquisaPrecosTab } from './BelaPedPesquisaPrecosTab';
+import BelaPedPromocoesWhatsappTab from './BelaPedPromocoesWhatsappTab';
 import { VersionModal } from '../VersionModal';
 
 interface BelaPedPortalProps {
   user: User;
   theme: 'light' | 'dark';
   onNavigate?: (view: any) => void;
+  initialTab?: 'pesquisa_precos' | 'decisao' | 'oportunidades' | 'promocoes_whatsapp' | 'cotacoes_matriz' | 'faltas' | 'cotacao' | 'orcamento' | 'relatorios' | 'pedidos' | 'simulador';
 }
 
 interface FaltaItem7d {
@@ -209,14 +211,21 @@ interface MesOrcamento {
 export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
   user,
   theme,
-  onNavigate
+  onNavigate,
+  initialTab
 }) => {
   const { addToast } = useToast();
   
   // Abas de Navegação do BelaPed (Decisão de Compras como aba inicial prioritária)
-  const [activeTab, setActiveTab] = useState<'pesquisa_precos' | 'decisao' | 'oportunidades' | 'promocoes_whatsapp' | 'cotacoes_matriz' | 'faltas' | 'cotacao' | 'orcamento' | 'relatorios' | 'pedidos' | 'simulador'>('decisao');
+  const [activeTab, setActiveTab] = useState<'pesquisa_precos' | 'decisao' | 'oportunidades' | 'promocoes_whatsapp' | 'cotacoes_matriz' | 'faltas' | 'cotacao' | 'orcamento' | 'relatorios' | 'pedidos' | 'simulador'>(initialTab || 'decisao');
   const [produtoSimuladorId, setProdutoSimuladorId] = useState<number | null>(null);
   const [versionModalOpen, setVersionModalOpen] = useState(false);
+
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
 
   // Estados de Dados
   const [loading, setLoading] = useState(true);
@@ -3944,6 +3953,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
   // Lista unificada de Módulos para Navegação Desktop e Mobile
   const modulosNav = useMemo(() => [
     { id: 'decisao' as const, label: '🎯 Orçamento Semanal & Decisão', shortLabel: 'Orçamento & Decisão', icon: <Sparkles className="w-4 h-4 text-amber-400" />, badge: itensPendentesDecisaoCount },
+    { id: 'promocoes_whatsapp' as const, label: '📱 Promoção WhatsApp', shortLabel: 'Promoção WhatsApp', icon: <MessageSquare className="w-4 h-4 text-purple-400" />, badge: 0 },
     { id: 'oportunidades' as const, label: '🔥 Oportunidades de Compra', shortLabel: 'Oportunidades', icon: <TrendingDown className="w-4 h-4 text-emerald-400" />, badge: totalOportunidadesCount },
     { id: 'cotacoes_matriz' as const, label: '📊 Tabela de Cotações', shortLabel: 'Cotações', icon: <Table className="w-4 h-4 text-emerald-400" />, badge: 0 },
     { id: 'faltas' as const, label: '1. Extrema Necessidade', shortLabel: 'Extrema Necessidade', icon: <AlertTriangle className="w-4 h-4 text-amber-400" />, badge: faltas.length },
@@ -4481,8 +4491,8 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
           />
         )}
 
-        {/* ─── ABA 0: ORÇAMENTO SEMANAL & DECISÃO DE COMPRAS (GRADE, CARROSSEL, OPORTUNIDADES E PROMOÇÃO WHATSAPP) ─── */}
-        {(activeTab === 'decisao' || activeTab === 'oportunidades' || activeTab === 'promocoes_whatsapp') && (
+        {/* ─── ABA 0: ORÇAMENTO SEMANAL & DECISÃO DE COMPRAS (GRADE, CARROSSEL E OPORTUNIDADES) ─── */}
+        {(activeTab === 'decisao' || activeTab === 'oportunidades') && (
           <BelaPedDecisaoTab
             faltas={faltas}
             portais={portais}
@@ -4497,8 +4507,28 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
             orcamentoInfo={orcamentoInfo}
             janelaAlvoSelecionada={janelaAlvoSelecionada}
             setJanelaAlvoSelecionada={handleMudarJanelaAlvo}
-            abaInicial={activeTab === 'oportunidades' ? 'oportunidades' : activeTab === 'promocoes_whatsapp' ? 'promocoes_whatsapp' : 'pedido_semana'}
+            abaInicial={activeTab === 'oportunidades' ? 'oportunidades' : 'pedido_semana'}
           />
+        )}
+
+        {/* ─── ABA: PROMOÇÃO WHATSAPP (RADAR DE OFERTAS MINERADAS — TELA DEDICADA) ─── */}
+        {activeTab === 'promocoes_whatsapp' && (
+          <div className="flex-1 flex flex-col overflow-y-auto custom-scrollbar p-3 sm:p-4 max-w-7xl mx-auto w-full">
+            <BelaPedPromocoesWhatsappTab
+              onAdicionarAoCarrinho={(item) => {
+                setModalCarrinho({
+                  aberto: true,
+                  distribuidora: item.distribuidora || 'Distribuidora',
+                  ean: item.ean || '',
+                  descricao: item.produto_nome,
+                  quantidade: item.comprar_suprir_semana > 0 ? Math.ceil(item.comprar_suprir_semana) : 1,
+                  preco: item.preco_ofertado,
+                  precoUlt: item.preco_ult_compra,
+                  enviando: false
+                });
+              }}
+            />
+          </div>
         )}
 
         {/* ─── ABA: TABELA & MATRIZ GERAL DE COTAÇÕES (TODOS OS PORTAIS) ────── */}

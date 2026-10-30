@@ -1,9 +1,19 @@
 {
   "version": "1.2.0",
-  "commitHash": "72d77e0",
-  "commitMessage": "merge: reconciliar main local com origin/main mantendo correcoes do vigilante e belaped",
-  "buildTime": "30/10/2026, 09:38:40",
+  "commitHash": "d4b16a7",
+  "commitMessage": "feat(pricing): garantir que todos os produtos que entrarem na loja obedeçam às porcentagens estabelecidas",
+  "buildTime": "30/10/2026, 10:06:58",
   "recentCommits": [
+    {
+      "hash": "d4b16a7",
+      "date": "30/10/2026",
+      "message": "feat(pricing): garantir que todos os produtos que entrarem na loja obedeçam às porcentagens estabelecidas"
+    },
+    {
+      "hash": "4095262",
+      "date": "30/10/2026",
+      "message": "feat(cartao): implementar Cartao BelaFarma Private Label com NFC, termos juridicos no WhatsApp, limites e controle de inadimplencia"
+    },
     {
       "hash": "72d77e0",
       "date": "30/10/2026",
@@ -53,16 +63,6 @@
       "hash": "cacf91f",
       "date": "26/10/2026",
       "message": "feat(perf): desativar robo de status do whatsapp e otimizar concorrencia"
-    },
-    {
-      "hash": "9e1ce0a",
-      "date": "26/10/2026",
-      "message": "fix(perf): otimizar loops de reconexao, deduplicar incidentes e implementar rotacao de logs"
-    },
-    {
-      "hash": "e5661ac",
-      "date": "26/10/2026",
-      "message": "fix(belaped): corrige import de TrendingDown e implementa Radar de Segmentos com IA Gemini"
     }
   ]
 }

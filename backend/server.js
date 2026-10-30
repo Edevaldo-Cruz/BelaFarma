@@ -5092,6 +5092,22 @@ try {
   });
 } catch (_) {}
 
+// 🌐 TÚNEL CLOUDFLARE AUTOMÁTICO (app.drogariabelafarma.com.br)
+try {
+  const bridgePath = path.join(__dirname, '../cloudflare-bridge.cjs');
+  if (fs.existsSync(bridgePath)) {
+    const { spawn } = require('child_process');
+    console.log('[Cloudflare Tunnel] 🚀 Iniciando ponte do túnel Cloudflare...');
+    const bridgeProc = spawn(process.execPath, [bridgePath], {
+      detached: true,
+      stdio: 'ignore'
+    });
+    bridgeProc.unref();
+  }
+} catch (e) {
+  console.warn('[Cloudflare Tunnel] ⚠️ Falha ao inicializar ponte Cloudflare:', e.message);
+}
+
 // 🍔 VIGIA DE PEDIDOS IFOOD VIA NAPP SOLUTIONS
 try {
   const { startNappOrdersWatcher } = require('./services/napp-orders-watcher.service.js');

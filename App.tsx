@@ -1248,7 +1248,7 @@ const App: React.FC = () => {
     );
   }
 
-  if (currentView === "belaped" && user.role === UserRole.ADM) {
+  if ((currentView === "belaped" || currentView === "promocoes-whatsapp") && user.role === UserRole.ADM) {
     return (
       <div className="h-screen w-screen overflow-hidden flex flex-col bg-[#070b14]">
         <PwaUpdater />
@@ -1256,6 +1256,7 @@ const App: React.FC = () => {
           user={user}
           theme={theme}
           onNavigate={handleNavigate}
+          initialTab={currentView === "promocoes-whatsapp" ? "promocoes_whatsapp" : undefined}
         />
       </div>
     );

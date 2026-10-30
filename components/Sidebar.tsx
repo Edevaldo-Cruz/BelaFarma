@@ -265,6 +265,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'anvisa-alerts', label: 'Alertas ANVISA', icon: ShieldAlert },
     { id: 'logs', label: 'Auditoria', icon: History },
     { id: 'belaped', label: 'BelaPed Compras', icon: ShoppingBag },
+    { id: 'promocoes-whatsapp', label: 'Promoção WhatsApp', icon: MessageSquare },
     { id: 'central-compras', label: 'Central de Compras', icon: ShoppingBag },
     { id: 'reposicao-tabela', label: 'Análise Reposição', icon: TableProperties },
     { id: 'customers', label: 'Clientes', icon: UsersIcon },
@@ -417,7 +418,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const selectedForUninstallIds = visibleAbandonedIds.filter(id => checkedAbandonedIds[id] !== false);
   const keptFromAbandonedIds = visibleAbandonedIds.filter(id => checkedAbandonedIds[id] === false);
-  const showCleanupCheckboxes = isAdmin && (isAuditModeActive || Boolean(auditReport?.isPeriodCompleted));
+  const showCleanupCheckboxes = isAdmin && isAuditModeActive;
 
   // Logic for task creator notifications (Operator asked for help)
   const taskAttentionNotifications = tasks.filter(task => 

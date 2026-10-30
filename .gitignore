@@ -74,3 +74,5 @@ scratch/
 cloudflared.exe
 cloudflare-credentials.json
 cloudflare-config.yml
+tunnel-config.yml
+tunnel-creds.json

@@ -1,79 +1,50 @@
+/**
+ * cloudflare-bridge.cjs
+ * Ponte resiliente do Cloudflare Tunnel para Windows.
+ * 
+ * Funcionalidade:
+ * 1. Sobe um proxy HTTP local em 127.0.0.1:8088 que redireciona qualquer requisi??o
+ *    de origem (ex: nginx-proxy-manager) diretamente para o backend na porta 3001.
+ * 2. Suporta WebSockets (upgrade) para notifica??es em tempo real.
+ * 3. Inicia o cloudflared.exe com HTTP_PROXY configurado para o proxy local.
+ * 4. Monitora e reinicia o processo automaticamente se cair.
+ */
+
 const http = require('http');
-const dgram = require('dgram');
+const net = require('net');
 const { spawn } = require('child_process');
 const path = require('path');
+const fs = require('fs');
 
 const TUNNEL_TOKEN = 'eyJhIjoiMjZkOTNmYzJjZDY3YWEzZTU3YzEwZjE2ZDMyOWRmZjMiLCJ0IjoiNzY3ZWFmZWYtYTMzYy00ZWQyLTg2NzgtYWZlNDBmYWVkOGNmIiwicyI6Ik5UaGhOVFUyT0dFdE4yTTFZaTAwT0RrNExXSmhNbVF0WVRZME5tSTJNakJqT0dJNSJ9';
-const DNS_PORT = 1053;
-const PROXY_PORT = 80;
+const PROXY_PORT = 8088;
 const TARGET_PORT = 3001;
 
-// 1. Servidor DNS Local (Resolve nginx-proxy-manager -> 127.0.0.1)
-const dnsServer = dgram.createSocket('udp4');
-const upstreamClient = dgram.createSocket('udp4');
-
-dnsServer.on('message', (msg, rinfo) => {
-  const queryStr = msg.toString('binary');
-  if (queryStr.includes('nginx-proxy-manager')) {
-    const tid = msg.subarray(0, 2);
-    const flags = Buffer.from([0x81, 0x80]);
-    const counts = Buffer.from([0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00]);
-    
-    let idx = 12;
-    while (idx < msg.length && msg[idx] !== 0) idx++;
-    idx += 5;
-    const question = msg.subarray(12, idx);
-    const answer = Buffer.concat([
-      Buffer.from([0xc0, 0x0c, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x3c, 0x00, 0x04]),
-      Buffer.from([127, 0, 0, 1])
-    ]);
-    const response = Buffer.concat([tid, flags, counts, question, answer]);
-    dnsServer.send(response, rinfo.port, rinfo.address);
-  } else {
-    upstreamClient.send(msg, 53, '1.1.1.1', (err) => {
-      if (err) return;
-      const onResp = (upMsg) => {
-        if (upMsg.subarray(0, 2).equals(msg.subarray(0, 2))) {
-          upstreamClient.removeListener('message', onResp);
-          dnsServer.send(upMsg, rinfo.port, rinfo.address);
-        }
-      };
-      upstreamClient.on('message', onResp);
-      setTimeout(() => upstreamClient.removeListener('message', onResp), 2000);
-    });
-  }
-});
-
-dnsServer.bind(DNS_PORT, '127.0.0.1', () => {
-  console.log('[Bridge DNS] Resolvendo nginx-proxy-manager em 127.0.0.1:' + DNS_PORT);
-});
-
-// 2. Proxy Reverso HTTP (Porta 80 -> 3001)
-const proxy = http.createServer((clientReq, clientRes) => {
+// 1. Proxy HTTP Local (Resolve o nome virtual nginx-proxy-manager sem precisar de admin/hosts)
+const proxy = http.createServer((req, res) => {
   const options = {
     hostname: '127.0.0.1',
     port: TARGET_PORT,
-    path: clientReq.url,
-    method: clientReq.method,
-    headers: clientReq.headers
+    path: req.url,
+    method: req.method,
+    headers: req.headers
   };
 
-  const proxyReq = http.request(options, (proxyRes) => {
-    clientRes.writeHead(proxyRes.statusCode, proxyRes.headers);
-    proxyRes.pipe(clientRes, { end: true });
+  const forwardReq = http.request(options, (forwardRes) => {
+    res.writeHead(forwardRes.statusCode, forwardRes.headers);
+    forwardRes.pipe(res);
   });
 
-  proxyReq.on('error', (err) => {
-    console.error('[Bridge Proxy Error]: ' + err.message);
-    clientRes.writeHead(502, { 'Content-Type': 'text/plain' });
-    clientRes.end('Gateway Error: ' + err.message);
+  forwardReq.on('error', (err) => {
+    res.writeHead(502, { 'Content-Type': 'text/plain' });
+    res.end('Bad Gateway (BelaFarma Backend offline: ' + err.message + ')');
   });
 
-  clientReq.pipe(proxyReq, { end: true });
+  req.pipe(forwardReq);
 });
 
+// Suporte a WebSocket
 proxy.on('upgrade', (req, socket, head) => {
-  const net = require('net');
   const targetSocket = net.connect(TARGET_PORT, '127.0.0.1', () => {
     targetSocket.write(head);
     socket.pipe(targetSocket);
@@ -82,43 +53,92 @@ proxy.on('upgrade', (req, socket, head) => {
   targetSocket.on('error', () => socket.destroy());
 });
 
+// Suporte a CONNECT tunneling
+proxy.on('connect', (req, clientSocket, head) => {
+  const targetSocket = net.connect(TARGET_PORT, '127.0.0.1', () => {
+    clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+    targetSocket.write(head);
+    targetSocket.pipe(clientSocket);
+    clientSocket.pipe(targetSocket);
+  });
+  targetSocket.on('error', () => {
+    clientSocket.write('HTTP/1.1 502 Bad Gateway\r\n\r\n');
+    clientSocket.end();
+  });
+});
+
+proxy.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.log('[Cloudflare Bridge] ?? Ponte j? em execu??o na porta ' + PROXY_PORT + '. Mantendo inst?ncia existente.');
+    process.exit(0);
+  } else {
+    console.error('[Cloudflare Bridge Error]:', err.message);
+  }
+});
+
 proxy.listen(PROXY_PORT, '127.0.0.1', () => {
-  console.log('[Bridge HTTP] Proxy ativo em 127.0.0.1:' + PROXY_PORT + ' -> 127.0.0.1:' + TARGET_PORT);
+  console.log('[Cloudflare Bridge] ?? Proxy HTTP local ativo em 127.0.0.1:' + PROXY_PORT + ' -> 127.0.0.1:' + TARGET_PORT);
   startCloudflared();
 });
 
-// 3. Gerenciador do Processo cloudflared
+// 2. Gerenciador do Processo cloudflared
 let cloudflaredProc = null;
+let isShuttingDown = false;
+
 function startCloudflared() {
+  if (isShuttingDown) return;
+
   const bin = path.join(__dirname, 'cloudflared.exe');
+  if (!fs.existsSync(bin)) {
+    console.error('[Cloudflare Bridge] ? Execut?vel cloudflared.exe n?o encontrado em: ' + bin);
+    return;
+  }
+
   const args = [
     'tunnel',
     'run',
-    '--token', TUNNEL_TOKEN,
-    '--dns-resolver-addrs', '127.0.0.1:' + DNS_PORT
+    '--token', TUNNEL_TOKEN
   ];
 
-  console.log('[Bridge Cloudflared] Iniciando túnel...');
-  cloudflaredProc = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+  const env = Object.assign({}, process.env, {
+    HTTP_PROXY: 'http://127.0.0.1:' + PROXY_PORT,
+    http_proxy: 'http://127.0.0.1:' + PROXY_PORT
+  });
+
+  console.log('[Cloudflare Bridge] ?? Iniciando t?nel Cloudflare via proxy...');
+  cloudflaredProc = spawn(bin, args, { env, stdio: ['ignore', 'pipe', 'pipe'] });
 
   cloudflaredProc.stdout.on('data', d => {
     const s = d.toString();
-    if (s.includes('Registered tunnel connection')) console.log('[Cloudflared] Conectado à rede Cloudflare!');
+    if (s.includes('Registered tunnel connection')) {
+      console.log('[Cloudflare Bridge] ? Conectado ? rede Cloudflare com sucesso!');
+    }
   });
 
   cloudflaredProc.stderr.on('data', d => {
     const s = d.toString();
-    if (s.includes('Registered tunnel connection')) console.log('[Cloudflared] Conectado à rede Cloudflare!');
-    if (s.includes('ERR')) console.error('[Cloudflared Error]: ' + s.trim());
+    if (s.includes('Registered tunnel connection')) {
+      console.log('[Cloudflare Bridge] ? Conectado ? rede Cloudflare com sucesso!');
+    }
+    if (s.includes('ERR')) {
+      console.error('[Cloudflare Bridge Warning]:', s.trim());
+    }
   });
 
   cloudflaredProc.on('exit', (code) => {
-    console.log('[Cloudflared] Encerrado com código ' + code + '. Reiniciando em 5s...');
+    if (isShuttingDown) return;
+    console.warn('[Cloudflare Bridge] ?? Processo cloudflared encerrou (c?digo ' + code + '). Reiniciando em 5s...');
     setTimeout(startCloudflared, 5000);
   });
 }
 
-process.on('SIGINT', () => {
-  if (cloudflaredProc) cloudflaredProc.kill();
+function shutdown() {
+  isShuttingDown = true;
+  if (cloudflaredProc) {
+    try { cloudflaredProc.kill(); } catch (_) {}
+  }
   process.exit(0);
-});
+}
+
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
