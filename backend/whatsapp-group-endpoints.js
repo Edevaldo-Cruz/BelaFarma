@@ -428,8 +428,8 @@ function initializeWhatsAppGroupEndpoints(app) {
   app.get('/api/system/run-diag', security.requireAdmin, async (req, res) => {
     try {
         const { exec } = require('child_process');
-        const evoKey = process.env.EVOLUTION_API_KEY || 'BelafarmaSul2026';
-        const cmd = `curl -X POST http://evolution-api:8080/instance/create -H 'Content-Type: application/json' -H 'apikey: ${evoKey}' -d '{"instanceName": "belaFarma", "token": "${evoKey}", "qrcode": true}'`;
+        const evoUrl = process.env.EVOLUTION_API_URL || 'http://localhost:8080';
+        const cmd = `curl -X POST ${evoUrl}/instance/create -H 'Content-Type: application/json' -H 'apikey: ${evoKey}' -d '{"instanceName": "belaFarma", "token": "${evoKey}", "qrcode": true, "integration": "WHATSAPP-BAILEYS"}'`;
         exec(cmd, (error, stdout, stderr) => {
             res.json({ 
                 command: 'Criar Instância belaFarma',

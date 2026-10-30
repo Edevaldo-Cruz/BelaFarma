@@ -172,8 +172,8 @@ async function getSystemHealth() {
       const data = await res.json();
       if (Array.isArray(data)) {
         status.evolutionApi.instances = data.map(inst => ({
-          name: inst.instanceName || (inst.instance && inst.instance.instanceName) || 'desconhecido',
-          status: inst.status || (inst.instance && inst.instance.status) || 'UNKNOWN',
+          name: inst.name || inst.instanceName || (inst.instance && inst.instance.instanceName) || 'desconhecido',
+          status: inst.connectionStatus || inst.status || (inst.instance && (inst.instance.connectionStatus || inst.instance.status)) || 'UNKNOWN',
           connectionStatus: inst.connectionStatus || (inst.instance && inst.instance.connectionStatus) || 'UNKNOWN'
         }));
       }

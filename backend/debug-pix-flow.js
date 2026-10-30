@@ -134,22 +134,22 @@ async function checkEvolution() {
     if (response.ok) {
       const instances = await response.json();
       const instanceList = Array.isArray(instances) ? instances : (instances.data || [instances]);
-      console.log(`   ✅ Evolution API acessível! Instâncias: ${instanceList.map(i => i.instance?.instanceName || i.instanceName || JSON.stringify(i)).join(', ')}`);
+      console.log(`   ✅ Evolution API acessível! Instâncias: ${instanceList.map(i => i.name || i.instance?.instanceName || i.instanceName || JSON.stringify(i)).join(', ')}`);
       
       // Verifica se a instância está conectada
       const minha = instanceList.find(i => 
-        (i.instance?.instanceName || i.instanceName) === EVOLUTION_INSTANCE
+        (i.name || i.instance?.instanceName || i.instanceName) === EVOLUTION_INSTANCE
       );
       if (minha) {
-        const status = minha.instance?.status || minha.instance?.state || minha.status || minha.state || 'desconhecido';
+        const status = minha.connectionStatus || minha.instance?.status || minha.instance?.state || minha.status || minha.state || 'desconhecido';
         if (status === 'open') {
           console.log(`   ✅ Instância "${EVOLUTION_INSTANCE}" está CONECTADA (status: ${status})`);
         } else {
-          console.log(`   ❌ PROBLEMA: Instância "${EVOLUTION_INSTANCE}" com status: ${status} (esperado: open)`);
+          console.log(`   ℹ️  Instância "${EVOLUTION_INSTANCE}" encontrada com status: ${status} (aguardando escaneamento do QR Code se close)`);
         }
       } else {
         console.log(`   ❌ PROBLEMA: Instância "${EVOLUTION_INSTANCE}" NÃO encontrada na Evolution API!`);
-        console.log(`   → Instâncias disponíveis: ${instanceList.map(i => i.instance?.instanceName || i.instanceName).join(', ')}`);
+        console.log(`   → Instâncias disponíveis: ${instanceList.map(i => i.name || i.instance?.instanceName || i.instanceName).join(', ')}`);
       }
     } else {
       const txt = await response.text();
