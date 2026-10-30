@@ -347,6 +347,14 @@ function initializeMarketingEndpoints(app, db) {
   app.post('/api/webhook/evolution', async (req, res) => {
     try {
       const payload = req.body;
+      if (!payload || !payload.event) {
+        return res.status(200).send('OK');
+      }
+
+      // Ignora eventos que não sejam mensagens (ex: connection.update, presence.update) para evitar estouro de log e sobrecarga
+      if (payload.event.toLowerCase() !== 'messages.upsert') {
+        return res.status(200).send('OK');
+      }
       
       // 🤖 Chamar o Robô de PIX para processar a mensagem (em background)
       pixBot.processMessage(payload).catch(err => console.error('[PixBot] Erro:', err.message));
