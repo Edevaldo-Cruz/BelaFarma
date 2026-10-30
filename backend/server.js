@@ -8,34 +8,82 @@ const fs = require('fs');
 const fetch = require('node-fetch');
 const config = require('./config.js');
 const { queryDigifarma } = require('./services/digifarma.service');
+const security = require('./security.js');
 
 const app = express();
 const PORT = 3001;
 
-// Middlewares
-app.use(cors());
+// Desabilita cabeçalho que expõe tecnologia do servidor
+app.disable('x-powered-by');
+
+// Middlewares de Segurança e CORS
+app.use(security.securityHeadersMiddleware);
+app.use(cors({
+  origin: (origin, callback) => {
+    if (security.isAllowedCorsOrigin(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error('Origem bloqueada pela política de segurança CORS.'));
+  },
+  credentials: true
+}));
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ limit: '100mb', extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use(express.static(path.join(__dirname, '../public')));
+app.use(express.static(path.join(__dirname, '../dist')));
+app.use('/uploads', security.uploadsAuthMiddleware, express.static(path.join(__dirname, 'uploads')));
 
 // Redirecionar logs para arquivo persistente (volume Docker /data)
+// Redirecionar logs para arquivo persistente com rotação automática inteligente (máx 10MB)
 const LOG_DIR = process.platform === 'win32' 
   ? path.join(__dirname) 
   : path.join(__dirname, 'data');
 if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
-const logStream = fs.createWriteStream(path.join(LOG_DIR, 'backend.log'), { flags: 'a' });
+const LOG_FILE = path.join(LOG_DIR, 'backend.log');
+const OLD_LOG_FILE = path.join(LOG_DIR, 'backend.old.log');
+const MAX_LOG_SIZE = 10 * 1024 * 1024; // 10MB
+
+let currentLogSize = 0;
+try {
+  if (fs.existsSync(LOG_FILE)) {
+    currentLogSize = fs.statSync(LOG_FILE).size;
+  }
+} catch (e) {}
+
+let logStream = fs.createWriteStream(LOG_FILE, { flags: 'a' });
 const originalLog = console.log;
 const originalError = console.error;
 
+function checkAndRotateLog(additionalBytes) {
+  currentLogSize += additionalBytes;
+  if (currentLogSize > MAX_LOG_SIZE) {
+    try {
+      logStream.end();
+      if (fs.existsSync(OLD_LOG_FILE)) {
+        try { fs.unlinkSync(OLD_LOG_FILE); } catch (e) {}
+      }
+      if (fs.existsSync(LOG_FILE)) {
+        fs.renameSync(LOG_FILE, OLD_LOG_FILE);
+      }
+      logStream = fs.createWriteStream(LOG_FILE, { flags: 'a' });
+      currentLogSize = 0;
+    } catch (e) {
+      currentLogSize = 0;
+    }
+  }
+}
+
 console.log = (...args) => {
     const msg = `[${new Date().toISOString()}] ${args.join(' ')}\n`;
+    checkAndRotateLog(Buffer.byteLength(msg));
     logStream.write(msg);
     originalLog.apply(console, args);
 };
 
 console.error = (...args) => {
     const msg = `[${new Date().toISOString()}] ❌ ERROR: ${args.join(' ')}\n`;
+    checkAndRotateLog(Buffer.byteLength(msg));
     logStream.write(msg);
     originalError.apply(console, args);
 };
@@ -53,6 +101,37 @@ const safelyParseJSON = (jsonString, fallback = []) => {
     return fallback;
   }
 };
+
+// 🛡️ Middleware Global de Autenticação e Trilha de Auditoria para todas as rotas /api
+app.use('/api', security.apiAuthMiddleware);
+app.use('/api', security.createAuditMiddleware(db));
+
+// Endpoint exclusivo para Administradores consultarem a trilha de auditoria de segurança
+app.get('/api/security/audit-logs', security.requireAdmin, (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit, 10) || 100, 500);
+    const category = req.query.category ? String(req.query.category).trim() : null;
+    const userId = req.query.userId ? String(req.query.userId).trim() : null;
+
+    let sql = 'SELECT * FROM security_audit_logs WHERE 1=1';
+    const params = [];
+    if (category) {
+      sql += ' AND action_category = ?';
+      params.push(category);
+    }
+    if (userId) {
+      sql += ' AND user_id = ?';
+      params.push(userId);
+    }
+    sql += ' ORDER BY timestamp DESC LIMIT ?';
+    params.push(limit);
+
+    const logs = db.prepare(sql).all(...params);
+    res.json({ success: true, count: logs.length, logs });
+  } catch (err) {
+    res.status(500).json({ error: 'Falha ao consultar trilha de auditoria.', details: err.message });
+  }
+});
 
 app.get('/api/version', (req, res) => {
   let pkgVersion = '1.1.0';
@@ -87,7 +166,7 @@ app.get('/api/version', (req, res) => {
   });
 });
 
-app.get('/api/backups', (req, res) => {
+app.get('/api/backups', security.requireAdmin, (req, res) => {
   const backupDir = config.backupDir;
 
   if (!fs.existsSync(backupDir)) {
@@ -127,7 +206,7 @@ app.get('/api/backups', (req, res) => {
   });
 });
 
-app.post('/api/backups/create', (req, res) => {
+app.post('/api/backups/create', security.requireAdmin, (req, res) => {
   const backupDir = config.backupDir;
   if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
 
@@ -164,11 +243,14 @@ app.post('/api/backups/create', (req, res) => {
   }
 });
 
-// Restore is dangerous, so we just run the restore script which handles logic
-app.post('/api/backups/:filename/restore', (req, res) => {
-  const { filename } = req.params;
+// Restore is dangerous, so we require admin and sanitize filename against path traversal
+app.post('/api/backups/:filename/restore', security.requireAdmin, (req, res) => {
+  const safeFilename = security.sanitizeBackupFilename(req.params.filename);
+  if (!safeFilename) {
+    return res.status(400).json({ error: 'Nome de arquivo de backup inválido.' });
+  }
   const backupDir = path.join(__dirname, process.platform === 'win32' ? '../backups_dev_simulated' : 'data/backups');
-  const backupPath = path.join(backupDir, filename);
+  const backupPath = path.join(backupDir, safeFilename);
 
   // Determine source DB path (target for restore)
   let targetPath = process.env.DB_PATH || path.join(__dirname, 'belafarma.db');
@@ -245,20 +327,28 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir);
 }
 
-// Multer storage configuration
+// Multer storage configuration with filename sanitization & executable filter
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     cb(null, uploadsDir);
   },
   filename: (req, file, cb) => {
+    const safeOriginal = path.basename(file.originalname || 'file');
+    const safeExt = path.extname(safeOriginal).replace(/[^a-zA-Z0-9.]/g, '');
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
+    cb(null, file.fieldname + '-' + uniqueSuffix + safeExt);
   }
 });
 
 const upload = multer({ 
   storage: storage,
-  limits: { fileSize: 100 * 1024 * 1024 } // 100MB
+  limits: { fileSize: 100 * 1024 * 1024 }, // 100MB
+  fileFilter: (req, file, cb) => {
+    if (!security.isSafeUploadFile(file.originalname)) {
+      return cb(new Error('Tipo de arquivo não permitido por segurança.'));
+    }
+    cb(null, true);
+  }
 });
 
 
@@ -283,7 +373,8 @@ app.get('/api/all-data', async (req, res) => {
     return res.status(500).json({ error: 'Database connection not established.' });
   }
   try {
-    const users = db.prepare('SELECT * FROM users').all();
+    // Nunca expor accessKey ou accessKeyHash na listagem de usuários
+    const users = db.prepare('SELECT id, name, role, jobRole, phone FROM users').all();
     const ordersRaw = db.prepare('SELECT * FROM orders ORDER BY orderDate DESC').all();
     const shortagesRaw = db.prepare('SELECT * FROM shortages ORDER BY createdAt DESC').all();
     const logs = db.prepare('SELECT * FROM logs ORDER BY timestamp DESC LIMIT 100').all();
@@ -292,6 +383,7 @@ app.get('/api/all-data', async (req, res) => {
     const orders = ordersRaw.map(order => ({
       ...order,
       installments: safelyParseJSON(order.installments),
+      items: safelyParseJSON(order.items) || [],
       isFogueteAmarelo: !!order.isFogueteAmarelo,
     }));
 
@@ -374,7 +466,7 @@ app.get('/api/all-data', async (req, res) => {
 });
 
 // --- Monthly Limits CUD ---
-app.post('/api/monthly-limits', (req, res) => {
+app.post('/api/monthly-limits', security.requireAdmin, (req, res) => {
   try {
     const { month, year, limit } = req.body;
     const stmt = db.prepare(`
@@ -501,7 +593,7 @@ app.put('/api/fixed-accounts/:id', (req, res) => {
   }
 });
 
-app.delete('/api/fixed-accounts/:id', (req, res) => {
+app.delete('/api/fixed-accounts/:id', security.requireAdmin, (req, res) => {
   const { id } = req.params;
   console.log(`[FixedAccounts] Tentando excluir conta fixa: ${id}`);
 
@@ -541,17 +633,30 @@ app.delete('/api/fixed-accounts/:id', (req, res) => {
 // GET /api/fixed-account-payments - Get payments for a specific month (with auto-generation)
 app.get('/api/fixed-account-payments', (req, res) => {
   try {
-    const { month } = req.query; // Esperado: YYYY-MM
+    let { month, year } = req.query; // Esperado: YYYY-MM ou month=MM&year=YYYY
     
     if (!month) {
       return res.status(400).json({ error: 'Month parameter is required' });
     }
     
+    let targetYear = year;
+    let targetMonthNum = month;
+
+    if (String(month).includes('-')) {
+      const parts = String(month).split('-');
+      targetYear = parts[0];
+      targetMonthNum = parts[1];
+    }
+
+    if (!targetYear) targetYear = new Date().getFullYear().toString();
+    targetMonthNum = String(targetMonthNum).padStart(2, '0');
+    const monthKey = `${targetYear}-${targetMonthNum}`;
+
     // 1. Pega os templates de contas ativas
     const activeAccounts = db.prepare('SELECT * FROM fixed_accounts WHERE isActive = 1').all();
     
     // 2. Pega os pagamentos que já existem para este mês
-    const existingPayments = db.prepare('SELECT * FROM fixed_account_payments WHERE month = ?').all(month);
+    const existingPayments = db.prepare('SELECT * FROM fixed_account_payments WHERE month = ?').all(monthKey);
     const existingAccountIds = new Set(existingPayments.map(p => p.fixedAccountId));
 
     // 3. Verifica se alguma conta ativa ESTÁ FALTANDO para este mês e cria
@@ -560,9 +665,8 @@ app.get('/api/fixed-account-payments', (req, res) => {
     if (toCreate.length > 0) {
       db.transaction(() => {
         toCreate.forEach(acc => {
-          const [year, monthNum] = month.split('-');
-          const dueDay = String(acc.dueDay).padStart(2, '0');
-          const dueDate = `${year}-${monthNum}-${dueDay}`;
+          const dueDay = String(acc.dueDay || 1).padStart(2, '0');
+          const dueDate = `${targetYear}-${targetMonthNum}-${dueDay}`;
           
           db.prepare(`
             INSERT INTO fixed_account_payments 
@@ -574,14 +678,14 @@ app.get('/api/fixed-account-payments', (req, res) => {
             acc.name,
             acc.value,
             dueDate,
-            month,
+            monthKey,
             'Pendente'
           );
         });
       })();
       
       // Retorna a lista atualizada
-      return res.json(db.prepare('SELECT * FROM fixed_account_payments WHERE month = ?').all(month));
+      return res.json(db.prepare('SELECT * FROM fixed_account_payments WHERE month = ?').all(monthKey));
     }
     
     res.json(existingPayments);
@@ -590,6 +694,7 @@ app.get('/api/fixed-account-payments', (req, res) => {
     res.status(500).json({ error: 'Failed to fetch fixed account payments' });
   }
 });
+
 
 // PUT /api/fixed-account-payments/:id - Update payment status
 app.put('/api/fixed-account-payments/:id', (req, res) => {
@@ -639,8 +744,16 @@ app.get('/api/fixed-account-payments/history/:fixedAccountId', (req, res) => {
 // --- AUTH ---
 app.post('/api/login', (req, res) => {
   try {
-    const { accessKey } = req.body;
-    const MASTER_KEY = 'belafarma2024';
+    // 1. Verifica Rate Limiting contra força bruta
+    const rateCheck = security.checkLoginRateLimit(req);
+    if (!rateCheck.allowed) {
+      return res.status(429).json({
+        error: `Muitas tentativas incorretas. Aguarde ${Math.ceil(rateCheck.retryAfterSec / 60)} minuto(s) e tente novamente.`
+      });
+    }
+
+    const { accessKey } = req.body || {};
+    const MASTER_KEY = process.env.MASTER_ACCESS_KEY || 'belafarma2024';
 
     if (!accessKey) {
       return res.status(400).json({ error: 'Access key is required.' });
@@ -648,30 +761,71 @@ app.post('/api/login', (req, res) => {
 
     const keyStr = String(accessKey).trim();
 
-    // 1. Check for Master Key
-    if (keyStr === MASTER_KEY || keyStr.toLowerCase() === MASTER_KEY) {
+    // 2. Check for Master Key
+    if (security.verifyAccessKey(keyStr, MASTER_KEY)) {
+      security.clearLoginFailures(req);
       const masterUser = { 
         id: 'master-admin', 
         name: 'Administrador Bela', 
         role: 'Administrador',
-        accessKey: MASTER_KEY 
+        jobRole: 'Gerente'
       };
-      return res.status(200).json(masterUser);
+      const token = security.signToken(masterUser);
+      security.setAuthCookie(req, res, token);
+      return res.status(200).json({ ...masterUser, token });
     }
     
-    // 2. Check for user in the database
-    const stmt = db.prepare('SELECT * FROM users WHERE accessKey = ? OR LOWER(accessKey) = LOWER(?)');
-    const user = stmt.get(keyStr, keyStr);
+    // 3. Check for user in the database (suporta hash scrypt e migração automática de chaves antigas)
+    const allUsers = db.prepare('SELECT * FROM users').all();
+    const matchedUser = allUsers.find(u => security.verifyAccessKey(keyStr, u.accessKey, u.accessKeyHash));
 
-    if (user) {
-      res.status(200).json(user);
+    if (matchedUser) {
+      security.clearLoginFailures(req);
+
+      // Migração transparente: se ainda não possui accessKeyHash, gera e salva no banco
+      if (!matchedUser.accessKeyHash) {
+        try {
+          const newHash = security.hashAccessKey(keyStr);
+          db.prepare('UPDATE users SET accessKeyHash = ? WHERE id = ?').run(newHash, matchedUser.id);
+        } catch (migErr) {
+          console.warn('[Auth] Aviso ao atualizar hash do usuário:', migErr.message);
+        }
+      }
+
+      const safeUser = security.sanitizeUser(matchedUser);
+      const token = security.signToken(safeUser);
+      security.setAuthCookie(req, res, token);
+      return res.status(200).json({ ...safeUser, token });
     } else {
-      res.status(401).json({ error: 'Chave de acesso não autorizada.' });
+      security.recordLoginFailure(req);
+      return res.status(401).json({ error: 'Chave de acesso não autorizada.' });
     }
   } catch (err) {
     console.error('Login error:', err);
     res.status(500).json({ error: 'Server error during login.' });
   }
+});
+
+app.post('/api/logout', (req, res) => {
+  security.clearAuthCookie(res);
+  res.status(200).json({ success: true, message: 'Sessão encerrada com segurança.' });
+});
+
+app.get('/api/auth/session', (req, res) => {
+  const token = security.extractToken(req);
+  const payload = security.verifyToken(token);
+  if (!payload) {
+    return res.status(401).json({ authenticated: false });
+  }
+  return res.status(200).json({
+    authenticated: true,
+    user: {
+      id: payload.id,
+      name: payload.name,
+      role: payload.role,
+      jobRole: payload.jobRole
+    }
+  });
 });
 
 
@@ -696,8 +850,8 @@ app.post('/api/orders', upload.single('boletoFile'), (req, res) => {
     }
 
     const stmt = db.prepare(`
-      INSERT INTO orders (id, orderDate, distributor, seller, totalValue, arrivalForecast, status, paymentMonth, invoiceNumber, paymentMethod, receiptDate, notes, installments, isFogueteAmarelo, boletoPath)
-      VALUES (@id, @orderDate, @distributor, @seller, @totalValue, @arrivalForecast, @status, @paymentMonth, @invoiceNumber, @paymentMethod, @receiptDate, @notes, @installments, @isFogueteAmarelo, @boletoPath)
+      INSERT INTO orders (id, orderDate, distributor, seller, totalValue, arrivalForecast, status, paymentMonth, invoiceNumber, paymentMethod, receiptDate, notes, installments, items, isFogueteAmarelo, boletoPath)
+      VALUES (@id, @orderDate, @distributor, @seller, @totalValue, @arrivalForecast, @status, @paymentMonth, @invoiceNumber, @paymentMethod, @receiptDate, @notes, @installments, @items, @isFogueteAmarelo, @boletoPath)
     `);
     
     db.transaction(() => {
@@ -715,6 +869,7 @@ app.post('/api/orders', upload.single('boletoFile'), (req, res) => {
         receiptDate: order.receiptDate || null,
         notes: order.notes || null,
         installments: typeof order.installments === 'string' ? order.installments : JSON.stringify(order.installments || []),
+        items: typeof order.items === 'string' ? order.items : JSON.stringify(order.items || []),
         isFogueteAmarelo: (order.isFogueteAmarelo === 'true' || order.isFogueteAmarelo === true || order.isFogueteAmarelo == 1) ? 1 : 0,
         boletoPath: order.boletoPath || null
       });
@@ -778,7 +933,7 @@ app.put('/api/orders/:id', upload.single('boletoFile'), (req, res) => {
 
     const stmt = db.prepare(`
       UPDATE orders 
-      SET orderDate = @orderDate, distributor = @distributor, seller = @seller, totalValue = @totalValue, arrivalForecast = @arrivalForecast, status = @status, paymentMonth = @paymentMonth, invoiceNumber = @invoiceNumber, paymentMethod = @paymentMethod, receiptDate = @receiptDate, notes = @notes, installments = @installments, isFogueteAmarelo = @isFogueteAmarelo, boletoPath = @boletoPath
+      SET orderDate = @orderDate, distributor = @distributor, seller = @seller, totalValue = @totalValue, arrivalForecast = @arrivalForecast, status = @status, paymentMonth = @paymentMonth, invoiceNumber = @invoiceNumber, paymentMethod = @paymentMethod, receiptDate = @receiptDate, notes = @notes, installments = @installments, items = @items, isFogueteAmarelo = @isFogueteAmarelo, boletoPath = @boletoPath
       WHERE id = @id
     `);
 
@@ -798,6 +953,7 @@ app.put('/api/orders/:id', upload.single('boletoFile'), (req, res) => {
         receiptDate: order.receiptDate || null,
         notes: order.notes || null,
         installments: typeof order.installments === 'string' ? order.installments : JSON.stringify(order.installments || []),
+        items: typeof order.items === 'string' ? order.items : JSON.stringify(order.items || []),
         isFogueteAmarelo: (order.isFogueteAmarelo === 'true' || order.isFogueteAmarelo === true || order.isFogueteAmarelo == 1) ? 1 : 0,
         boletoPath: order.boletoPath || null
       });
@@ -1080,20 +1236,31 @@ app.post('/api/whatsapp/force-shortage-scan', async (req, res) => {
 
 // --- Users CUD ---
 // CREATE User
-app.post('/api/users', (req, res) => {
+app.post('/api/users', security.requireAdmin, (req, res) => {
   try {
     const user = req.body;
+    if (!user || !user.name || !user.accessKey) {
+      return res.status(400).json({ error: 'Nome e chave de acesso são obrigatórios.' });
+    }
+    const existingUsers = db.prepare('SELECT * FROM users').all();
+    const conflict = existingUsers.some(u => security.verifyAccessKey(user.accessKey, u.accessKey, u.accessKeyHash));
+    if (conflict) {
+      return res.status(409).json({ error: 'Chave de acesso já está em uso.' });
+    }
+
+    const keyHash = security.hashAccessKey(user.accessKey);
     const stmt = db.prepare(`
-      INSERT INTO users (id, name, role, jobRole, phone, accessKey)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO users (id, name, role, jobRole, phone, accessKey, accessKeyHash)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
-    const result = stmt.run(
+    stmt.run(
       user.id,
       user.name,
       user.role,
       user.jobRole || 'Outro',
       user.phone || '',
-      user.accessKey
+      user.accessKey,
+      keyHash
     );
     res.status(201).json({ id: user.id });
   } catch (err) {
@@ -1106,23 +1273,35 @@ app.post('/api/users', (req, res) => {
 });
 
 // UPDATE User
-app.put('/api/users/:id', (req, res) => {
+app.put('/api/users/:id', security.requireAdmin, (req, res) => {
   try {
     const { id } = req.params;
     const { name, role, jobRole, phone, accessKey } = req.body;
+    const cleanKey = accessKey && String(accessKey).trim().length > 0 ? String(accessKey).trim() : null;
+
+    if (cleanKey) {
+      const existingUsers = db.prepare('SELECT * FROM users WHERE id != ?').all(id);
+      const conflict = existingUsers.some(u => security.verifyAccessKey(cleanKey, u.accessKey, u.accessKeyHash));
+      if (conflict) {
+        return res.status(409).json({ error: 'Chave de acesso já está em uso por outro usuário.' });
+      }
+    }
+
+    const keyHash = cleanKey ? security.hashAccessKey(cleanKey) : null;
     const stmt = db.prepare(`
       UPDATE users 
       SET name = COALESCE(?, name),
           role = COALESCE(?, role),
           jobRole = COALESCE(?, jobRole),
           phone = COALESCE(?, phone),
-          accessKey = COALESCE(?, accessKey)
+          accessKey = COALESCE(?, accessKey),
+          accessKeyHash = COALESCE(?, accessKeyHash)
       WHERE id = ?
     `);
-    const result = stmt.run(name, role, jobRole, phone, accessKey, id);
+    const result = stmt.run(name, role, jobRole, phone, cleanKey, keyHash, id);
     if (result.changes > 0) {
       const updatedUser = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
-      res.status(200).json({ success: true, user: updatedUser });
+      res.status(200).json({ success: true, user: security.sanitizeUser(updatedUser) });
     } else {
       res.status(404).json({ error: 'Usuário não encontrado.' });
     }
@@ -1136,7 +1315,7 @@ app.put('/api/users/:id', (req, res) => {
 });
 
 // DELETE User
-app.delete('/api/users/:id', (req, res) => {
+app.delete('/api/users/:id', security.requireAdmin, (req, res) => {
   try {
     const { id } = req.params;
     const stmt = db.prepare('DELETE FROM users WHERE id = ?');
@@ -1251,19 +1430,49 @@ app.post('/api/boletos', (req, res) => {
   try {
     const boleto = req.body;
     const stmt = db.prepare(`
-      INSERT INTO boletos (id, supplierName, order_id, due_date, value, status, invoice_number)
-      VALUES (@id, @supplierName, @order_id, @due_date, @value, @status, @invoice_number)
+      INSERT INTO boletos (id, supplierName, order_id, due_date, value, status, invoice_number, barcode, bank_code, bank_name, created_at)
+      VALUES (@id, @supplierName, @order_id, @due_date, @value, @status, @invoice_number, @barcode, @bank_code, @bank_name, @created_at)
     `);
+    const newId = boleto.id || Math.random().toString(36).substr(2, 9);
     const result = stmt.run({
-      id: boleto.id || null,
+      id: newId,
       supplierName: boleto.supplierName || null,
       order_id: boleto.order_id || null,
       due_date: boleto.due_date || null,
       value: boleto.value !== undefined ? parseFloat(boleto.value) : null,
-      status: boleto.status || null,
-      invoice_number: boleto.invoice_number || null
+      status: boleto.status || 'Pendente',
+      invoice_number: boleto.invoice_number || null,
+      barcode: boleto.barcode || null,
+      bank_code: boleto.bank_code || null,
+      bank_name: boleto.bank_name || null,
+      created_at: boleto.created_at || new Date().toISOString()
     });
-    res.status(201).json({ id: result.lastInsertRowid });
+
+    // Atualiza/Cria Memória de Fornecedor por Convênio se informado
+    if (boleto.convenio_key && boleto.supplierName && boleto.supplierName.trim()) {
+      try {
+        const memStmt = db.prepare(`
+          INSERT INTO boleto_supplier_memory (convenio_key, bank_code, bank_name, supplier_name, last_used_at, use_count)
+          VALUES (?, ?, ?, ?, datetime('now', 'localtime'), 1)
+          ON CONFLICT(convenio_key) DO UPDATE SET
+            supplier_name = excluded.supplier_name,
+            bank_code = COALESCE(excluded.bank_code, boleto_supplier_memory.bank_code),
+            bank_name = COALESCE(excluded.bank_name, boleto_supplier_memory.bank_name),
+            last_used_at = datetime('now', 'localtime'),
+            use_count = boleto_supplier_memory.use_count + 1
+        `);
+        memStmt.run(
+          boleto.convenio_key,
+          boleto.bank_code || null,
+          boleto.bank_name || null,
+          boleto.supplierName.trim()
+        );
+      } catch (memErr) {
+        console.error('[BOLETO MEMORY] Error upserting memory:', memErr);
+      }
+    }
+
+    res.status(201).json({ id: newId, rowId: result.lastInsertRowid, success: true });
   } catch (err) {
     console.error('Error creating boleto:', err);
     res.status(500).json({ error: 'Failed to create boleto.', details: err.message });
@@ -1345,6 +1554,140 @@ app.delete('/api/boletos/:id', (req, res) => {
   } catch (err) {
     console.error('Error deleting boleto:', err);
     res.status(500).json({ error: 'Failed to delete boleto.' });
+  }
+});
+
+// --- Boleto Scanner & Anti-Duplicidade Endpoints ---
+
+// Check duplicate boletos
+app.post('/api/boletos/check-duplicate', (req, res) => {
+  try {
+    const { barcode, supplierName, due_date, value, invoice_number } = req.body;
+
+    // 1. Checagem estrita por código de barras / linha digitável
+    if (barcode && String(barcode).trim().length >= 20) {
+      const cleanBarcode = String(barcode).replace(/\D/g, '');
+      const barcodeMatches = db.prepare(`
+        SELECT id, supplierName, due_date, value, status, invoice_number, barcode, created_at 
+        FROM boletos 
+        WHERE REPLACE(REPLACE(REPLACE(COALESCE(barcode, ''), ' ', ''), '.', ''), '-', '') = ?
+      `).all(cleanBarcode);
+
+      if (barcodeMatches.length > 0) {
+        const m = barcodeMatches[0];
+        const valFormatted = m.value ? Number(m.value).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : 'R$ 0,00';
+        return res.json({ 
+          isDuplicate: true, 
+          duplicateType: 'barcode', 
+          duplicateReason: `Boleto com este MESMO código de barras já foi cadastrado anteriormente para "${m.supplierName || 'Fornecedor'}" no valor de ${valFormatted} com vencimento em ${m.due_date} (Status: ${m.status}).`,
+          matches: barcodeMatches 
+        });
+      }
+    }
+
+    // 2. Checagem por Fornecedor + Vencimento + Valor
+    if (supplierName && due_date && value !== undefined && value !== null && Number(value) > 0) {
+      const numVal = parseFloat(value);
+      const tripletMatches = db.prepare(`
+        SELECT id, supplierName, due_date, value, status, invoice_number, barcode, created_at 
+        FROM boletos 
+        WHERE LOWER(TRIM(supplierName)) = LOWER(TRIM(?))
+          AND due_date = ?
+          AND ABS(value - ?) < 0.05
+      `).all(supplierName, due_date, numVal);
+
+      if (tripletMatches.length > 0) {
+        const m = tripletMatches[0];
+        const valFormatted = numVal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+        return res.json({ 
+          isDuplicate: true, 
+          duplicateType: 'triplet', 
+          duplicateReason: `Atenção: Já existe um boleto para "${m.supplierName}" com a MESMA data (${due_date}) e MESMO valor (${valFormatted})!`,
+          matches: tripletMatches 
+        });
+      }
+    }
+
+    // 3. Checagem por Fornecedor + Número da Nota Fiscal
+    if (supplierName && invoice_number && String(invoice_number).trim()) {
+      const cleanInvoice = String(invoice_number).trim();
+      const invoiceMatches = db.prepare(`
+        SELECT id, supplierName, due_date, value, status, invoice_number, barcode, created_at 
+        FROM boletos 
+        WHERE LOWER(TRIM(supplierName)) = LOWER(TRIM(?))
+          AND invoice_number = ?
+      `).all(supplierName, cleanInvoice);
+
+      if (invoiceMatches.length > 0) {
+        return res.json({ 
+          isDuplicate: true, 
+          duplicateType: 'invoice', 
+          duplicateReason: `Atenção: Já existe um boleto cadastrado para a Nota Fiscal Nº ${cleanInvoice} de "${invoiceMatches[0].supplierName}".`,
+          matches: invoiceMatches 
+        });
+      }
+    }
+
+    return res.json({ isDuplicate: false, matches: [] });
+  } catch (err) {
+    console.error('Error checking boleto duplicate:', err);
+    res.status(500).json({ error: 'Erro ao verificar duplicidade.', details: err.message });
+  }
+});
+
+// Buscar memórias de fornecedores por convênio
+app.get('/api/boletos/supplier-memory', (req, res) => {
+  try {
+    const { convenio_key } = req.query;
+    if (convenio_key) {
+      const mem = db.prepare('SELECT * FROM boleto_supplier_memory WHERE convenio_key = ?').get(convenio_key);
+      return res.json(mem || null);
+    }
+    const memories = db.prepare('SELECT * FROM boleto_supplier_memory ORDER BY use_count DESC, last_used_at DESC').all();
+    res.json(memories);
+  } catch (err) {
+    console.error('Error fetching supplier memories:', err);
+    res.status(500).json({ error: 'Erro ao buscar memórias de fornecedores.' });
+  }
+});
+
+// Deletar memória de fornecedor
+app.delete('/api/boletos/supplier-memory/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    db.prepare('DELETE FROM boleto_supplier_memory WHERE id = ?').run(id);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error deleting supplier memory:', err);
+    res.status(500).json({ error: 'Erro ao remover memória.' });
+  }
+});
+
+// Lista consolidada de todos os fornecedores cadastrados no BelaFarma (para autocomplete e seleção rápida)
+app.get('/api/boletos/suppliers-list', (req, res) => {
+  try {
+    const fromBoletos = db.prepare("SELECT DISTINCT supplierName as name FROM boletos WHERE supplierName IS NOT NULL AND TRIM(supplierName) != ''").all();
+    const fromOrders = db.prepare("SELECT DISTINCT distributor as name FROM orders WHERE distributor IS NOT NULL AND TRIM(distributor) != ''").all();
+    let fromLocal = [];
+    try {
+      fromLocal = db.prepare("SELECT DISTINCT representante as name FROM local_suppliers WHERE representante IS NOT NULL AND TRIM(representante) != ''").all();
+    } catch(e) {}
+
+    const nameSet = new Set();
+    [...fromBoletos, ...fromOrders, ...fromLocal].forEach(item => {
+      if (item && item.name) {
+        const clean = item.name.trim();
+        if (clean.length > 1 && !/^\d+([.,]\d+)?$/.test(clean)) {
+          nameSet.add(clean);
+        }
+      }
+    });
+
+    const list = Array.from(nameSet).sort((a, b) => a.localeCompare(b, 'pt-BR', { sensitivity: 'base' }));
+    res.json(list);
+  } catch (err) {
+    console.error('Error fetching suppliers list:', err);
+    res.status(500).json({ error: 'Erro ao buscar lista de fornecedores.' });
   }
 });
 
@@ -3778,20 +4121,93 @@ app.delete('/api/ifood-sales/:id', (req, res) => {
   }
 });
 
+// GET /api/ifood-sales/reconcile-today — Repasses iFood pendentes com vencimento até hoje
+app.get('/api/ifood-sales/reconcile-today', (req, res) => {
+  try {
+    const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });
+    const pendingSales = db.prepare(`
+      SELECT * FROM ifood_sales
+      WHERE status = 'Pendente' AND payment_due_date <= ?
+      ORDER BY payment_due_date ASC, sale_date ASC
+    `).all(today);
+
+    const totalExpected = pendingSales.reduce((acc, s) => acc + (s.net_value || 0), 0);
+    const totalGross = pendingSales.reduce((acc, s) => acc + (s.gross_value || 0), 0);
+    const totalFee = pendingSales.reduce((acc, s) => acc + (s.operator_fee_value || 0), 0);
+
+    res.json({
+      today,
+      sales: pendingSales,
+      totalExpected,
+      totalGross,
+      totalFee,
+      count: pendingSales.length
+    });
+  } catch (err) {
+    console.error('Error fetching today iFood reconcile sales:', err);
+    res.status(500).json({ error: 'Erro ao buscar repasses do iFood.' });
+  }
+});
+
+// POST /api/napp/sync-orders — Dispara sincronização de pedidos Napp sob demanda
+app.post('/api/napp/sync-orders', async (req, res) => {
+  try {
+    const nappWatcher = require('./services/napp-orders-watcher.service.js');
+    const includePast30Days = !!req.body?.includePast30Days;
+    const result = await nappWatcher.syncNappOrders({ includePast30Days });
+    res.json(result);
+  } catch (err) {
+    console.error('Erro na sincronização manual de pedidos Napp:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/napp/orders-status — Retorna histórico dos últimos pedidos vigiados e pendências
+app.get('/api/napp/orders-status', (req, res) => {
+  try {
+    const syncHistory = db.prepare(`
+      SELECT * FROM napp_orders_sync
+      ORDER BY order_date DESC, synced_at DESC
+      LIMIT 100
+    `).all();
+    res.json(syncHistory);
+  } catch (err) {
+    console.error('Erro ao buscar status de sincronização Napp:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ===== SYSTEM SETTINGS =====
 
 // GET all settings or a specific setting
 app.get('/api/settings/:key?', (req, res) => {
   try {
+    const isAdmin = security.isAdminUser(req.user);
+
     if (req.params.key) {
-      const setting = db.prepare('SELECT * FROM system_settings WHERE key = ?').get(req.params.key);
+      const key = req.params.key;
+      if (security.isSensitiveSettingKey(key) && !isAdmin) {
+        return res.status(403).json({ error: 'Acesso restrito a administradores para chaves sensíveis.' });
+      }
+      const setting = db.prepare('SELECT * FROM system_settings WHERE key = ?').get(key);
       if (!setting) {
         // Retorna a chave com valor null ao invés de 404 — permite o frontend tratar graciosamente
-        return res.json({ key: req.params.key, value: null, updated_at: null });
+        return res.json({ key, value: null, updated_at: null });
       }
-      res.json(setting);
+      const outValue = security.isSensitiveSettingKey(key)
+        ? (req.query.masked === '1' ? security.maskSecret(setting.value) : security.decryptSecret(setting.value))
+        : setting.value;
+      res.json({ ...setting, value: outValue });
     } else {
-      const settings = db.prepare('SELECT * FROM system_settings').all();
+      const settings = db.prepare('SELECT * FROM system_settings').all().map((s) => {
+        if (security.isSensitiveSettingKey(s.key)) {
+          return {
+            ...s,
+            value: isAdmin && req.query.masked !== '1' ? security.decryptSecret(s.value) : security.maskSecret(s.value)
+          };
+        }
+        return s;
+      });
       res.json(settings);
     }
   } catch (err) {
@@ -3810,17 +4226,53 @@ app.put('/api/settings/:key', (req, res) => {
       return res.status(400).json({ error: 'Value is required.' });
     }
 
+    if (security.isSensitiveSettingKey(key) && !security.isAdminUser(req.user)) {
+      return res.status(403).json({ error: 'Apenas administradores podem alterar chaves sensíveis do sistema.' });
+    }
+
+    const storedValue = security.isSensitiveSettingKey(key)
+      ? security.encryptSecret(String(value))
+      : String(value);
+
     const existing = db.prepare('SELECT * FROM system_settings WHERE key = ?').get(key);
     const now = new Date().toISOString();
     
     if (existing) {
-      db.prepare('UPDATE system_settings SET value = ?, updated_at = ? WHERE key = ?').run(String(value), now, key);
+      db.prepare('UPDATE system_settings SET value = ?, updated_at = ? WHERE key = ?').run(storedValue, now, key);
     } else {
-      db.prepare('INSERT INTO system_settings (key, value, updated_at) VALUES (?, ?, ?)').run(key, String(value), now);
+      db.prepare('INSERT INTO system_settings (key, value, updated_at) VALUES (?, ?, ?)').run(key, storedValue, now);
+    }
+
+    // Se a chave for temperature_config, sincroniza também na tabela temperature_config
+    if (key === 'temperature_config') {
+      try {
+        const parsed = typeof value === 'string' ? JSON.parse(value) : value;
+        if (parsed && typeof parsed === 'object') {
+          db.prepare(`
+            UPDATE temperature_config SET
+              farmaceutico_nome = COALESCE(?, farmaceutico_nome),
+              farmaceutico_crf = COALESCE(?, farmaceutico_crf),
+              termometro_modelo = COALESCE(?, termometro_modelo),
+              termometro_certificado = COALESCE(?, termometro_certificado),
+              updated_at = CURRENT_TIMESTAMP
+            WHERE id = 'default'
+          `).run(
+            parsed.farmaceutico_nome !== undefined ? String(parsed.farmaceutico_nome).trim() : null,
+            parsed.farmaceutico_crf !== undefined ? String(parsed.farmaceutico_crf).trim() : null,
+            parsed.termometro_modelo !== undefined ? String(parsed.termometro_modelo).trim() : null,
+            parsed.termometro_certificado !== undefined ? String(parsed.termometro_certificado).trim() : null
+          );
+        }
+      } catch (errSync) {
+        console.warn('[Temperatura] Aviso ao sincronizar temperature_config via /api/settings:', errSync.message);
+      }
     }
 
     const updated = db.prepare('SELECT * FROM system_settings WHERE key = ?').get(key);
-    res.json(updated);
+    res.json({
+      ...updated,
+      value: security.isSensitiveSettingKey(key) ? security.maskSecret(updated.value) : updated.value
+    });
   } catch (err) {
     console.error('Error updating setting:', err);
     res.status(500).json({ error: 'Failed to update setting.' });
@@ -3909,6 +4361,8 @@ cron.schedule('10 8-20 * * 1-6', async () => {
 }, { timezone: 'America/Sao_Paulo' });
 console.log('[CRON] 🤖 Robô de Ofertas JIT agendado para rodar a cada hora (:10) das 08h às 20h, Seg-Sáb.');
 
+// Robô de Status desativado a pedido do usuário
+/*
 cron.schedule('0 8 * * 1-6', async () => {
   try {
     await postarStatusDiario();
@@ -3917,7 +4371,8 @@ cron.schedule('0 8 * * 1-6', async () => {
     require('./services/watcher.service.js').registerServiceRun('robo_status', 'FAILED', err.message);
   }
 }, { timezone: 'America/Sao_Paulo' });
-console.log('[CRON] 🤖 Robô de Status agendado para rodar às 08h00, Seg-Sáb.');
+*/
+console.log('[CRON] ⏸️ Robô de postagem de Status DESATIVADO a pedido do usuário.');
 
 // Endpoint para disparar o JIT manualmente (para testes)
 app.post('/api/whatsapp/offers-bank/trigger-jit', async (req, res) => {
@@ -3977,24 +4432,26 @@ initializeWhatsAppVendasEndpoints(app, db);
 
 // Módulo de Gestão & Documentação de Deliveries (IA)
 const { initializeDeliveryEndpoints } = require('./delivery-endpoints.js');
-const { scanDeliveriesFromWhatsApp } = require('./services/whatsapp-delivery-service.js');
+const { scanDeliveriesFromWhatsApp, descartarRotasDiasAnteriores } = require('./services/whatsapp-delivery-service.js');
 initializeDeliveryEndpoints(app, db);
 
-// Varredura inicial automática do mês atual no boot (15s após inicialização)
+// Varredura inicial automática focada no dia atual (15s após inicialização)
 setTimeout(async () => {
   try {
-    console.log('[BOOT-DELIVERY] 📅 Executando varredura inicial do mês atual via IA...');
-    await scanDeliveriesFromWhatsApp(db, { currentMonth: true });
+    console.log('[BOOT-DELIVERY] 📅 Executando descarte de rotas anteriores e varredura do dia atual via IA...');
+    descartarRotasDiasAnteriores(db);
+    await scanDeliveriesFromWhatsApp(db, { todayOnly: true });
   } catch (bootErr) {
-    console.error('[BOOT-DELIVERY] ⚠️ Erro na varredura inicial do mês:', bootErr.message);
+    console.error('[BOOT-DELIVERY] ⚠️ Erro na varredura inicial do dia atual:', bootErr.message);
   }
 }, 15000);
 
-// Cron de varredura automática de Deliveries a cada 10 minutos
+// Cron de varredura automática de Deliveries a cada 10 minutos (foco no dia atual)
 setInterval(async () => {
   try {
-    console.log('[CRON-DELIVERY] Running periodic background delivery scan via AI...');
-    await scanDeliveriesFromWhatsApp(db, { hours: 24 });
+    console.log('[CRON-DELIVERY] Running periodic background delivery scan for today via AI...');
+    descartarRotasDiasAnteriores(db);
+    await scanDeliveriesFromWhatsApp(db, { todayOnly: true });
   } catch (err) {
     console.error('[CRON-DELIVERY] Error in background delivery scan:', err.message);
   }
@@ -4021,8 +4478,10 @@ marketingScheduler.iniciarScheduler(db);
 console.log('🤖 Agente de Marketing IA inicializado.');
 
 const financeEndpoints = require('./finance-endpoints.js');
-app.use('/api/finance-agent', financeEndpoints(db));
-console.log('🤖 Agente Financeiro IA inicializado.');
+const financeRouter = financeEndpoints(db);
+app.use('/api/finance-agent', financeRouter);
+app.use('/api/provisions', financeRouter);
+console.log('🤖 Agente Financeiro IA e Provisões inicializados.');
 
 const stockEndpoints = require('./stock-endpoints.js');
 app.use('/api/stock', stockEndpoints());
@@ -4031,6 +4490,10 @@ console.log('📦 Módulo Controle de Estoque inicializado.');
 const inventarioEndpoints = require('./inventario-endpoints.js');
 app.use('/api/inventario', inventarioEndpoints(db));
 console.log('📋 Módulo Inventário Rotativo inicializado.');
+
+const perdasEndpoints = require('./perdas-endpoints.js');
+app.use('/api/perdas', perdasEndpoints(db));
+console.log('🗑️ Módulo de Perdas, Vencidos e Avarias inicializado.');
 
 // Módulo Saúde Financeira (diagnóstico via Gemini)
 require('./financial-health-endpoints.js')(app, db);
@@ -4050,6 +4513,10 @@ console.log('💰 Módulo Monitor de Preços e Reajuste em Massa inicializado.')
 const pricingEngineEndpoints = require('./pricing-engine-endpoints.js');
 app.use('/api/pricing-engine', pricingEngineEndpoints(db));
 console.log('🤖 Módulo Belinha Pricing Engine (Motor de Precificação Inteligente) inicializado.');
+
+const liquidacaoEndpoints = require('./liquidacao-endpoints.js');
+app.use('/api/liquidacao', liquidacaoEndpoints(db));
+console.log('🔥 Módulo Liquidação & Aceleração de Caixa (Sair do Cheque Especial) inicializado.');
 
 // Rotina agendada diária para simulação do motor fora do horário de pico (03:30 AM)
 const { runPricingEngine } = require('./services/pricing-engine.service');
@@ -4084,6 +4551,10 @@ const cardMachinesEndpoints = require('./card-machines-endpoints.js');
 app.use('/api', cardMachinesEndpoints(db));
 console.log('💳 Módulo Controle de Maquininhas inicializado.');
 
+const temperatureEndpoints = require('./temperature-endpoints.js');
+app.use('/api/temperature', temperatureEndpoints(db));
+console.log('🌡️ Módulo Mapa de Temperatura (Termo-Higrômetro) inicializado.');
+
 // Rotina periódica em segundo plano para checar atualizações da ANVISA (a cada 12 horas)
 const { fetchOnlineAnvisaUpdates } = require('./services/anvisa.service');
 setInterval(async () => {
@@ -4101,12 +4572,14 @@ setInterval(async () => {
 // ============================================================================
 const purchasingEndpoints = require('./purchasing-endpoints.js');
 const comprasEndpoints = require('./compras-endpoints.js');
+const replenishmentEndpoints = require('./replenishment-endpoints.js');
 const filesEndpoints = require('./files-endpoints.js');
 const recipeEndpoints = require('./recipe-endpoints.js');
 const systemEndpoints = require('./system-endpoints.js');
 
 app.use('/api/purchasing', purchasingEndpoints(db));
 app.use('/api/central-compras', comprasEndpoints(db));
+app.use('/api/replenishment', replenishmentEndpoints(db));
 app.use('/api/files', filesEndpoints(db));
 app.use('/api/recipes', recipeEndpoints(db));
 app.use('/api/system', systemEndpoints(db));
@@ -4116,6 +4589,11 @@ const medicamentosEndpoints = require('./medicamentos-endpoints.js');
 const medicamentosBuscaService = require('./services/medicamentos-busca.service');
 app.use('/api/medicamentos', medicamentosEndpoints(db));
 console.log('💊 Motor de Busca e Inteligência de Medicamentos inicializado em /api/medicamentos.');
+
+// BelaPed - Central de Cotação, Otimização de Carrinho e Gestão Orçamentária
+const belapedEndpoints = require('./belaped-endpoints.js');
+app.use('/api/belaped', belapedEndpoints(db));
+console.log('🛒 BelaPed inicializado em /api/belaped.');
 
 // Agendamento Diário (08:45 e 15:45): Sincronização e Reposição Inteligente de Medicamentos
 let ultimoHorarioMedicamentosSync = '';
@@ -4201,7 +4679,7 @@ app.post('/api/sync/force', async (req, res) => {
   }
 });
 
-// Ciclo Rápido (a cada 2 min): Vendas do dia e Crediário
+// Ciclo Rápido (a cada 30 min): Vendas do dia e Crediário (economiza RAM e não sobrecarrega o ERP)
 setInterval(async () => {
   try {
     await syncVendasHoje(db);
@@ -4209,7 +4687,7 @@ setInterval(async () => {
   } catch (e) {
     console.error('[Sync Daemon Rápido] Erro:', e.message);
   }
-}, 2 * 60 * 1000);
+}, 30 * 60 * 1000);
 
 // Ciclo Completo (a cada 2 horas): Catálogo de 64k Produtos, Curva ABC e Resumo de Estoque
 // Evita sobrecarga no Firebird durante o expediente mantendo o cache aquecido
@@ -4444,6 +4922,14 @@ cron.schedule('0 */6 * * *', async () => {
 }, { timezone: 'America/Sao_Paulo' });
 console.log('[VIGILANTE] 🛡️ Cron de verificação de integridade agendado a cada 6 horas.');
 
+// 🛡️ Ativa o Guardião de Recursos & Plano Automático de Correção (Ciclo de 3 minutos + boot)
+try {
+  const watcherService = require('./services/watcher.service.js');
+  watcherService.iniciarLoopVigilanteRecursos();
+} catch (vErr) {
+  console.error('[VIGILANTE] Falha ao iniciar loop de recursos:', vErr.message);
+}
+
 // CRON: SINCRONIZAÇÃO DE SALDOS E HISTÓRICO DAS FALTAS
 cron.schedule('0 * * * *', async () => {
   try {
@@ -4592,6 +5078,24 @@ app.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
 });
 
+try {
+  app.listen(80, () => {
+    console.log('[Server] 🌐 Servidor escutando também na porta 80 (compatibilidade com Cloudflare Tunnel)');
+  }).on('error', (e) => {
+    if (e.code !== 'EADDRINUSE') {
+      console.warn('[Server] Aviso na porta 80:', e.message);
+    }
+  });
+} catch (_) {}
+
+// 🍔 VIGIA DE PEDIDOS IFOOD VIA NAPP SOLUTIONS
+try {
+  const { startNappOrdersWatcher } = require('./services/napp-orders-watcher.service.js');
+  startNappOrdersWatcher();
+} catch (e) {
+  console.error('[Napp Watcher] ⚠️ Falha ao inicializar vigia Napp:', e.message);
+}
+
 // ══════════════════════════════════════════════════════════════════════
 // 🤖 BAILEYS WHATSAPP SERVICE — Inicialização e Endpoints
 // ══════════════════════════════════════════════════════════════════════
@@ -4605,6 +5109,16 @@ try {
 } catch (e) {
   console.warn('[Baileys] ⚠️ Serviço indisponível (arquivo não encontrado):', e.message);
 }
+
+// GET /api/ai/usage — Monitoramento de consumo diário de IA (limite de 200/dia)
+app.get('/api/ai/usage', (req, res) => {
+  try {
+    const { getDailyUsage } = require('./services/ai.service');
+    res.json(getDailyUsage());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // GET /api/whatsapp/baileys/status — Status da conexão
 app.get('/api/whatsapp/baileys/status', (req, res) => {
@@ -5251,6 +5765,19 @@ app.get('/api/debug-shortages', async (req, res) => {
   }
 });
 
-// Nodemon trigger restart
+// Encerramento Gracioso para evitar travamento em StopPending no Windows Service
+const gracefulShutdown = (signal) => {
+  console.log(`[Server] Recebido sinal ${signal}. Encerrando processo graciosamente...`);
+  try {
+    if (db && typeof db.close === 'function') {
+      db.close();
+    }
+  } catch (_) {}
+  setTimeout(() => process.exit(0), 500);
+};
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
 
 

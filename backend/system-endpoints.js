@@ -3,6 +3,7 @@ const router = express.Router();
 const fetch = require('node-fetch');
 const watcherService = require('./services/watcher.service.js');
 const incidentTracker = require('./services/incident-tracker.service.js');
+const security = require('./security.js');
 
 module.exports = (db) => {
 
@@ -13,6 +14,18 @@ module.exports = (db) => {
       res.json(health);
     } catch (err) {
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/system/remediate-resources - Executa o plano de auto-correção de recursos
+  router.post('/remediate-resources', async (req, res) => {
+    try {
+      console.log('[WATCHER-REMEDIATE] Disparo manual do plano de auto-correção de recursos...');
+      const resultado = await watcherService.executarPlanoAutoCorrecao({ forcar: true });
+      res.json(resultado);
+    } catch (err) {
+      console.error('[WATCHER-REMEDIATE] Erro na auto-correção manual:', err.message);
+      res.status(500).json({ success: false, error: err.message });
     }
   });
 
@@ -35,7 +48,10 @@ module.exports = (db) => {
           switch (serviceName) {
             case 'backup':
               // Faz chamada interna para a rota de backup que já trata o backup completo
-              const backupRes = await fetch(`http://localhost:3001/api/backups/create`, { method: 'POST' });
+              const backupRes = await fetch(`http://localhost:3001/api/backups/create`, {
+                method: 'POST',
+                headers: { 'x-internal-key': security.getInternalKey() }
+              });
               if (!backupRes.ok) {
                 const errData = await backupRes.json().catch(() => ({}));
                 throw new Error(errData.error || `Erro HTTP ${backupRes.status}`);
@@ -175,7 +191,7 @@ module.exports = (db) => {
   });
 
   // DELETE /api/system/incidents/clear - Limpa o histórico de incidentes
-  router.delete('/incidents/clear', (req, res) => {
+  router.delete('/incidents/clear', security.requireAdmin, (req, res) => {
     try {
       const success = incidentTracker.clearIncidents();
       res.json({ success, message: 'Histórico de incidentes limpo com sucesso.' });
@@ -196,5 +212,89 @@ module.exports = (db) => {
     }
   });
 
+  // ─── AUDITORIA DE USO E DESINSTALAÇÃO SEGURA DE FERRAMENTAS (15 DIAS) ───
+  const featureAuditService = require('./services/feature-audit.service.js');
+  try {
+    featureAuditService.initFeatureAuditTables(db);
+  } catch (err) {
+    console.error('[FEATURE-AUDIT] Erro ao inicializar tabelas de auditoria:', err.message);
+  }
+
+  // GET /api/system/feature-audit/status
+  router.get('/feature-audit/status', (req, res) => {
+    try {
+      const report = featureAuditService.getAuditStatus(db);
+      res.json({ success: true, ...report });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/system/feature-audit/track
+  router.post('/feature-audit/track', (req, res) => {
+    try {
+      const { featureId, userName } = req.body || {};
+      if (!featureId) return res.status(400).json({ error: 'featureId é obrigatório' });
+      const updated = featureAuditService.recordFeatureUsage(db, featureId, userName || 'Operador');
+      res.json({ success: true, item: updated });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/system/feature-audit/analyze
+  router.post('/feature-audit/analyze', security.requireAdmin, (req, res) => {
+    try {
+      const { featureIds } = req.body || {};
+      if (!Array.isArray(featureIds)) {
+        return res.status(400).json({ error: 'featureIds deve ser um array' });
+      }
+      const analysis = featureAuditService.analyzeFeatureDependencies(db, featureIds);
+      res.json({ success: true, analysis });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/system/feature-audit/uninstall
+  router.post('/feature-audit/uninstall', security.requireAdmin, (req, res) => {
+    try {
+      const { selectedFeatureIds = [], keptFeatureIds = [], userName = 'Administrador', forceHideOnly = false } = req.body || {};
+      const result = featureAuditService.executeSafeUninstall(db, {
+        selectedFeatureIds,
+        keptFeatureIds,
+        userName,
+        forceHideOnly
+      });
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/system/feature-audit/restore
+  router.post('/feature-audit/restore', security.requireAdmin, (req, res) => {
+    try {
+      const { featureId } = req.body || {};
+      if (!featureId) return res.status(400).json({ error: 'featureId é obrigatório' });
+      const report = featureAuditService.restoreFeature(db, featureId);
+      res.json({ success: true, ...report });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/system/feature-audit/simulate-period
+  router.post('/feature-audit/simulate-period', security.requireAdmin, (req, res) => {
+    try {
+      const { daysAgo = 15 } = req.body || {};
+      const report = featureAuditService.simulateFastForward15Days(db, Number(daysAgo));
+      res.json({ success: true, ...report });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   return router;
 };
+

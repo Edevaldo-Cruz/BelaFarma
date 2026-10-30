@@ -26,7 +26,10 @@ import {
   ChevronDown,
   ChevronRight,
   ExternalLink,
-  Power
+  Power,
+  Zap,
+  Wrench,
+  ShieldAlert
 } from 'lucide-react';
 import { useToast } from './ToastContext';
 
@@ -54,6 +57,25 @@ interface BackgroundService {
   delayMessage: string | null;
 }
 
+export interface ResourceWatch {
+  totalMemoryMB: number;
+  freeMemoryMB: number;
+  freeMemoryPct: number;
+  processMemoryMB: number;
+  orphanChromeCount: number;
+  walSizeMB: number;
+  isCotacaoRunning: boolean;
+  autoRemediationActive: boolean;
+  lastAutoRemediation?: {
+    timestamp: string | null;
+    acoes: string[];
+    status: string;
+    memoriaAntesMB?: number;
+    memoriaDepoisMB?: number;
+    duracaoMs?: number;
+  };
+}
+
 interface SystemHealth {
   database: ConnectionStatus;
   system: {
@@ -78,6 +100,7 @@ interface SystemHealth {
   };
   digifarmaDb: ConnectionStatus;
   backgroundServices: BackgroundService[];
+  resourceWatch?: ResourceWatch;
 }
 
 interface SystemIncident {
@@ -107,6 +130,7 @@ export const SystemWatcher: React.FC = () => {
 
   const [isLoading, setIsLoading] = useState(false);
   const [isTestingAlert, setIsTestingAlert] = useState(false);
+  const [isRemediating, setIsRemediating] = useState(false);
   const [runningServices, setRunningServices] = useState<Record<string, boolean>>({});
   const { addToast } = useToast();
 
@@ -227,6 +251,28 @@ export const SystemWatcher: React.FC = () => {
     }
   };
 
+  const handleRemediateResources = async () => {
+    setIsRemediating(true);
+    try {
+      const res = await fetch('/api/system/remediate-resources', { method: 'POST' });
+      const data = await res.json();
+      if (data.sucesso) {
+        if (data.acoesTomadas && data.acoesTomadas.length > 0) {
+          addToast(`Auto-Correção: ${data.acoesTomadas.join(' | ')}`, 'success');
+        } else {
+          addToast('Recursos 100% saudáveis. Nenhum processo zumbi ou sobrecarga encontrada.', 'info');
+        }
+        await fetchHealth();
+      } else {
+        addToast(data.error || 'Erro ao executar auto-correção', 'error');
+      }
+    } catch (err: any) {
+      addToast('Falha na comunicação ao disparar auto-correção', 'error');
+    } finally {
+      setIsRemediating(false);
+    }
+  };
+
   const handleSimulateIncident = async () => {
     try {
       const res = await fetch('/api/system/incidents/test', {
@@ -343,6 +389,7 @@ export const SystemWatcher: React.FC = () => {
       case 'UNCAUGHT_ERROR': return 'Exceção / Erro Fatal';
       case 'SERVICE_FAILURE': return 'Falha em Serviço/Cron';
       case 'HIGH_MEMORY': return 'Alerta de Memória (OOM)';
+      case 'AUTO_REMEDIATION': return 'Auto-Correção do Vigilante';
       default: return type;
     }
   };
@@ -595,52 +642,169 @@ export const SystemWatcher: React.FC = () => {
                 </div>
               </div>
 
-              {/* RECURSOS DA MÁQUINA (RASPBERRY PI) */}
-              <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 p-6 rounded-2xl shadow-sm space-y-4">
-                <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
+              {/* GUARDIÃO DE RECURSOS & AUTO-CORREÇÃO ATIVA */}
+              <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 p-6 rounded-2xl shadow-sm space-y-5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-800 pb-4">
                   <div className="flex items-center gap-3">
-                    <Cpu className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
-                    <h2 className="text-base font-bold text-slate-800 dark:text-white">Recursos do Servidor (Raspberry Pi)</h2>
+                    <span className="p-2.5 bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400 rounded-xl">
+                      <ShieldCheck className="w-6 h-6" />
+                    </span>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h2 className="text-base font-black text-slate-800 dark:text-white">Guardião de Recursos & Auto-Correção</h2>
+                        <span className="flex items-center gap-1.5 text-[11px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                          Ativo (Ciclo de 3 min)
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        Varredura contínua contra processos zumbis, travamentos de cotações e saturação de memória.
+                      </p>
+                    </div>
                   </div>
-                  <span className="text-xs font-semibold text-slate-400">Plataforma: {health.system.platform}</span>
+
+                  <div className="flex items-center gap-2 self-start sm:self-auto">
+                    <button
+                      onClick={handleRemediateResources}
+                      disabled={isRemediating}
+                      className="px-4 py-2 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white text-xs font-bold rounded-xl shadow-sm shadow-indigo-500/20 transition-all flex items-center gap-2 disabled:opacity-50"
+                      title="Disparar varredura e limpeza preventiva imediata"
+                    >
+                      <Zap className={`w-4 h-4 ${isRemediating ? 'animate-spin text-amber-300' : 'text-amber-300'}`} />
+                      <span>{isRemediating ? 'Corrigindo...' : 'Executar Auto-Correção Agora'}</span>
+                    </button>
+                  </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 pt-2">
-                  <div className="space-y-1.5">
-                    <span className="text-xs font-semibold text-slate-400 flex items-center gap-1.5">
-                      <Clock className="w-4 h-4 text-slate-400" /> Uptime Contínuo
-                    </span>
-                    <div className="text-xl font-black text-slate-800 dark:text-white">
-                      {formatUptime(health.system.uptimeSeconds)}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-1">
+                  {/* MEMÓRIA RAM DO SISTEMA */}
+                  <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-100 dark:border-slate-800 space-y-2">
+                    <div className="flex items-center justify-between text-xs font-bold text-slate-500 dark:text-slate-400">
+                      <span className="flex items-center gap-1.5">
+                        <Server className="w-4 h-4 text-indigo-500" /> RAM do Sistema
+                      </span>
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-black ${
+                        (health.resourceWatch?.freeMemoryPct ?? 50) < 15
+                          ? 'bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-400'
+                          : (health.resourceWatch?.freeMemoryPct ?? 50) < 25
+                          ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-400'
+                          : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400'
+                      }`}>
+                        {health.resourceWatch?.freeMemoryPct ?? Math.round((health.system.freeMemoryMB / health.system.totalMemoryMB) * 100)}% Livre
+                      </span>
                     </div>
-                    <p className="text-[11px] text-slate-400">Tempo desde a última inicialização do Node</p>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <span className="text-xs font-semibold text-slate-400 flex items-center gap-1.5">
-                      <Cpu className="w-4 h-4 text-slate-400" /> Memória do Processo (Belinha)
-                    </span>
                     <div className="text-xl font-black text-slate-800 dark:text-white">
-                      {health.system.processMemoryMB} MB
+                      {(health.resourceWatch?.freeMemoryMB || health.system.freeMemoryMB)} MB
+                      <span className="text-xs text-slate-400 font-normal ml-1">/ {health.system.totalMemoryMB} MB</span>
                     </div>
-                    <p className="text-[11px] text-slate-400">Consumo RSS isolado do container</p>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <span className="text-xs font-semibold text-slate-400 flex items-center gap-1.5">
-                      <Server className="w-4 h-4 text-slate-400" /> Memória RAM do Host
-                    </span>
-                    <div className="text-xl font-black text-slate-800 dark:text-white">
-                      {health.system.freeMemoryMB} MB livres <span className="text-xs text-slate-400 font-normal">de {health.system.totalMemoryMB} MB</span>
-                    </div>
-                    <div className="w-full bg-slate-100 dark:bg-slate-800 h-2 rounded-full overflow-hidden mt-1">
+                    <div className="w-full bg-slate-200 dark:bg-slate-700 h-2 rounded-full overflow-hidden">
                       <div 
-                        className="bg-indigo-600 h-full rounded-full" 
-                        style={{ width: `${Math.round(((health.system.totalMemoryMB - health.system.freeMemoryMB) / health.system.totalMemoryMB) * 100)}%` }}
+                        className={`h-full rounded-full transition-all duration-500 ${
+                          (health.resourceWatch?.freeMemoryPct ?? 50) < 15
+                            ? 'bg-red-500'
+                            : (health.resourceWatch?.freeMemoryPct ?? 50) < 25
+                            ? 'bg-amber-500'
+                            : 'bg-emerald-500'
+                        }`}
+                        style={{ width: `${Math.min(100, Math.max(0, 100 - (health.resourceWatch?.freeMemoryPct ?? Math.round((health.system.freeMemoryMB / health.system.totalMemoryMB) * 100))))}%` }}
                       />
                     </div>
+                    <p className="text-[10px] text-slate-400">Auto-alívio ativado se RAM livre &lt; 2.5 GB</p>
+                  </div>
+
+                  {/* NAVEGADORES CHROME ZUMBIS */}
+                  <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-100 dark:border-slate-800 space-y-2">
+                    <div className="flex items-center justify-between text-xs font-bold text-slate-500 dark:text-slate-400">
+                      <span className="flex items-center gap-1.5">
+                        <Terminal className="w-4 h-4 text-purple-500" /> Processos Chrome
+                      </span>
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-black ${
+                        (health.resourceWatch?.orphanChromeCount ?? 0) === 0
+                          ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400'
+                          : 'bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-400 animate-pulse'
+                      }`}>
+                        {(health.resourceWatch?.orphanChromeCount ?? 0) === 0 ? 'Nenhum Zumbi' : 'Expurgo Ativo'}
+                      </span>
+                    </div>
+                    <div className="text-xl font-black text-slate-800 dark:text-white">
+                      {health.resourceWatch?.orphanChromeCount ?? 0}
+                      <span className="text-xs text-slate-400 font-normal ml-1.5">órfãos headless</span>
+                    </div>
+                    <p className="text-[10px] text-slate-400 pt-1">
+                      Eliminação instantânea em lote caso não haja robô em atividade
+                    </p>
+                  </div>
+
+                  {/* BANCO SQLITE & WAL */}
+                  <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-100 dark:border-slate-800 space-y-2">
+                    <div className="flex items-center justify-between text-xs font-bold text-slate-500 dark:text-slate-400">
+                      <span className="flex items-center gap-1.5">
+                        <Database className="w-4 h-4 text-blue-500" /> Banco & WAL
+                      </span>
+                      <span className="text-[10px] font-bold text-slate-400">
+                        TRUNCATE auto
+                      </span>
+                    </div>
+                    <div className="text-xl font-black text-slate-800 dark:text-white">
+                      {health.database.sizeMB} MB
+                      <span className="text-xs text-slate-400 font-normal ml-1">banco</span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      WAL: <strong className="text-slate-700 dark:text-slate-200">{health.resourceWatch?.walSizeMB ?? 0} MB</strong> (checkpoint se &gt; 40MB)
+                    </p>
+                  </div>
+
+                  {/* COTAÇÃO BELAPED / UPTIME */}
+                  <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-100 dark:border-slate-800 space-y-2">
+                    <div className="flex items-center justify-between text-xs font-bold text-slate-500 dark:text-slate-400">
+                      <span className="flex items-center gap-1.5">
+                        <Cpu className="w-4 h-4 text-amber-500" /> Processo Node
+                      </span>
+                      <span className="text-[10px] font-bold text-slate-400">
+                        {formatUptime(health.system.uptimeSeconds)}
+                      </span>
+                    </div>
+                    <div className="text-xl font-black text-slate-800 dark:text-white">
+                      {health.system.processMemoryMB} MB
+                      <span className="text-xs text-slate-400 font-normal ml-1">RSS</span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      BelaPed: <strong className={health.resourceWatch?.isCotacaoRunning ? 'text-amber-500' : 'text-emerald-500'}>
+                        {health.resourceWatch?.isCotacaoRunning ? 'Cotação em andamento' : 'Ocioso (Protegido)'}
+                      </strong>
+                    </p>
                   </div>
                 </div>
+
+                {/* ÚLTIMA AÇÃO DE AUTO-REMEDIAÇÃO */}
+                {health.resourceWatch?.lastAutoRemediation?.acoes && health.resourceWatch.lastAutoRemediation.acoes.length > 0 ? (
+                  <div className="bg-indigo-50/60 dark:bg-indigo-950/20 border border-indigo-100 dark:border-indigo-900/30 p-3.5 rounded-xl flex items-start gap-3 text-xs text-indigo-900 dark:text-indigo-300">
+                    <Wrench className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0 mt-0.5" />
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <strong className="font-bold">Última Auto-Correção Executada com Sucesso:</strong>
+                        <span className="text-[11px] text-indigo-600 dark:text-indigo-400 opacity-80">
+                          {formatDate(health.resourceWatch.lastAutoRemediation.timestamp)}
+                        </span>
+                      </div>
+                      <ul className="list-disc list-inside space-y-0.5 text-[11px] text-slate-600 dark:text-slate-300">
+                        {health.resourceWatch.lastAutoRemediation.acoes.map((acao, idx) => (
+                          <li key={idx}>{acao}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="bg-slate-50 dark:bg-slate-800/30 border border-slate-100 dark:border-slate-800/60 p-3 rounded-xl flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                    <span className="flex items-center gap-2">
+                      <ShieldCheck className="w-4 h-4 text-emerald-500" />
+                      Nenhuma sobrecarga detectada. O ecossistema está operando com memória folgada e zero processos órfãos.
+                    </span>
+                    <span className="text-[11px] text-slate-400">
+                      Plataforma: {health.system.platform}
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* HISTÓRICO DE SERVIÇOS EM SEGUNDO PLANO */}

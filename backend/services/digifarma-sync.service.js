@@ -57,7 +57,7 @@ async function syncProdutos(db) {
         APRESENTACAO,
         COD_BARRAS,
         CATEGORIA_ID,
-        ESTOQUE,
+        PROD_SALDO AS ESTOQUE,
         PROD_PRVENDA,
         PROD_PRCOMPRA,
         VALOR_ULT_COMPRA,

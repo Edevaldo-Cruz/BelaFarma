@@ -3,6 +3,17 @@ const fetch = require('node-fetch');
 const os = require('os');
 const path = require('path');
 const fs = require('fs');
+const { execFile } = require('child_process');
+const config = require('../config.js');
+
+let ultimaAutoCorrecao = {
+  timestamp: null,
+  acoes: [],
+  status: 'NENHUMA_ACAO',
+  memoriaAntesMB: null,
+  memoriaDepoisMB: null,
+  duracaoMs: 0
+};
 
 // Inicializa a tabela de status de saúde dos serviços
 try {
@@ -67,7 +78,18 @@ async function getSystemHealth() {
     },
     evolutionApi: { operational: false, error: null, instances: [] },
     digifarmaDb: { operational: false, error: null },
-    backgroundServices: []
+    backgroundServices: [],
+    resourceWatch: {
+      totalMemoryMB: Math.round(os.totalmem() / 1024 / 1024),
+      freeMemoryMB: Math.round(os.freemem() / 1024 / 1024),
+      freeMemoryPct: Number(((os.freemem() / os.totalmem()) * 100).toFixed(1)),
+      processMemoryMB: Math.round(process.memoryUsage().rss / 1024 / 1024),
+      orphanChromeCount: 0,
+      walSizeMB: 0,
+      isCotacaoRunning: false,
+      autoRemediationActive: true,
+      lastAutoRemediation: ultimaAutoCorrecao
+    }
   };
 
   // 1. Banco SQLite Local
@@ -75,16 +97,33 @@ async function getSystemHealth() {
     db.prepare('SELECT 1').get();
     status.database.operational = true;
     
-    // Caminho relativo ao diretório backend
-    const dbPath = path.join(__dirname, '../belafarma.db');
+    const dbPath = config.dbPath;
     if (fs.existsSync(dbPath)) {
       const stats = fs.statSync(dbPath);
       status.database.sizeMB = (stats.size / 1024 / 1024).toFixed(2);
+    }
+
+    const walPath = dbPath + '-wal';
+    if (fs.existsSync(walPath)) {
+      status.resourceWatch.walSizeMB = Number((fs.statSync(walPath).size / 1024 / 1024).toFixed(2));
     }
   } catch (err) {
     status.database.operational = false;
     status.database.error = err.message;
   }
+
+  // Checa processos zumbis do Chrome e cotação ativa
+  try {
+    status.resourceWatch.orphanChromeCount = await contarProcessosZumbisChrome();
+  } catch (_) {}
+
+  try {
+    const belaped = require('../belaped-endpoints.js');
+    if (typeof belaped.getCotacaoStatus === 'function') {
+      const cStatus = belaped.getCotacaoStatus();
+      status.resourceWatch.isCotacaoRunning = !!(cStatus && cStatus.emAndamento);
+    }
+  } catch (_) {}
 
   // 2. Conexão Baileys Local (Principal e Secundário)
   try {
@@ -289,8 +328,185 @@ async function checkAndAlertDelayedServices() {
   }
 }
 
+/**
+ * Conta processos do Google Chrome headless/puppeteer ativos no sistema (Windows)
+ * @returns {Promise<number>}
+ */
+async function contarProcessosZumbisChrome() {
+  if (process.platform !== 'win32') return 0;
+  return new Promise((resolve) => {
+    const psScript = `(Get-CimInstance Win32_Process -Filter "Name = 'chrome.exe'" | Where-Object { $_.CommandLine -like "*--headless*" -or $_.CommandLine -like "*puppeteer*" } | Measure-Object).Count`;
+    execFile('powershell.exe', ['-NoProfile', '-Command', psScript], { timeout: 6000 }, (err, stdout) => {
+      if (err) return resolve(0);
+      const count = parseInt(stdout ? stdout.trim() : '0', 10);
+      resolve(isNaN(count) ? 0 : count);
+    });
+  });
+}
+
+/**
+ * Encerra de forma segura todos os processos headless/puppeteer zumbis do Chrome no Windows
+ * @returns {Promise<number>} Quantidade de processos encerrados
+ */
+async function limparProcessosZumbisChrome() {
+  if (process.platform !== 'win32') return 0;
+  return new Promise((resolve) => {
+    const psScript = `$targets = Get-CimInstance Win32_Process -Filter "Name = 'chrome.exe'" | Where-Object { $_.CommandLine -like "*--headless*" -or $_.CommandLine -like "*puppeteer*" }; $count = $targets.Count; $targets | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }; Write-Output $count`;
+    execFile('powershell.exe', ['-NoProfile', '-Command', psScript], { timeout: 10000 }, (err, stdout) => {
+      if (err) return resolve(0);
+      const count = parseInt(stdout ? stdout.trim() : '0', 10);
+      resolve(isNaN(count) ? 0 : count);
+    });
+  });
+}
+
+/**
+ * Executa o plano automático de correção do Vigilante (Self-Healing de Recursos)
+ * @param {object} options
+ * @param {boolean} options.forcar - Força a execução mesmo se os limites não forem violados
+ */
+async function executarPlanoAutoCorrecao(options = {}) {
+  const forcar = !!options.forcar;
+  const acoesTomadas = [];
+  const inicio = Date.now();
+
+  const totalMemMB = Math.round(os.totalmem() / 1024 / 1024);
+  const freeMemMBInicial = Math.round(os.freemem() / 1024 / 1024);
+  const freeMemPctInicial = Number(((freeMemMBInicial / totalMemMB) * 100).toFixed(1));
+
+  // 1. Checa status da cotação BelaPed
+  let cotacaoStatus = { emAndamento: false };
+  try {
+    const belapedEndpoints = require('../belaped-endpoints.js');
+    if (typeof belapedEndpoints.getCotacaoStatus === 'function') {
+      cotacaoStatus = belapedEndpoints.getCotacaoStatus();
+    }
+  } catch (_) {}
+
+  // 2. Checa processos zumbis do Chrome
+  const zumbis = await contarProcessosZumbisChrome();
+
+  // Ação 1: Processos zumbis detectados sem cotação ativa
+  if (zumbis > 0 && (!cotacaoStatus.emAndamento || forcar)) {
+    const encerrados = await limparProcessosZumbisChrome();
+    acoesTomadas.push(`Encerrados ${encerrados || zumbis} processos zumbis do Chrome em segundo plano.`);
+  } else if (zumbis > 8 && cotacaoStatus.emAndamento) {
+    // Se a cotação estiver rodando mas houver mais de 8 processos acumulados (vazamento anômalo)
+    const encerrados = await limparProcessosZumbisChrome();
+    acoesTomadas.push(`Expurgo preventivo em cotação: encerrados ${encerrados || zumbis} processos acumulados do Chrome.`);
+  }
+
+  // Ação 2: Cotação travada há mais de 15 minutos sem progresso
+  if (cotacaoStatus.emAndamento && cotacaoStatus.iniciadoEm) {
+    const inicioCotacao = new Date(cotacaoStatus.iniciadoEm).getTime();
+    const duracaoMs = Date.now() - inicioCotacao;
+    if (duracaoMs > 15 * 60 * 1000) { // 15 minutos
+      try {
+        const belapedEndpoints = require('../belaped-endpoints.js');
+        if (typeof belapedEndpoints.abortarCotacaoTravada === 'function') {
+          belapedEndpoints.abortarCotacaoTravada();
+          acoesTomadas.push(`Cotação do BelaPed travada há mais de 15 minutos foi cancelada e seus navegadores reiniciados.`);
+        }
+      } catch (_) {}
+    }
+  }
+
+  // Ação 3: Memória RAM sob pressão crítica (< 2.5 GB livres ou < 15%) ou acionamento forçado
+  if (freeMemMBInicial < 2500 || freeMemPctInicial < 15.0 || forcar) {
+    // Checkpoint de compactação do WAL do SQLite
+    try {
+      db.pragma('wal_checkpoint(TRUNCATE)');
+      acoesTomadas.push('Checkpoint TRUNCATE executado no banco SQLite (WAL compactado).');
+    } catch (e) {
+      console.warn('[Vigilante] Erro no checkpoint WAL:', e.message);
+    }
+
+    // Coleta forçada de lixo do Node se disponível
+    if (global.gc) {
+      try {
+        global.gc();
+        acoesTomadas.push('Coleta forçada de lixo (V8 GC) executada.');
+      } catch (_) {}
+    }
+  }
+
+  // Ação 4: Inchaço do arquivo WAL do SQLite (> 40 MB)
+  const walPath = config.dbPath + '-wal';
+  if (fs.existsSync(walPath)) {
+    try {
+      const walSizeMB = fs.statSync(walPath).size / 1024 / 1024;
+      if (walSizeMB > 40) {
+        db.pragma('wal_checkpoint(TRUNCATE)');
+        acoesTomadas.push(`WAL do SQLite excedeu 40 MB (${walSizeMB.toFixed(1)} MB). Compactado para zero.`);
+      }
+    } catch (_) {}
+  }
+
+  const freeMemMBFinal = Math.round(os.freemem() / 1024 / 1024);
+  const diffLiberada = freeMemMBFinal - freeMemMBInicial;
+  const statusResultado = acoesTomadas.length > 0 ? 'AUTO_CORRECAO_EXECUTADA' : 'SISTEMA_SAUDAVEL';
+
+  ultimaAutoCorrecao = {
+    timestamp: new Date().toISOString(),
+    acoes: acoesTomadas,
+    status: statusResultado,
+    memoriaAntesMB: freeMemMBInicial,
+    memoriaDepoisMB: freeMemMBFinal,
+    duracaoMs: Date.now() - inicio
+  };
+
+  // Se realizou alguma ação corretiva, registra no histórico de incidentes
+  if (acoesTomadas.length > 0) {
+    console.log(`[Vigilante Auto-Fix] 🛡️ Plano de auto-correção executado: ${acoesTomadas.join(' | ')}`);
+    try {
+      const incidentTracker = require('./incident-tracker.service.js');
+      incidentTracker.recordIncident(
+        'AUTO_REMEDIATION',
+        freeMemMBFinal < 1500 ? 'WARNING' : 'INFO',
+        `Auto-Correção do Vigilante Executada (${acoesTomadas.length} ações)`,
+        `Ações de auto-remediação executadas com sucesso:\n- ${acoesTomadas.join('\n- ')}\n\nMemória RAM Livre: de ${freeMemMBInicial} MB para ${freeMemMBFinal} MB (Variação: +${diffLiberada} MB).`
+      );
+    } catch (_) {}
+
+    registerServiceRun('vigilante_recursos', 'SUCCESS');
+  }
+
+  return {
+    sucesso: true,
+    acoesTomadas,
+    memoriaAntesMB: freeMemMBInicial,
+    memoriaDepoisMB: freeMemMBFinal,
+    memoriaLiberadaMB: diffLiberada > 0 ? diffLiberada : 0,
+    duracaoMs: Date.now() - inicio
+  };
+}
+
+/**
+ * Inicializa o loop contínuo de vigilância e auto-correção a cada 3 minutos
+ */
+let loopRecursosIniciado = false;
+function iniciarLoopVigilanteRecursos() {
+  if (loopRecursosIniciado) return;
+  loopRecursosIniciado = true;
+  console.log('[Vigilante] 🛡️ Guardião de Recursos & Auto-Correção ativado (ciclo de 3 minutos).');
+
+  // Executa uma primeira checagem após 15 segundos do boot
+  setTimeout(() => {
+    executarPlanoAutoCorrecao().catch(err => console.error('[Vigilante] Erro no auto-fix inicial:', err.message));
+  }, 15000);
+
+  // Intervalo recorrente de 3 minutos
+  setInterval(() => {
+    executarPlanoAutoCorrecao().catch(err => console.error('[Vigilante] Erro no ciclo de auto-fix:', err.message));
+  }, 3 * 60 * 1000);
+}
+
 module.exports = {
   registerServiceRun,
   getSystemHealth,
-  checkAndAlertDelayedServices
+  checkAndAlertDelayedServices,
+  contarProcessosZumbisChrome,
+  limparProcessosZumbisChrome,
+  executarPlanoAutoCorrecao,
+  iniciarLoopVigilanteRecursos
 };
