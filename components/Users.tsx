@@ -69,14 +69,14 @@ export const Users: React.FC<UsersProps> = ({ currentUser, users, onAdd, onUpdat
       role: userToEdit.role,
       jobRole: userToEdit.jobRole || UserJobRole.OUTRO,
       phone: userToEdit.phone || '',
-      accessKey: userToEdit.accessKey
+      accessKey: ''
     });
     setIsModalOpen(true);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name || !formData.accessKey) {
+    if (!formData.name || (!editingUser && !formData.accessKey)) {
       addToast('Preencha o nome e a chave de acesso.', 'warning');
       return;
     }
@@ -371,14 +371,16 @@ export const Users: React.FC<UsersProps> = ({ currentUser, users, onAdd, onUpdat
 
               {/* Chave de Acesso */}
               <div className="space-y-1.5">
-                <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Chave / Senha de Acesso</label>
+                <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">
+                  {editingUser ? 'Nova Chave / Senha (Opcional)' : 'Chave / Senha de Acesso'}
+                </label>
                 <div className="relative">
                   <Key className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" />
                   <input 
-                    required
+                    required={!editingUser}
                     type="password"
                     className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-red-500 focus:bg-white outline-none font-bold text-sm"
-                    placeholder="••••••••"
+                    placeholder={editingUser ? "Deixe em branco para manter a atual" : "••••••••"}
                     value={formData.accessKey}
                     onChange={e => setFormData({...formData, accessKey: e.target.value})}
                   />

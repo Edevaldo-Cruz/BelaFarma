@@ -12,6 +12,8 @@ try {
   
   // Ativa o modo WAL para melhor concorrência
   db.pragma('journal_mode = WAL');
+  // Evita 'database is locked' configurando timeout de espera para transações concorrentes
+  db.pragma('busy_timeout = 30000');
 
   // Função para criar as tabelas
   const createTables = () => {
@@ -39,6 +41,7 @@ try {
         receiptDate TEXT,
         notes TEXT,
         installments TEXT, -- Armazenado como JSON
+        items TEXT, -- Itens do pedido (produtos, qtds, precos, cortes) armazenados como JSON
         isFogueteAmarelo INTEGER DEFAULT 0,
         boletoPath TEXT
       );
@@ -566,6 +569,46 @@ try {
     try { db.exec('CREATE INDEX IF NOT EXISTS idx_sched_status ON price_scheduled_steps(status);'); } catch(e) {}
     try { db.exec('CREATE INDEX IF NOT EXISTS idx_sched_exec ON price_scheduled_steps(proxima_execucao);'); } catch(e) {}
 
+    // Tabela de Customizações e Rateio de Preço por Produto (Pró-labore, Fixo, Impostos, Margens)
+    const createProductPricingCustomizationsTable = `
+      CREATE TABLE IF NOT EXISTS product_pricing_customizations (
+        produto_id INTEGER PRIMARY KEY,
+        descricao TEXT NOT NULL,
+        cod_barras TEXT,
+        cmv REAL NOT NULL DEFAULT 0,
+        imposto_pct REAL NOT NULL DEFAULT 0,
+        taxa_cartao_pct REAL NOT NULL DEFAULT 0,
+        custos_variaveis_pct REAL NOT NULL DEFAULT 0,
+        custo_fixo_pct REAL NOT NULL DEFAULT 0,
+        pro_labore_1_pct REAL NOT NULL DEFAULT 0,
+        pro_labore_2_pct REAL NOT NULL DEFAULT 0,
+        pro_labore_total_pct REAL NOT NULL DEFAULT 0,
+        margem_liquida_pct REAL NOT NULL DEFAULT 0,
+        preco_venda REAL NOT NULL DEFAULT 0,
+        preco_anterior REAL DEFAULT 0,
+        markup_divisor REAL NOT NULL DEFAULT 0,
+        markup_multiplicador REAL NOT NULL DEFAULT 0,
+        categoria_preset TEXT,
+        categoria_nome TEXT,
+        estoque REAL DEFAULT 0,
+        atualizado_por TEXT,
+        atualizado_em TEXT DEFAULT (datetime('now', 'localtime'))
+      );
+    `;
+    db.exec(createProductPricingCustomizationsTable);
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_ppc_data ON product_pricing_customizations(atualizado_em);'); } catch(e) {}
+
+    // Migrações para snapshots de alteração de preço guardarem os percentuais
+    try { db.exec('ALTER TABLE price_change_snapshots ADD COLUMN imposto_pct REAL DEFAULT 0'); } catch(e) {}
+    try { db.exec('ALTER TABLE price_change_snapshots ADD COLUMN taxa_cartao_pct REAL DEFAULT 0'); } catch(e) {}
+    try { db.exec('ALTER TABLE price_change_snapshots ADD COLUMN custos_variaveis_pct REAL DEFAULT 0'); } catch(e) {}
+    try { db.exec('ALTER TABLE price_change_snapshots ADD COLUMN custo_fixo_pct REAL DEFAULT 0'); } catch(e) {}
+    try { db.exec('ALTER TABLE price_change_snapshots ADD COLUMN pro_labore_1_pct REAL DEFAULT 0'); } catch(e) {}
+    try { db.exec('ALTER TABLE price_change_snapshots ADD COLUMN pro_labore_2_pct REAL DEFAULT 0'); } catch(e) {}
+    try { db.exec('ALTER TABLE price_change_snapshots ADD COLUMN pro_labore_total_pct REAL DEFAULT 0'); } catch(e) {}
+    try { db.exec('ALTER TABLE price_change_snapshots ADD COLUMN margem_liquida_pct REAL DEFAULT 0'); } catch(e) {}
+    try { db.exec('ALTER TABLE price_change_snapshots ADD COLUMN markup_divisor REAL DEFAULT 0'); } catch(e) {}
+
     // Digifarma Replication & Continuous Sync Tables
     const createDigifarmaSyncTables = `
       CREATE TABLE IF NOT EXISTS digifarma_sync_metadata (
@@ -620,6 +663,21 @@ try {
     try { db.exec('CREATE INDEX IF NOT EXISTS idx_prod_cache_estoque ON digifarma_products_cache(estoque_atual);'); } catch(e) {}
     try { db.exec('CREATE INDEX IF NOT EXISTS idx_napp_ean ON napp_prices(ean);'); } catch(e) {}
     try { db.exec('CREATE INDEX IF NOT EXISTS idx_napp_prod_id ON napp_prices(produto_id);'); } catch(e) {}
+
+    const createReplenishmentTable = `
+      CREATE TABLE IF NOT EXISTS replenishment_analyses (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        items_json TEXT NOT NULL,
+        total_items INTEGER DEFAULT 0,
+        total_pedir REAL DEFAULT 0,
+        total_valor REAL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        created_by TEXT
+      );
+    `;
+    db.exec(createReplenishmentTable);
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_replenish_created ON replenishment_analyses(created_at);'); } catch(e) {}
 
     try { db.exec('ALTER TABLE anvisa_alerts ADD COLUMN tem_estoque_manual INTEGER DEFAULT NULL'); } catch(e) {}
     try { db.exec("ALTER TABLE anvisa_alerts ADD COLUMN status_estoque TEXT DEFAULT 'semEstoque'"); } catch(e) {}
@@ -765,6 +823,51 @@ try {
     db.exec(createCardMachineReceivablesTable);
     db.exec(createPricingEngineTables);
 
+    // Módulo de Perdas, Vencidos e Avarias
+    const createLotesPerdasTable = `
+      CREATE TABLE IF NOT EXISTS lotes_perdas (
+        id TEXT PRIMARY KEY,
+        data_hora TEXT NOT NULL,
+        usuario_id TEXT,
+        usuario_nome TEXT NOT NULL,
+        total_itens INTEGER NOT NULL DEFAULT 0,
+        total_custo REAL NOT NULL DEFAULT 0,
+        total_venda REAL NOT NULL DEFAULT 0,
+        observacao_geral TEXT
+      );
+    `;
+
+    const createItensLotePerdasTable = `
+      CREATE TABLE IF NOT EXISTS itens_lote_perdas (
+        id TEXT PRIMARY KEY,
+        lote_id TEXT NOT NULL,
+        produto_id TEXT,
+        codigo_barras TEXT NOT NULL,
+        descricao TEXT NOT NULL,
+        quantidade REAL NOT NULL,
+        motivo TEXT NOT NULL,
+        preco_custo REAL NOT NULL DEFAULT 0,
+        preco_venda REAL NOT NULL DEFAULT 0,
+        saldo_anterior_digifarma REAL DEFAULT 0,
+        saldo_baixado_digifarma REAL DEFAULT 0,
+        is_especial INTEGER DEFAULT 0,
+        tipo_especial TEXT,
+        status_baixa TEXT DEFAULT 'sucesso',
+        mensagem_baixa TEXT,
+        observacao TEXT,
+        FOREIGN KEY(lote_id) REFERENCES lotes_perdas(id) ON DELETE CASCADE
+      );
+    `;
+
+    db.exec(createLotesPerdasTable);
+    db.exec(createItensLotePerdasTable);
+    try { db.exec('ALTER TABLE itens_lote_perdas ADD COLUMN is_especial INTEGER DEFAULT 0'); } catch(e) {}
+    try { db.exec('ALTER TABLE itens_lote_perdas ADD COLUMN tipo_especial TEXT'); } catch(e) {}
+    try { db.exec("ALTER TABLE itens_lote_perdas ADD COLUMN status_baixa TEXT DEFAULT 'sucesso'"); } catch(e) {}
+    try { db.exec('ALTER TABLE itens_lote_perdas ADD COLUMN mensagem_baixa TEXT'); } catch(e) {}
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_itens_perdas_lote ON itens_lote_perdas(lote_id);'); } catch(e) {}
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_itens_perdas_barcode ON itens_lote_perdas(codigo_barras);'); } catch(e) {}
+
     try { db.exec('ALTER TABLE napp_prices ADD COLUMN preco_proffer_baixo REAL'); } catch(e) {}
     try { db.exec('ALTER TABLE napp_prices ADD COLUMN preco_proffer_medio REAL'); } catch(e) {}
     try { db.exec('ALTER TABLE napp_prices ADD COLUMN preco_proffer_alto REAL'); } catch(e) {}
@@ -850,6 +953,15 @@ try {
       try {
         db.exec('ALTER TABLE users ADD COLUMN phone TEXT DEFAULT ""');
         console.log('Added phone column to users table.');
+      } catch (err) {}
+    }
+
+    try {
+      db.prepare('SELECT accessKeyHash FROM users LIMIT 1').get();
+    } catch (e) {
+      try {
+        db.exec('ALTER TABLE users ADD COLUMN accessKeyHash TEXT');
+        console.log('Added accessKeyHash column to users table.');
       } catch (err) {}
     }
 
@@ -984,6 +1096,35 @@ try {
       db.exec('ALTER TABLE boletos ADD COLUMN supplierName TEXT');
     }
 
+    // Add barcode columns to boletos table
+    ['barcode', 'bank_code', 'bank_name', 'created_at'].forEach(col => {
+      try {
+        db.prepare(`SELECT ${col} FROM boletos LIMIT 1`).get();
+      } catch (e) {
+        try {
+          db.exec(`ALTER TABLE boletos ADD COLUMN ${col} TEXT`);
+          console.log(`Added ${col} column to boletos table.`);
+        } catch (alterErr) {}
+      }
+    });
+
+    // Tabela de memória de fornecedores/convênios identificados por boletos
+    try {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS boleto_supplier_memory (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          convenio_key TEXT NOT NULL UNIQUE,
+          bank_code TEXT,
+          bank_name TEXT,
+          supplier_name TEXT NOT NULL,
+          last_used_at TEXT NOT NULL,
+          use_count INTEGER DEFAULT 1
+        );
+      `);
+    } catch (tblErr) {
+      console.error('Error creating boleto_supplier_memory table:', tblErr);
+    }
+
     // Add boletoPath column to orders table if it doesn't exist
     try {
       db.prepare('SELECT boletoPath FROM orders LIMIT 1').get();
@@ -997,6 +1138,14 @@ try {
     } catch (e) {
       db.exec('ALTER TABLE orders ADD COLUMN isFogueteAmarelo INTEGER DEFAULT 0');
       console.log('Added isFogueteAmarelo column to orders table.');
+    }
+
+    // Add items column to orders table if it doesn't exist
+    try {
+      db.prepare('SELECT items FROM orders LIMIT 1').get();
+    } catch (e) {
+      db.exec('ALTER TABLE orders ADD COLUMN items TEXT');
+      console.log('Added items column to orders table.');
     }
 
 
@@ -1373,6 +1522,29 @@ try {
 
     console.log('✅ Módulo iFood: Tabela criada com sucesso!');
 
+    // Tabela de sincronização e vigia de pedidos Napp iFood
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS napp_orders_sync (
+        order_id TEXT PRIMARY KEY,
+        code TEXT,
+        order_date TEXT NOT NULL,
+        customer_name TEXT,
+        customer_document TEXT,
+        total_amount REAL NOT NULL,
+        is_today INTEGER DEFAULT 0,
+        prevenda_id INTEGER,
+        venda_nota_id INTEGER,
+        sync_status TEXT NOT NULL, -- 'SUCCESS', 'ITEM_NOT_FOUND', 'SKIPPED_PAST_DATE', 'ERROR'
+        error_log TEXT,
+        synced_at TEXT NOT NULL
+      )
+    `);
+    try {
+      db.exec('CREATE INDEX IF NOT EXISTS idx_napp_sync_order_date ON napp_orders_sync(order_date)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_napp_sync_status ON napp_orders_sync(sync_status)');
+    } catch (e) {}
+    console.log('✅ Napp Orders Sync: Tabela criada com sucesso!');
+
     // Tabela de configurações do sistema (chave-valor)
     db.exec(`
       CREATE TABLE IF NOT EXISTS system_settings (
@@ -1706,6 +1878,41 @@ try {
     } catch (e) {}
     console.log('✅ Tabela chat_product_rejections e colunas de auditoria em deliveries verificadas/criadas!');
 
+    // Migration: Colunas de inteligência de geolocalização, tempo de resposta e fidelidade em deliveries
+    try { db.exec('ALTER TABLE deliveries ADD COLUMN neighborhood TEXT'); } catch(e) {}
+    try { db.exec('ALTER TABLE deliveries ADD COLUMN first_response_time_seconds INTEGER DEFAULT 0'); } catch(e) {}
+    try { db.exec('ALTER TABLE deliveries ADD COLUMN conversation_date TEXT'); } catch(e) {}
+    try { db.exec('ALTER TABLE deliveries ADD COLUMN is_repeat_customer INTEGER DEFAULT 0'); } catch(e) {}
+    try { db.exec('ALTER TABLE deliveries ADD COLUMN digifarma_cliente_id INTEGER'); } catch(e) {}
+    try { db.exec('ALTER TABLE customers ADD COLUMN digifarma_id INTEGER'); } catch(e) {}
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_deliveries_neighborhood ON deliveries(neighborhood)'); } catch(e) {}
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_deliveries_digi_cli ON deliveries(digifarma_cliente_id)'); } catch(e) {}
+    try {
+      db.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_deliveries_phone_last_msg 
+        ON deliveries(phone, last_message_id) 
+        WHERE last_message_id IS NOT NULL AND last_message_id != ''
+      `);
+    } catch(e) {}
+
+    // Criar tabela customer_address_history para histórico e memória de endereços informados
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS customer_address_history (
+        id TEXT PRIMARY KEY,
+        phone TEXT NOT NULL,
+        customer_id TEXT,
+        address TEXT NOT NULL,
+        neighborhood TEXT,
+        last_used_at DATETIME,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    try {
+      db.exec('CREATE INDEX IF NOT EXISTS idx_cah_phone ON customer_address_history(phone)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_cah_neighborhood ON customer_address_history(neighborhood)');
+    } catch(e) {}
+    console.log('✅ Tabela customer_address_history e inteligência de geolocalização criadas!');
+
     // Migration: adicionar coluna source em customers (usada no webhook)
     try {
       db.prepare('SELECT source FROM customers LIMIT 1').get();
@@ -1827,6 +2034,166 @@ try {
     } catch(e) {}
     console.log('✅ Contador de Visitantes: Tabela page_visitors criada/verificada!');
 
+    // Tabelas de Métricas Avançadas, Localização e Carrinhos da Vitrine de Liquidação
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS vitrine_analytics_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL,
+        visitor_id TEXT NOT NULL,
+        event_type TEXT NOT NULL,
+        produto_id INTEGER,
+        produto_nome TEXT,
+        produto_preco REAL,
+        categoria TEXT,
+        search_term TEXT,
+        search_results_count INTEGER,
+        cart_items_json TEXT,
+        cart_total REAL DEFAULT 0,
+        client_name TEXT,
+        client_bairro TEXT,
+        ip_address TEXT,
+        cidade TEXT,
+        estado TEXT,
+        pais TEXT DEFAULT 'BR',
+        device_type TEXT,
+        browser TEXT,
+        referrer TEXT,
+        utm_source TEXT,
+        utm_medium TEXT,
+        utm_campaign TEXT,
+        duration_seconds INTEGER DEFAULT 0,
+        scroll_percent INTEGER DEFAULT 0,
+        created_at TEXT NOT NULL,
+        date_str TEXT NOT NULL,
+        hour_of_day INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS vitrine_visitors (
+        visitor_id TEXT PRIMARY KEY,
+        first_visit_at TEXT NOT NULL,
+        last_visit_at TEXT NOT NULL,
+        total_visits INTEGER DEFAULT 1,
+        city TEXT,
+        state TEXT,
+        last_bairro TEXT,
+        client_name TEXT,
+        device_type TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS vitrine_abandoned_carts (
+        visitor_id TEXT PRIMARY KEY,
+        session_id TEXT,
+        cart_items_json TEXT NOT NULL,
+        cart_total REAL DEFAULT 0,
+        items_count INTEGER DEFAULT 0,
+        client_name TEXT,
+        client_bairro TEXT,
+        status TEXT DEFAULT 'abandoned',
+        city TEXT,
+        state TEXT,
+        device_type TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        date_str TEXT NOT NULL
+      );
+    `);
+    try {
+      db.exec('CREATE INDEX IF NOT EXISTS idx_vae_event_date ON vitrine_analytics_events(event_type, date_str)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_vae_session ON vitrine_analytics_events(session_id)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_vae_visitor ON vitrine_analytics_events(visitor_id)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_vac_date ON vitrine_abandoned_carts(date_str, status)');
+    } catch(e) {}
+
+    // Migração de Unificação de Carrinhos por ID do Cliente (visitor_id)
+    try {
+      const vacInfo = db.prepare('PRAGMA table_info(vitrine_abandoned_carts)').all();
+      const sessionPk = vacInfo.find(c => c.name === 'session_id' && c.pk === 1);
+      if (sessionPk) {
+        console.log('🔄 Vitrine Analytics: Unificando carrinhos repetidos por ID do cliente (visitor_id)...');
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS vitrine_abandoned_carts_unificada (
+            visitor_id TEXT PRIMARY KEY,
+            session_id TEXT,
+            cart_items_json TEXT NOT NULL,
+            cart_total REAL DEFAULT 0,
+            items_count INTEGER DEFAULT 0,
+            client_name TEXT,
+            client_bairro TEXT,
+            status TEXT DEFAULT 'abandoned',
+            city TEXT,
+            state TEXT,
+            device_type TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            date_str TEXT NOT NULL
+          );
+        `);
+
+        // Busca registros antigos ordenados por updated_at ascendente para que o mais recente prevaleça
+        const oldRows = db.prepare('SELECT * FROM vitrine_abandoned_carts ORDER BY updated_at ASC').all();
+        const map = new Map();
+        for (const row of oldRows) {
+          const vid = row.visitor_id;
+          if (!map.has(vid)) {
+            map.set(vid, row);
+          } else {
+            const existing = map.get(vid);
+            const isConverted = row.status === 'converted' || existing.status === 'converted';
+            map.set(vid, {
+              ...existing,
+              ...row,
+              visitor_id: vid,
+              client_name: row.client_name || existing.client_name,
+              client_bairro: row.client_bairro || existing.client_bairro,
+              city: row.city || existing.city,
+              state: row.state || existing.state,
+              status: isConverted ? 'converted' : (row.status || existing.status),
+              created_at: existing.created_at || row.created_at,
+              updated_at: row.updated_at || existing.updated_at,
+              date_str: row.date_str || existing.date_str
+            });
+          }
+        }
+
+        const insertStmt = db.prepare(`
+          INSERT INTO vitrine_abandoned_carts_unificada (
+            visitor_id, session_id, cart_items_json, cart_total, items_count,
+            client_name, client_bairro, status, city, state, device_type,
+            created_at, updated_at, date_str
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+
+        for (const item of map.values()) {
+          insertStmt.run(
+            item.visitor_id,
+            item.session_id,
+            item.cart_items_json,
+            item.cart_total,
+            item.items_count,
+            item.client_name,
+            item.client_bairro,
+            item.status,
+            item.city,
+            item.state,
+            item.device_type,
+            item.created_at,
+            item.updated_at,
+            item.date_str
+          );
+        }
+
+        db.exec(`
+          DROP TABLE vitrine_abandoned_carts;
+          ALTER TABLE vitrine_abandoned_carts_unificada RENAME TO vitrine_abandoned_carts;
+          CREATE INDEX IF NOT EXISTS idx_vac_date ON vitrine_abandoned_carts(date_str, status);
+        `);
+        console.log('✅ Vitrine Analytics: Carrinhos unificados com sucesso por ID de cliente!');
+      }
+    } catch(migErr) {
+      console.warn('⚠️ Falha ao unificar vitrine_abandoned_carts:', migErr.message);
+    }
+    console.log('✅ Vitrine Analytics: Tabelas de métricas, visitantes e carrinhos criadas/verificadas!');
+
     // Migrations para Card Machines (Bandeiras, Fim de semana acumulado, Maquininhas M1/M2) e Fechamento (Crédito Parcelado, Grade)
     try { db.exec("ALTER TABLE card_machine_receivables ADD COLUMN brand TEXT NOT NULL DEFAULT 'Outros'"); } catch(e) {}
     try { db.exec("ALTER TABLE card_machine_receivables ADD COLUMN is_weekend_accumulated INTEGER DEFAULT 0"); } catch(e) {}
@@ -1940,8 +2307,41 @@ try {
       db.exec('CREATE INDEX IF NOT EXISTS idx_cec_curva ON compras_estoque_cache(curva_abc)');
       db.exec('CREATE INDEX IF NOT EXISTS idx_cec_ciclo ON compras_estoque_cache(ciclo_vida)');
       db.exec('CREATE INDEX IF NOT EXISTS idx_cec_ativo_10m ON compras_estoque_cache(ativo_10m)');
+      db.exec(`
+        UPDATE compras_estoque_cache 
+        SET ativo_10m = CASE 
+          WHEN (saldo > 0) OR (vendas_10m > 0) OR (entradas_10m > 0) OR (vendas_30d > 0) OR (vendas_31_60d > 0) OR (vendas_61_90d > 0) 
+          THEN 1 ELSE 0 
+        END
+        WHERE ativo_10m IS NULL OR (ativo_10m = 1 AND (saldo <= 0 OR saldo IS NULL) AND (vendas_10m = 0 OR vendas_10m IS NULL) AND (entradas_10m = 0 OR entradas_10m IS NULL) AND (vendas_30d = 0 OR vendas_30d IS NULL))
+      `);
     } catch(e) {}
     console.log('✅ Central de Compras: Tabela compras_estoque_cache criada/verificada!');
+
+    // Sincronizar digifarma_products_cache com compras_estoque_cache para garantir preços e custos sempre vigentes
+    try {
+      db.exec(`
+        UPDATE digifarma_products_cache 
+        SET 
+          preco_venda = COALESCE(NULLIF((SELECT preco_venda_vigente FROM compras_estoque_cache WHERE compras_estoque_cache.produto_id = CAST(digifarma_products_cache.produto_id AS INTEGER)), 0), preco_venda),
+          preco_promocao = COALESCE((SELECT preco_promocional FROM compras_estoque_cache WHERE compras_estoque_cache.produto_id = CAST(digifarma_products_cache.produto_id AS INTEGER)), preco_promocao),
+          preco_normal = COALESCE(NULLIF((SELECT preco_normal FROM compras_estoque_cache WHERE compras_estoque_cache.produto_id = CAST(digifarma_products_cache.produto_id AS INTEGER)), 0), preco_normal),
+          preco_custo = COALESCE(
+            NULLIF((SELECT custo_unitario FROM compras_estoque_cache WHERE compras_estoque_cache.produto_id = CAST(digifarma_products_cache.produto_id AS INTEGER)), 0),
+            NULLIF((SELECT preco_unitario_ult_compra FROM compras_estoque_cache WHERE compras_estoque_cache.produto_id = CAST(digifarma_products_cache.produto_id AS INTEGER)), 0),
+            preco_custo
+          ),
+          estoque_atual = COALESCE((SELECT saldo FROM compras_estoque_cache WHERE compras_estoque_cache.produto_id = CAST(digifarma_products_cache.produto_id AS INTEGER)), estoque_atual),
+          curva = COALESCE((SELECT curva_abc FROM compras_estoque_cache WHERE compras_estoque_cache.produto_id = CAST(digifarma_products_cache.produto_id AS INTEGER)), curva),
+          atualizado_em = datetime('now', 'localtime')
+        WHERE EXISTS (
+          SELECT 1 FROM compras_estoque_cache WHERE compras_estoque_cache.produto_id = CAST(digifarma_products_cache.produto_id AS INTEGER)
+        );
+      `);
+      console.log('✅ Gestão de Preço: Cache Digifarma sincronizado com os preços vigentes!');
+    } catch (eSync) {
+      console.warn('Aviso ao sincronizar digifarma_products_cache:', eSync.message);
+    }
 
     // ──────────────────────────────────────────────────────────
     // Central de Compras: Tabelas de Representantes, Mineração, Cotações e Pedidos
@@ -2032,7 +2432,15 @@ try {
     try { db.exec('ALTER TABLE compras_oportunidades_mineradas ADD COLUMN embalagem_ult_compra TEXT'); } catch(e) {}
     try { db.exec('ALTER TABLE compras_oportunidades_mineradas ADD COLUMN preco_total_nota REAL'); } catch(e) {}
     try { db.exec('ALTER TABLE compras_oportunidades_mineradas ADD COLUMN produto_id INTEGER'); } catch(e) {}
+    try { db.exec('ALTER TABLE compras_oportunidades_mineradas ADD COLUMN qtd_minima INTEGER DEFAULT 1'); } catch(e) {}
+    try { db.exec('ALTER TABLE compras_oportunidades_mineradas ADD COLUMN faixas_preco TEXT'); } catch(e) {}
+    try { db.exec('ALTER TABLE compras_oportunidades_mineradas ADD COLUMN is_combo INTEGER DEFAULT 0'); } catch(e) {}
+    try { db.exec('ALTER TABLE compras_oportunidades_mineradas ADD COLUMN combo_id TEXT'); } catch(e) {}
+    try { db.exec('ALTER TABLE compras_oportunidades_mineradas ADD COLUMN combo_nome TEXT'); } catch(e) {}
+    try { db.exec('ALTER TABLE compras_oportunidades_mineradas ADD COLUMN combo_dados TEXT'); } catch(e) {}
+    try { db.exec('ALTER TABLE compras_oportunidades_mineradas ADD COLUMN validade_texto TEXT'); } catch(e) {}
     try { db.exec('CREATE INDEX IF NOT EXISTS idx_com_prod_id ON compras_oportunidades_mineradas(produto_id)'); } catch(e) {}
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_com_combo_id ON compras_oportunidades_mineradas(combo_id)'); } catch(e) {}
 
     // Cache de Últimas Compras do Digifarma (Firebird -> SQLite) para consulta ultra rápida (< 5ms)
     db.exec(`
@@ -2380,6 +2788,74 @@ try {
     } catch (e) {}
 
     console.log('✅ Central de Compras: Todas as tabelas e configurações criadas/verificadas com sucesso!');
+
+    // Tabelas do Módulo Liquidação & Aceleração de Caixa (Sair do Cheque Especial)
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS liquidacao_campanhas (
+        id TEXT PRIMARY KEY,
+        semana_ano TEXT NOT NULL,
+        data_inicio TEXT NOT NULL,
+        data_fim TEXT NOT NULL,
+        meta_semanal REAL DEFAULT 450.00,
+        total_resgatado REAL DEFAULT 0,
+        status TEXT DEFAULT 'ativa',
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS liquidacao_campanhas_itens (
+        id TEXT PRIMARY KEY,
+        campanha_id TEXT,
+        produto_id INTEGER NOT NULL,
+        descricao TEXT NOT NULL,
+        apresentacao TEXT,
+        ean TEXT,
+        categoria TEXT,
+        saldo_estoque REAL DEFAULT 0,
+        preco_custo REAL DEFAULT 0,
+        preco_normal REAL DEFAULT 0,
+        preco_promocional REAL NOT NULL,
+        desconto_percentual REAL DEFAULT 0,
+        data_inicio TEXT NOT NULL,
+        data_termino TEXT NOT NULL,
+        status TEXT DEFAULT 'ativo',
+        sincronizado_digifarma INTEGER DEFAULT 0,
+        aprovado_por TEXT,
+        aprovado_em TEXT DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS liquidacao_itens_pulados (
+        produto_id INTEGER PRIMARY KEY,
+        campanha_id TEXT,
+        pulado_em TEXT DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_liq_itens_status ON liquidacao_campanhas_itens(status);
+      CREATE INDEX IF NOT EXISTS idx_liq_itens_prod ON liquidacao_campanhas_itens(produto_id);
+    `);
+    console.log('🔥 Módulo Liquidação & Aceleração de Caixa: Tabelas criadas/verificadas com sucesso.');
+
+    // 🛡️ Fase 3 de Segurança: Trilha de Auditoria Imutável (security_audit_logs)
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS security_audit_logs (
+        id TEXT PRIMARY KEY,
+        timestamp TEXT NOT NULL,
+        user_id TEXT,
+        user_name TEXT,
+        user_role TEXT,
+        ip TEXT,
+        method TEXT NOT NULL,
+        path TEXT NOT NULL,
+        action_category TEXT NOT NULL,
+        target_id TEXT,
+        details TEXT,
+        status_code INTEGER
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_sec_audit_ts ON security_audit_logs(timestamp DESC);
+      CREATE INDEX IF NOT EXISTS idx_sec_audit_cat ON security_audit_logs(action_category);
+      CREATE INDEX IF NOT EXISTS idx_sec_audit_user ON security_audit_logs(user_id);
+    `);
+    console.log('🛡️ Segurança Fase 3: Tabela security_audit_logs criada/verificada com sucesso.');
 
     console.log('Tabelas verificadas/criadas com sucesso.');
   };

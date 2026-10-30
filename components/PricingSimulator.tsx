@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   Calculator,
   Search,
@@ -30,7 +30,9 @@ import {
   Target,
   BarChart2,
   Edit3,
-  RotateCcw
+  RotateCcw,
+  Download,
+  Scale
 } from 'lucide-react';
 import { User, UserRole } from '../types';
 import { useToast } from './ToastContext';
@@ -111,12 +113,116 @@ export const PricingSimulator: React.FC<PricingSimulatorProps> = ({ user }) => {
   const searchContainerRef = useRef<HTMLDivElement>(null);
 
   // Modal para salvar Preset Customizado
+  // Modal para salvar Preset Customizado
   const [isPresetModalOpen, setIsPresetModalOpen] = useState<boolean>(false);
   const [newPresetName, setNewPresetName] = useState<string>('');
   const [newPresetDesc, setNewPresetDesc] = useState<string>('');
 
   // Modal para Visualizar o Quadro Geral de Rateio Ponderado
   const [isRateioModalOpen, setIsRateioModalOpen] = useState<boolean>(false);
+
+  // Painel / Modal de Médias dos Produtos Modificados
+  const [isAveragesModalOpen, setIsAveragesModalOpen] = useState<boolean>(false);
+  const [averagesViewMode, setAveragesViewMode] = useState<'simples' | 'ponderada'>('simples');
+  const [averagesSearchFilter, setAveragesSearchFilter] = useState<string>('');
+  const [loadingAverages, setLoadingAverages] = useState<boolean>(false);
+  const [hasSavedCustomization, setHasSavedCustomization] = useState<boolean>(false);
+  const [isSavingCustomization, setIsSavingCustomization] = useState<boolean>(false);
+
+  const [averagesData, setAveragesData] = useState<{
+    totalModifiedProducts: number;
+    simpleAverages: {
+      proLabore1Pct: number;
+      proLabore2Pct: number;
+      proLaboreTotalPct: number;
+      custoFixoPct: number;
+      impostoPct: number;
+      taxaCartaoPct: number;
+      custosVariaveisPct: number;
+      margemLiquidaPct: number;
+      markupDivisor: number;
+      markupMultiplicador: number;
+    };
+    weightedAverages: {
+      proLaboreTotalPct: number;
+      custoFixoPct: number;
+      impostoPct: number;
+      taxaCartaoPct: number;
+      custosVariaveisPct: number;
+      margemLiquidaPct: number;
+      totalEstoqueValor: number;
+    };
+    items: any[];
+  }>({
+    totalModifiedProducts: 0,
+    simpleAverages: {
+      proLabore1Pct: 0,
+      proLabore2Pct: 0,
+      proLaboreTotalPct: 0,
+      custoFixoPct: 0,
+      impostoPct: 0,
+      taxaCartaoPct: 0,
+      custosVariaveisPct: 0,
+      margemLiquidaPct: 0,
+      markupDivisor: 0,
+      markupMultiplicador: 0
+    },
+    weightedAverages: {
+      proLaboreTotalPct: 0,
+      custoFixoPct: 0,
+      impostoPct: 0,
+      taxaCartaoPct: 0,
+      custosVariaveisPct: 0,
+      margemLiquidaPct: 0,
+      totalEstoqueValor: 0
+    },
+    items: []
+  });
+
+  const fetchAverages = useCallback(async () => {
+    try {
+      setLoadingAverages(true);
+      const res = await fetch('/api/price-manager/customizations/averages');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) {
+          setAveragesData({
+            totalModifiedProducts: data.totalModifiedProducts || 0,
+            simpleAverages: data.simpleAverages || {
+              proLabore1Pct: 0,
+              proLabore2Pct: 0,
+              proLaboreTotalPct: 0,
+              custoFixoPct: 0,
+              impostoPct: 0,
+              taxaCartaoPct: 0,
+              custosVariaveisPct: 0,
+              margemLiquidaPct: 0,
+              markupDivisor: 0,
+              markupMultiplicador: 0
+            },
+            weightedAverages: data.weightedAverages || {
+              proLaboreTotalPct: 0,
+              custoFixoPct: 0,
+              impostoPct: 0,
+              taxaCartaoPct: 0,
+              custosVariaveisPct: 0,
+              margemLiquidaPct: 0,
+              totalEstoqueValor: 0
+            },
+            items: data.items || []
+          });
+        }
+      }
+    } catch (err) {
+      console.error('Erro ao buscar médias de parametrização:', err);
+    } finally {
+      setLoadingAverages(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchAverages();
+  }, [fetchAverages]);
 
   // Modal para aplicar preço no Digifarma
   const [isApplyModalOpen, setIsApplyModalOpen] = useState<boolean>(false);
@@ -205,6 +311,7 @@ export const PricingSimulator: React.FC<PricingSimulatorProps> = ({ user }) => {
     setProductName(prod.PRODUTO);
     setSearchTerm('');
     setShowDropdown(false);
+    setHasSavedCustomization(false);
 
     const custo = prod.PROD_PRCOMPRA && prod.PROD_PRCOMPRA > 0 ? prod.PROD_PRCOMPRA : inputs.cmv;
     const precoVendaReal = (prod.PROD_PRPROMOCAO && prod.PROD_PRPROMOCAO > 0) 
@@ -229,7 +336,35 @@ export const PricingSimulator: React.FC<PricingSimulatorProps> = ({ user }) => {
 
     setCurrentStorePrice(precoVendaReal > 0 ? precoVendaReal.toFixed(2) : '');
 
-    addToast(`🏷️ Categoria Identificada: "${matchedPreset.nome}" (Rateio Fixo: ${matchedPreset.custoFixoPercent}%) | Custo: R$ ${custo.toFixed(2)}`, 'success');
+    // Buscar se já tem parametrização gravada no banco de dados para este SKU
+    fetch(`/api/price-manager/customizations/${prod.PRODUTO_ID}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.success && data.customization) {
+          const c = data.customization;
+          setInputs({
+            cmv: c.cmv > 0 ? c.cmv : roundMoney(custo),
+            impostoPercent: c.imposto_pct,
+            taxaCartaoPercent: c.taxa_cartao_pct,
+            custosVariaveisPercent: c.custos_variaveis_pct,
+            custoFixoPercent: c.custo_fixo_pct,
+            proLaboreSocio1Percent: c.pro_labore_1_pct,
+            proLaboreSocio2Percent: c.pro_labore_2_pct,
+            margemLiquidaPercent: c.margem_liquida_pct
+          });
+          if (c.categoria_preset) {
+            setActivePresetId(c.categoria_preset);
+          }
+          setHasSavedCustomization(true);
+          addToast(`⚙️ Percentuais individuais previamente salvos foram carregados para "${prod.PRODUTO}"!`, 'info');
+        } else {
+          addToast(`🏷️ Categoria Identificada: "${matchedPreset.nome}" (Rateio Fixo: ${matchedPreset.custoFixoPercent}%) | Custo: R$ ${custo.toFixed(2)}`, 'success');
+        }
+      })
+      .catch(err => {
+        console.error('Erro ao verificar customização do produto:', err);
+        addToast(`🏷️ Categoria Identificada: "${matchedPreset.nome}" (Rateio Fixo: ${matchedPreset.custoFixoPercent}%) | Custo: R$ ${custo.toFixed(2)}`, 'success');
+      });
   };
 
   // Limpar Produto Selecionado (Modo Livre)
@@ -238,6 +373,7 @@ export const PricingSimulator: React.FC<PricingSimulatorProps> = ({ user }) => {
     setProductName('');
     setCurrentStorePrice('');
     setSearchTerm('');
+    setHasSavedCustomization(false);
   };
 
   // Salvar Novo Preset Customizado
@@ -252,6 +388,7 @@ export const PricingSimulator: React.FC<PricingSimulatorProps> = ({ user }) => {
       nome: newPresetName.trim(),
       descricao: newPresetDesc.trim() || 'Preset personalizado de precificação.',
       icone: 'Sliders',
+      participacaoFaturamentoPercent: 10.0,
       impostoPercent: inputs.impostoPercent,
       taxaCartaoPercent: inputs.taxaCartaoPercent,
       custosVariaveisPercent: inputs.custosVariaveisPercent,
@@ -289,6 +426,191 @@ export const PricingSimulator: React.FC<PricingSimulatorProps> = ({ user }) => {
     addToast('Preset removido.', 'info');
   };
 
+  // Equalizar Pró-labore e Lucro Líquido com base no Preço Atual da Loja
+  const handleEqualizeProLaboreAndProfitFromStorePrice = () => {
+    const rawPrice = (currentStorePrice || '').toString().replace(',', '.').trim();
+    const storePrice = parseFloat(rawPrice);
+
+    if (isNaN(storePrice) || storePrice <= 0) {
+      addToast('Informe um Preço Atual da Loja válido (maior que zero) para equalizar.', 'warning');
+      return;
+    }
+
+    const cmv = Number(inputs.cmv) || 0;
+    if (cmv <= 0) {
+      addToast('Informe o CMV (Custo de Compra) para poder calcular a equalização.', 'warning');
+      return;
+    }
+
+    if (storePrice <= cmv) {
+      addToast(`O Preço Atual da Loja (R$ ${storePrice.toFixed(2)}) é menor ou igual ao custo de compra (R$ ${cmv.toFixed(2)}). Não há margem para equalizar.`, 'error');
+      return;
+    }
+
+    // Percentual que o CMV representa sobre o preço de venda da loja
+    const cmvPercent = (cmv / storePrice) * 100;
+
+    // Deduções fixas já definidas (Impostos + Cartão + Outros Variáveis + Custo Fixo)
+    const imposto = Math.max(0, Number(inputs.impostoPercent) || 0);
+    const taxaCartao = Math.max(0, Number(inputs.taxaCartaoPercent) || 0);
+    const custosVar = Math.max(0, Number(inputs.custosVariaveisPercent) || 0);
+    const custoFixo = Math.max(0, Number(inputs.custoFixoPercent) || 0);
+
+    const deducoesFixas = cmvPercent + imposto + taxaCartao + custosVar + custoFixo;
+    const margemDisponivel = 100 - deducoesFixas;
+
+    if (margemDisponivel <= 0) {
+      addToast(
+        `O Preço da Loja (R$ ${storePrice.toFixed(2)}) já é consumido pelas despesas operacionais básicas (${deducoesFixas.toFixed(1)}%). Sobra líquida insuficiente para pró-labore e lucro.`,
+        'error'
+      );
+      return;
+    }
+
+    // Distribui 60% da margem disponível para o Pró-labore e 40% para o Lucro Líquido
+    const proLaboreTotal = Number((margemDisponivel * 0.60).toFixed(2));
+    const margemLiquida = Number((margemDisponivel - proLaboreTotal).toFixed(2));
+
+    // Distribuição do Pró-labore entre os Sócios
+    let socio1 = 0;
+    let socio2 = 0;
+
+    if (inputs.proLaboreSocio1Percent > 0 && inputs.proLaboreSocio2Percent === 0) {
+      socio1 = proLaboreTotal;
+      socio2 = 0;
+    } else if (inputs.proLaboreSocio1Percent === 0 && inputs.proLaboreSocio2Percent > 0) {
+      socio1 = 0;
+      socio2 = proLaboreTotal;
+    } else {
+      // Padrão BelaFarma: 2 sócios iguais (50% do pró-labore para cada)
+      socio1 = Number((proLaboreTotal / 2).toFixed(2));
+      socio2 = Number((proLaboreTotal - socio1).toFixed(2));
+    }
+
+    setInputs(prev => ({
+      ...prev,
+      proLaboreSocio1Percent: socio1,
+      proLaboreSocio2Percent: socio2,
+      margemLiquidaPercent: margemLiquida
+    }));
+
+    setHasSavedCustomization(false);
+
+    addToast(
+      `⚖️ Equalizado pelo preço R$ ${storePrice.toFixed(2)}: Pró-labore 60% (${proLaboreTotal.toFixed(1)}% total | S1: ${socio1}% / S2: ${socio2}%) e Lucro 40% (${margemLiquida.toFixed(1)}%)!`,
+      'success'
+    );
+  };
+
+  // Salvar Parametrização Individual nas Médias
+  const handleSaveCustomization = async () => {
+    if (!selectedProduct) return;
+    const finalPrice = effectiveSimulatedPrice || parseFloat(currentStorePrice) || 0;
+    setIsSavingCustomization(true);
+    try {
+      const res = await fetch('/api/price-manager/customizations/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          produtoId: selectedProduct.PRODUTO_ID,
+          descricao: selectedProduct.PRODUTO,
+          codBarras: selectedProduct.COD_BARRAS || '',
+          cmv: inputs.cmv,
+          precoVenda: finalPrice,
+          pricingInputs: {
+            impostoPercent: inputs.impostoPercent,
+            taxaCartaoPercent: inputs.taxaCartaoPercent,
+            custosVariaveisPercent: inputs.custosVariaveisPercent,
+            custoFixoPercent: inputs.custoFixoPercent,
+            proLaboreSocio1Percent: inputs.proLaboreSocio1Percent,
+            proLaboreSocio2Percent: inputs.proLaboreSocio2Percent,
+            margemLiquidaPercent: inputs.margemLiquidaPercent,
+            markupDivisor: pricingResult.markupDivisor,
+            markupMultiplicador: pricingResult.markupMultiplicador,
+            categoriaPreset: activePresetId,
+            categoriaNome: presets.find(p => p.id === activePresetId)?.nome || ''
+          },
+          usuario: user?.name || 'Administrador'
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setHasSavedCustomization(true);
+        fetchAverages();
+        addToast(`✅ Parametrização de "${selectedProduct.PRODUTO}" salva nas médias com sucesso!`, 'success');
+      } else {
+        addToast(data.error || 'Erro ao gravar parametrização.', 'error');
+      }
+    } catch (err) {
+      console.error('Erro ao gravar parametrização:', err);
+      addToast('Erro ao comunicar com o servidor.', 'error');
+    } finally {
+      setIsSavingCustomization(false);
+    }
+  };
+
+  // Excluir Customização das Médias
+  const handleDeleteCustomization = async (prodId: number) => {
+    try {
+      const res = await fetch(`/api/price-manager/customizations/${prodId}`, {
+        method: 'DELETE'
+      });
+      const data = await res.json();
+      if (data.success) {
+        addToast('Parametrização removida das médias.', 'info');
+        if (selectedProduct && selectedProduct.PRODUTO_ID === prodId) {
+          setHasSavedCustomization(false);
+        }
+        fetchAverages();
+      }
+    } catch (err) {
+      console.error('Erro ao excluir customização:', err);
+    }
+  };
+
+  // Exportar Tabela de Médias para CSV
+  const handleExportAveragesCSV = () => {
+    if (!averagesData.items || averagesData.items.length === 0) {
+      addToast('Nenhum produto gravado para exportar.', 'info');
+      return;
+    }
+    const headers = [
+      'Produto ID', 'Descrição', 'Código de Barras', 'CMV', 'Preço Venda',
+      'Pró-labore Sócio 1 (%)', 'Pró-labore Sócio 2 (%)', 'Pró-labore Total (%)',
+      'Custo Fixo (%)', 'Impostos (%)', 'Taxa Cartão (%)', 'Custos Variáveis (%)',
+      'Margem Líquida (%)', 'Markup Divisor', 'Markup Multiplicador', 'Atualizado Em', 'Atualizado Por'
+    ];
+    const rows = averagesData.items.map(i => [
+      i.produto_id,
+      `"${(i.descricao || '').replace(/"/g, '""')}"`,
+      `"${i.cod_barras || ''}"`,
+      (i.cmv || 0).toFixed(2),
+      (i.preco_venda || 0).toFixed(2),
+      (i.pro_labore_1_pct || 0).toFixed(2),
+      (i.pro_labore_2_pct || 0).toFixed(2),
+      (i.pro_labore_total_pct || 0).toFixed(2),
+      (i.custo_fixo_pct || 0).toFixed(2),
+      (i.imposto_pct || 0).toFixed(2),
+      (i.taxa_cartao_pct || 0).toFixed(2),
+      (i.custos_variaveis_pct || 0).toFixed(2),
+      (i.margem_liquida_pct || 0).toFixed(2),
+      (i.markup_divisor || 0).toFixed(4),
+      (i.markup_multiplicador || 0).toFixed(2),
+      `"${i.atualizado_em || ''}"`,
+      `"${i.atualizado_por || ''}"`
+    ]);
+    const csvContent = '\uFEFF' + [headers.join(';'), ...rows.map(r => r.join(';'))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `medias_produtos_precificados_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    addToast('Relatório CSV de médias exportado com sucesso!', 'success');
+  };
+
   // Atualizar Preço no Digifarma
   const handleApplyPriceToDigifarma = async () => {
     if (!selectedProduct) return;
@@ -316,14 +638,29 @@ export const PricingSimulator: React.FC<PricingSimulatorProps> = ({ user }) => {
           novoPreco: finalPriceToApply,
           motivo: finalReason,
           usuario: user?.name || 'Administrador',
-          tipo: 'simulador'
+          tipo: 'simulador',
+          pricingInputs: {
+            impostoPercent: inputs.impostoPercent,
+            taxaCartaoPercent: inputs.taxaCartaoPercent,
+            custosVariaveisPercent: inputs.custosVariaveisPercent,
+            custoFixoPercent: inputs.custoFixoPercent,
+            proLaboreSocio1Percent: inputs.proLaboreSocio1Percent,
+            proLaboreSocio2Percent: inputs.proLaboreSocio2Percent,
+            margemLiquidaPercent: inputs.margemLiquidaPercent,
+            markupDivisor: pricingResult.markupDivisor,
+            markupMultiplicador: pricingResult.markupMultiplicador,
+            categoriaPreset: activePresetId,
+            categoriaNome: presets.find(p => p.id === activePresetId)?.nome || ''
+          }
         })
       });
       const data = await res.json();
       if (data.success) {
-        addToast(`✅ Preço de R$ ${finalPriceToApply.toFixed(2)} aplicado no Digifarma com backup gravado!`, 'success');
+        addToast(`✅ Preço de R$ ${finalPriceToApply.toFixed(2)} aplicado no Digifarma com parametrização gravada!`, 'success');
         setCurrentStorePrice(finalPriceToApply.toFixed(2));
+        setHasSavedCustomization(true);
         setIsApplyModalOpen(false);
+        fetchAverages();
       } else {
         addToast(data.error || 'Erro ao atualizar preço no Digifarma.', 'error');
       }
@@ -486,7 +823,21 @@ export const PricingSimulator: React.FC<PricingSimulatorProps> = ({ user }) => {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => { fetchAverages(); setIsAveragesModalOpen(true); }}
+            className="px-3.5 py-2 rounded-xl bg-teal-500/25 hover:bg-teal-500/35 border border-teal-300/40 text-teal-100 text-xs font-black transition-all flex items-center gap-1.5 shadow-sm cursor-pointer"
+            title="Ver médias das porcentagens dos produtos modificados (Pró-labore, Fixo, Impostos, Margens)"
+          >
+            <TrendingUp className="w-4 h-4 text-teal-300" />
+            <span>Médias dos Produtos Modificados</span>
+            {averagesData.totalModifiedProducts > 0 && (
+              <span className="px-2 py-0.5 bg-teal-400 text-teal-950 rounded-full text-[10px] font-black">
+                {averagesData.totalModifiedProducts}
+              </span>
+            )}
+          </button>
+
           <button
             onClick={() => setIsRateioModalOpen(true)}
             className="px-3.5 py-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/40 text-emerald-100 text-xs font-bold transition-all flex items-center gap-1.5 shadow-xs cursor-pointer"
@@ -554,6 +905,48 @@ export const PricingSimulator: React.FC<PricingSimulatorProps> = ({ user }) => {
         </div>
       </div>
 
+      {/* Banner de Médias Consolidadas dos Produtos Modificados */}
+      <div className="bg-gradient-to-r from-teal-900/90 via-slate-900 to-indigo-950 p-4 rounded-3xl border border-teal-500/30 shadow-md text-white flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 rounded-2xl bg-teal-500/20 text-teal-300 border border-teal-500/30">
+            <TrendingUp className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-black uppercase tracking-wider text-teal-300">
+                Médias dos Produtos Modificados
+              </span>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-teal-500/20 text-teal-200 border border-teal-500/30">
+                {averagesData.totalModifiedProducts} {averagesData.totalModifiedProducts === 1 ? 'produto gravado' : 'produtos gravados'}
+              </span>
+            </div>
+            {averagesData.totalModifiedProducts === 0 ? (
+              <p className="text-xs text-slate-300 mt-0.5">
+                Nenhum produto com parametrização individual gravada ainda. Ao selecionar e alterar produtos, você poderá salvá-los para acompanhar a média de cada porcentagem.
+              </p>
+            ) : (
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-200 mt-1">
+                <span>👥 <b>Pró-labore Médio:</b> <span className="text-teal-300 font-black">{averagesData.simpleAverages.proLaboreTotalPct}%</span> <span className="text-[10px] text-slate-400">(S1: {averagesData.simpleAverages.proLabore1Pct}% | S2: {averagesData.simpleAverages.proLabore2Pct}%)</span></span>
+                <span>🏢 <b>Fixo:</b> <span className="text-sky-300 font-black">{averagesData.simpleAverages.custoFixoPct}%</span></span>
+                <span>🏛️ <b>Impostos:</b> <span className="text-amber-300 font-black">{averagesData.simpleAverages.impostoPct}%</span></span>
+                <span>💳 <b>Cartão:</b> <span className="text-cyan-300 font-black">{averagesData.simpleAverages.taxaCartaoPct}%</span></span>
+                <span>📦 <b>Custos Var:</b> <span className="text-purple-300 font-black">{averagesData.simpleAverages.custosVariaveisPct}%</span></span>
+                <span>💰 <b>Margem Líq:</b> <span className="text-emerald-300 font-black">{averagesData.simpleAverages.margemLiquidaPct}%</span></span>
+                <span>🎯 <b>Markup Médio:</b> <span className="text-indigo-300 font-black">{averagesData.simpleAverages.markupMultiplicador}x</span></span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <button
+          onClick={() => { fetchAverages(); setIsAveragesModalOpen(true); }}
+          className="px-4 py-2 rounded-2xl bg-teal-500 hover:bg-teal-400 text-teal-950 font-black text-xs transition-all flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer shadow-md shadow-teal-500/20"
+        >
+          <span>Abrir Detalhamento Completo</span>
+          <ArrowRight className="w-3.5 h-3.5" />
+        </button>
+      </div>
+
       {/* Grid Principal: Formulário de Entrada (Esquerda) e Painel de Resultados (Direita) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         
@@ -563,14 +956,21 @@ export const PricingSimulator: React.FC<PricingSimulatorProps> = ({ user }) => {
           {/* Card 1: Seleção / Identificação do Produto */}
           <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-2">
-                <Store className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                1. Produto / Referência
-              </h3>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-2">
+                  <Store className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                  1. Produto / Referência
+                </h3>
+                {hasSavedCustomization && (
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-teal-500/20 text-teal-600 dark:text-teal-300 border border-teal-500/30 flex items-center gap-1">
+                    <CheckCircle2 className="w-3 h-3 text-teal-500" /> Nas Médias
+                  </span>
+                )}
+              </div>
               {selectedProduct && (
                 <button
                   onClick={handleClearProduct}
-                  className="text-xs font-bold text-slate-400 hover:text-rose-500 flex items-center gap-1 transition-colors"
+                  className="text-xs font-bold text-slate-400 hover:text-rose-500 flex items-center gap-1 transition-colors cursor-pointer"
                 >
                   <X className="w-3.5 h-3.5" /> Modo Livre
                 </button>
@@ -661,9 +1061,22 @@ export const PricingSimulator: React.FC<PricingSimulatorProps> = ({ user }) => {
               </div>
 
               <div>
-                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
-                  Preço Atual Loja (R$)
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
+                    Preço Atual Loja (R$)
+                  </label>
+                  {parseFloat(currentStorePrice) > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleEqualizeProLaboreAndProfitFromStorePrice}
+                      className="text-[10px] font-black text-teal-600 dark:text-teal-400 hover:text-teal-700 dark:hover:text-teal-300 flex items-center gap-1 transition-colors cursor-pointer bg-teal-50 dark:bg-teal-950/40 px-2 py-0.5 rounded-lg border border-teal-200/80 dark:border-teal-800"
+                      title="Equalizar pró-labore e lucro líquido com base neste preço"
+                    >
+                      <Scale className="w-3 h-3 text-teal-600 dark:text-teal-400" />
+                      Equalizar
+                    </button>
+                  )}
+                </div>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-black text-slate-400">R$</span>
                   <input
@@ -836,6 +1249,53 @@ export const PricingSimulator: React.FC<PricingSimulatorProps> = ({ user }) => {
                 className="w-full accent-emerald-600 cursor-pointer h-2 bg-emerald-100 dark:bg-emerald-900/50 rounded-lg"
               />
             </div>
+
+            {/* Botão de Equalizar Pró-labore e Lucro Líquido pelo Preço da Loja */}
+            <div className="pt-1">
+              <button
+                type="button"
+                onClick={handleEqualizeProLaboreAndProfitFromStorePrice}
+                className="w-full py-2.5 px-3 rounded-2xl bg-gradient-to-r from-teal-600 via-emerald-600 to-teal-700 hover:from-teal-500 hover:to-emerald-500 text-white text-xs font-black shadow-md shadow-teal-700/20 flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-[0.99]"
+                title="Ajusta o Pró-labore e o Lucro Líquido igualmente para fechar exatamente no Preço Atual da Loja"
+              >
+                <Scale className="w-4 h-4 text-emerald-200" />
+                <span>
+                  Equalizar: 60% Pró-labore e 40% Lucro
+                  {parseFloat(currentStorePrice) > 0 ? ` (pelo Preço R$ ${parseFloat(currentStorePrice).toFixed(2)})` : ' pelo Preço da Loja'}
+                </span>
+              </button>
+            </div>
+
+            {/* Ações de Parametrização para as Médias */}
+            {selectedProduct && (
+              <div className="pt-2">
+                <button
+                  type="button"
+                  onClick={handleSaveCustomization}
+                  disabled={isSavingCustomization}
+                  className={`w-full py-2.5 px-4 rounded-2xl text-xs font-black transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer ${
+                    hasSavedCustomization
+                      ? 'bg-teal-700 hover:bg-teal-800 text-white shadow-teal-700/20'
+                      : 'bg-teal-600 hover:bg-teal-500 text-white shadow-teal-600/20'
+                  }`}
+                  title="Salvar esses percentuais para este produto e recalcular médias gerais"
+                >
+                  <Sparkles className="w-4 h-4 text-teal-200" />
+                  <span>
+                    {isSavingCustomization 
+                      ? 'Gravando Parametrização...' 
+                      : hasSavedCustomization 
+                      ? 'Atualizar Percentuais deste Produto nas Médias' 
+                      : 'Salvar Percentuais deste Produto nas Médias'}
+                  </span>
+                </button>
+                {hasSavedCustomization && (
+                  <p className="text-[10px] text-teal-600 dark:text-teal-400 font-bold text-center mt-1.5 flex items-center justify-center gap-1">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-teal-500" /> Este produto já está contabilizado no painel de médias.
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
@@ -1640,6 +2100,396 @@ export const PricingSimulator: React.FC<PricingSimulatorProps> = ({ user }) => {
                 Entendi e Fechar
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: PAINEL DE MÉDIAS DOS PRODUTOS MODIFICADOS */}
+      {isAveragesModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/80 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-5xl max-h-[92vh] flex flex-col rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden">
+            
+            {/* Header do Modal */}
+            <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-teal-50 dark:bg-teal-950/40 rounded-2xl border border-teal-200 dark:border-teal-800 text-teal-600 dark:text-teal-400">
+                  <TrendingUp className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
+                    Painel de Médias dos Produtos Modificados
+                    <span className="px-2 py-0.5 rounded-full text-xs font-black bg-teal-500 text-white">
+                      {averagesData.totalModifiedProducts} {averagesData.totalModifiedProducts === 1 ? 'item' : 'itens'}
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Consolidação matemática das porcentagens (Pró-labore, Custo Fixo, Impostos, Cartão, Margem) dos produtos com parametrização individual.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={fetchAverages}
+                  className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors cursor-pointer"
+                  title="Recarregar Médias"
+                >
+                  <RefreshCw className={`w-4 h-4 ${loadingAverages ? 'animate-spin text-teal-500' : ''}`} />
+                </button>
+
+                <button
+                  onClick={handleExportAveragesCSV}
+                  disabled={averagesData.totalModifiedProducts === 0}
+                  className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-40"
+                  title="Exportar dados para planilha Excel / CSV"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Exportar CSV</span>
+                </button>
+
+                <button
+                  onClick={() => setIsAveragesModalOpen(false)}
+                  className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Conteúdo Rolável */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+              
+              {/* Barra de Alternância: Média Simples vs Média Ponderada */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700">
+                <div className="text-xs font-bold text-slate-600 dark:text-slate-300 flex items-center gap-1.5">
+                  <Sliders className="w-4 h-4 text-teal-600" />
+                  Modo de Cálculo das Médias:
+                </div>
+                <div className="flex items-center gap-1 bg-white dark:bg-slate-900 p-1 rounded-xl border border-slate-200 dark:border-slate-700">
+                  <button
+                    onClick={() => setAveragesViewMode('simples')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                      averagesViewMode === 'simples'
+                        ? 'bg-teal-600 text-white shadow-xs'
+                        : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                    }`}
+                  >
+                    Média Aritmética (Simples)
+                  </button>
+                  <button
+                    onClick={() => setAveragesViewMode('ponderada')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                      averagesViewMode === 'ponderada'
+                        ? 'bg-teal-600 text-white shadow-xs'
+                        : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                    }`}
+                  >
+                    Média Ponderada (Por Estoque & Preço)
+                  </button>
+                </div>
+              </div>
+
+              {/* Grid de Cards das Médias de Cada Campo */}
+              {(() => {
+                const isPond = averagesViewMode === 'ponderada';
+                const s = averagesData.simpleAverages;
+                const w = averagesData.weightedAverages;
+
+                const curProLaboreTotal = isPond ? w.proLaboreTotalPct : s.proLaboreTotalPct;
+                const curCustoFixo = isPond ? w.custoFixoPct : s.custoFixoPct;
+                const curImposto = isPond ? w.impostoPct : s.impostoPct;
+                const curTaxaCartao = isPond ? w.taxaCartaoPct : s.taxaCartaoPct;
+                const curCustosVar = isPond ? w.custosVariaveisPct : s.custosVariaveisPct;
+                const curMargemLiq = isPond ? w.margemLiquidaPct : s.margemLiquidaPct;
+
+                return (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                    
+                    {/* Card 1: Pró-labore Médio */}
+                    <div className="p-3.5 rounded-2xl bg-teal-50 dark:bg-teal-950/30 border border-teal-200 dark:border-teal-800 flex flex-col justify-between">
+                      <div className="flex items-center justify-between text-teal-800 dark:text-teal-300">
+                        <span className="text-[10px] font-black uppercase tracking-wider">Pró-labore Sócios</span>
+                        <UserCheck className="w-4 h-4 text-teal-600" />
+                      </div>
+                      <div className="my-2">
+                        <div className="text-xl sm:text-2xl font-black text-teal-700 dark:text-teal-300 tracking-tight">
+                          {curProLaboreTotal.toFixed(2)}%
+                        </div>
+                        <div className="text-[10px] text-teal-800/80 dark:text-teal-300/80 font-bold mt-0.5">
+                          S1: {s.proLabore1Pct}% | S2: {s.proLabore2Pct}%
+                        </div>
+                      </div>
+                      <div className="text-[9px] text-slate-500">
+                        Média de retirada
+                      </div>
+                    </div>
+
+                    {/* Card 2: Custo Fixo Operacional */}
+                    <div className="p-3.5 rounded-2xl bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800 flex flex-col justify-between">
+                      <div className="flex items-center justify-between text-sky-800 dark:text-sky-300">
+                        <span className="text-[10px] font-black uppercase tracking-wider">Custo Fixo Loja</span>
+                        <Building className="w-4 h-4 text-sky-600" />
+                      </div>
+                      <div className="my-2">
+                        <div className="text-xl sm:text-2xl font-black text-sky-700 dark:text-sky-300 tracking-tight">
+                          {curCustoFixo.toFixed(2)}%
+                        </div>
+                        <div className="text-[10px] text-sky-800/80 dark:text-sky-300/80 font-bold mt-0.5">
+                          Base da loja: 28.77%
+                        </div>
+                      </div>
+                      <div className="text-[9px] text-slate-500">
+                        Aluguel/Luz/Folha
+                      </div>
+                    </div>
+
+                    {/* Card 3: Impostos */}
+                    <div className="p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800 flex flex-col justify-between">
+                      <div className="flex items-center justify-between text-rose-800 dark:text-rose-300">
+                        <span className="text-[10px] font-black uppercase tracking-wider">Impostos (DAS)</span>
+                        <Percent className="w-4 h-4 text-rose-600" />
+                      </div>
+                      <div className="my-2">
+                        <div className="text-xl sm:text-2xl font-black text-rose-700 dark:text-rose-300 tracking-tight">
+                          {curImposto.toFixed(2)}%
+                        </div>
+                        <div className="text-[10px] text-rose-800/80 dark:text-rose-300/80 font-bold mt-0.5">
+                          Tributação média
+                        </div>
+                      </div>
+                      <div className="text-[9px] text-slate-500">
+                        Simples/Monofásico
+                      </div>
+                    </div>
+
+                    {/* Card 4: Taxas de Cartão */}
+                    <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 flex flex-col justify-between">
+                      <div className="flex items-center justify-between text-amber-800 dark:text-amber-300">
+                        <span className="text-[10px] font-black uppercase tracking-wider">Taxa Cartão</span>
+                        <DollarSign className="w-4 h-4 text-amber-600" />
+                      </div>
+                      <div className="my-2">
+                        <div className="text-xl sm:text-2xl font-black text-amber-700 dark:text-amber-300 tracking-tight">
+                          {curTaxaCartao.toFixed(2)}%
+                        </div>
+                        <div className="text-[10px] text-amber-800/80 dark:text-amber-300/80 font-bold mt-0.5">
+                          Maquininha/Gateway
+                        </div>
+                      </div>
+                      <div className="text-[9px] text-slate-500">
+                        Débito/Crédito
+                      </div>
+                    </div>
+
+                    {/* Card 5: Custos Variáveis */}
+                    <div className="p-3.5 rounded-2xl bg-purple-50 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800 flex flex-col justify-between">
+                      <div className="flex items-center justify-between text-purple-800 dark:text-purple-300">
+                        <span className="text-[10px] font-black uppercase tracking-wider">Custos Var.</span>
+                        <Layers className="w-4 h-4 text-purple-600" />
+                      </div>
+                      <div className="my-2">
+                        <div className="text-xl sm:text-2xl font-black text-purple-700 dark:text-purple-300 tracking-tight">
+                          {curCustosVar.toFixed(2)}%
+                        </div>
+                        <div className="text-[10px] text-purple-800/80 dark:text-purple-300/80 font-bold mt-0.5">
+                          Embalagens/Perdas
+                        </div>
+                      </div>
+                      <div className="text-[9px] text-slate-500">
+                        Despesas diretas
+                      </div>
+                    </div>
+
+                    {/* Card 6: Margem Líquida Alvo */}
+                    <div className="p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 flex flex-col justify-between">
+                      <div className="flex items-center justify-between text-emerald-800 dark:text-emerald-300">
+                        <span className="text-[10px] font-black uppercase tracking-wider">Margem Líquida</span>
+                        <PiggyBank className="w-4 h-4 text-emerald-600" />
+                      </div>
+                      <div className="my-2">
+                        <div className="text-xl sm:text-2xl font-black text-emerald-700 dark:text-emerald-300 tracking-tight">
+                          {curMargemLiq.toFixed(2)}%
+                        </div>
+                        <div className="text-[10px] text-emerald-800/80 dark:text-emerald-300/80 font-bold mt-0.5">
+                          Lucro Livre da Loja
+                        </div>
+                      </div>
+                      <div className="text-[9px] text-slate-500">
+                        Markup Médio: {s.markupMultiplicador}x
+                      </div>
+                    </div>
+
+                  </div>
+                );
+              })()}
+
+              {/* Tabela dos Produtos Gravados */}
+              <div className="space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <h4 className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-2">
+                    <Store className="w-4 h-4 text-blue-600" />
+                    Produtos Cadastrados nas Médias ({averagesData.totalModifiedProducts})
+                  </h4>
+
+                  {/* Campo de Filtro de Busca */}
+                  <div className="relative w-full sm:w-72">
+                    <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Filtrar por nome, código ou EAN..."
+                      value={averagesSearchFilter}
+                      onChange={(e) => setAveragesSearchFilter(e.target.value)}
+                      className="w-full pl-9 pr-3 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    />
+                  </div>
+                </div>
+
+                {averagesData.items.length === 0 ? (
+                  <div className="text-center py-12 text-slate-400 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-dashed border-slate-200 dark:border-slate-700">
+                    <TrendingUp className="w-10 h-10 mx-auto mb-2 opacity-30 text-teal-500" />
+                    <p className="text-sm font-bold text-slate-700 dark:text-slate-300">Nenhum produto gravado nas médias ainda.</p>
+                    <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
+                      Selecione um produto no simulador, ajuste seus percentuais e clique no botão <b>"Salvar Percentuais deste Produto nas Médias"</b> ou <b>"Aplicar Preço no Digifarma"</b>.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="bg-slate-50 dark:bg-slate-800 text-[10px] font-black uppercase text-slate-400 tracking-wider border-b border-slate-200 dark:border-slate-700">
+                          <th className="py-2.5 px-3">Produto</th>
+                          <th className="py-2.5 px-3 text-right">CMV</th>
+                          <th className="py-2.5 px-3 text-right">Preço Venda</th>
+                          <th className="py-2.5 px-3 text-center bg-teal-50/50 dark:bg-teal-950/20 text-teal-700 dark:text-teal-300">Pró-labore %</th>
+                          <th className="py-2.5 px-3 text-center">Fixo %</th>
+                          <th className="py-2.5 px-3 text-center">Imposto %</th>
+                          <th className="py-2.5 px-3 text-center">Cartão %</th>
+                          <th className="py-2.5 px-3 text-center">Custos Var %</th>
+                          <th className="py-2.5 px-3 text-center text-emerald-600 dark:text-emerald-400">Margem Líq %</th>
+                          <th className="py-2.5 px-3 text-center">Markup</th>
+                          <th className="py-2.5 px-3 text-right">Ações</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                        {averagesData.items
+                          .filter(item => {
+                            if (!averagesSearchFilter.trim()) return true;
+                            const q = averagesSearchFilter.toLowerCase();
+                            return (
+                              (item.descricao || '').toLowerCase().includes(q) ||
+                              String(item.produto_id).includes(q) ||
+                              (item.cod_barras || '').includes(q)
+                            );
+                          })
+                          .map(item => (
+                            <tr key={item.produto_id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors">
+                              <td className="py-2.5 px-3">
+                                <div className="font-extrabold text-slate-900 dark:text-white line-clamp-1 max-w-xs">
+                                  {item.descricao}
+                                </div>
+                                <div className="text-[10px] text-slate-400 flex items-center gap-1.5 mt-0.5">
+                                  <span>Cód: {item.produto_id}</span>
+                                  {item.cod_barras && <span>• EAN: {item.cod_barras}</span>}
+                                  {item.categoria_nome && <span className="text-blue-500 font-bold">• {item.categoria_nome}</span>}
+                                </div>
+                              </td>
+                              <td className="py-2.5 px-3 text-right font-medium text-slate-600 dark:text-slate-300">
+                                {formatMoney(item.cmv)}
+                              </td>
+                              <td className="py-2.5 px-3 text-right font-black text-slate-900 dark:text-white">
+                                {formatMoney(item.preco_venda)}
+                              </td>
+                              <td className="py-2.5 px-3 text-center font-black text-teal-600 dark:text-teal-400 bg-teal-50/50 dark:bg-teal-950/20">
+                                {item.pro_labore_total_pct}%
+                                <span className="block text-[9px] font-normal text-slate-400">
+                                  S1:{item.pro_labore_1_pct}% S2:{item.pro_labore_2_pct}%
+                                </span>
+                              </td>
+                              <td className="py-2.5 px-3 text-center font-bold text-sky-600 dark:text-sky-400">
+                                {item.custo_fixo_pct}%
+                              </td>
+                              <td className="py-2.5 px-3 text-center font-bold text-rose-600 dark:text-rose-400">
+                                {item.imposto_pct}%
+                              </td>
+                              <td className="py-2.5 px-3 text-center font-bold text-amber-600 dark:text-amber-400">
+                                {item.taxa_cartao_pct}%
+                              </td>
+                              <td className="py-2.5 px-3 text-center font-bold text-purple-600 dark:text-purple-400">
+                                {item.custos_variaveis_pct}%
+                              </td>
+                              <td className="py-2.5 px-3 text-center font-black text-emerald-600 dark:text-emerald-400">
+                                {item.margem_liquida_pct}%
+                              </td>
+                              <td className="py-2.5 px-3 text-center font-bold text-slate-700 dark:text-slate-300">
+                                {item.markup_multiplicador ? `${item.markup_multiplicador}x` : '—'}
+                              </td>
+                              <td className="py-2.5 px-3 text-right">
+                                <div className="flex items-center justify-end gap-1">
+                                  <button
+                                    onClick={() => {
+                                      setProductName(item.descricao);
+                                      setSelectedProduct({
+                                        PRODUTO_ID: item.produto_id,
+                                        PRODUTO: item.descricao,
+                                        COD_BARRAS: item.cod_barras,
+                                        PROD_PRVENDA: item.preco_venda,
+                                        PROD_PRCOMPRA: item.cmv
+                                      });
+                                      setCurrentStorePrice(item.preco_venda ? item.preco_venda.toFixed(2) : '');
+                                      setInputs({
+                                        cmv: item.cmv || 0,
+                                        impostoPercent: item.imposto_pct || 0,
+                                        taxaCartaoPercent: item.taxa_cartao_pct || 0,
+                                        custosVariaveisPercent: item.custos_variaveis_pct || 0,
+                                        custoFixoPercent: item.custo_fixo_pct || 0,
+                                        proLaboreSocio1Percent: item.pro_labore_1_pct || 0,
+                                        proLaboreSocio2Percent: item.pro_labore_2_pct || 0,
+                                        margemLiquidaPercent: item.margem_liquida_pct || 0
+                                      });
+                                      if (item.categoria_preset) {
+                                        setActivePresetId(item.categoria_preset);
+                                      }
+                                      setHasSavedCustomization(true);
+                                      setIsAveragesModalOpen(false);
+                                      addToast(`Produto "${item.descricao}" carregado no simulador!`, 'info');
+                                    }}
+                                    className="px-2 py-1 rounded-lg bg-teal-50 hover:bg-teal-100 text-teal-700 dark:bg-teal-950/50 dark:hover:bg-teal-900 dark:text-teal-300 text-[10px] font-black transition-colors cursor-pointer"
+                                    title="Carregar percentuais no simulador para ajustar"
+                                  >
+                                    Editar
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteCustomization(item.produto_id)}
+                                    className="p-1 rounded-lg hover:bg-rose-50 text-slate-400 hover:text-rose-600 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
+                                    title="Remover das médias"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+            </div>
+
+            {/* Footer do Modal */}
+            <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <span className="text-[11px] text-slate-500 font-medium">
+                💡 Todas as modificações salvas atualizam os valores médios de pró-labore e rateio em tempo real.
+              </span>
+              <button
+                onClick={() => setIsAveragesModalOpen(false)}
+                className="px-5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-xs font-black transition-colors cursor-pointer"
+              >
+                Fechar Painel
+              </button>
+            </div>
+
           </div>
         </div>
       )}

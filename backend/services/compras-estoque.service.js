@@ -12,6 +12,10 @@
 
 const { queryDigifarma } = require('./digifarma.service');
 const db = require('../database');
+let equivService = null;
+try {
+  equivService = require('./compras-equivalentes.service');
+} catch (e) {}
 
 /**
  * Obtém a quantidade de meses configurada para considerar um produto ativo no Horácio (padrão: 10 meses).
@@ -674,6 +678,10 @@ async function recalcularTodosEstoqueMinimo(margemSegurancaPercent = 15, options
       p.PROD_ESTMINIMO as EST_MINIMO_DIGIFARMA,
       COALESCE(NULLIF(p.PROD_CMV, 0), NULLIF(p.VALOR_ULT_COMPRA, 0), p.PROD_PRCOMPRA, 0) as CUSTO_UNITARIO,
       COALESCE(NULLIF(p.PROD_CMV, 0), p.VALOR_ULT_COMPRA, 0) as ULTIMA_COMPRA_VALOR,
+      p.PROD_PRVENDA,
+      p.PROD_PRPROMOCAO,
+      p.INICIO_PROMOCAO,
+      p.TERMINO_PROMOCAO,
       p.PROD_ATIVO,
       COALESCE(v30.QTD_30D, 0) as VENDAS_30D,
       COALESCE(v60.QTD_31_60D, 0) as VENDAS_31_60D,
@@ -853,6 +861,21 @@ async function recalcularTodosEstoqueMinimo(margemSegurancaPercent = 15, options
       listaParaSync.push({ produtoId: pId, estoqueMinimo: calculo.estoqueMinimoSugerido });
     }
 
+    const prVenda = Number(p.PROD_PRVENDA) || 0;
+    const prPromo = Number(p.PROD_PRPROMOCAO) || 0;
+    let precoVigente = prVenda;
+    if (prPromo > 0) {
+      const now = new Date();
+      let promoAtiva = true;
+      if (p.INICIO_PROMOCAO && new Date(p.INICIO_PROMOCAO) > now) promoAtiva = false;
+      if (p.TERMINO_PROMOCAO) {
+        const term = new Date(p.TERMINO_PROMOCAO);
+        term.setHours(23, 59, 59, 999);
+        if (now > term) promoAtiva = false;
+      }
+      if (promoAtiva) precoVigente = prPromo;
+    }
+
     resultadosCache.push({
       produto_id: pId,
       descricao: descricaoCompleta || 'PRODUTO',
@@ -874,7 +897,10 @@ async function recalcularTodosEstoqueMinimo(margemSegurancaPercent = 15, options
       custo_unitario: custo,
       ultima_compra_valor: ultCompra,
       status_ruptura: statusRuptura,
-      margem_seguranca_aplicada: calculo.margemSegurancaPercent
+      margem_seguranca_aplicada: calculo.margemSegurancaPercent,
+      preco_venda_vigente: precoVigente,
+      preco_normal: prVenda,
+      preco_promocional: prPromo
     });
   }
 
@@ -886,6 +912,7 @@ async function recalcularTodosEstoqueMinimo(margemSegurancaPercent = 15, options
       vendas_30d, vendas_31_60d, vendas_61_90d, ciclo_vida, custo_unitario, ultima_compra_valor,
       status_ruptura, margem_seguranca_aplicada, dias_sem_venda,
       ativo_10m, vendas_10m, entradas_10m,
+      preco_venda_vigente, preco_normal, preco_promocional,
       sincronizado_em, atualizado_em
     ) VALUES (
       ?, ?, ?, ?, ?, ?,
@@ -893,6 +920,9 @@ async function recalcularTodosEstoqueMinimo(margemSegurancaPercent = 15, options
       ?, ?, ?, ?, ?, ?,
       ?, ?, 0,
       ?, ?, ?,
+      COALESCE(NULLIF(?, 0), (SELECT preco_venda_vigente FROM compras_estoque_cache WHERE produto_id = ?), 0),
+      COALESCE(NULLIF(?, 0), (SELECT preco_normal FROM compras_estoque_cache WHERE produto_id = ?), 0),
+      COALESCE(NULLIF(?, 0), (SELECT preco_promocional FROM compras_estoque_cache WHERE produto_id = ?), 0),
       (SELECT sincronizado_em FROM compras_estoque_cache WHERE produto_id = ?),
       datetime('now', 'localtime')
     )
@@ -922,6 +952,12 @@ async function recalcularTodosEstoqueMinimo(margemSegurancaPercent = 15, options
         item.ativo_10m,
         item.vendas_10m,
         item.entradas_10m,
+        item.preco_venda_vigente,
+        item.produto_id,
+        item.preco_normal,
+        item.produto_id,
+        item.preco_promocional,
+        item.produto_id,
         item.produto_id
       );
     }
@@ -931,6 +967,30 @@ async function recalcularTodosEstoqueMinimo(margemSegurancaPercent = 15, options
     transacaoUpsert(resultadosCache);
   } catch (eTx) {
     console.error('[Compras Estoque] Erro ao salvar transação no cache SQLite:', eTx.message);
+  }
+
+  // Manter digifarma_products_cache sincronizado com compras_estoque_cache
+  try {
+    db.exec(`
+      UPDATE digifarma_products_cache 
+      SET 
+        preco_venda = COALESCE(NULLIF((SELECT preco_venda_vigente FROM compras_estoque_cache WHERE compras_estoque_cache.produto_id = CAST(digifarma_products_cache.produto_id AS INTEGER)), 0), preco_venda),
+        preco_promocao = COALESCE((SELECT preco_promocional FROM compras_estoque_cache WHERE compras_estoque_cache.produto_id = CAST(digifarma_products_cache.produto_id AS INTEGER)), preco_promocao),
+        preco_normal = COALESCE(NULLIF((SELECT preco_normal FROM compras_estoque_cache WHERE compras_estoque_cache.produto_id = CAST(digifarma_products_cache.produto_id AS INTEGER)), 0), preco_normal),
+        preco_custo = COALESCE(
+          NULLIF((SELECT custo_unitario FROM compras_estoque_cache WHERE compras_estoque_cache.produto_id = CAST(digifarma_products_cache.produto_id AS INTEGER)), 0),
+          NULLIF((SELECT preco_unitario_ult_compra FROM compras_estoque_cache WHERE compras_estoque_cache.produto_id = CAST(digifarma_products_cache.produto_id AS INTEGER)), 0),
+          preco_custo
+        ),
+        estoque_atual = COALESCE((SELECT saldo FROM compras_estoque_cache WHERE compras_estoque_cache.produto_id = CAST(digifarma_products_cache.produto_id AS INTEGER)), estoque_atual),
+        curva = COALESCE((SELECT curva_abc FROM compras_estoque_cache WHERE compras_estoque_cache.produto_id = CAST(digifarma_products_cache.produto_id AS INTEGER)), curva),
+        atualizado_em = datetime('now', 'localtime')
+      WHERE EXISTS (
+        SELECT 1 FROM compras_estoque_cache WHERE compras_estoque_cache.produto_id = CAST(digifarma_products_cache.produto_id AS INTEGER)
+      );
+    `);
+  } catch (eSyncCache) {
+    console.warn('[Compras Estoque] Aviso ao sincronizar digifarma_products_cache:', eSyncCache.message);
   }
 
   let sincronizados = 0;
@@ -1082,15 +1142,81 @@ async function listarProdutosAbaixoDoMinimo(filtros = {}) {
     LIMIT ? OFFSET ?
   `).all(...params, limit, offset);
 
+  // Consulta metadados de grupos equivalentes para o lote atual de produtos
+  const produtoIds = rows.map(r => r.produtoId);
+  let equivalentesMap = {};
+  try {
+    if (equivService && typeof equivService.obterConsolidadoParaProdutos === 'function') {
+      equivalentesMap = equivService.obterConsolidadoParaProdutos(produtoIds, db);
+    }
+  } catch (e) {
+    console.warn('[Compras-Estoque] Falha ao consultar equivalentes em lote:', e.message);
+  }
+
   const mappedRows = rows.map(r => {
     const estMin = Number(r.estMinimoCalculado) || 0;
     const estMax = Number(r.estMaximoCalculado) || (estMin > 0 ? estMin * 2 : 0);
     const saldo = Number(r.saldo) || 0;
-    
-    // Sugestão de Reposição para 30 dias: defasagem para o estoque mínimo
+    const vmd = Number(r.vmdPonderado) || 0;
+
+    const grupoData = equivalentesMap[r.produtoId] || null;
+
+    let saldoEquivalentes = saldo;
+    let grupoEquivalenteNome = null;
+    let grupoEquivalenteId = null;
+    let estMinimoConsolidado = estMin;
+    let vmdConsolidado = vmd;
+    let diasDuracaoEstoque = 0;
+    let dataPrevisaoEsgotamento = null;
     let sugerido = 0;
-    if (saldo < estMin || saldo <= 0) {
-      sugerido = Math.max(0, estMin - saldo);
+
+    if (grupoData) {
+      saldoEquivalentes = Number(grupoData.saldoTotal) || 0;
+      grupoEquivalenteNome = grupoData.nomeGrupo;
+      grupoEquivalenteId = grupoData.grupoId;
+      estMinimoConsolidado = Number(grupoData.estMinimoTotal) || estMin;
+      vmdConsolidado = Number(grupoData.vmdTotal) || vmd;
+
+      // Previsão consolidada do grupo
+      diasDuracaoEstoque = grupoData.diasDuracaoEstoque !== undefined
+        ? grupoData.diasDuracaoEstoque
+        : (saldoEquivalentes <= 0 ? 0 : (vmdConsolidado > 0 ? Math.round(saldoEquivalentes / vmdConsolidado) : 999));
+      dataPrevisaoEsgotamento = grupoData.dataPrevisaoEsgotamento || null;
+
+      // REGRA DE OURO DOS EQUIVALENTES:
+      // A soma dos saldos do grupo não pode passar do estoque mínimo.
+      // Se o saldo consolidado do grupo já atinge ou supera o estoque mínimo do grupo,
+      // NENHUM produto equivalente gera necessidade de reposição (sugerido = 0).
+      if (saldoEquivalentes >= estMinimoConsolidado) {
+        sugerido = 0;
+      } else {
+        // Se estiver abaixo do mínimo do grupo, a defasagem total é (estMinimoConsolidado - saldoEquivalentes)
+        // A compra sugerida somada ao saldo do grupo não pode ultrapassar o estoque mínimo.
+        sugerido = Math.max(0, estMinimoConsolidado - saldoEquivalentes);
+      }
+    } else {
+      // Produto sem grupo equivalente vinculado: usa cálculo individual
+      if (saldo <= 0) {
+        diasDuracaoEstoque = 0;
+        dataPrevisaoEsgotamento = 'Ruptura (Hoje)';
+      } else if (vmd > 0) {
+        diasDuracaoEstoque = Math.round(saldo / vmd);
+        if (diasDuracaoEstoque >= 365) {
+          dataPrevisaoEsgotamento = '+1 ano';
+        } else {
+          const d = new Date();
+          d.setDate(d.getDate() + diasDuracaoEstoque);
+          const pad = (n) => String(n).padStart(2, '0');
+          dataPrevisaoEsgotamento = `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
+        }
+      } else {
+        diasDuracaoEstoque = 999;
+        dataPrevisaoEsgotamento = '+1 ano';
+      }
+
+      if (saldo < estMin || saldo <= 0) {
+        sugerido = Math.max(0, estMin - saldo);
+      }
     }
 
     return {
@@ -1103,7 +1229,13 @@ async function listarProdutosAbaixoDoMinimo(filtros = {}) {
       entradas10m: Number(r.entradas10m) || 0,
       ativo10m: r.ativo10m !== undefined ? r.ativo10m : 1,
       pedidoMinimo: sugerido,
-      sugeridoReposicao: sugerido
+      sugeridoReposicao: sugerido,
+      saldoEquivalentes,
+      grupoEquivalenteNome,
+      grupoEquivalenteId,
+      estMinimoConsolidado,
+      diasDuracaoEstoque,
+      dataPrevisaoEsgotamento
     };
   });
 

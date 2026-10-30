@@ -3,6 +3,7 @@ const router = express.Router();
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const security = require('./security.js');
 
 const recipesDir = path.join(__dirname, 'uploads/recipes');
 
@@ -15,14 +16,22 @@ const storage = multer.diskStorage({
     cb(null, recipesDir);
   },
   filename: (req, file, cb) => {
+    const safeOriginal = path.basename(file.originalname || 'recipe');
+    const safeExt = path.extname(safeOriginal).replace(/[^a-zA-Z0-9.]/g, '');
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, 'recipe-' + uniqueSuffix + path.extname(file.originalname));
+    cb(null, 'recipe-' + uniqueSuffix + safeExt);
   }
 });
 
 const upload = multer({ 
   storage: storage,
-  limits: { fileSize: 20 * 1024 * 1024 } // 20MB
+  limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
+  fileFilter: (req, file, cb) => {
+    if (!security.isSafeUploadFile(file.originalname)) {
+      return cb(new Error('Tipo de arquivo não permitido por segurança.'));
+    }
+    cb(null, true);
+  }
 });
 
 module.exports = (db) => {

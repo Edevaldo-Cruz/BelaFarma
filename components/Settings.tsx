@@ -25,7 +25,8 @@ import {
   Sparkles,
   GitCommit,
   Clock,
-  Layers
+  Layers,
+  Thermometer
 } from 'lucide-react';
 import { User, UserRole, MonthlyLimit } from '../types';
 import { isAtlasConfigured } from '../lib/mongodb';
@@ -43,6 +44,115 @@ export const Settings: React.FC<SettingsProps> = ({ user, limits, onSaveLimit })
   const [ifoodFee, setIfoodFee] = React.useState('6.5');
   const [ifoodFeeOriginal, setIfoodFeeOriginal] = React.useState('6.5');
   const [ifoodFeeSaving, setIfoodFeeSaving] = React.useState(false);
+
+  // --- Responsável Técnico (Termo-Higrômetro / ANVISA) ---
+  const [farmaceuticoNome, setFarmaceuticoNome] = React.useState('Farmacêutico(a) Responsável');
+  const [farmaceuticoCrf, setFarmaceuticoCrf] = React.useState('CRF/MG 00000');
+  const [termometroModelo, setTermometroModelo] = React.useState('Termo-Higrômetro Digital Calibrado TH-01');
+  const [termometroCertificado, setTermometroCertificado] = React.useState('Certificado de Calibração Vigente');
+  const [isSavingFarmaceutico, setIsSavingFarmaceutico] = React.useState(false);
+
+  React.useEffect(() => {
+    // 1. Carrega imediatamente do localStorage para resposta instantânea
+    const applyConfig = (data: any) => {
+      if (!data || typeof data !== 'object') return;
+      if (data.farmaceutico_nome !== undefined) setFarmaceuticoNome(data.farmaceutico_nome);
+      if (data.farmaceutico_crf !== undefined) setFarmaceuticoCrf(data.farmaceutico_crf);
+      if (data.termometro_modelo !== undefined) setTermometroModelo(data.termometro_modelo);
+      if (data.termometro_certificado !== undefined) setTermometroCertificado(data.termometro_certificado);
+    };
+
+    try {
+      const cached = localStorage.getItem('belafarma_temp_config');
+      if (cached) {
+        applyConfig(JSON.parse(cached));
+      }
+    } catch (e) {}
+
+    // 2. Consulta o backend de forma resiliente
+    const fetchBackendConfig = async () => {
+      try {
+        const resSettings = await fetch('/api/settings/temperature_config');
+        const ctSettings = resSettings.headers.get('content-type');
+        if (resSettings.ok && ctSettings && ctSettings.includes('application/json')) {
+          const settingData = await resSettings.json();
+          if (settingData && settingData.value) {
+            const data = JSON.parse(settingData.value);
+            applyConfig(data);
+            localStorage.setItem('belafarma_temp_config', JSON.stringify(data));
+            return;
+          }
+        }
+      } catch (e) {}
+
+      try {
+        const resTemp = await fetch('/api/temperature/config');
+        const ctTemp = resTemp.headers.get('content-type');
+        if (resTemp.ok && ctTemp && ctTemp.includes('application/json')) {
+          const data = await resTemp.json();
+          if (data && (data.farmaceutico_nome || data.farmaceutico_crf)) {
+            applyConfig(data);
+            localStorage.setItem('belafarma_temp_config', JSON.stringify(data));
+          }
+        }
+      } catch (err) {}
+    };
+
+    fetchBackendConfig();
+
+    const handleConfigUpdated = () => {
+      try {
+        const cached = localStorage.getItem('belafarma_temp_config');
+        if (cached) applyConfig(JSON.parse(cached));
+      } catch (e) {}
+    };
+
+    window.addEventListener('belafarma_temp_config_updated', handleConfigUpdated);
+    return () => window.removeEventListener('belafarma_temp_config_updated', handleConfigUpdated);
+  }, []);
+
+  const handleSaveFarmaceuticoConfig = async () => {
+    setIsSavingFarmaceutico(true);
+    const newConfig = {
+      farmaceutico_nome: farmaceuticoNome.trim(),
+      farmaceutico_crf: farmaceuticoCrf.trim(),
+      termometro_modelo: termometroModelo.trim(),
+      termometro_certificado: termometroCertificado.trim()
+    };
+
+    // 1. Salva IMEDIATAMENTE no localStorage (persistência garantida localmente)
+    try {
+      localStorage.setItem('belafarma_temp_config', JSON.stringify(newConfig));
+      window.dispatchEvent(new Event('belafarma_temp_config_updated'));
+    } catch (e) {
+      console.error('Erro ao salvar no localStorage:', e);
+    }
+
+    // 2. Salva na rota universal /api/settings/temperature_config (garantido no SQLite)
+    try {
+      await fetch('/api/settings/temperature_config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value: JSON.stringify(newConfig) })
+      });
+    } catch (e) {
+      console.warn('[Temperatura] Aviso ao salvar em /api/settings/temperature_config:', e);
+    }
+
+    // 3. Persiste no endpoint dedicado de temperatura
+    try {
+      await fetch('/api/temperature/config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newConfig)
+      });
+    } catch (e) {
+      console.warn('[Temperatura] Aviso ao salvar em /api/temperature/config:', e);
+    }
+
+    setIsSavingFarmaceutico(false);
+    addToast('Dados do Farmacêutico Responsável atualizados com sucesso!', 'success');
+  };
 
 
   // --- WhatsApp Baileys Status & Reconnect (Principal, Secundário e Comercial) ---
@@ -364,6 +474,78 @@ export const Settings: React.FC<SettingsProps> = ({ user, limits, onSaveLimit })
           </div>
         </div>
       )}
+
+      {/* ── RESPONSÁVEL TÉCNICO & TERMO-HIGRÔMETRO (ANVISA) ── */}
+      <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm space-y-6">
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 bg-emerald-50 text-emerald-600 rounded-xl shadow-sm">
+            <Thermometer className="w-6 h-6" />
+          </div>
+          <div>
+            <h3 className="font-black text-slate-900 text-lg uppercase tracking-tight">Responsável Técnico & Termo-Higrômetro</h3>
+            <p className="text-xs text-slate-400 font-medium">Dados sanitários oficiais para o Mapa de Temperatura e Umidade (ANVISA / RDC 44)</p>
+          </div>
+        </div>
+
+        <div className="pt-4 border-t border-slate-50 space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Nome do Farmacêutico(a) Responsável</label>
+              <input
+                type="text"
+                value={farmaceuticoNome}
+                onChange={(e) => setFarmaceuticoNome(e.target.value)}
+                placeholder="Ex: Dra. Maria Silva"
+                className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold text-sm text-slate-800 outline-none focus:border-emerald-500 transition-all"
+              />
+            </div>
+
+            <div>
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Número do CRF / UF</label>
+              <input
+                type="text"
+                value={farmaceuticoCrf}
+                onChange={(e) => setFarmaceuticoCrf(e.target.value)}
+                placeholder="Ex: CRF/MG 12345"
+                className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold text-sm text-slate-800 outline-none focus:border-emerald-500 transition-all"
+              />
+            </div>
+
+            <div>
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Modelo do Termo-Higrômetro</label>
+              <input
+                type="text"
+                value={termometroModelo}
+                onChange={(e) => setTermometroModelo(e.target.value)}
+                placeholder="Ex: Termo-Higrômetro Digital Calibrado TH-01"
+                className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold text-sm text-slate-800 outline-none focus:border-emerald-500 transition-all"
+              />
+            </div>
+
+            <div>
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Certificado de Calibração</label>
+              <input
+                type="text"
+                value={termometroCertificado}
+                onChange={(e) => setTermometroCertificado(e.target.value)}
+                placeholder="Ex: Certificado de Calibração Vigente RBC"
+                className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-bold text-sm text-slate-800 outline-none focus:border-emerald-500 transition-all"
+              />
+            </div>
+          </div>
+
+          <div className="flex justify-end pt-2">
+            <button
+              onClick={handleSaveFarmaceuticoConfig}
+              disabled={isSavingFarmaceutico}
+              className="px-6 py-3.5 bg-slate-900 hover:bg-slate-800 text-white font-black text-xs uppercase tracking-widest rounded-xl transition-all shadow-md flex items-center gap-2 disabled:opacity-50 cursor-pointer"
+            >
+              <Save className="w-4 h-4" />
+              <span>{isSavingFarmaceutico ? 'Salvando...' : 'Salvar Responsável Técnico'}</span>
+            </button>
+          </div>
+        </div>
+      </div>
 
       {/* ── MÓDULOS DE WHATSAPP (BAILEYS) ── */}
       {user.role === UserRole.ADM && (

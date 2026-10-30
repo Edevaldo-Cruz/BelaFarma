@@ -496,6 +496,8 @@ export const ComprasDashboard: React.FC<ComprasDashboardProps> = ({
                 <th className="py-3 px-3 text-right">Saldo Atual</th>
                 <th className="py-3 px-3 text-right text-sky-600 dark:text-sky-400 font-black">Est. Mínimo (15d)</th>
                 <th className="py-3 px-3 text-right text-purple-600 dark:text-purple-400 font-black">Est. Máximo (30d)</th>
+                <th className="py-3 px-3 text-right text-indigo-600 dark:text-indigo-400 font-black">Saldo Equivalentes</th>
+                <th className="py-3 px-3 text-center text-amber-600 dark:text-amber-400 font-black">Previsão Estoque</th>
                 <th className="py-3 px-3 text-right text-emerald-600 dark:text-emerald-400 font-black">Sugestão Reposição</th>
                 <th className="py-3 px-4 text-center">Status Estoque</th>
               </tr>
@@ -503,14 +505,14 @@ export const ComprasDashboard: React.FC<ComprasDashboardProps> = ({
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 text-xs font-medium">
               {loading ? (
                 <tr>
-                  <td colSpan={11} className="py-12 text-center text-slate-400 font-bold">
+                  <td colSpan={13} className="py-12 text-center text-slate-400 font-bold">
                     <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-red-600" />
                     Carregando gestão de estoque por ciclo de vida (90 dias)...
                   </td>
                 </tr>
               ) : produtosPaginados.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="py-12 text-center text-slate-400">
+                  <td colSpan={13} className="py-12 text-center text-slate-400">
                     <Info className="w-8 h-8 mx-auto mb-2 text-slate-300 dark:text-slate-600" />
                     Nenhum medicamento encontrado com os filtros selecionados.
                   </td>
@@ -619,10 +621,60 @@ export const ComprasDashboard: React.FC<ComprasDashboardProps> = ({
                       <td className="py-3 px-3 text-right font-mono font-black text-purple-700 dark:text-purple-300">
                         {estMax} un
                       </td>
+                      <td className="py-3 px-3 text-right font-mono">
+                        {item.grupoEquivalenteNome ? (
+                          <div title={`Grupo: ${item.grupoEquivalenteNome}`}>
+                            <div className="font-black text-indigo-700 dark:text-indigo-300">
+                              {item.saldoEquivalentes ?? item.saldo} un
+                            </div>
+                            <div className="text-[9px] text-indigo-500/80 truncate max-w-[120px] ml-auto font-sans">
+                              {item.grupoEquivalenteNome}
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-slate-300 dark:text-slate-600">-</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-3 text-center">
+                        {item.diasDuracaoEstoque === 0 || item.saldo <= 0 ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-red-500/10 text-red-600 border border-red-500/30">
+                            🚨 Ruptura
+                          </span>
+                        ) : item.diasDuracaoEstoque !== undefined && item.diasDuracaoEstoque <= 7 ? (
+                          <div className="flex flex-col items-center">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-red-500/10 text-red-600 border border-red-500/30">
+                              ⚠️ {item.diasDuracaoEstoque}d
+                            </span>
+                            <span className="text-[9px] text-slate-400 mt-0.5">{item.dataPrevisaoEsgotamento}</span>
+                          </div>
+                        ) : item.diasDuracaoEstoque !== undefined && item.diasDuracaoEstoque <= 15 ? (
+                          <div className="flex flex-col items-center">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-600 border border-amber-500/30">
+                              ⚡ {item.diasDuracaoEstoque}d
+                            </span>
+                            <span className="text-[9px] text-slate-400 mt-0.5">{item.dataPrevisaoEsgotamento}</span>
+                          </div>
+                        ) : item.diasDuracaoEstoque !== undefined && item.diasDuracaoEstoque >= 365 ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-400">
+                            +1 ano
+                          </span>
+                        ) : (
+                          <div className="flex flex-col items-center">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 border border-emerald-500/30">
+                              ✅ {item.diasDuracaoEstoque}d
+                            </span>
+                            <span className="text-[9px] text-slate-400 mt-0.5">{item.dataPrevisaoEsgotamento}</span>
+                          </div>
+                        )}
+                      </td>
                       <td className="py-3 px-3 text-right font-mono font-black">
                         {sugerido > 0 ? (
                           <span className="px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 font-black">
                             +{sugerido}
+                          </span>
+                        ) : item.grupoEquivalenteNome && item.saldo <= 0 ? (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 font-bold" title="Estoque atendido pelos equivalentes do grupo">
+                            0 (Grupo OK)
                           </span>
                         ) : (
                           <span className="text-slate-400 dark:text-slate-600">0</span>

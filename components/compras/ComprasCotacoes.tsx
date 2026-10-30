@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { Cotacao, CotacaoItem, CotacaoResposta, User } from '../../types';
 import { useToast } from '../ToastContext';
+import { ComparadorCotacoesTextoModal } from './ComparadorCotacoesTextoModal';
 
 interface ComprasCotacoesProps {
   user: User;
@@ -45,6 +46,9 @@ export const ComprasCotacoes: React.FC<ComprasCotacoesProps> = ({
   const [selectedCotacao, setSelectedCotacao] = useState<Cotacao | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+
+  // Modal: Comparador de Cotações em Texto
+  const [isComparadorTextoModalOpen, setIsComparadorTextoModalOpen] = useState(false);
 
   // Modal: Nova Cotação
   const [isNovaCotacaoModalOpen, setIsNovaCotacaoModalOpen] = useState(false);
@@ -306,12 +310,21 @@ export const ComprasCotacoes: React.FC<ComprasCotacoesProps> = ({
           </button>
 
           <button
+            onClick={() => setIsComparadorTextoModalOpen(true)}
+            className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-700 hover:to-orange-700 text-white text-xs font-black uppercase tracking-wider shadow-md hover:shadow-lg transition-all cursor-pointer active:scale-95"
+            title="Cole as cotações em texto dos seus fornecedores para separar os menores preços"
+          >
+            <FileText className="w-4 h-4" />
+            Comparar Cotações (Texto)
+          </button>
+
+          <button
             onClick={() => {
               setItensNovaCotacao([]);
               setNovoTitulo(`Cotação ${new Date().toLocaleDateString('pt-BR')}`);
               setIsNovaCotacaoModalOpen(true);
             }}
-            className="flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-black uppercase tracking-wider shadow-md transition-all cursor-pointer active:scale-95"
+            className="flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-900 text-xs font-black uppercase tracking-wider shadow-md transition-all cursor-pointer active:scale-95"
           >
             <PlusCircle className="w-4 h-4" />
             Nova Cotação
@@ -876,6 +889,18 @@ export const ComprasCotacoes: React.FC<ComprasCotacoesProps> = ({
           </div>
         </div>
       )}
+
+      {/* Modal: Comparador de Cotações em Texto */}
+      <ComparadorCotacoesTextoModal
+        isOpen={isComparadorTextoModalOpen}
+        onClose={() => setIsComparadorTextoModalOpen(false)}
+        theme={theme}
+        onCriarCotacaoOficial={(itens) => {
+          setItensNovaCotacao(itens);
+          setNovoTitulo(`Cotação Comparativo ${new Date().toLocaleDateString('pt-BR')}`);
+          setIsNovaCotacaoModalOpen(true);
+        }}
+      />
     </div>
   );
 };

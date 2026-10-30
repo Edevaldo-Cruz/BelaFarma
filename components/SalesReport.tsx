@@ -8,7 +8,11 @@ import {
   DollarSign, 
   ShoppingBag,
   Loader2,
-  ChevronRight
+  ChevronRight,
+  Printer,
+  Package,
+  Building2,
+  Tag
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -48,6 +52,32 @@ interface SalesReportData {
   ticketsDiarios?: TicketDiarioReport[];
 }
 
+export interface SoldProductItem {
+  produtoId: number;
+  produto: string;
+  apresentacao: string;
+  codBarras: string;
+  saldo: number;
+  qtdVendida: number;
+  ultimoFornecedor: string;
+  ultimoPreco: number;
+}
+
+export interface SoldCategoryGroup {
+  categoria: string;
+  totalProdutos: number;
+  totalQtd: number;
+  produtos: SoldProductItem[];
+}
+
+export interface SoldProductsReportData {
+  period: { startDate: string; endDate: string };
+  totalItens: number;
+  totalQtdGeral: number;
+  categorias: SoldCategoryGroup[];
+  isOffline?: boolean;
+}
+
 const COLORS = ['#10b981', '#3b82f6', '#8b5cf6', '#f59e0b', '#ec4899', '#6366f1', '#14b8a6', '#f43f5e', '#a855f7', '#64748b'];
 
 export const SalesReport: React.FC = () => {
@@ -59,6 +89,10 @@ export const SalesReport: React.FC = () => {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [usingCustomDates, setUsingCustomDates] = useState(false);
+
+  // Sold Products by Category state
+  const [soldData, setSoldData] = useState<SoldProductsReportData | null>(null);
+  const [loadingSold, setLoadingSold] = useState(true);
 
   const { addToast } = useToast();
 
@@ -87,6 +121,7 @@ export const SalesReport: React.FC = () => {
 
   const fetchReportData = async (start?: string, end?: string) => {
     setLoading(true);
+    setLoadingSold(true);
     try {
       let query = '';
       if (start && end) {
@@ -96,10 +131,15 @@ export const SalesReport: React.FC = () => {
         query = `?startDate=${startStr}&endDate=${endStr}`;
       }
 
-      const response = await fetch(`/api/finance-agent/sales-report${query}`);
+      const [response, soldResponse] = await Promise.all([
+        fetch(`/api/finance-agent/sales-report${query}`),
+        fetch(`/api/finance-agent/sold-products-report${query}`).catch(() => null)
+      ]);
+
       if (response.status === 503) {
         addToast('O servidor do Digifarma está Offline.', 'error');
         setData(null);
+        setSoldData(null);
         return;
       }
       if (!response.ok) throw new Error('Falha ao buscar dados');
@@ -108,14 +148,21 @@ export const SalesReport: React.FC = () => {
       if (reportData && reportData.isOffline) {
         addToast('O servidor do Digifarma está Offline.', 'error');
         setData(null);
+        setSoldData(null);
         return;
       }
       setData(reportData);
+
+      if (soldResponse && soldResponse.ok) {
+        const soldJson = await soldResponse.json();
+        setSoldData(soldJson);
+      }
     } catch (err: any) {
       console.error(err);
       addToast('Erro ao carregar o relatório de vendas.', 'error');
     } finally {
       setLoading(false);
+      setLoadingSold(false);
     }
   };
 
@@ -140,6 +187,286 @@ export const SalesReport: React.FC = () => {
     setPeriod(newPeriod);
     setStartDate('');
     setEndDate('');
+  };
+
+  const handlePrintSoldProducts = () => {
+    if (!soldData || !soldData.categorias || soldData.categorias.length === 0) {
+      addToast('Não há produtos vendidos para imprimir no período selecionado.', 'warning');
+      return;
+    }
+
+    const formatDateBr = (dateStr: string) => {
+      if (!dateStr) return '';
+      const parts = dateStr.split('-');
+      if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`;
+      return dateStr;
+    };
+
+    const periodDates = soldData.period || getDatesForPeriod(period);
+    const periodLabel = `${formatDateBr(periodDates.startDate || startDate || '')} a ${formatDateBr(periodDates.endDate || endDate || '')}`;
+    const emissionDate = new Date().toLocaleString('pt-BR');
+
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      addToast('Por favor, permita pop-ups para imprimir o relatório.', 'error');
+      return;
+    }
+
+    const categoriesHtml = soldData.categorias.map(cat => {
+      const rowsHtml = cat.produtos.map((p, idx) => `
+        <tr class="${idx % 2 === 0 ? 'even' : 'odd'}">
+          <td class="text-center font-bold">${p.produtoId || ''}</td>
+          <td>
+            <div class="prod-name">${p.produto}</div>
+            ${p.apresentacao ? `<div class="prod-desc">${p.apresentacao}</div>` : ''}
+            ${p.codBarras ? `<div class="prod-ean">EAN: ${p.codBarras}</div>` : ''}
+          </td>
+          <td class="text-right font-bold ${Number(p.saldo || 0) <= 0 ? 'stock-zero' : 'stock-ok'}">${Number(p.saldo || 0).toLocaleString('pt-BR')}</td>
+          <td class="text-right font-bold qty-col">${Number(p.qtdVendida).toLocaleString('pt-BR')}</td>
+          <td>${p.ultimoFornecedor || 'Não inf.'}</td>
+          <td class="text-right font-bold price-col">R$ ${(Number(p.ultimoPreco) || 0).toFixed(2).replace('.', ',')}</td>
+        </tr>
+      `).join('');
+
+      return `
+        <div class="category-block">
+          <div class="category-header">
+            <span class="category-title">${cat.categoria}</span>
+            <span class="category-summary">${cat.totalProdutos} produtos | ${cat.totalQtd.toLocaleString('pt-BR')} un vendidas</span>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 7%;" class="text-center">Cód.</th>
+                <th style="width: 39%;">Produto</th>
+                <th style="width: 10%;" class="text-right">Estoque</th>
+                <th style="width: 12%;" class="text-right">Qtd. Vendida</th>
+                <th style="width: 20%;">Último Fornecedor</th>
+                <th style="width: 12%;" class="text-right">Último Preço</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rowsHtml}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }).join('');
+
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Bela Farma - Relatório de Produtos Vendidos por Categoria</title>
+          <meta charset="utf-8" />
+          <style>
+            @page {
+              size: A4 portrait;
+              margin: 8mm 10mm 8mm 10mm;
+            }
+            body {
+              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+              color: #0f172a;
+              margin: 0;
+              padding: 0;
+              font-size: 9.5px;
+              line-height: 1.25;
+            }
+            .report-header {
+              border-bottom: 2px solid #0f172a;
+              padding-bottom: 6px;
+              margin-bottom: 10px;
+              display: flex;
+              justify-content: space-between;
+              align-items: flex-end;
+            }
+            .pharmacy-title {
+              font-size: 16px;
+              font-weight: 900;
+              color: #0f172a;
+              text-transform: uppercase;
+              letter-spacing: -0.5px;
+            }
+            .report-subtitle {
+              font-size: 11px;
+              font-weight: 700;
+              color: #059669;
+              text-transform: uppercase;
+              margin-top: 1px;
+            }
+            .meta-info {
+              text-align: right;
+              font-size: 8.5px;
+              color: #64748b;
+            }
+            .meta-info strong {
+              color: #0f172a;
+            }
+            .kpi-summary {
+              background: #f1f5f9;
+              border: 1px solid #cbd5e1;
+              border-radius: 4px;
+              padding: 5px 10px;
+              margin-bottom: 12px;
+              display: flex;
+              gap: 20px;
+              font-size: 9px;
+            }
+            .kpi-item {
+              display: flex;
+              gap: 4px;
+            }
+            .kpi-label {
+              color: #64748b;
+              font-weight: 600;
+            }
+            .kpi-value {
+              font-weight: 800;
+              color: #0f172a;
+            }
+            .category-block {
+              margin-bottom: 14px;
+              page-break-inside: auto;
+            }
+            .category-header {
+              background: #1e293b;
+              color: #ffffff;
+              padding: 4px 8px;
+              border-radius: 4px 4px 0 0;
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              font-size: 10px;
+              font-weight: 800;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+              break-after: avoid;
+            }
+            .category-summary {
+              font-size: 8.5px;
+              font-weight: 600;
+              color: #cbd5e1;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              border: 1px solid #cbd5e1;
+              margin-bottom: 4px;
+            }
+            th {
+              background: #e2e8f0;
+              color: #1e293b;
+              font-size: 8.5px;
+              font-weight: 800;
+              text-transform: uppercase;
+              padding: 4px 6px;
+              border: 1px solid #cbd5e1;
+              text-align: left;
+            }
+            td {
+              padding: 3.5px 6px;
+              border: 1px solid #e2e8f0;
+              font-size: 8.5px;
+              vertical-align: middle;
+            }
+            tr.even {
+              background: #ffffff;
+            }
+            tr.odd {
+              background: #f8fafc;
+            }
+            .text-center { text-align: center; }
+            .text-right { text-align: right; }
+            .font-bold { font-weight: 700; }
+            .prod-name {
+              font-weight: 700;
+              color: #0f172a;
+            }
+            .prod-desc {
+              color: #64748b;
+              font-size: 8px;
+            }
+            .prod-ean {
+              font-size: 7.5px;
+              color: #94a3b8;
+            }
+            .qty-col {
+              color: #0f172a;
+              font-size: 9px;
+            }
+            .price-col {
+              color: #047857;
+            }
+            .stock-ok {
+              color: #0f172a;
+            }
+            .stock-zero {
+              color: #dc2626;
+              font-weight: 800;
+            }
+            .report-footer {
+              margin-top: 14px;
+              border-top: 1px solid #cbd5e1;
+              padding-top: 4px;
+              display: flex;
+              justify-content: space-between;
+              font-size: 7.5px;
+              color: #94a3b8;
+            }
+            @media print {
+              body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+              .category-block { page-break-inside: auto; }
+              tr { page-break-inside: avoid; }
+              thead { display: table-header-group; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="report-header">
+            <div>
+              <div class="pharmacy-title">Drogaria Bela Farma</div>
+              <div class="report-subtitle">Relatório de Produtos Vendidos por Categoria</div>
+            </div>
+            <div class="meta-info">
+              <div><strong>Período:</strong> ${periodLabel}</div>
+              <div><strong>Emissão:</strong> ${emissionDate}</div>
+            </div>
+          </div>
+
+          <div class="kpi-summary">
+            <div class="kpi-item">
+              <span class="kpi-label">Categorias:</span>
+              <span class="kpi-value">${soldData.categorias.length}</span>
+            </div>
+            <div class="kpi-item">
+              <span class="kpi-label">Total de Itens:</span>
+              <span class="kpi-value">${soldData.totalItens.toLocaleString('pt-BR')}</span>
+            </div>
+            <div class="kpi-item">
+              <span class="kpi-label">Total de Peças Vendidas:</span>
+              <span class="kpi-value">${soldData.totalQtdGeral.toLocaleString('pt-BR')} un</span>
+            </div>
+          </div>
+
+          ${categoriesHtml}
+
+          <div class="report-footer">
+            <span>Bela Farma Sistema Inteligente &copy; ${new Date().getFullYear()}</span>
+            <span>Relatório Oficial de Produtos Vendidos</span>
+          </div>
+
+          <script>
+            window.onload = function() {
+              setTimeout(function() {
+                window.print();
+                window.close();
+              }, 250);
+            };
+          </script>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
   };
 
   // KPI calculations
@@ -498,6 +825,162 @@ export const SalesReport: React.FC = () => {
                 </tbody>
               </table>
             </div>
+          </div>
+
+          {/* Nova Seção: Produtos Vendidos por Categoria com Último Fornecedor e Preço de Custo */}
+          <div className="bg-white dark:bg-slate-900 border-2 border-slate-100 dark:border-slate-800/80 rounded-[2.5rem] shadow-sm overflow-hidden p-6 md:p-8 space-y-6">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 border-b border-slate-100 dark:border-slate-800">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+                    <Package className="w-5 h-5" />
+                  </div>
+                  <h2 className="text-xl font-black text-slate-800 dark:text-slate-100 tracking-tight">
+                    Produtos Vendidos por Categoria
+                  </h2>
+                </div>
+                <p className="text-xs font-bold text-slate-400 dark:text-slate-500">
+                  Quantidade acumulada vendida, último fornecedor e preço de custo da última compra no período.
+                </p>
+              </div>
+
+              <button
+                onClick={handlePrintSoldProducts}
+                disabled={loadingSold || !soldData || !soldData.categorias || soldData.categorias.length === 0}
+                className="inline-flex items-center gap-2.5 px-6 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-black text-xs uppercase tracking-wider rounded-2xl shadow-lg shadow-emerald-600/20 transition-all active:scale-95 cursor-pointer"
+              >
+                <Printer className="w-4 h-4" />
+                Imprimir Lista (A4 / PDF)
+              </button>
+            </div>
+
+            {loadingSold ? (
+              <div className="flex flex-col items-center justify-center py-16 text-slate-400 gap-3">
+                <Loader2 className="w-8 h-8 animate-spin text-emerald-500" />
+                <p className="text-xs font-bold uppercase tracking-wider">Carregando produtos vendidos por categoria...</p>
+              </div>
+            ) : !soldData || !soldData.categorias || soldData.categorias.length === 0 ? (
+              <div className="text-center py-12 text-slate-400">
+                <p className="text-sm font-bold">Nenhum produto vendido encontrado para o período selecionado.</p>
+              </div>
+            ) : (
+              <div className="space-y-8">
+                {/* Resumo rápido */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="bg-slate-50 dark:bg-slate-800/40 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Categorias Ativas</p>
+                      <p className="text-xl font-black text-slate-800 dark:text-slate-100">{soldData.categorias.length}</p>
+                    </div>
+                    <Layers className="w-6 h-6 text-slate-400" />
+                  </div>
+                  <div className="bg-slate-50 dark:bg-slate-800/40 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Itens Distintos</p>
+                      <p className="text-xl font-black text-slate-800 dark:text-slate-100">{soldData.totalItens.toLocaleString('pt-BR')}</p>
+                    </div>
+                    <Package className="w-6 h-6 text-emerald-500" />
+                  </div>
+                  <div className="bg-slate-50 dark:bg-slate-800/40 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Total Peças Vendidas</p>
+                      <p className="text-xl font-black text-slate-800 dark:text-slate-100">{soldData.totalQtdGeral.toLocaleString('pt-BR')} un</p>
+                    </div>
+                    <ShoppingBag className="w-6 h-6 text-indigo-500" />
+                  </div>
+                </div>
+
+                {/* Blocos de Categorias */}
+                <div className="space-y-6">
+                  {soldData.categorias.map((catGroup) => (
+                    <div 
+                      key={catGroup.categoria} 
+                      className="border-2 border-slate-100 dark:border-slate-800 rounded-3xl overflow-hidden shadow-xs"
+                    >
+                      {/* Cabeçalho da Categoria */}
+                      <div className="px-6 py-4 bg-slate-900 text-white flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-3">
+                          <span className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
+                          <h3 className="text-sm font-black uppercase tracking-wider">{catGroup.categoria}</h3>
+                        </div>
+                        <div className="flex items-center gap-3 text-xs">
+                          <span className="bg-slate-800 text-slate-300 font-bold px-3 py-1 rounded-full text-[11px]">
+                            {catGroup.totalProdutos} produtos
+                          </span>
+                          <span className="bg-emerald-500/20 text-emerald-300 font-black px-3 py-1 rounded-full text-[11px]">
+                            {catGroup.totalQtd.toLocaleString('pt-BR')} un vendidas
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Tabela dos Produtos da Categoria */}
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs">
+                          <thead>
+                            <tr className="bg-slate-50 dark:bg-slate-800/40 border-b border-slate-100 dark:border-slate-800 text-[10px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                              <th className="px-5 py-3 text-center w-16">Cód.</th>
+                              <th className="px-5 py-3">Produto</th>
+                              <th className="px-5 py-3 text-right w-28">Estoque</th>
+                              <th className="px-5 py-3 text-right w-32">Qtd. Vendida</th>
+                              <th className="px-5 py-3 w-56">Último Fornecedor</th>
+                              <th className="px-5 py-3 text-right w-36">Último Preço (Custo)</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                            {catGroup.produtos.map((prod, pIdx) => (
+                              <tr 
+                                key={prod.produtoId || pIdx} 
+                                className="hover:bg-slate-50/60 dark:hover:bg-slate-800/20 transition-colors"
+                              >
+                                <td className="px-5 py-3 text-center font-bold text-slate-400">
+                                  #{prod.produtoId}
+                                </td>
+                                <td className="px-5 py-3">
+                                  <div className="font-black text-slate-800 dark:text-slate-200">
+                                    {prod.produto}
+                                  </div>
+                                  <div className="flex items-center gap-2 mt-0.5 text-[11px] text-slate-400">
+                                    {prod.apresentacao && <span>{prod.apresentacao}</span>}
+                                    {prod.codBarras && (
+                                      <span className="font-mono text-[10px] bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">
+                                        EAN: {prod.codBarras}
+                                      </span>
+                                    )}
+                                  </div>
+                                </td>
+                                <td className="px-5 py-3 text-right">
+                                  <span className={`inline-block px-2.5 py-1 rounded-lg text-xs font-black ${
+                                    (prod.saldo || 0) <= 0 
+                                      ? 'bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400' 
+                                      : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+                                  }`}>
+                                    {Number(prod.saldo || 0).toLocaleString('pt-BR')} un
+                                  </span>
+                                </td>
+                                <td className="px-5 py-3 text-right">
+                                  <span className="inline-block px-3 py-1 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 font-black rounded-lg text-xs">
+                                    {Number(prod.qtdVendida).toLocaleString('pt-BR')} un
+                                  </span>
+                                </td>
+                                <td className="px-5 py-3 text-slate-700 dark:text-slate-300 font-bold truncate max-w-xs">
+                                  <div className="flex items-center gap-1.5">
+                                    <Building2 className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                    <span className="truncate">{prod.ultimoFornecedor || 'Não inf.'}</span>
+                                  </div>
+                                </td>
+                                <td className="px-5 py-3 text-right font-black text-slate-900 dark:text-slate-100">
+                                  {formatCurrency(prod.ultimoPreco || 0)}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </>
       )}

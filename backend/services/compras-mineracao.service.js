@@ -69,7 +69,8 @@ const STOP_WORDS_NAME = [
   'contato', 'equipe', 'supervisor', 'supervisora', 'diretor', 'diretora',
   'santa', 'cruz', 'profarma', 'panpharma', 'cimed',
   'ems', 'medcom', 'gam', 'dimebras', 'eurofarma', 'distribuidora', 'laboratorio',
-  'com', 'para', 'em', 'tudo', 'bem', 'ola', 'olá', 'bom', 'dia', 'tarde', 'noite'
+  'com', 'para', 'em', 'tudo', 'bem', 'ola', 'olá', 'bom', 'dia', 'tarde', 'noite',
+  'pessoal', 'galera', 'turma', 'gente', 'amigos', 'amigo', 'amiga', 'estou', 'estamos', 'por', 'aqui'
 ];
 
 // ──────────────────────────────────────────────────────────
@@ -91,10 +92,15 @@ function normalizeText(str) {
  * Converte valor em formato string brasileira ("1.250,50" ou "12,90" ou "12.90") para Number.
  */
 function parsePriceValue(priceStr) {
-  if (typeof priceStr === 'number') return priceStr;
+  if (typeof priceStr === 'number') return isNaN(priceStr) || priceStr <= 0 ? 0 : priceStr;
   if (!priceStr) return 0;
   
-  let clean = String(priceStr).replace(/R\$/gi, '').trim();
+  const raw = String(priceStr).trim();
+  if (raw.startsWith('-') || raw.includes('-R$')) return 0;
+
+  let clean = raw.replace(/R\$/gi, '').trim();
+  if (clean.startsWith('-')) return 0;
+
   if (clean.includes(',') && clean.includes('.')) {
     // Ex: 1.250,50 -> 1250.50
     clean = clean.replace(/\./g, '').replace(',', '.');
@@ -103,7 +109,7 @@ function parsePriceValue(priceStr) {
     clean = clean.replace(',', '.');
   }
   const val = parseFloat(clean);
-  return isNaN(val) ? 0 : val;
+  return isNaN(val) || val <= 0 ? 0 : val;
 }
 
 /**
@@ -140,7 +146,7 @@ function extrairPrazos(texto) {
 function extrairPedidoMinimo(texto) {
   if (!texto) return { valor: 0, condicoes: null };
 
-  const regexMinimo = /(?:pedido\s*m[íi]n(?:imo)?|faturamento\s*m[íi]n(?:imo)?|fechamento\s*m[íi]n(?:imo)?|m[íi]nimo\s*(?:de)?|m[íi]n\s*(?:de)?)\s*(?:[eé:]|\s+de)?\s*(?:r\$)?\s*([\d\.,]+)(?:\s*(?:reais))?/i;
+  const regexMinimo = /(?:pedido\s*m[íi]n(?:imo)?|faturamento\s*m[íi]n(?:imo)?|fechamento\s*m[íi]n(?:imo)?|m[íi]nimo\s*(?:de)?|m[íi]n\s*(?:de)?)\s*(?:exigido|necess[áa]rio|[eé:]|\s+de|\s+para)?\s*:?\s*(?:r\$)?\s*([\d\.,]+)(?:\s*(?:reais))?/i;
   const match = regexMinimo.exec(texto);
 
   if (match && match[1]) {
@@ -220,7 +226,8 @@ function extrairNomeRepresentante(texto, pushName = null, distribuidora = null, 
       /(?:representante|vendedor(?:a)?|consultor(?:a)?)(?:\s*[:,-]\s*|\s+)([A-ZÀ-Úa-zà-ú]+(?:\s+[A-ZÀ-Úa-zà-ú]+)?)/i,
       /(?:falar\s+com|atenciosamente|att:?|abraço(?:s)?|grato,?|obrigado,?)(?:\s*[:,-]\s*|\s+)([A-ZÀ-Úa-zà-ú]+(?:\s+[A-ZÀ-Úa-zà-ú]+)?)/i,
       /(?:fala|olá|ola|bom\s+dia|boa\s+tarde|boa\s+noite)[,\s]+(?:aqui\s+[ée]\s+(?:o|a)?\s+)?([A-ZÀ-Úa-zà-ú]+)\s+da\s+([A-ZÀ-Úa-zà-ú]+)/i,
-      /(?:quem\s+fala\s+[ée]\s+)([A-ZÀ-Úa-zà-ú]+)/i
+      /(?:quem\s+fala\s+[ée]\s+)([A-ZÀ-Úa-zà-ú]+)/i,
+      /(?:^|[.!?\n]\s*|\b)([A-ZÀ-Úa-zà-ú]{2,20})\s+aqui\b/i
     ];
 
     for (const regex of padroes) {
@@ -282,6 +289,13 @@ function isApenasEmbalagemOuQuantidade(str) {
   const formasPuras = /^(?:COMPRIMIDOS?|C[AÁ]PSULAS?|GOTAS?|XAROPE|AMPOLAS?|FRASCOS?|POMADA|CREME|GEL|DISPLAY|ENVELOPE|SACH[EÊ]T?|CAIXA|UNIDADES?|BLISTER|CARTELA|GEN|GENERICO|SIMILAR|REF)$/i;
   if (formasPuras.test(s)) return true;
 
+  // Frases conversacionais e jargões de mensagens de fornecedor (ex: "Vc compra", "Compre 10", "Leve 5", etc.)
+  if (/^(?:VC\b|VOC[EÊ]\b|COMPRE\b|COMPRA\b|COMPRANDO\b|LEVE\b|GANHE\b|PAGUE\b|PAGANDO\b|ACIMA\b|A PARTIR\b|FRETE\b|PEDIDO\b|M[IÍ]NIMO\b|FECHAMENTO\b|TOTAL\b|SUBTOTAL\b|CONDI[CÇ]|PRAZO\b|BOLETO\b|PIX\b|AVISTA\b|DESCONTO\b|TABELA\b|PROMO[CÇ][AÃ]O\b|OFERTAS?\b|AVISO\b|ATEN[CÇ]|IMPORTANTE\b|REPASSANDO\b|SEGUE\b|BOM DIA\b|BOA TARDE\b|BOA NOITE\b|OL[AÁ]\b|FATURAMENTO\b)/i.test(s)) {
+    if (!/(?:MG|G|ML|MCG|COMP|CAPS|CPS|CPR|GOTAS|XPE|DRG)\b/i.test(s)) {
+      return true;
+    }
+  }
+
   // Se não contiver nenhuma palavra com >= 3 letras que represente produto real
   const words = s.replace(/[^A-Z0-9]/g, ' ')
     .split(/\s+/)
@@ -295,6 +309,376 @@ function isApenasEmbalagemOuQuantidade(str) {
 }
 
 /**
+ * Extrai a validade da oferta informada pelo fornecedor na mensagem de WhatsApp.
+ * Suporta formatos explícitos (DD/MM, DD/MM/YYYY), dias da semana, termos relativos ("até amanhã", "por X dias").
+ * Retorna { validadeOferta: 'YYYY-MM-DD' | null, validadeTexto: string | null }
+ */
+function extrairValidadeDaMensagem(texto, dataReferencia = new Date()) {
+  if (!texto || typeof texto !== 'string') return { validadeOferta: null, validadeTexto: null };
+
+  const ref = dataReferencia instanceof Date && !isNaN(dataReferencia) ? new Date(dataReferencia) : new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  const formatYMD = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+
+  // 1. Data fixa: "válido até 15/09", "promoção até 15/09/2026", "validade: 20/09", "validade: até 30/10/2026"
+  const dateRegex = /\b(?:v[áa]lid[ao](?:\s+at[ée])?|promo[çc][ãa]o\s+at[ée]|at[ée]\s+(?:o\s+dia\s+)?|vig[êe]ncia\s+at[ée]|validade\s*:?(?:\s*at[ée])?)\s*(\d{1,2})[\/\.-](\d{1,2})(?:[\/\.-](\d{2,4}))?/i;
+  const mDate = dateRegex.exec(texto);
+  if (mDate) {
+    const dia = parseInt(mDate[1], 10);
+    const mes = parseInt(mDate[2], 10);
+    let ano = mDate[3] ? parseInt(mDate[3], 10) : ref.getFullYear();
+    if (ano < 100) ano += 2000;
+    if (mes >= 1 && mes <= 12 && dia >= 1 && dia <= 31) {
+      const dAlvo = new Date(ano, mes - 1, dia, 23, 59, 59);
+      return {
+        validadeOferta: formatYMD(dAlvo),
+        validadeTexto: mDate[0].trim()
+      };
+    }
+  }
+
+  // 2. Dia da semana: "válido até sexta-feira", "promoção até quarta"
+  const weekRegex = /\b(?:v[áa]lid[ao]\s+at[ée]|promo[çc][ãa]o\s+at[ée]|at[ée])\s*(segunda|ter[çc]a|quarta|quinta|sexta|s[áa]bado|domingo)(?:-feira)?/i;
+  const mWeek = weekRegex.exec(texto);
+  if (mWeek) {
+    const mapaDias = {
+      domingo: 0, segunda: 1, terca: 2, terça: 2, quarta: 3, quinta: 4, sexta: 5, sabado: 6, sábado: 6
+    };
+    const diaAlvo = mapaDias[mWeek[1].toLowerCase()];
+    if (diaAlvo !== undefined) {
+      const dAlvo = new Date(ref);
+      let diff = diaAlvo - dAlvo.getDay();
+      if (diff <= 0) diff += 7; // Próximo dia da semana correspondente
+      dAlvo.setDate(dAlvo.getDate() + diff);
+      return {
+        validadeOferta: formatYMD(dAlvo),
+        validadeTexto: mWeek[0].trim()
+      };
+    }
+  }
+
+  // 3. Relativo amanhã: "válido até amanhã", "válido amanhã", "somente hoje e amanhã"
+  const amanhãRegex = /\b(?:v[áa]lid[ao]\s+(?:at[ée]\s+)?amanh[ãa]|somente\s+hoje\s+e\s+amanh[ãa]|at[ée]\s+amanh[ãa])/i;
+  const mAmanhã = amanhãRegex.exec(texto);
+  if (mAmanhã) {
+    const dAlvo = new Date(ref);
+    dAlvo.setDate(dAlvo.getDate() + 1);
+    return {
+      validadeOferta: formatYMD(dAlvo),
+      validadeTexto: mAmanhã[0].trim()
+    };
+  }
+
+  // 4. Quantidade de dias: "válido por 3 dias"
+  const diasRegex = /\b(?:v[áa]lid[ao]\s+por\s+(\d+)\s+dias?)/i;
+  const mDias = diasRegex.exec(texto);
+  if (mDias) {
+    const qtdDias = parseInt(mDias[1], 10);
+    if (qtdDias > 0 && qtdDias <= 60) {
+      const dAlvo = new Date(ref);
+      dAlvo.setDate(dAlvo.getDate() + qtdDias);
+      return {
+        validadeOferta: formatYMD(dAlvo),
+        validadeTexto: mDias[0].trim()
+      };
+    }
+  }
+
+  // 5. Quantidade de horas: "válido por 48 horas"
+  const horasRegex = /\b(?:v[áa]lid[ao]\s+por\s+(\d+)\s+horas?)/i;
+  const mHoras = horasRegex.exec(texto);
+  if (mHoras) {
+    const qtdHoras = parseInt(mHoras[1], 10);
+    const dias = Math.ceil(qtdHoras / 24);
+    if (dias > 0 && dias <= 60) {
+      const dAlvo = new Date(ref);
+      dAlvo.setDate(dAlvo.getDate() + dias);
+      return {
+        validadeOferta: formatYMD(dAlvo),
+        validadeTexto: mHoras[0].trim()
+      };
+    }
+  }
+
+  // 6. Expressões com "hoje" ou validade textual genérica (ex: "válido apenas hoje até as 18 horas")
+  const textualRegex = /\b(v[áa]lid[ao][^\n\r.!?;]+)/i;
+  const mTextual = textualRegex.exec(texto);
+  if (mTextual) {
+    const rawMatch = mTextual[1].trim();
+    const dateInText = /(\d{1,2})[\/\.-](\d{1,2})(?:[\/\.-](\d{2,4}))?/.exec(rawMatch);
+    if (dateInText) {
+      const dia = parseInt(dateInText[1], 10);
+      const mes = parseInt(dateInText[2], 10);
+      let ano = dateInText[3] ? parseInt(dateInText[3], 10) : ref.getFullYear();
+      if (ano < 100) ano += 2000;
+      if (mes >= 1 && mes <= 12 && dia >= 1 && dia <= 31) {
+        const dAlvo = new Date(ano, mes - 1, dia, 23, 59, 59);
+        return {
+          validadeOferta: formatYMD(dAlvo),
+          validadeTexto: rawMatch
+        };
+      }
+    }
+    return {
+      validadeOferta: rawMatch,
+      validadeTexto: rawMatch
+    };
+  }
+
+  return { validadeOferta: null, validadeTexto: null };
+}
+
+/**
+ * Verifica se um número isolado no final da linha é provavelmente uma dosagem/concentração
+ * e NÃO um preço ofertado (ex: "CLONAZEPAM 2,00", "BIOLAGRIMA 0,15", "DIPIRONA 500,00").
+ */
+function isPossivelDosagemOuConcentracao(valor, linha) {
+  if (!linha || typeof linha !== 'string') return false;
+  // Se tem indicador explícito de preço ou moeda, NÃO é apenas dosagem
+  if (/(?:R\$|por\s+|cada\s+|un\s*:\s*|un\s+|valor\s*:?|pre[çc]o\s*:?|p\/\s*|promo[çc][ãa]o\s*:?)/i.test(linha)) {
+    return false;
+  }
+  // Se tem traço, seta ou dois pontos separando claramente (ex: "LISMED - 16,50" ou "ITEM -> 12,30")
+  if (/(?:-|\u2013|\u2014|->|→|:)\s*[\d]{1,4}[,\.]\d{2}/i.test(linha)) {
+    return false;
+  }
+  // Dosagens farmacêuticas comuns com casas decimais (ex: 2,00, 0,15, 0,50, etc.)
+  const DOSAGENS_COMUNS = new Set([
+    0.15, 0.20, 0.25, 0.30, 0.50, 0.75, 1.00, 1.50, 2.00, 2.50, 3.00, 4.00, 5.00, 6.00, 7.50, 8.00, 10.00,
+    12.50, 15.00, 20.00, 25.00, 30.00, 35.00, 40.00, 45.00, 50.00, 60.00, 75.00, 80.00, 90.00,
+    100.00, 120.00, 125.00, 150.00, 200.00, 250.00, 300.00, 400.00, 500.00, 600.00, 750.00, 800.00, 850.00, 1000.00
+  ]);
+  if (DOSAGENS_COMUNS.has(valor)) {
+    return true;
+  }
+  // Se a linha tem termos farmacêuticos ou médicos e termina em número sem moeda
+  const hasMedicalTerms = /(?:gotas|gts|comprimidos?|comp|cps|cpr|caps|frasco|fr|ampola|pomada|gel|creme|xarope|solu[çc][ãa]o|spray|col[ií]rio|injet[aá]vel|oral|mg|mcg|ml|g\b)/i.test(linha);
+  if (hasMedicalTerms && !/(?:reais|un|cada|por|r\$)/i.test(linha)) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Analisa e extrai detalhes matemáticos de bonificações comerciais farmacêuticas.
+ * Suporta:
+ * - "compre 10 ganhe 2", "compre 10 leve 12", "na compra de 5 caixas ganhe 1"
+ * - "10+2", "5+1", "12+3"
+ * - "leve 12 pague 10", "pague 10 leve 12"
+ * - "bonifica 1 a cada 5", "bonif 2 a cada 10"
+ * - "10% de desconto", "15% off"
+ */
+function extrairBonificacaoDetalhada(linha, precoBruto) {
+  const bruto = typeof precoBruto === 'number' ? precoBruto : (parsePriceValue(precoBruto) || 0);
+  if (!linha || typeof linha !== 'string') {
+    return {
+      temBonificacao: false,
+      tipo: null,
+      descricao: null,
+      qtdComprada: 1,
+      qtdBonificada: 0,
+      qtdTotalRecebida: 1,
+      precoBruto: bruto,
+      precoLiquido: bruto,
+      economiaPercentual: 0,
+      economiaUnitario: 0,
+      ganhoMercadoriaReais: 0
+    };
+  }
+
+  // 1. "compre X ganhe Y" ou "compre X leve Y" ou "na compra de X ganhe Y"
+  const mCompreGanhe = /(?:(?:na\s+compra\s+de|compre|comprando)\s*(\d+)(?:\s*(?:cx|caixas?|un|unidades?|fr|frascos?))?\s*(?:ganhe|leve|bonif(?:ica)?)\s*(\d+))/i.exec(linha);
+  if (mCompreGanhe) {
+    const comprou = parseInt(mCompreGanhe[1], 10);
+    const ganhouOuLevou = parseInt(mCompreGanhe[2], 10);
+    const isLeve = /leve/i.test(mCompreGanhe[0]);
+    const totalRecebido = (isLeve && ganhouOuLevou > comprou) ? ganhouOuLevou : (comprou + ganhouOuLevou);
+    const qtdBonificada = totalRecebido - comprou;
+
+    if (comprou > 0 && totalRecebido > comprou) {
+      const precoLiquido = (comprou * bruto) / totalRecebido;
+      const economiaPercentual = ((totalRecebido - comprou) / totalRecebido) * 100;
+      const economiaUnitario = bruto - precoLiquido;
+      const ganhoMercadoriaReais = qtdBonificada * bruto;
+
+      return {
+        temBonificacao: true,
+        tipo: 'LEVE_MAIS_PAGUE_MENOS',
+        descricao: `Compre ${comprou} Ganhe ${qtdBonificada} (Leve ${totalRecebido})`,
+        qtdComprada: comprou,
+        qtdPaga: comprou,
+        qtdBonificada,
+        qtdBonus: qtdBonificada,
+        qtdTotalRecebida: totalRecebido,
+        qtdTotal: totalRecebido,
+        precoBruto: Number(bruto.toFixed(2)),
+        precoLiquido: Number(precoLiquido.toFixed(4)),
+        precoLiquidoEfetivo: Number(precoLiquido.toFixed(2)),
+        economiaPercentual: Number(economiaPercentual.toFixed(2)),
+        economiaUnitario: Number(economiaUnitario.toFixed(2)),
+        ganhoMercadoriaReais: Number(ganhoMercadoriaReais.toFixed(2)),
+        economiaReaisTotal: Number(ganhoMercadoriaReais.toFixed(2))
+      };
+    }
+  }
+
+  // 2. "X+Y" (ex: "10+2", "5+1")
+  const mMais = /\b(\d+)\s*\+\s*(\d+)\b/.exec(linha);
+  if (mMais) {
+    const comprou = parseInt(mMais[1], 10);
+    const ganhou = parseInt(mMais[2], 10);
+    const totalRecebido = comprou + ganhou;
+    if (comprou > 0 && ganhou > 0) {
+      const precoLiquido = (comprou * bruto) / totalRecebido;
+      const economiaPercentual = (ganhou / totalRecebido) * 100;
+      const economiaUnitario = bruto - precoLiquido;
+      const ganhoMercadoriaReais = ganhou * bruto;
+
+      return {
+        temBonificacao: true,
+        tipo: 'BONIFICACAO_PRODUTO',
+        descricao: `${comprou}+${ganhou} (Bônus de ${ganhou} un)`,
+        qtdComprada: comprou,
+        qtdPaga: comprou,
+        qtdBonificada: ganhou,
+        qtdBonus: ganhou,
+        qtdTotalRecebida: totalRecebido,
+        qtdTotal: totalRecebido,
+        precoBruto: Number(bruto.toFixed(2)),
+        precoLiquido: Number(precoLiquido.toFixed(4)),
+        precoLiquidoEfetivo: Number(precoLiquido.toFixed(2)),
+        economiaPercentual: Number(economiaPercentual.toFixed(2)),
+        economiaUnitario: Number(economiaUnitario.toFixed(2)),
+        ganhoMercadoriaReais: Number(ganhoMercadoriaReais.toFixed(2)),
+        economiaReaisTotal: Number(ganhoMercadoriaReais.toFixed(2))
+      };
+    }
+  }
+
+  // 3. "leve X pague Y" ou "pague Y leve X"
+  const mLevePague = /(?:leve\s*(\d+)\s*pague\s*(\d+)|pague\s*(\d+)\s*leve\s*(\d+))/i.exec(linha);
+  if (mLevePague) {
+    let totalRecebido = 0;
+    let comprou = 0;
+    if (mLevePague[1] && mLevePague[2]) {
+      totalRecebido = parseInt(mLevePague[1], 10);
+      comprou = parseInt(mLevePague[2], 10);
+    } else if (mLevePague[3] && mLevePague[4]) {
+      comprou = parseInt(mLevePague[3], 10);
+      totalRecebido = parseInt(mLevePague[4], 10);
+    }
+
+    if (comprou > 0 && totalRecebido > comprou) {
+      const qtdBonificada = totalRecebido - comprou;
+      const precoLiquido = (comprou * bruto) / totalRecebido;
+      const economiaPercentual = (qtdBonificada / totalRecebido) * 100;
+      const economiaUnitario = bruto - precoLiquido;
+      const ganhoMercadoriaReais = qtdBonificada * bruto;
+
+      return {
+        temBonificacao: true,
+        tipo: 'LEVE_MAIS_PAGUE_MENOS',
+        descricao: `Leve ${totalRecebido} Pague ${comprou}`,
+        qtdComprada: comprou,
+        qtdPaga: comprou,
+        qtdBonificada,
+        qtdBonus: qtdBonificada,
+        qtdTotalRecebida: totalRecebido,
+        qtdTotal: totalRecebido,
+        precoBruto: Number(bruto.toFixed(2)),
+        precoLiquido: Number(precoLiquido.toFixed(4)),
+        precoLiquidoEfetivo: Number(precoLiquido.toFixed(2)),
+        economiaPercentual: Number(economiaPercentual.toFixed(2)),
+        economiaUnitario: Number(economiaUnitario.toFixed(2)),
+        ganhoMercadoriaReais: Number(ganhoMercadoriaReais.toFixed(2)),
+        economiaReaisTotal: Number(ganhoMercadoriaReais.toFixed(2))
+      };
+    }
+  }
+
+  // 4. "bonifica X a cada Y" / "bonif X a cada Y"
+  const mBonifCada = /bonif(?:ica(?:[çc][ãa]o)?)?\s*(?:de\s*)?(\d+)\s*(?:a\s+cada|para\s+cada)\s*(\d+)/i.exec(linha);
+  if (mBonifCada) {
+    const ganhou = parseInt(mBonifCada[1], 10);
+    const comprou = parseInt(mBonifCada[2], 10);
+    const totalRecebido = comprou + ganhou;
+    if (comprou > 0 && ganhou > 0) {
+      const precoLiquido = (comprou * bruto) / totalRecebido;
+      const economiaPercentual = (ganhou / totalRecebido) * 100;
+      const economiaUnitario = bruto - precoLiquido;
+      const ganhoMercadoriaReais = ganhou * bruto;
+
+      return {
+        temBonificacao: true,
+        tipo: 'BONIFICACAO_PRODUTO',
+        descricao: `Bonifica ${ganhou} a cada ${comprou} comprados`,
+        qtdComprada: comprou,
+        qtdPaga: comprou,
+        qtdBonificada: ganhou,
+        qtdBonus: ganhou,
+        qtdTotalRecebida: totalRecebido,
+        qtdTotal: totalRecebido,
+        precoBruto: Number(bruto.toFixed(2)),
+        precoLiquido: Number(precoLiquido.toFixed(4)),
+        precoLiquidoEfetivo: Number(precoLiquido.toFixed(2)),
+        economiaPercentual: Number(economiaPercentual.toFixed(2)),
+        economiaUnitario: Number(economiaUnitario.toFixed(2)),
+        ganhoMercadoriaReais: Number(ganhoMercadoriaReais.toFixed(2)),
+        economiaReaisTotal: Number(ganhoMercadoriaReais.toFixed(2))
+      };
+    }
+  }
+
+  // 5. Desconto percentual comercial: "10% de desconto", "desc 15%", "20% off"
+  const mDesc = /(\d{1,2}(?:[\.,]\d+)?)\s*%\s*(?:de\s*desc(?:onto)?|off|bonif(?:icado)?)/i.exec(linha);
+  if (mDesc) {
+    const perc = parseFloat(mDesc[1].replace(',', '.'));
+    if (perc > 0 && perc < 100) {
+      const precoLiquido = bruto * (1 - (perc / 100));
+      const economiaUnitario = bruto - precoLiquido;
+
+      return {
+        temBonificacao: true,
+        tipo: 'DESCONTO_PERCENTUAL',
+        descricao: `${perc}% de desconto comercial`,
+        qtdComprada: 1,
+        qtdPaga: 1,
+        qtdBonificada: 0,
+        qtdBonus: 0,
+        qtdTotalRecebida: 1,
+        qtdTotal: 1,
+        precoBruto: Number(bruto.toFixed(2)),
+        precoLiquido: Number(precoLiquido.toFixed(4)),
+        precoLiquidoEfetivo: Number(precoLiquido.toFixed(2)),
+        economiaPercentual: Number(perc.toFixed(2)),
+        economiaUnitario: Number(economiaUnitario.toFixed(2)),
+        ganhoMercadoriaReais: 0,
+        economiaReaisTotal: 0
+      };
+    }
+  }
+
+  return {
+    temBonificacao: false,
+    tipo: null,
+    descricao: null,
+    qtdComprada: 1,
+    qtdPaga: 1,
+    qtdBonificada: 0,
+    qtdBonus: 0,
+    qtdTotalRecebida: 1,
+    qtdTotal: 1,
+    precoBruto: bruto,
+    precoLiquido: bruto,
+    precoLiquidoEfetivo: bruto,
+    economiaPercentual: 0,
+    economiaUnitario: 0,
+    ganhoMercadoriaReais: 0,
+    economiaReaisTotal: 0
+  };
+}
+
+/**
  * Identifica ofertas de produtos individuais em linhas de texto
  */
 function extrairLinhasDeOferta(texto) {
@@ -302,40 +686,108 @@ function extrairLinhasDeOferta(texto) {
   const ofertas = [];
   const linhas = texto.split(/\r?\n/);
   let ultimoContextoProduto = null;
+  let comboAtual = null;
 
   for (const linha of linhas) {
     const trimmed = linha.trim();
     if (!trimmed || trimmed.length < 3) continue;
+
+    // Descarte de linha com preço negativo explícito (ex: "DIPIRONA 500MG -R$ 15,00")
+    if (/(?:^|\s)-R\$/i.test(trimmed)) {
+      continue;
+    }
+
+    // Detecta cabeçalhos de combos / pacotes / kits promocionais
+    const mCombo = /^(?:COMBO|PACOTE|KIT|OFERTA\s+COMBINADA)\b[\s:]*(.*)/i.exec(trimmed);
+    if (mCombo && !/(?:R\$|[\d]{1,4}[,\.]\d{2})/i.test(trimmed)) {
+      const nomeDet = mCombo[1] ? mCombo[1].trim() : '';
+      comboAtual = {
+        id: 'combo_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6),
+        nome: (trimmed.length < 50 ? trimmed : 'Combo ' + nomeDet).replace(/[*_#~]/g, '').trim()
+      };
+      continue;
+    }
+
+    // Se encontrar separador de seção ou termos de saída do combo
+    if (comboAtual && /^(?:CONDI[CÇ][ÕO]ES|PRAZOS?|PEDIDO\s+M[IÍ]NIMO|OUTRAS\s+OFERTAS|TABELA)\b/i.test(trimmed)) {
+      comboAtual = null;
+    }
 
     // Ignora linhas que são de condições de pagamento ou pedido mínimo
     if (/\b(?:pedido\s+m[íi]nimo|faturamento\s+m[íi]nimo|condi[çc][õo]es|prazos?|boletos?|frete)\b/i.test(trimmed)) {
       continue;
     }
 
+    // Verificação de Linha de Faixa Escalonada / Quantidade Mínima (ex: "• 1 un. → R$ 8,29", "• 6 un. → R$ 7,69", "30 un: 1,75")
+    const tierRegex = /^[^0-9a-zÀ-ÿ]*(?:(?:a\s+partir\s+de|acima\s+de|m[íi]n(?:imo)?)\s*:?\s*)?(\d+)(?:\s*(?:a|-)\s*\d+)?\s*(?:\+)?\s*(?:unidades?|un|cx|caixas?|fr|frascos?|display|pct)?\.?\s*(?:[.:\-=~>\u2190-\u21FF]+|a|por|cada|\s*(?=R?\$))\s*(?:R\$\s*)?([\d]{1,3}(?:\.\d{3})+,\d{2}|[\d]{1,6}[,\.]\d{2})/i;
+    const tierMatch = tierRegex.exec(trimmed);
+    if (tierMatch && ultimoContextoProduto) {
+      const cleanContexto = ultimoContextoProduto.trim();
+      const resto = trimmed.replace(tierRegex, '').replace(/[\p{Extended_Pictographic}\uFE0F\u200D\s\-*•~>:;.)(_#\u2190-\u21FF]+/gu, '').trim();
+      if (!resto || isApenasEmbalagemOuQuantidade(resto)) {
+        const qtdMin = parseInt(tierMatch[1], 10);
+        const precoTier = parsePriceValue(tierMatch[2]);
+        if (qtdMin > 0 && precoTier > 0) {
+          const ultimaOferta = ofertas.length > 0 ? ofertas[ofertas.length - 1] : null;
+          if (ultimaOferta && ultimaOferta.produtoNome.trim() === cleanContexto) {
+            if (!ultimaOferta.faixasPreco) {
+              ultimaOferta.faixasPreco = [];
+              if (ultimaOferta.precoOfertado > 0) {
+                ultimaOferta.faixasPreco.push({
+                  qtdMinima: ultimaOferta.qtdMinima || 1,
+                  preco: ultimaOferta.precoOfertado
+                });
+              }
+            }
+            if (!ultimaOferta.faixasPreco.some(f => f.qtdMinima === qtdMin)) {
+              ultimaOferta.faixasPreco.push({ qtdMinima: qtdMin, preco: precoTier });
+              ultimaOferta.faixasPreco.sort((a, b) => a.qtdMinima - b.qtdMinima);
+              const menorFaixa = ultimaOferta.faixasPreco[0];
+              ultimaOferta.precoOfertado = menorFaixa.preco;
+              ultimaOferta.qtdMinima = menorFaixa.qtdMinima;
+            }
+            continue;
+          } else {
+            ofertas.push({
+              produtoNome: cleanContexto,
+              ean: null,
+              precoBruto: precoTier,
+              precoOfertado: precoTier,
+              qtdMinima: qtdMin,
+              bonificacao: null,
+              faixasPreco: [{ qtdMinima: qtdMin, preco: precoTier }],
+              linhaRaw: trimmed
+            });
+            continue;
+          }
+        }
+      }
+    }
+
     // 1. Indicadores explícitos de preço (R$, por, cada, un)
     let matchedRegex = null;
     let priceMatch = null;
     
-    const explicitRegex = /(?:R\$|por\s+|cada\s+|un\s*:\s*|un\s+)\s*([\d]{1,4}[,\.]\d{2})/i;
+    const explicitRegex = /(?:R\$|por\s+|cada\s+|un\s*:\s*|un\s+)\s*([\d]{1,3}(?:\.\d{3})+,\d{2}|[\d]{1,6}[,\.]\d{2})/i;
     let m = explicitRegex.exec(trimmed);
     if (m) {
       priceMatch = m;
       matchedRegex = explicitRegex;
     } else {
       // 2. Preço com traço separador (ex: LISMED - 16,50)
-      const dashRegex = /(?:-|\u2013|\u2014)\s*([\d]{1,4}[,\.]\d{2})(?!\s*(?:ml|mg|g|mcg|%))/i;
+      const dashRegex = /(?:-|\u2013|\u2014)\s*([\d]{1,3}(?:\.\d{3})+,\d{2}|[\d]{1,6}[,\.]\d{2})(?!\s*(?:ml|mg|g|mcg|%))/i;
       m = dashRegex.exec(trimmed);
       if (m) {
         priceMatch = m;
         matchedRegex = dashRegex;
       } else {
         // 3. Preço no final da linha (ignorando parênteses no final)
-        const endRegex = /(?:^|\s)([\d]{1,4}[,\.]\d{2})(?:\s*(?:reais|un|cx|fr|pct))?(?:\s*\(.*)?\s*$/i;
+        const endRegex = /(?:^|\s)([\d]{1,3}(?:\.\d{3})+,\d{2}|[\d]{1,6}[,\.]\d{2})(?:\s*(?:reais|un|cx|fr|pct))?(?:\s*\(.*)?\s*$/i;
         m = endRegex.exec(trimmed);
         if (m) {
           const val = parsePriceValue(m[1]);
-          // Se não tem indicador claro e o valor for muito baixo (<= 0.50), provavelmente é uma concentração (ex: Biolagrima 0,15)
-          if (val > 0.50) {
+          // Rejeita se for dosagem/concentração ou valor insignificante (<= 0.50)
+          if (val > 0.50 && !isPossivelDosagemOuConcentracao(val, trimmed)) {
             priceMatch = m;
             matchedRegex = endRegex;
           }
@@ -354,71 +806,32 @@ function extrairLinhasDeOferta(texto) {
         ean = eanMatch[1];
       }
 
-      // Busca bonificação ou desconto percentual
-      let bonificacao = null;
-      let precoLiquido = precoBruto;
-
-      // "compre 10 ganhe 2" ou "compre 10 leve 12" ou "10+2" ou "leve 12 pague 10" ou "pague 10 leve 12"
-      const bonusMatch = /(?:compre\s*(\d+)\s*(?:ganhe|leve)\s*(\d+)|(\d+)\s*\+\s*(\d+)|leve\s*(\d+)\s*pague\s*(\d+)|pague\s*(\d+)\s*leve\s*(\d+))/i.exec(trimmed);
-      if (bonusMatch) {
-        if (bonusMatch[1] && bonusMatch[2]) {
-          const comprou = parseInt(bonusMatch[1], 10);
-          const ganhouOuLevou = parseInt(bonusMatch[2], 10);
-          const totalRecebido = ganhouOuLevou > comprou ? ganhouOuLevou : comprou + ganhouOuLevou;
-          if (totalRecebido > 0 && comprou > 0) {
-            precoLiquido = (comprou * precoBruto) / totalRecebido;
-            bonificacao = `Compre ${comprou} Receba ${totalRecebido}`;
-          }
-        } else if (bonusMatch[3] && bonusMatch[4]) {
-          const comprou = parseInt(bonusMatch[3], 10);
-          const ganhou = parseInt(bonusMatch[4], 10);
-          const totalRecebido = comprou + ganhou;
-          if (totalRecebido > 0 && comprou > 0) {
-            precoLiquido = (comprou * precoBruto) / totalRecebido;
-            bonificacao = `${comprou}+${ganhou}`;
-          }
-        } else if (bonusMatch[5] && bonusMatch[6]) {
-          const totalRecebido = parseInt(bonusMatch[5], 10);
-          const comprou = parseInt(bonusMatch[6], 10);
-          if (totalRecebido > 0 && comprou > 0) {
-            precoLiquido = (comprou * precoBruto) / totalRecebido;
-            bonificacao = `Leve ${totalRecebido} Pague ${comprou}`;
-          }
-        } else if (bonusMatch[7] && bonusMatch[8]) {
-          const comprou = parseInt(bonusMatch[7], 10);
-          const totalRecebido = parseInt(bonusMatch[8], 10);
-          if (totalRecebido > 0 && comprou > 0) {
-            precoLiquido = (comprou * precoBruto) / totalRecebido;
-            bonificacao = `Pague ${comprou} Leve ${totalRecebido}`;
-          }
-        }
-      }
-
-      // Desconto percentual direto: "10% de desconto", "desc 15%", "20% off"
-      const descMatch = /(\d{1,2}(?:[\.,]\d+)?)\s*%\s*(?:de\s*desc(?:onto)?|off)/i.exec(trimmed);
-      if (descMatch) {
-        const perc = parseFloat(descMatch[1].replace(',', '.'));
-        if (perc > 0 && perc < 100) {
-          precoLiquido = precoLiquido * (1 - perc / 100);
-          bonificacao = bonificacao ? `${bonificacao} + ${perc}% desc` : `${perc}% desc`;
-        }
-      }
+      // Busca bonificação ou desconto percentual detalhado
+      const bonusInfo = extrairBonificacaoDetalhada(trimmed, precoBruto);
+      const bonificacao = bonusInfo.temBonificacao ? bonusInfo.descricao : null;
+      const precoLiquido = bonusInfo.precoLiquido;
 
       // Extrai o nome do produto removendo preços, ean e bonificações da linha
       let nomeProduto = trimmed
         .replace(matchedRegex, '')
         .replace(/(?:(?:por\s+)|(?:cada\s+)|(?:un\s*:\s*)|(?:un\s+))/gi, ' ')
         .replace(/\b(789\d{10}|\d{13})\b/g, '')
-        .replace(/(?:compre\s*\d+\s*(?:ganhe|leve)\s*\d+|\d+\s*\+\s*\d+|leve\s*\d+\s*pague\s*\d+|pague\s*\d+\s*leve\s*\d+)/gi, '')
-        .replace(/\d{1,2}(?:[\.,]\d+)?\s*%\s*(?:de\s*desc(?:onto)?|off)/gi, '')
-        .replace(/^[\p{Extended_Pictographic}\uFE0F\u200D\s\-*•~>:;\d.)(_#]+/gu, '')
-        .replace(/[\p{Extended_Pictographic}\uFE0F\u200D\s\-*•~>:;.)(_#]+$/gu, '')
+        .replace(/(?:(?:na\s+compra\s+de|compre|comprando)\s*\d+(?:\s*(?:cx|caixas?|un|unidades?|fr|frascos?))?\s*(?:ganhe|leve|bonif(?:ica)?)\s*\d+|\d+\s*\+\s*\d+|leve\s*\d+\s*pague\s*\d+|pague\s*\d+\s*leve\s*\d+|bonif(?:ica(?:[çc][ãa]o)?)?\s*(?:de\s*)?\d+\s*(?:a\s+cada|para\s+cada)\s*\d+)/gi, '')
+        .replace(/\d{1,2}(?:[\.,]\d+)?\s*%\s*(?:de\s*desc(?:onto)?|off|bonif(?:icado)?)/gi, '')
+        .replace(/^[\p{Extended_Pictographic}\uFE0F\u200D\s\-*•~>:;\d.)(_#\u2190-\u21FF]+/gu, '')
+        .replace(/[\p{Extended_Pictographic}\uFE0F\u200D\s\-*•~>:;.)(_#\u2190-\u21FF]+$/gu, '')
+        .replace(/\b(?:un|unidades?|cx|cxs|caixas?|fr|frascos?)\b[.:\->→=~]*$/gi, '')
         .replace(/\s+/g, ' ')
         .trim();
 
+      // Se for combo e o nome resultante for genérico (ex: "Valor do combo"), herda o título do combo
+      if (comboAtual && /^(?:valor\s+do\s+combo|pre[çc]o\s+do\s+combo|combo|kit|pacote)\b/i.test(nomeProduto)) {
+        nomeProduto = comboAtual.nome;
+      }
+
       // Se a linha for apenas embalagem/unidade (ex: "C30", "C/30", "C2"):
       if (isApenasEmbalagemOuQuantidade(nomeProduto)) {
-        if (ultimoContextoProduto) {
+        if (ultimoContextoProduto && !/^(?:un|unidades?|cx|caixa|fr|frasco)\.?$/i.test(nomeProduto.trim())) {
           // Herda o medicamento pai da linha anterior (ex: "LOSARTANA 50MG" + "C30" => "LOSARTANA 50MG C/ 30")
           nomeProduto = `${ultimoContextoProduto} ${nomeProduto}`;
         } else {
@@ -433,25 +846,56 @@ function extrairLinhasDeOferta(texto) {
         }
       }
 
-      if (nomeProduto.length >= 4 && !isApenasEmbalagemOuQuantidade(nomeProduto) && !/^(total|pedido|faturamento|fechamento|subtotal|m[íi]nimo|frete|prazo|tabela|condi[çc][ãa]o|bom dia|boa tarde|ol[áa]|aten[çc][ãa]o)/i.test(nomeProduto)) {
+      if (nomeProduto.length >= 4 && !isApenasEmbalagemOuQuantidade(nomeProduto) && !/^(total|pedido|faturamento|fechamento|subtotal|m[íi]nimo|frete|prazo|tabela|condi[çc][ãa]o|bom dia|boa tarde|boa noite|ol[áa]|aten[çc][ãa]o|vc\b|voc[eê]\b|compre\b|compra\b|comprando\b|leve\b|ganhe\b|pague\b|pagando\b|promo[çc]|ofertas?\b|descontos?\b|repassando|aviso|importante)/i.test(nomeProduto)) {
+        const qtdMin = bonusInfo.temBonificacao && bonusInfo.qtdComprada > 1 ? bonusInfo.qtdComprada : 1;
         ofertas.push({
           produtoNome: nomeProduto,
           ean,
           precoBruto: Number(precoBruto.toFixed(2)),
           precoOfertado: Number(precoLiquido.toFixed(2)),
+          precoLiquidoEfetivo: Number(precoLiquido.toFixed(2)),
+          qtdMinima: qtdMin,
+          faixasPreco: [{ qtdMinima: qtdMin, preco: Number(precoLiquido.toFixed(2)) }],
           bonificacao,
-          linhaRaw: trimmed
+          bonificacaoDetalhe: bonusInfo.temBonificacao ? bonusInfo : null,
+          temBonificacao: bonusInfo.temBonificacao,
+          economiaBonificacaoPercentual: bonusInfo.economiaPercentual,
+          economiaBonificacaoReais: bonusInfo.ganhoMercadoriaReais,
+          isCombo: comboAtual ? true : false,
+          comboId: comboAtual ? comboAtual.id : null,
+          comboNome: comboAtual ? comboAtual.nome : null,
+          linhaRaw: trimmed,
+          trechoOriginal: trimmed
         });
       }
     } else {
       // Linha sem preço: pode ser o título de um medicamento pai! (Ex: "LOSARTANA 50MG" ou "FLUCONAZOL 150MG")
       const possivelTitulo = trimmed
-        .replace(/^[\p{Extended_Pictographic}\uFE0F\u200D\s\-*•~>:;\d.)(_#]+/gu, '')
-        .replace(/[\p{Extended_Pictographic}\uFE0F\u200D\s\-*•~>:;.)(_#]+$/gu, '')
+        .replace(/^[\p{Extended_Pictographic}\uFE0F\u200D\s\-*•~>:;\d.)(_#\u2190-\u21FF]+/gu, '')
+        .replace(/[\p{Extended_Pictographic}\uFE0F\u200D\s\-*•~>:;.)(_#\u2190-\u21FF]+$/gu, '')
+        .replace(/\b(?:un|unidades?|cx|cxs|caixas?|fr|frascos?)\b[.:\->→=~]*$/gi, '')
         .trim();
-      if (possivelTitulo.length >= 4 && !isApenasEmbalagemOuQuantidade(possivelTitulo) && !/^(total|pedido|faturamento|fechamento|condi[çc]|prazo|boleto|bom dia|boa tarde|ol[áa]|aten[çc]|ofertas?|tabela|destaques?)/i.test(possivelTitulo)) {
+      if (possivelTitulo.length >= 4 && !isApenasEmbalagemOuQuantidade(possivelTitulo) && !/^(total|pedido|faturamento|fechamento|condi[çc]|prazo|boleto|bom dia|boa tarde|boa noite|ol[áa]|aten[çc]|ofertas?|tabela|destaques?|vc\b|voc[eê]\b|compre\b|compra\b|leve\b|ganhe\b|pague\b|promo[çc]|repassando|aviso|importante)/i.test(possivelTitulo)) {
         ultimoContextoProduto = possivelTitulo;
       }
+    }
+  }
+
+  // Agrupa os itens de cada combo para que cada oferta conheça os produtos vinculados ao seu pacote
+  const comboMap = {};
+  for (const ofr of ofertas) {
+    if (ofr.isCombo && ofr.comboId) {
+      if (!comboMap[ofr.comboId]) comboMap[ofr.comboId] = [];
+      comboMap[ofr.comboId].push({
+        produtoNome: ofr.produtoNome,
+        qtdMinima: ofr.qtdMinima || 1,
+        precoOfertado: ofr.precoOfertado
+      });
+    }
+  }
+  for (const ofr of ofertas) {
+    if (ofr.isCombo && ofr.comboId && comboMap[ofr.comboId]) {
+      ofr.comboDados = comboMap[ofr.comboId];
     }
   }
 
@@ -465,6 +909,7 @@ function minerarTextoLivre(texto, remetenteInfo = {}) {
   const norm = normalizeText(texto);
   const prazos = extrairPrazos(norm);
   const pedidoMinimo = extrairPedidoMinimo(norm);
+  const { validadeOferta, validadeTexto } = extrairValidadeDaMensagem(texto);
   const { distribuidora, laboratorios } = extrairDistribuidoraELaboratorios(norm);
   const representanteNome = extrairNomeRepresentante(
     norm,
@@ -496,6 +941,8 @@ function minerarTextoLivre(texto, remetenteInfo = {}) {
     representante: representanteNome,
     distribuidora: distribuidora || remetenteInfo.distribuidora || null,
     telefone: remetenteInfo.telefone || remetenteInfo.phone || null,
+    validadeOferta,
+    validadeTexto,
     prazosPagamento: prazos,
     pedidoMinimoValor: pedidoMinimo.valor,
     pedidoMinimoCondicoes: pedidoMinimo.condicoes,
@@ -516,27 +963,45 @@ async function minerarTextoLivreIA(texto, remetenteInfo = {}) {
     return minerarTextoLivre(texto, remetenteInfo);
   }
 
-  const systemPrompt = `Você é um assistente de extração de dados farmacêuticos.
+  const systemPrompt = `Você é um assistente de extração de dados farmacêuticos rigoroso e objetivo.
 Sua missão é ler a mensagem enviada por um fornecedor/representante comercial e extrair estritamente as ofertas em formato JSON.
 
-REGRAS:
-1. Produto: Extraia o nome do produto. Se o produto tiver concentração (ex: "Biolagrima 0,15", "Losartana 50mg"), MANTENHA a concentração no nome. NÃO confunda concentração com preço.
-2. Preço: Extraia APENAS o preço ofertado. O preço deve ser um número decimal (float, com ponto). Ignore preços sem sentido ou produtos sem preço.
-3. Não inclua moedas (R$) ou indicadores (por, cada) no nome do produto ou no preço.
-4. Distribuidora/Representante/Prazos/Pedido Mínimo: Extraia se for informado no texto.
+REGRAS ABSOLUTAS CONTRA ALUCINAÇÃO:
+1. NUNCA INVENTE PRODUTOS OU PREÇOS. Extraia APENAS o que estiver EXPLICITAMENTE escrito na mensagem do fornecedor. Se a mensagem não contiver ofertas de produtos com preços claros, retorne a lista "ofertas": [].
+2. NÃO confunda dosagem/concentração com preço: "CLONAZEPAM 2,00" ou "DIPIRONA 500,00" indica dosagem (2mg, 500mg) e NÃO preço de R$ 2,00 ou R$ 500,00. Só extraia como preço quando houver indicador monetário (R$, por, cada, un:, etc.) ou coluna de preços explícita.
+3. Para cada oferta, inclua obrigatoriamente o campo "trechoOriginal" com o trecho literal exato da mensagem de onde o produto e preço foram retirados.
+4. Produto: Extraia o nome do produto. Se o produto tiver concentração (ex: "Biolagrima 0,15", "Losartana 50mg"), MANTENHA a concentração no nome.
+5. Preço: Extraia APENAS o preço ofertado. O preço deve ser um número decimal (float, com ponto). Ignore preços sem sentido ou produtos sem preço.
+6. Não inclua moedas (R$) ou indicadores (por, cada) no nome do produto ou no preço.
+7. Distribuidora/Representante/Prazos/Pedido Mínimo: Extraia se for informado no texto.
+8. Escalonamento de Preço / Faixas de Quantidade: Quando um produto tiver faixas de preço por quantidade mínima (ex: "1 un -> 8,29", "6 un -> 7,69"): extraia no array "faixasPreco": [{"qtdMinima": 1, "preco": 8.29}, ...].
+9. Validade da Oferta: Se o representante informou prazo de validade (ex: "válido até 15/09", "promoção até sexta", "válido por 3 dias"), extraia em "validadeOferta" a data no formato YYYY-MM-DD e em "validadeTexto" a frase original.
+10. Combos e Pacotes Promocionais: Se a mensagem contiver ofertas amarradas em combo/pacote/kit, defina "isCombo": true, forneça o "comboNome" e um "comboId".
 
 RETORNE EXATAMENTE UM JSON E NADA MAIS. FORMATO ESPERADO:
 {
   "distribuidora": "nome ou null",
   "representante": "nome ou null",
+  "validadeOferta": "YYYY-MM-DD ou null",
+  "validadeTexto": "frase original da validade ou null",
   "prazosPagamento": ["prazo1", "prazo2"],
   "pedidoMinimoValor": 0.0,
   "ofertas": [
     {
       "produtoNome": "Nome limpo com concentração (mas sem preço no nome)",
       "ean": "código de barras numérico se houver ou null",
-      "precoOfertado": 16.50,
-      "bonificacao": "descrição da bonificação ou desconto, ou null"
+      "precoOfertado": 8.29,
+      "qtdMinima": 1,
+      "isCombo": false,
+      "comboId": null,
+      "comboNome": null,
+      "faixasPreco": [
+        { "qtdMinima": 1, "preco": 8.29 },
+        { "qtdMinima": 6, "preco": 7.69 },
+        { "qtdMinima": 60, "preco": 7.19 }
+      ],
+      "bonificacao": "descrição da bonificação ou desconto, ou null",
+      "trechoOriginal": "trecho exato da mensagem de origem"
     }
   ]
 }`;
@@ -555,35 +1020,137 @@ RETORNE EXATAMENTE UM JSON E NADA MAIS. FORMATO ESPERADO:
     const jsonStr = (respostaIA || '').replace(/```json\n?/g, '').replace(/```/g, '').trim();
     const dadosIA = JSON.parse(jsonStr);
 
+    const validadeRegexFallback = extrairValidadeDaMensagem(texto);
+    const validadeFinal = dadosIA.validadeOferta || validadeRegexFallback.validadeOferta || null;
+    const validadeTextoFinal = dadosIA.validadeTexto || validadeRegexFallback.validadeTexto || null;
+
+    const textoLower = texto.toLowerCase();
+
+    const ofertasFormatadas = (dadosIA.ofertas || []).map(o => {
+      const precoBase = parseFloat(o.precoOfertado) || 0;
+      let faixas = Array.isArray(o.faixasPreco) ? o.faixasPreco.map(f => ({
+        qtdMinima: parseInt(f.qtdMinima, 10) || 1,
+        preco: parseFloat(f.preco) || 0
+      })).filter(f => f.qtdMinima > 0 && f.preco > 0) : [];
+
+      if (faixas.length > 0) {
+        faixas.sort((a, b) => a.qtdMinima - b.qtdMinima);
+      } else if (precoBase > 0) {
+        const qMin = parseInt(o.qtdMinima, 10) || 1;
+        faixas = [{ qtdMinima: qMin, preco: precoBase }];
+      }
+
+      const menorFaixa = faixas.length > 0 ? faixas[0] : null;
+      const precoFinal = menorFaixa ? menorFaixa.preco : precoBase;
+      const nomeProduto = (o.produtoNome || '').replace(/[\u2190-\u21FF]/g, '').trim();
+
+      // Enriquecimento e validação matemática da bonificação
+      const bonusCheck = extrairBonificacaoDetalhada(o.trechoOriginal || o.bonificacao || '', precoBase);
+      const temBonus = bonusCheck.temBonificacao;
+      const precoLiquidoReal = temBonus ? bonusCheck.precoLiquido : precoFinal;
+      const qtdMin = temBonus && bonusCheck.qtdComprada > 1 ? bonusCheck.qtdComprada : (menorFaixa ? menorFaixa.qtdMinima : (parseInt(o.qtdMinima, 10) || 1));
+
+      return {
+        produtoNome: nomeProduto,
+        ean: o.ean || null,
+        precoBruto: Number(precoBase.toFixed(2)),
+        precoOfertado: Number(precoLiquidoReal.toFixed(2)),
+        precoLiquidoEfetivo: Number(precoLiquidoReal.toFixed(2)),
+        qtdMinima: qtdMin,
+        isCombo: Boolean(o.isCombo),
+        comboId: o.comboId || (o.isCombo && o.comboNome ? 'combo_' + Buffer.from(o.comboNome).toString('hex').slice(0, 8) : null),
+        comboNome: o.comboNome || null,
+        faixasPreco: faixas,
+        bonificacao: temBonus ? bonusCheck.descricao : (o.bonificacao || null),
+        bonificacaoDetalhe: temBonus ? bonusCheck : null,
+        temBonificacao: temBonus,
+        economiaBonificacaoPercentual: bonusCheck.economiaPercentual,
+        economiaBonificacaoReais: bonusCheck.ganhoMercadoriaReais,
+        trechoOriginal: o.trechoOriginal || null,
+        linhaRaw: o.trechoOriginal || null
+      };
+    }).filter(o => {
+      if (o.precoOfertado <= 0 || !o.produtoNome || o.produtoNome.length < 3) return false;
+
+      // ──────────────────────────────────────────────────────────
+      // Validação Pós-IA Anti-Alucinação (elimina produtos inventados)
+      // ──────────────────────────────────────────────────────────
+      const stopWords = new Set(['com', 'para', 'dos', 'das', 'por', 'cada', 'comprimidos', 'gotas', 'capsulas', 'frasco', 'caixa', 'unidades']);
+      const palavrasChave = o.produtoNome.toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .split(/\s+/)
+        .filter(w => w.length >= 3 && !stopWords.has(w));
+
+      const existeNoTextoOriginal = palavrasChave.some(w => textoLower.includes(w));
+      if (!existeNoTextoOriginal) {
+        console.warn(`[Anti-Alucinação IA] ❌ Oferta descartada por não constar na mensagem: "${o.produtoNome}"`);
+        return false;
+      }
+
+      // Validação de sanidade do preço
+      const precoVirgula = o.precoOfertado.toFixed(2).replace('.', ',');
+      const precoPonto = o.precoOfertado.toFixed(2);
+      const precoInt = String(Math.floor(o.precoOfertado));
+      const temPrecoNoTexto = texto.includes(precoVirgula) || texto.includes(precoPonto) || (o.precoOfertado >= 1 && texto.includes(precoInt));
+
+      if (!temPrecoNoTexto) {
+        o.confianca = 'baixa';
+        o.precisaRevisao = true;
+        o.motivoRevisao = `Preço R$ ${o.precoOfertado.toFixed(2)} não localizado literalmente na mensagem original`;
+      } else {
+        o.confianca = 'alta';
+        o.precisaRevisao = false;
+      }
+
+      return true;
+    });
+
+    // Agrupa os itens de cada combo em comboDados
+    const comboMap = {};
+    for (const ofr of ofertasFormatadas) {
+      if (ofr.isCombo && ofr.comboId) {
+        if (!comboMap[ofr.comboId]) comboMap[ofr.comboId] = [];
+        comboMap[ofr.comboId].push({
+          produtoNome: ofr.produtoNome,
+          qtdMinima: ofr.qtdMinima || 1,
+          precoOfertado: ofr.precoOfertado
+        });
+      }
+    }
+    for (const ofr of ofertasFormatadas) {
+      if (ofr.isCombo && ofr.comboId && comboMap[ofr.comboId]) {
+        ofr.comboDados = comboMap[ofr.comboId];
+      }
+    }
+
     return {
       representante: dadosIA.representante || remetenteInfo.pushName || null,
       distribuidora: dadosIA.distribuidora || remetenteInfo.distribuidora || null,
       telefone: remetenteInfo.telefone || remetenteInfo.phone || null,
+      validadeOferta: validadeFinal,
+      validadeTexto: validadeTextoFinal,
       prazosPagamento: Array.isArray(dadosIA.prazosPagamento) ? dadosIA.prazosPagamento : [],
       pedidoMinimoValor: parseFloat(dadosIA.pedidoMinimoValor) || 0,
       pedidoMinimoCondicoes: '',
       categorias: [],
-      catalogoProdutos: (dadosIA.ofertas || []).map(o => o.produtoNome),
-      ofertas: (dadosIA.ofertas || []).map(o => ({
-        produtoNome: o.produtoNome,
-        ean: o.ean || null,
-        precoOfertado: parseFloat(o.precoOfertado) || 0,
-        bonificacao: o.bonificacao || null
-      })).filter(o => o.precoOfertado > 0)
+      catalogoProdutos: ofertasFormatadas.map(o => o.produtoNome),
+      ofertas: ofertasFormatadas
     };
   } catch (err) {
     const errStr = (err.message || '').toLowerCase();
     if (
+      errStr.includes('402') ||
       errStr.includes('429') ||
       errStr.includes('credit') ||
+      errStr.includes('depleted') ||
       errStr.includes('exhausted') ||
       errStr.includes('quota') ||
       errStr.includes('billing') ||
       errStr.includes('timeout') ||
       errStr.includes('404')
     ) {
-      console.warn(`[Compras-Mineração] ⚠️ Quota ou falha na IA (${err.message}). Ativando modo nativo/regex por 15 minutos.`);
-      aiQuotaExceededUntil = Date.now() + 15 * 60 * 1000;
+      console.warn(`[Compras-Mineração] ⚠️ Quota ou falha na IA (${err.message}). Ativando modo nativo/regex por 6 horas.`);
+      aiQuotaExceededUntil = Date.now() + 6 * 60 * 60 * 1000;
     }
     return minerarTextoLivre(texto, remetenteInfo);
   }
@@ -743,12 +1310,15 @@ function pontuarCorrespondencia(candidatoOuDescricao, palavrasOuTermos, maybeLab
   }
 
   const palavras = termos.palavras || [];
-  if (palavras.length > 0 && desc.includes(palavras[0])) {
+  const descTokens = new Set(desc.replace(/[^A-Z0-9]/g, ' ').split(/\s+/).filter(Boolean));
+  const hasWord = (w) => descTokens.has(w) || (w.length >= 5 && desc.includes(w));
+
+  if (palavras.length > 0 && hasWord(palavras[0])) {
     score += 40;
   }
 
   for (let i = 1; i < palavras.length; i++) {
-    if (desc.includes(palavras[i])) {
+    if (hasWord(palavras[i])) {
       score += 20;
     }
   }
@@ -827,12 +1397,18 @@ function calcularPrecoUnitarioReal(prCompra, emb, ultFrac) {
  */
 async function validarOfertaComDigifarma(produtoNome, ean, precoOfertado, db, options = {}) {
   let targetProdutoId = null;
-  if (produtoNome && typeof produtoNome === 'object') {
-    const opts = produtoNome;
-    options = opts.options || options || {};
-    db = opts.db || db;
-    precoOfertado = opts.precoOfertado !== undefined ? opts.precoOfertado : precoOfertado;
-    ean = opts.ean || ean;
+  const entradaObj = (produtoNome && typeof produtoNome === 'object') ? produtoNome : null;
+  if (entradaObj) {
+    const opts = entradaObj;
+    if (ean && typeof ean.prepare === 'function') {
+      db = ean;
+      ean = opts.ean || null;
+    } else {
+      db = opts.db || (db && typeof db.prepare === 'function' ? db : null);
+      ean = opts.ean || (typeof ean === 'string' ? ean : null);
+    }
+    options = Object.assign({}, opts, opts.options, (typeof precoOfertado === 'object' && precoOfertado && typeof precoOfertado.prepare !== 'function') ? precoOfertado : options);
+    precoOfertado = opts.precoOfertado !== undefined ? opts.precoOfertado : (typeof precoOfertado === 'number' ? precoOfertado : 0);
     targetProdutoId = opts.produtoId || opts.id || options.produtoId;
     produtoNome = opts.produtoNome || opts.descricao || '';
   } else if (options && options.produtoId) {
@@ -891,7 +1467,7 @@ async function validarOfertaComDigifarma(produtoNome, ean, precoOfertado, db, op
       if (!cacheRow && ean) {
         cacheRow = dbInst.prepare('SELECT * FROM digifarma_ultimas_compras_cache WHERE ean = ? LIMIT 1').get(String(ean));
       }
-      if (!cacheRow && produtoNome) {
+      if (!cacheRow && !targetProdutoId && produtoNome) {
         const itemExato = dbInst.prepare('SELECT * FROM digifarma_ultimas_compras_cache WHERE descricao = ? LIMIT 1').get(produtoNome);
         if (itemExato) {
           cacheRow = itemExato;
@@ -924,8 +1500,8 @@ async function validarOfertaComDigifarma(produtoNome, ean, precoOfertado, db, op
             estoqueAtual = parseFloat(est.saldo) || 0;
             estMinimo = parseFloat(est.est_minimo_calculado || est.est_minimo_digifarma) || 0;
             emRuptura = estoqueAtual <= 0 || (estMinimo > 0 && estoqueAtual < estMinimo);
-            const cmvPadrao = parseFloat(est.ultima_compra_valor || est.preco_unitario_ult_compra) || 0;
-            if (cmvPadrao > 0) {
+            const cmvPadrao = parseFloat(est.preco_unitario_ult_compra || est.ultima_compra_valor) || 0;
+            if ((!precoUltCompra || precoUltCompra <= 0) && cmvPadrao > 0) {
               precoUltCompra = cmvPadrao;
             }
           }
@@ -1050,16 +1626,20 @@ async function validarOfertaComDigifarma(produtoNome, ean, precoOfertado, db, op
             }
           } catch (eNota) {}
 
-          const cmvVal = parseFloat(melhorItem.PROD_CMV) || 0;
-          const pUltVal = parseFloat(melhorItem.VALOR_ULT_COMPRA) || 0;
-          const pUltCmv = cmvVal > 0 ? cmvVal : pUltVal;
-          if (pUltCmv > 0) {
-            precoUltCompra = pUltCmv;
-          } else if (precoNota !== null && precoNota > 0) {
+          // Prioridade MÁXIMA: Preço unitário real da última Nota Fiscal de entrada (ITEM_NOTAS)
+          if (precoNota !== null && precoNota > 0) {
             precoUltCompra = precoNota;
           } else {
-            const pCusto = parseFloat(melhorItem.PROD_PRCOMPRA) || 0;
-            precoUltCompra = pCusto > 0 ? pCusto : null;
+            // Fallback para cadastro de produtos apenas se não houver nota fiscal
+            const cmvVal = parseFloat(melhorItem.PROD_CMV) || 0;
+            const pUltVal = parseFloat(melhorItem.VALOR_ULT_COMPRA) || 0;
+            const pUltCmv = cmvVal > 0 ? cmvVal : pUltVal;
+            if (pUltCmv > 0) {
+              precoUltCompra = pUltCmv;
+            } else {
+              const pCusto = parseFloat(melhorItem.PROD_PRCOMPRA) || 0;
+              precoUltCompra = pCusto > 0 ? pCusto : null;
+            }
           }
           precoTotalNota = precoTotalNota || precoUltCompra;
           if (!embalagemUltCompra) embalagemUltCompra = 'Unidade individual';
@@ -1202,20 +1782,27 @@ async function validarOfertaComDigifarma(produtoNome, ean, precoOfertado, db, op
     } catch (e) {}
   }
 
+  const precoBrutoVal = parseFloat(options.precoBruto !== undefined ? options.precoBruto : (entradaObj?.precoBruto !== undefined ? entradaObj.precoBruto : precoOfertado)) || precoOfertado;
+  const bonificacaoDetalhe = options.bonificacaoDetalhe || entradaObj?.bonificacaoDetalhe || null;
+  const temBonificacao = Boolean(options.temBonificacao || entradaObj?.temBonificacao || (bonificacaoDetalhe && bonificacaoDetalhe.temBonificacao));
+  const precoLiquidoVal = parseFloat(options.precoLiquidoEfetivo !== undefined ? options.precoLiquidoEfetivo : (entradaObj?.precoLiquidoEfetivo !== undefined ? entradaObj.precoLiquidoEfetivo : (bonificacaoDetalhe?.precoLiquidoEfetivo || bonificacaoDetalhe?.precoLiquido || precoOfertado))) || precoOfertado;
+
+  const precoComparacao = (temBonificacao && precoLiquidoVal > 0) ? precoLiquidoVal : precoOfertado;
+
   // Calcula a economia percentual
   let percentualDesconto = 0;
   let precoInferior = false;
 
   if (precoUltCompra && precoUltCompra > 0) {
-    if (precoOfertado > 0 && precoOfertado < precoUltCompra) {
-      percentualDesconto = ((precoUltCompra - precoOfertado) / precoUltCompra) * 100;
+    if (precoComparacao > 0 && precoComparacao < precoUltCompra) {
+      percentualDesconto = ((precoUltCompra - precoComparacao) / precoUltCompra) * 100;
       precoInferior = true;
-    } else if (precoOfertado >= precoUltCompra) {
-      percentualDesconto = -(((precoOfertado - precoUltCompra) / precoUltCompra) * 100);
+    } else if (precoComparacao >= precoUltCompra) {
+      percentualDesconto = -(((precoComparacao - precoUltCompra) / precoUltCompra) * 100);
     }
   }
 
-  const isOfertaValida = precoInferior && precoOfertado > 0;
+  const isOfertaValida = precoInferior && precoComparacao > 0;
 
   // Verificação de elegibilidade dos últimos 10 meses (300 dias)
   let ativo10m = 1;
@@ -1252,6 +1839,32 @@ async function validarOfertaComDigifarma(produtoNome, ean, precoOfertado, db, op
     };
   }
 
+  let viabilizadaPorBonificacao = false;
+  if (precoUltCompra && precoUltCompra > 0 && temBonificacao) {
+    if (precoBrutoVal >= precoUltCompra && precoComparacao < precoUltCompra) {
+      viabilizadaPorBonificacao = true;
+    }
+  }
+
+  let statusCalculado = 'Oportunidade_Sem_Historico';
+  let precisaRevisao = false;
+  let motivoRevisao = null;
+
+  if (precoUltCompra) {
+    if (isOfertaValida) {
+      if (percentualDesconto > 40) {
+        statusCalculado = 'Revisao_Manual';
+        precisaRevisao = true;
+        motivoRevisao = `Desconto de ${percentualDesconto.toFixed(1)}% acima da trava de segurança (40%). Possível divergência de embalagem (caixa vs unidade) ou oferta promocional que requer conferência humana.`;
+        console.warn(`[Trava-Sanidade] ⚠️ Oferta de ${produtoNome} colocada em Revisão Manual (desconto de ${percentualDesconto.toFixed(1)}%)`);
+      } else {
+        statusCalculado = 'Aprovado_Radar';
+      }
+    } else {
+      statusCalculado = 'Descartado_Preco_Maior';
+    }
+  }
+
   return {
     produtoId,
     descricaoDigifarma: descricaoEncontrada,
@@ -1262,13 +1875,22 @@ async function validarOfertaComDigifarma(produtoNome, ean, precoOfertado, db, op
     notaFiscalUltCompra,
     embalagemUltCompra,
     precoTotalNota: precoTotalNota ? Number(precoTotalNota.toFixed(2)) : (precoUltCompra ? Number(precoUltCompra.toFixed(2)) : null),
+    precoBruto: Number(precoBrutoVal.toFixed(2)),
     precoOfertado: Number(precoOfertado.toFixed(2)),
+    precoLiquidoEfetivo: Number(precoComparacao.toFixed(2)),
     percentualDesconto: Number(percentualDesconto.toFixed(2)),
     percentualEconomia: Number(percentualDesconto.toFixed(2)),
     precoInferior: isOfertaValida,
-    vantajosa: isOfertaValida,
+    vantajosa: isOfertaValida && percentualDesconto <= 40,
     valida: isOfertaValida,
-    status: precoUltCompra ? (isOfertaValida ? 'Aprovado_Radar' : 'Descartado_Preco_Maior') : 'Oportunidade_Sem_Historico',
+    temBonificacao,
+    bonificacaoDetalhe,
+    viabilizadaPorBonificacao,
+    economiaBonificacaoPercentual: bonificacaoDetalhe ? (bonificacaoDetalhe.economiaPercentual || 0) : 0,
+    economiaBonificacaoReais: bonificacaoDetalhe ? (bonificacaoDetalhe.ganhoMercadoriaReais || 0) : 0,
+    status: statusCalculado,
+    precisaRevisao,
+    motivoRevisao,
     estoqueAtual,
     estMinimo,
     emRuptura,
@@ -1445,20 +2067,36 @@ async function processarMensagemRecebida(msgData, db, options = {}) {
     if (isApenasEmbalagemOuQuantidade(ofr.produtoNome)) {
       continue;
     }
-    const validacao = await validarOfertaComDigifarma(ofr.produtoNome, ofr.ean, ofr.precoOfertado, dbInst, options);
+    const validacao = await validarOfertaComDigifarma(ofr.produtoNome, ofr.ean, ofr.precoOfertado, dbInst, {
+      ...options,
+      precoBruto: ofr.precoBruto,
+      temBonificacao: ofr.temBonificacao,
+      bonificacaoDetalhe: ofr.bonificacaoDetalhe
+    });
     if (validacao.invalido) {
       continue;
     }
 
     const ofertaId = crypto.randomUUID();
-    let statusOferta = 'Aprovado_Radar';
-    if (validacao.precoUltCompra && validacao.precoUltCompra > 0) {
-      statusOferta = validacao.precoInferior ? 'Aprovado_Radar' : 'Descartado_Preco_Maior';
-    } else {
-      statusOferta = 'Oportunidade_Sem_Historico';
+    let statusOferta = validacao.status || (validacao.precoUltCompra && validacao.precoUltCompra > 0 ? (validacao.precoInferior ? 'Aprovado_Radar' : 'Descartado_Preco_Maior') : 'Oportunidade_Sem_Historico');
+    if (validacao.precisaRevisao || ofr.precisaRevisao) {
+      statusOferta = 'Revisao_Manual';
     }
 
     try {
+      try { dbInst.exec('ALTER TABLE compras_oportunidades_mineradas ADD COLUMN linha_raw TEXT'); } catch(e) {}
+      try { dbInst.exec('ALTER TABLE compras_oportunidades_mineradas ADD COLUMN confianca TEXT DEFAULT "alta"'); } catch(e) {}
+      try { dbInst.exec('ALTER TABLE compras_oportunidades_mineradas ADD COLUMN precisa_revisao INTEGER DEFAULT 0'); } catch(e) {}
+      try { dbInst.exec('ALTER TABLE compras_oportunidades_mineradas ADD COLUMN motivo_revisao TEXT'); } catch(e) {}
+      try { dbInst.exec('ALTER TABLE compras_oportunidades_mineradas ADD COLUMN trecho_original TEXT'); } catch(e) {}
+      try { dbInst.exec('ALTER TABLE compras_oportunidades_mineradas ADD COLUMN preco_bruto REAL'); } catch(e) {}
+      try { dbInst.exec('ALTER TABLE compras_oportunidades_mineradas ADD COLUMN preco_liquido_efetivo REAL'); } catch(e) {}
+      try { dbInst.exec('ALTER TABLE compras_oportunidades_mineradas ADD COLUMN tem_bonificacao INTEGER DEFAULT 0'); } catch(e) {}
+      try { dbInst.exec('ALTER TABLE compras_oportunidades_mineradas ADD COLUMN bonificacao_detalhe TEXT'); } catch(e) {}
+      try { dbInst.exec('ALTER TABLE compras_oportunidades_mineradas ADD COLUMN economia_bonificacao_percentual REAL DEFAULT 0'); } catch(e) {}
+      try { dbInst.exec('ALTER TABLE compras_oportunidades_mineradas ADD COLUMN economia_bonificacao_reais REAL DEFAULT 0'); } catch(e) {}
+      try { dbInst.exec('ALTER TABLE compras_oportunidades_mineradas ADD COLUMN viabilizada_por_bonificacao INTEGER DEFAULT 0'); } catch(e) {}
+
       const tableInfo = dbInst.prepare("PRAGMA table_info(compras_oportunidades_mineradas)").all();
       const colNames = new Set(tableInfo.map(c => c.name));
 
@@ -1511,6 +2149,86 @@ async function processarMensagemRecebida(msgData, db, options = {}) {
         fields.push('produto_id');
         values.push(validacao.produtoId || null);
       }
+      if (colNames.has('qtd_minima')) {
+        fields.push('qtd_minima');
+        values.push(ofr.qtdMinima || 1);
+      }
+      if (colNames.has('faixas_preco')) {
+        fields.push('faixas_preco');
+        values.push(ofr.faixasPreco ? JSON.stringify(ofr.faixasPreco) : null);
+      }
+      if (colNames.has('validade_oferta')) {
+        fields.push('validade_oferta');
+        values.push(extracao.validadeOferta || null);
+      }
+      if (colNames.has('validade_texto')) {
+        fields.push('validade_texto');
+        values.push(extracao.validadeTexto || null);
+      }
+      if (colNames.has('is_combo')) {
+        fields.push('is_combo');
+        values.push(ofr.isCombo ? 1 : 0);
+      }
+      if (colNames.has('combo_id')) {
+        fields.push('combo_id');
+        values.push(ofr.comboId || null);
+      }
+      if (colNames.has('combo_nome')) {
+        fields.push('combo_nome');
+        values.push(ofr.comboNome || null);
+      }
+      if (colNames.has('combo_dados')) {
+        fields.push('combo_dados');
+        values.push(ofr.comboDados ? JSON.stringify(ofr.comboDados) : null);
+      }
+      if (colNames.has('linha_raw')) {
+        fields.push('linha_raw');
+        values.push(ofr.linhaRaw || ofr.trechoOriginal || null);
+      }
+      if (colNames.has('trecho_original')) {
+        fields.push('trecho_original');
+        values.push(ofr.trechoOriginal || ofr.linhaRaw || null);
+      }
+      if (colNames.has('confianca')) {
+        fields.push('confianca');
+        values.push(ofr.confianca || 'alta');
+      }
+      if (colNames.has('precisa_revisao')) {
+        fields.push('precisa_revisao');
+        values.push((validacao.precisaRevisao || ofr.precisaRevisao) ? 1 : 0);
+      }
+      if (colNames.has('motivo_revisao')) {
+        fields.push('motivo_revisao');
+        values.push(validacao.motivoRevisao || ofr.motivoRevisao || null);
+      }
+      if (colNames.has('preco_bruto')) {
+        fields.push('preco_bruto');
+        values.push(validacao.precoBruto || ofr.precoBruto || ofr.precoOfertado);
+      }
+      if (colNames.has('preco_liquido_efetivo')) {
+        fields.push('preco_liquido_efetivo');
+        values.push(validacao.precoLiquidoEfetivo || ofr.precoOfertado);
+      }
+      if (colNames.has('tem_bonificacao')) {
+        fields.push('tem_bonificacao');
+        values.push((validacao.temBonificacao || ofr.temBonificacao) ? 1 : 0);
+      }
+      if (colNames.has('bonificacao_detalhe')) {
+        fields.push('bonificacao_detalhe');
+        values.push(validacao.bonificacaoDetalhe || ofr.bonificacaoDetalhe ? JSON.stringify(validacao.bonificacaoDetalhe || ofr.bonificacaoDetalhe) : null);
+      }
+      if (colNames.has('economia_bonificacao_percentual')) {
+        fields.push('economia_bonificacao_percentual');
+        values.push(validacao.economiaBonificacaoPercentual || ofr.economiaBonificacaoPercentual || 0);
+      }
+      if (colNames.has('economia_bonificacao_reais')) {
+        fields.push('economia_bonificacao_reais');
+        values.push(validacao.economiaBonificacaoReais || ofr.economiaBonificacaoReais || 0);
+      }
+      if (colNames.has('viabilizada_por_bonificacao')) {
+        fields.push('viabilizada_por_bonificacao');
+        values.push(validacao.viabilizadaPorBonificacao ? 1 : 0);
+      }
 
       const placeholders = fields.map(() => '?').join(', ');
       dbInst.prepare(`
@@ -1521,7 +2239,11 @@ async function processarMensagemRecebida(msgData, db, options = {}) {
       ofertasProcessadas.push({
         id: ofertaId,
         produtoNome: ofr.produtoNome,
+        precoBruto: validacao.precoBruto || ofr.precoBruto || ofr.precoOfertado,
         precoOfertado: ofr.precoOfertado,
+        precoLiquidoEfetivo: validacao.precoLiquidoEfetivo || ofr.precoOfertado,
+        qtdMinima: ofr.qtdMinima || 1,
+        faixasPreco: ofr.faixasPreco || null,
         precoUltimaCompra: validacao.precoUltCompra,
         percentualEconomia: validacao.percentualEconomia,
         vantajosa: validacao.vantajosa,
@@ -1530,7 +2252,24 @@ async function processarMensagemRecebida(msgData, db, options = {}) {
         notaFiscalUltCompra: validacao.notaFiscalUltCompra,
         embalagemUltCompra: validacao.embalagemUltCompra,
         precoTotalNota: validacao.precoTotalNota,
-        status: statusOferta
+        bonificacao: ofr.bonificacao || null,
+        temBonificacao: Boolean(validacao.temBonificacao || ofr.temBonificacao),
+        bonificacaoDetalhe: validacao.bonificacaoDetalhe || ofr.bonificacaoDetalhe || null,
+        economiaBonificacaoPercentual: validacao.economiaBonificacaoPercentual || ofr.economiaBonificacaoPercentual || 0,
+        economiaBonificacaoReais: validacao.economiaBonificacaoReais || ofr.economiaBonificacaoReais || 0,
+        viabilizadaPorBonificacao: Boolean(validacao.viabilizadaPorBonificacao),
+        isCombo: ofr.isCombo || false,
+        comboId: ofr.comboId || null,
+        comboNome: ofr.comboNome || null,
+        comboDados: ofr.comboDados || null,
+        validadeOferta: extracao.validadeOferta || null,
+        validadeTexto: extracao.validadeTexto || null,
+        status: statusOferta,
+        linhaRaw: ofr.linhaRaw || ofr.trechoOriginal || null,
+        trechoOriginal: ofr.trechoOriginal || ofr.linhaRaw || null,
+        confianca: ofr.confianca || 'alta',
+        precisaRevisao: Boolean(validacao.precisaRevisao || ofr.precisaRevisao),
+        motivoRevisao: validacao.motivoRevisao || ofr.motivoRevisao || null
       });
     } catch (dbErr) {
       console.warn('[Compras-Mineração] Aviso ao gravar oportunidade:', dbErr.message);
@@ -1975,10 +2714,22 @@ function listarOportunidades(dbOrFiltros = {}, talvezFiltros = {}) {
     sql += ` AND percentual_desconto > 0`;
   }
 
-  // Por padrão, exibe apenas ofertas capturadas no dia corrente
-  if (filtros.apenasHoje !== false) {
-    sql += ` AND (DATE(data_oferta, 'localtime') = DATE('now', 'localtime') OR DATE(created_at, 'localtime') = DATE('now', 'localtime'))`;
+  if (filtros.apenasBonificadas) {
+    sql += ` AND tem_bonificacao = 1`;
   }
+
+  // Filtro de validade dinâmica: se houver validade definida pelo representante, respeita até a data limite.
+  // Caso contrário, aplica a validade padrão de 1 dia civil (hoje).
+  if (filtros.apenasHoje !== false) {
+    sql += ` AND (
+      (validade_oferta IS NOT NULL AND validade_oferta != '' AND DATE(validade_oferta) >= DATE('now', 'localtime'))
+      OR
+      ((validade_oferta IS NULL OR validade_oferta = '') AND (DATE(data_oferta, 'localtime') = DATE('now', 'localtime') OR DATE(created_at, 'localtime') = DATE('now', 'localtime')))
+    )`;
+  }
+
+  // Preço ofertado sempre válido (> 0)
+  sql += ` AND preco_ofertado > 0`;
 
   if (filtros.busca) {
     sql += ` AND (produto_nome LIKE ? OR distribuidora LIKE ? OR representante LIKE ?)`;
@@ -2010,6 +2761,19 @@ function listarOportunidades(dbOrFiltros = {}, talvezFiltros = {}) {
     .filter(r => !isApenasEmbalagemOuQuantidade(r.produto_nome))
     .map(r => {
       const precoOfertado = parseFloat(r.preco_ofertado) || 0;
+      const precoBruto = parseFloat(r.preco_bruto) || precoOfertado;
+      const precoLiquidoEfetivo = parseFloat(r.preco_liquido_efetivo) || precoOfertado;
+      const temBonificacao = Boolean(r.tem_bonificacao);
+      let bonificacaoDetalhe = null;
+      if (r.bonificacao_detalhe) {
+        try {
+          bonificacaoDetalhe = typeof r.bonificacao_detalhe === 'string' ? JSON.parse(r.bonificacao_detalhe) : r.bonificacao_detalhe;
+        } catch (e) {}
+      }
+      const economiaBonificacaoPercentual = parseFloat(r.economia_bonificacao_percentual) || 0;
+      const economiaBonificacaoReais = parseFloat(r.economia_bonificacao_reais) || 0;
+      const viabilizadaPorBonificacao = Boolean(r.viabilizada_por_bonificacao);
+
       let precoUltCompra = parseFloat(r.preco_ult_compra_digifarma) || null;
       let descontoPercentual = parseFloat(r.percentual_desconto) || 0;
       let ultForn = r.ultimo_fornecedor || null;
@@ -2043,14 +2807,20 @@ function listarOportunidades(dbOrFiltros = {}, talvezFiltros = {}) {
         }
       } catch (e) {}
 
-      if (precoUltCompra && precoUltCompra > 0 && precoOfertado > 0) {
-        descontoPercentual = ((precoUltCompra - precoOfertado) / precoUltCompra) * 100;
+      // Compara com o preço líquido efetivo (diluído por bônus)
+      const precoComparacao = precoLiquidoEfetivo > 0 ? precoLiquidoEfetivo : precoOfertado;
+      if (precoUltCompra && precoUltCompra > 0 && precoComparacao > 0) {
+        descontoPercentual = ((precoUltCompra - precoComparacao) / precoUltCompra) * 100;
       }
 
       let statusEfetivo = r.status;
       if (precoUltCompra && precoUltCompra > 0) {
-        if (precoOfertado > 0) {
-          statusEfetivo = precoOfertado < precoUltCompra ? 'Aprovado_Radar' : 'Descartado_Preco_Maior';
+        if (precoComparacao > 0) {
+          if (descontoPercentual > 40) {
+            statusEfetivo = 'Revisao_Manual';
+          } else {
+            statusEfetivo = precoComparacao < precoUltCompra ? 'Aprovado_Radar' : 'Descartado_Preco_Maior';
+          }
         } else {
           statusEfetivo = 'Descartado_Preco_Maior';
         }
@@ -2060,29 +2830,28 @@ function listarOportunidades(dbOrFiltros = {}, talvezFiltros = {}) {
       let estoqueMinimo = parseFloat(r.estoque_minimo) || 0;
       let emRuptura = Boolean(r.em_ruptura);
 
-      // Se estoque não estiver gravado na linha da oportunidade, busca no cache via índices
-      if (!r.estoque_atual && !r.estoque_minimo) {
-        try {
-          let pCache = null;
-          if (stmtEstoqueId && pIdResolvido) {
-            pCache = stmtEstoqueId.get(String(pIdResolvido));
+      try {
+        let pCache = null;
+        if (stmtEstoqueId && pIdResolvido) {
+          pCache = stmtEstoqueId.get(String(pIdResolvido));
+        }
+        if (!pCache && stmtEstoqueEan && r.ean) {
+          pCache = stmtEstoqueEan.get(r.ean);
+        }
+        if (!pCache && stmtEstoqueDesc && r.produto_nome) {
+          pCache = stmtEstoqueDesc.get(r.produto_nome);
+        }
+        if (pCache) {
+          estoqueAtual = pCache.saldo || 0;
+          estoqueMinimo = pCache.est_minimo_calculado || pCache.est_minimo_digifarma || 0;
+          emRuptura = estoqueAtual <= 0 || (estoqueMinimo > 0 && estoqueAtual < estoqueMinimo);
+          if (pCache.ativo_10m !== undefined && pCache.ativo_10m !== null) {
+            ativo10m = Number(pCache.ativo_10m);
           }
-          if (!pCache && stmtEstoqueEan && r.ean) {
-            pCache = stmtEstoqueEan.get(r.ean);
-          }
-          if (!pCache && stmtEstoqueDesc && r.produto_nome) {
-            pCache = stmtEstoqueDesc.get(r.produto_nome);
-          }
-          if (pCache) {
-            estoqueAtual = pCache.saldo || 0;
-            estoqueMinimo = pCache.est_minimo_calculado || pCache.est_minimo_digifarma || 0;
-            emRuptura = estoqueAtual <= 0 || (estoqueMinimo > 0 && estoqueAtual < estoqueMinimo);
-            if (pCache.ativo_10m !== undefined && pCache.ativo_10m !== null) {
-              ativo10m = Number(pCache.ativo_10m);
-            }
-          }
-        } catch (e) {}
-      }
+        } else {
+          ativo10m = 1;
+        }
+      } catch (e) {}
 
     // Integração com Grupo de Produtos Equivalentes (Estoque Consolidado de todas as marcas)
     let grupoEquiv = null;
@@ -2106,12 +2875,22 @@ function listarOportunidades(dbOrFiltros = {}, talvezFiltros = {}) {
     let justificativaTexto = 'Oferta de representante comercial';
     let scoreRelevancia = 0;
 
-    const economiaValor = precoUltCompra && precoUltCompra > precoOfertado ? (precoUltCompra - precoOfertado) : 0;
+    const economiaValor = precoUltCompra && precoUltCompra > precoComparacao ? (precoUltCompra - precoComparacao) : 0;
     const temEconomia = economiaValor > 0 && descontoPercentual > 0;
     const temRupturaCritica = emRuptura && estoqueAtual <= 0;
     const temEstoqueBaixo = emRuptura && estoqueAtual > 0 && estoqueAtual < estoqueMinimo;
 
-    if (temRupturaCritica && temEconomia) {
+    if (statusEfetivo === 'Revisao_Manual' || descontoPercentual > 40) {
+      justificativaBadge = '⚠️ Revisão Manual (>40%)';
+      justificativaCor = 'amber';
+      justificativaTexto = `Desconto de ${descontoPercentual.toFixed(1)}% acima da trava de segurança (40%). Requer conferência humana se o preço é unitário ou da caixa.`;
+      scoreRelevancia = 50;
+    } else if (temRupturaCritica && temBonificacao) {
+      justificativaBadge = '🚨 Ruptura + Bonificação';
+      justificativaCor = 'red';
+      justificativaTexto = `Estoque Zerado com Bonificação Comercial Ativa! Custo efetivo de R$ ${precoComparacao.toFixed(2)}/un (${descontoPercentual.toFixed(1)}% abaixo da últ. compra).`;
+      scoreRelevancia = 230 + descontoPercentual;
+    } else if (temRupturaCritica && temEconomia) {
       justificativaBadge = '🚨 Ruptura + Desconto';
       justificativaCor = 'red';
       justificativaTexto = `Estoque Zerado! Necessidade de compra imediata com ${descontoPercentual.toFixed(1)}% de economia (R$ ${economiaValor.toFixed(2)}/un).`;
@@ -2121,6 +2900,16 @@ function listarOportunidades(dbOrFiltros = {}, talvezFiltros = {}) {
       justificativaCor = 'red';
       justificativaTexto = `Estoque Zerado (Mínimo: ${estoqueMinimo}). Reposição obrigatória para não perder vendas.`;
       scoreRelevancia = 150;
+    } else if (viabilizadaPorBonificacao) {
+      justificativaBadge = '🎁 Viabilizado por Bônus';
+      justificativaCor = 'emerald';
+      justificativaTexto = `Preço bruto de tabela (R$ ${precoBruto.toFixed(2)}) torna-se vantajoso a R$ ${precoLiquidoEfetivo.toFixed(2)}/un via bonificação. Economia de ${descontoPercentual.toFixed(1)}% vs últ. compra.`;
+      scoreRelevancia = 100 + descontoPercentual;
+    } else if (temBonificacao && temEconomia) {
+      justificativaBadge = '🎁 Bônus + Desconto';
+      justificativaCor = 'emerald';
+      justificativaTexto = `Oferta com Bonificação Comercial (${bonificacaoDetalhe?.tipo || 'bônus'})! Preço líquido R$ ${precoLiquidoEfetivo.toFixed(2)}/un com ${descontoPercentual.toFixed(1)}% de vantagem.`;
+      scoreRelevancia = 80 + descontoPercentual;
     } else if (temEstoqueBaixo && temEconomia) {
       justificativaBadge = '⚡ Reposição + Desconto';
       justificativaCor = 'amber';
@@ -2148,6 +2937,26 @@ function listarOportunidades(dbOrFiltros = {}, talvezFiltros = {}) {
       scoreRelevancia = 0;
     }
 
+    let faixasPreco = null;
+    if (r.faixas_preco) {
+      try {
+        const parsed = JSON.parse(r.faixas_preco);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          faixasPreco = parsed.map(f => {
+            const p = parseFloat(f.preco) || 0;
+            const q = parseInt(f.qtdMinima, 10) || 1;
+            const desc = precoUltCompra && precoUltCompra > p ? ((precoUltCompra - p) / precoUltCompra) * 100 : 0;
+            return {
+              qtdMinima: q,
+              preco: p,
+              descontoPercentual: Math.round(desc * 10) / 10
+            };
+          });
+        }
+      } catch (e) {}
+    }
+    const qtdMinima = parseInt(r.qtd_minima, 10) || 1;
+
     return {
       id: r.id,
       produtoId: pIdResolvido,
@@ -2165,6 +2974,24 @@ function listarOportunidades(dbOrFiltros = {}, talvezFiltros = {}) {
       ean: r.ean,
       precoOfertado,
       preco_ofertado: precoOfertado,
+      precoBruto,
+      preco_bruto: precoBruto,
+      precoLiquidoEfetivo,
+      preco_liquido_efetivo: precoLiquidoEfetivo,
+      temBonificacao,
+      tem_bonificacao: temBonificacao,
+      bonificacaoDetalhe,
+      bonificacao_detalhe: bonificacaoDetalhe,
+      economiaBonificacaoPercentual,
+      economia_bonificacao_percentual: economiaBonificacaoPercentual,
+      economiaBonificacaoReais,
+      economia_bonificacao_reais: economiaBonificacaoReais,
+      viabilizadaPorBonificacao,
+      viabilizada_por_bonificacao: viabilizadaPorBonificacao,
+      qtdMinima,
+      qtd_minima: qtdMinima,
+      faixasPreco,
+      faixas_preco: faixasPreco,
       precoUltCompraDigifarma: precoUltCompra,
       preco_ult_compra_digifarma: precoUltCompra,
       ultimoFornecedor: ultForn,
@@ -2172,13 +2999,17 @@ function listarOportunidades(dbOrFiltros = {}, talvezFiltros = {}) {
       notaFiscalUltCompra: nfUlt,
       embalagemUltCompra: embUlt,
       precoTotalNota: pTotal,
-      precoLiquidoEfetivo: precoOfertado,
       descontoPercentual,
       percentual_desconto: descontoPercentual,
       economiaPercentual: descontoPercentual,
       economiaValor,
       condicoesPagamento: r.condicoes_pagamento,
       validadeOferta: r.validade_oferta,
+      validadeTexto: r.validade_texto || null,
+      isCombo: Boolean(r.is_combo),
+      comboId: r.combo_id || null,
+      comboNome: r.combo_nome || null,
+      comboDados: r.combo_dados ? (typeof r.combo_dados === 'string' ? JSON.parse(r.combo_dados) : r.combo_dados) : null,
       status: statusEfetivo,
       dataOferta: r.data_oferta,
       createdAt: r.created_at,
@@ -2202,7 +3033,12 @@ function listarOportunidades(dbOrFiltros = {}, talvezFiltros = {}) {
         texto: justificativaTexto
       },
       scoreRelevancia,
-      ativo10m
+      ativo10m,
+      linhaRaw: r.linha_raw || r.mensagem_raw || null,
+      trechoOriginal: r.trecho_original || r.linha_raw || null,
+      confianca: r.confianca || 'alta',
+      precisaRevisao: Boolean(r.precisa_revisao || statusEfetivo === 'Revisao_Manual'),
+      motivoRevisao: r.motivo_revisao || (statusEfetivo === 'Revisao_Manual' ? `Desconto de ${descontoPercentual.toFixed(1)}% acima da trava de segurança (40%)` : null)
     };
   });
 
@@ -2219,6 +3055,110 @@ function listarOportunidades(dbOrFiltros = {}, talvezFiltros = {}) {
   }
 
   return filteredItems;
+}
+
+/**
+ * Retorna o Ranking Estratégico de Oportunidades por Retorno Financeiro Estimado (R$).
+ * Cruza o preço líquido da oferta minerada com a demanda (vendas_30d / curva ABC / ruptura)
+ * de compras_estoque_cache para calcular a economia real projetada no mês.
+ */
+function obterRankingOportunidades(dbOrOptions = {}, talvezOptions = {}) {
+  let db, options;
+  if (dbOrOptions && typeof dbOrOptions.prepare === 'function') {
+    db = dbOrOptions;
+    options = talvezOptions || {};
+  } else {
+    db = getDb();
+    options = (typeof dbOrOptions === 'object' && dbOrOptions !== null) ? dbOrOptions : (talvezOptions || {});
+  }
+
+  if (!db) return { totalOportunidadesAvaliadas: 0, economiaProjetadaTotalReais: 0, itens: [] };
+
+  const limite = options.limite ? parseInt(options.limite, 10) : 20;
+  const apenasHoje = options.apenasHoje !== undefined ? options.apenasHoje : false;
+
+  // Busca as oportunidades válidas (com desconto e ativas)
+  const oportunidades = listarOportunidades(db, {
+    apenasHoje,
+    apenasComDesconto: options.apenasComDesconto !== false,
+    status: options.status || null,
+    apenasBonificadas: options.apenasBonificadas || false,
+    busca: options.busca || null,
+    fornecedorId: options.fornecedorId || null
+  });
+
+  let stmtEstoque = null;
+  try {
+    stmtEstoque = db.prepare(`
+      SELECT produto_id, ean, descricao, saldo, est_minimo_calculado, est_minimo_digifarma,
+             curva_abc, vendas_30d, vmd_ponderado, em_ruptura, cmv_atual
+      FROM compras_estoque_cache
+      WHERE produto_id = ? OR ean = ?
+      LIMIT 1
+    `);
+  } catch (e) {}
+
+  const ranking = [];
+  let economiaProjetadaTotalReais = 0;
+
+  for (const op of oportunidades) {
+    let dadosEstoque = null;
+    if (stmtEstoque && (op.produtoId || op.ean)) {
+      try {
+        dadosEstoque = stmtEstoque.get(String(op.produtoId || ''), String(op.ean || ''));
+      } catch (e) {}
+    }
+
+    const curvaAbc = dadosEstoque?.curva_abc || 'B';
+    const vendas30d = parseFloat(dadosEstoque?.vendas_30d) || (dadosEstoque?.vmd_ponderado ? Math.round(parseFloat(dadosEstoque.vmd_ponderado) * 30) : 0);
+    
+    // Giro mensal projetado: vendas reais ou estimativa conservadora por curva
+    const giroMensal = vendas30d > 0 ? vendas30d : (curvaAbc === 'A' ? 30 : curvaAbc === 'B' ? 15 : 5);
+
+    const precoRef = op.precoUltCompraDigifarma || op.precoBruto || op.precoOfertado;
+    const precoEfetivo = op.precoLiquidoEfetivo || op.precoOfertado;
+    const economiaUnitario = Math.max(0, precoRef - precoEfetivo);
+
+    // Quantidade sugerida para o ciclo (respeitando lote mínimo)
+    const qtdCompraSugerida = Math.max(op.qtdMinima || 1, giroMensal);
+    const economiaProjetadaReais = Math.round((economiaUnitario * qtdCompraSugerida) * 100) / 100;
+    const investimentoProjetadoReais = Math.round((precoEfetivo * qtdCompraSugerida) * 100) / 100;
+    const roiEstimado = investimentoProjetadoReais > 0 ? Math.round(((economiaProjetadaReais / investimentoProjetadoReais) * 100) * 10) / 10 : 0;
+
+    // Score Estratégico Ponderado
+    let multiplicadorCurva = curvaAbc === 'A' ? 2.5 : curvaAbc === 'B' ? 1.5 : 1.0;
+    let multiplicadorRuptura = op.emRuptura ? (op.estoqueAtual <= 0 ? 2.0 : 1.4) : 1.0;
+    let bonusBonificacao = op.temBonificacao ? 40 : 0;
+
+    const scoreEstrategico = Math.round(
+      (economiaProjetadaReais * 5 * multiplicadorCurva * multiplicadorRuptura) +
+      (op.descontoPercentual * 2) +
+      bonusBonificacao
+    );
+
+    ranking.push({
+      ...op,
+      curvaAbc,
+      giroMensalEstimado: giroMensal,
+      qtdCompraSugerida,
+      economiaUnitario: Math.round(economiaUnitario * 100) / 100,
+      economiaProjetadaReais,
+      investimentoProjetadoReais,
+      roiEstimado,
+      scoreEstrategico
+    });
+
+    economiaProjetadaTotalReais += economiaProjetadaReais;
+  }
+
+  // Ordena pelo maior retorno / score estratégico
+  ranking.sort((a, b) => b.scoreEstrategico - a.scoreEstrategico);
+
+  return {
+    totalOportunidadesAvaliadas: ranking.length,
+    economiaProjetadaTotalReais: Math.round(economiaProjetadaTotalReais * 100) / 100,
+    itens: ranking.slice(0, limite)
+  };
 }
 
 /**
@@ -3087,122 +4027,140 @@ function recalcularOfertasMineradas(dbInstance) {
 
   const updateStmt = db.prepare(updateSql);
 
-  const runUpdates = db.transaction((ofertas) => {
-    for (const ofr of ofertas) {
-      const precoOfertado = parseFloat(ofr.preco_ofertado) || 0;
-      let precoUlt = null;
-      let ultForn = ofr.ultimo_fornecedor || null;
-      let dataUlt = ofr.data_ult_compra || null;
-      let nfUlt = ofr.nota_fiscal_ult_compra || null;
-      let embUlt = ofr.embalagem_ult_compra || null;
-      let precoTotal = ofr.preco_total_nota || null;
+  // Prepara as consultas uma única vez fora do loop para máxima performance
+  const stmtCacheById = db.prepare('SELECT * FROM digifarma_ultimas_compras_cache WHERE produto_id = ? LIMIT 1');
+  const stmtCacheByEan = db.prepare('SELECT * FROM digifarma_ultimas_compras_cache WHERE ean = ? LIMIT 1');
+  const stmtCacheByDesc = db.prepare('SELECT * FROM digifarma_ultimas_compras_cache WHERE descricao = ? AND preco_unitario_ult_compra > 0 LIMIT 1');
+  const stmtCacheLike = db.prepare('SELECT * FROM digifarma_ultimas_compras_cache WHERE descricao LIKE ? AND preco_unitario_ult_compra > 0 LIMIT 30');
 
-      // 1. Tenta buscar no cache especializado digifarma_ultimas_compras_cache
-      let cache = null;
-      let estItem = null;
+  const stmtEstoqueById = db.prepare('SELECT * FROM compras_estoque_cache WHERE produto_id = ? LIMIT 1');
+  const stmtEstoqueByEan = db.prepare('SELECT * FROM compras_estoque_cache WHERE ean = ? LIMIT 1');
+  const stmtEstoqueByDesc = db.prepare('SELECT * FROM compras_estoque_cache WHERE descricao = ? LIMIT 1');
+  const stmtEstoqueLike = db.prepare('SELECT * FROM compras_estoque_cache WHERE descricao LIKE ? LIMIT 20');
+
+  const updatesToApply = [];
+
+  for (const ofr of rows) {
+    const precoOfertado = parseFloat(ofr.preco_ofertado) || 0;
+    let precoUlt = null;
+    let ultForn = ofr.ultimo_fornecedor || null;
+    let dataUlt = ofr.data_ult_compra || null;
+    let nfUlt = ofr.nota_fiscal_ult_compra || null;
+    let embUlt = ofr.embalagem_ult_compra || null;
+    let precoTotal = ofr.preco_total_nota || null;
+
+    // 1. Tenta buscar no cache especializado digifarma_ultimas_compras_cache
+    let cache = null;
+    let estItem = null;
+    if (ofr.digifarma_produto_id || ofr.produto_id) {
+      cache = stmtCacheById.get(String(ofr.digifarma_produto_id || ofr.produto_id));
+    }
+    if (!cache && ofr.ean) {
+      cache = stmtCacheByEan.get(ofr.ean);
+    }
+    if (!cache && ofr.produto_nome) {
+      const itemExato = stmtCacheByDesc.get(ofr.produto_nome);
+      if (itemExato) {
+        cache = itemExato;
+      } else if (!ofr.digifarma_produto_id && !ofr.produto_id && !ofr.ean) {
+        const termos = extrairTermosBuscaProduto(ofr.produto_nome);
+        if (termos.palavras.length > 0) {
+          const termoBusca = termos.palavras.slice().sort((a, b) => b.length - a.length)[0] || termos.palavras[0];
+          const candidates = stmtCacheLike.all('%' + termoBusca + '%');
+          let best = null, bestScore = -1;
+          for (const c of candidates) {
+            const sc = pontuarCorrespondencia(c, termos);
+            if (sc > bestScore) { bestScore = sc; best = c; }
+          }
+          if (best && bestScore > 0) cache = best;
+        }
+      }
+    }
+
+    if (cache) {
+      precoUlt = parseFloat(cache.preco_unitario_ult_compra) || null;
+      if (cache.fornecedor_nome) ultForn = cache.fornecedor_nome;
+      if (cache.data_compra) dataUlt = cache.data_compra;
+      if (cache.numero_nota_fiscal) nfUlt = cache.numero_nota_fiscal;
+      if (cache.embalagem_detalhe) embUlt = cache.embalagem_detalhe;
+      if (cache.preco_total_nota) precoTotal = parseFloat(cache.preco_total_nota);
+    } else {
+      // Fallback para compras_estoque_cache
       if (ofr.digifarma_produto_id || ofr.produto_id) {
-        cache = db.prepare('SELECT * FROM digifarma_ultimas_compras_cache WHERE produto_id = ? LIMIT 1').get(String(ofr.digifarma_produto_id || ofr.produto_id));
+        estItem = stmtEstoqueById.get(String(ofr.digifarma_produto_id || ofr.produto_id));
       }
-      if (!cache && ofr.ean) {
-        cache = db.prepare('SELECT * FROM digifarma_ultimas_compras_cache WHERE ean = ? LIMIT 1').get(ofr.ean);
+      if (!estItem && ofr.ean) {
+        estItem = stmtEstoqueByEan.get(ofr.ean);
       }
-      if (!cache && ofr.produto_nome) {
-        const itemExato = db.prepare('SELECT * FROM digifarma_ultimas_compras_cache WHERE descricao = ? AND preco_unitario_ult_compra > 0 LIMIT 1').get(ofr.produto_nome);
+      if (!estItem && ofr.produto_nome) {
+        const itemExato = stmtEstoqueByDesc.get(ofr.produto_nome);
         if (itemExato) {
-          cache = itemExato;
+          estItem = itemExato;
         } else if (!ofr.digifarma_produto_id && !ofr.produto_id && !ofr.ean) {
           const termos = extrairTermosBuscaProduto(ofr.produto_nome);
           if (termos.palavras.length > 0) {
-            const termoBusca = termos.palavras.slice().sort((a, b) => b.length - a.length)[0] || termos.palavras[0];
-            const candidates = db.prepare('SELECT * FROM digifarma_ultimas_compras_cache WHERE descricao LIKE ? AND preco_unitario_ult_compra > 0 LIMIT 30').all('%' + termoBusca + '%');
-            let best = null, bestScore = -1;
-            for (const c of candidates) {
+            const cands = stmtEstoqueLike.all('%' + termos.palavras[0] + '%');
+            let bItem = null, bScore = -1;
+            for (const c of cands) {
               const sc = pontuarCorrespondencia(c, termos);
-              if (sc > bestScore) { bestScore = sc; best = c; }
+              if (sc > bScore) { bScore = sc; bItem = c; }
             }
-            if (best && bestScore > 0) cache = best;
+            if (bItem && bScore > 0) estItem = bItem;
           }
         }
       }
+      if (estItem) {
+        precoUlt = parseFloat(estItem.ultima_compra_valor || estItem.custo_unitario) || null;
+        precoTotal = precoUlt;
+      }
+    }
 
-      if (cache) {
-        precoUlt = parseFloat(cache.preco_unitario_ult_compra) || null;
-        if (cache.fornecedor_nome) ultForn = cache.fornecedor_nome;
-        if (cache.data_compra) dataUlt = cache.data_compra;
-        if (cache.numero_nota_fiscal) nfUlt = cache.numero_nota_fiscal;
-        if (cache.embalagem_detalhe) embUlt = cache.embalagem_detalhe;
-        if (cache.preco_total_nota) precoTotal = parseFloat(cache.preco_total_nota);
+    if (precoUlt && precoUlt > 0) {
+      precoUlt = Math.round(parseFloat(precoUlt) * 100) / 100;
+      let desc = 0;
+      let novoStatus = 'Aprovado_Radar';
+      if (precoOfertado > 0 && precoOfertado < precoUlt) {
+        desc = ((precoUlt - precoOfertado) / precoUlt) * 100;
+        novoStatus = 'Aprovado_Radar';
       } else {
-        // Fallback para compras_estoque_cache
-        if (ofr.digifarma_produto_id || ofr.produto_id) {
-          estItem = db.prepare('SELECT * FROM compras_estoque_cache WHERE produto_id = ? LIMIT 1').get(String(ofr.digifarma_produto_id || ofr.produto_id));
-        }
-        if (!estItem && ofr.ean) {
-          estItem = db.prepare('SELECT * FROM compras_estoque_cache WHERE ean = ? LIMIT 1').get(ofr.ean);
-        }
-        if (!estItem && ofr.produto_nome) {
-          const itemExato = db.prepare('SELECT * FROM compras_estoque_cache WHERE descricao = ? LIMIT 1').get(ofr.produto_nome);
-          if (itemExato) {
-            estItem = itemExato;
-          } else if (!ofr.digifarma_produto_id && !ofr.produto_id && !ofr.ean) {
-            const termos = extrairTermosBuscaProduto(ofr.produto_nome);
-            if (termos.palavras.length > 0) {
-              const cands = db.prepare('SELECT * FROM compras_estoque_cache WHERE descricao LIKE ? LIMIT 20').all('%' + termos.palavras[0] + '%');
-              let bItem = null, bScore = -1;
-              for (const c of cands) {
-                const sc = pontuarCorrespondencia(c, termos);
-                if (sc > bScore) { bScore = sc; bItem = c; }
-              }
-              if (bItem && bScore > 0) estItem = bItem;
-            }
-          }
-        }
-        if (estItem) {
-          precoUlt = parseFloat(estItem.ultima_compra_valor || estItem.custo_unitario) || null;
-          precoTotal = precoUlt;
-        }
-      }
-
-      if (precoUlt && precoUlt > 0) {
-        precoUlt = Math.round(parseFloat(precoUlt) * 100) / 100;
-        let desc = 0;
-        let novoStatus = 'Aprovado_Radar';
-        if (precoOfertado > 0 && precoOfertado < precoUlt) {
-          desc = ((precoUlt - precoOfertado) / precoUlt) * 100;
-          novoStatus = 'Aprovado_Radar';
+        if (precoOfertado >= precoUlt && precoUlt > 0) {
+          desc = -(((precoOfertado - precoUlt) / precoUlt) * 100);
         } else {
-          if (precoOfertado >= precoUlt && precoUlt > 0) {
-            desc = -(((precoOfertado - precoUlt) / precoUlt) * 100);
-          } else {
-            desc = 0;
-          }
-          novoStatus = 'Descartado_Preco_Maior';
+          desc = 0;
         }
-        desc = Math.round(desc * 100) / 100;
-
-        const updateParams = [
-          precoUlt,
-          ultForn,
-          dataUlt,
-          nfUlt,
-          desc,
-          novoStatus
-        ];
-        if (hasEmb) updateParams.push(embUlt);
-        if (hasTotal) updateParams.push(precoTotal);
-        const resolvedProdId = cache?.produto_id || estItem?.produto_id || ofr.produto_id || ofr.digifarma_produto_id || null;
-        const resolvedEan = cache?.ean || estItem?.ean || ofr.ean || null;
-        if (hasProdId) updateParams.push(resolvedProdId);
-        updateParams.push(resolvedEan);
-        updateParams.push(ofr.id);
-
-        updateStmt.run(...updateParams);
-        totalRecalculadas++;
+        novoStatus = 'Descartado_Preco_Maior';
       }
+      desc = Math.round(desc * 100) / 100;
+
+      const updateParams = [
+        precoUlt,
+        ultForn,
+        dataUlt,
+        nfUlt,
+        desc,
+        novoStatus
+      ];
+      if (hasEmb) updateParams.push(embUlt);
+      if (hasTotal) updateParams.push(precoTotal);
+      const resolvedProdId = cache?.produto_id || estItem?.produto_id || ofr.produto_id || ofr.digifarma_produto_id || null;
+      const resolvedEan = cache?.ean || estItem?.ean || ofr.ean || null;
+      if (hasProdId) updateParams.push(resolvedProdId);
+      updateParams.push(resolvedEan);
+      updateParams.push(ofr.id);
+
+      updatesToApply.push(updateParams);
+    }
+  }
+
+  // Executa os updates em lote rápido dentro de uma transação curta (apenas escritas!)
+  const runUpdatesBatch = db.transaction((updates) => {
+    for (const params of updates) {
+      updateStmt.run(...params);
+      totalRecalculadas++;
     }
   });
 
-  runUpdates(rows);
+  runUpdatesBatch(updatesToApply);
 
   return {
     success: true,
@@ -3378,7 +4336,12 @@ async function sincronizarUltimasComprasDigifarma(dbInstance, options = {}) {
   }
 
   // Recalcula as oportunidades mineradas com o cache atualizado (R3)
-  const recalcRes = recalcularOfertasMineradas(db);
+  let recalcRes = { totalRecalculadas: 0 };
+  try {
+    recalcRes = recalcularOfertasMineradas(db) || { totalRecalculadas: 0 };
+  } catch (err) {
+    console.warn('[Sync Últimas Compras] Aviso: Falha ao recalcular ofertas:', err.message);
+  }
 
   return {
     success: true,
@@ -3409,6 +4372,7 @@ module.exports = {
   minerarHistoricoConversas,
   executarVarreduraRetroativa90Dias,
   listarOportunidades,
+  obterRankingOportunidades,
   listarFornecedoresMinerados,
   obterCatalogoFornecedor,
   atualizarFornecedorMeta,
@@ -3418,6 +4382,8 @@ module.exports = {
   atualizarDadosContatoFornecedor,
   extrairTermosBuscaProduto,
   pontuarCorrespondencia,
+  extrairBonificacaoDetalhada,
+  extrairValidadeDaMensagem,
   DISTRIBUIDORAS_CONHECIDAS,
   LABORATORIOS_CONHECIDOS,
   CATEGORIAS_PADRAO

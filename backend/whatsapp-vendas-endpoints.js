@@ -9,6 +9,7 @@ const fetch = require('node-fetch');
 const baileys = require('./baileys-service');
 const baileysSecondary = require('./baileys-secondary-service');
 const { queryDigifarma } = require('./services/digifarma.service');
+const security = require('./security.js');
 
 const EVOLUTION_MAIN_INSTANCE = process.env.EVOLUTION_MAIN_INSTANCE || 'belaFarma';
 const EVOLUTION_SENDER_INSTANCE = process.env.EVOLUTION_SENDER_INSTANCE || EVOLUTION_MAIN_INSTANCE || 'belaFarma';
@@ -1432,9 +1433,12 @@ function initializeWhatsAppVendasEndpoints(app, db) {
     if (!url) {
       return res.status(400).send('URL da imagem é obrigatória.');
     }
+    if (!security.isSafeExternalUrl(String(url))) {
+      return res.status(400).send('URL externa inválida ou bloqueada por segurança (Anti-SSRF).');
+    }
 
     try {
-      const response = await fetch(url);
+      const response = await fetch(String(url));
       if (!response.ok) {
         throw new Error(`Erro ao buscar imagem externa: ${response.statusText}`);
       }

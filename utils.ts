@@ -17,6 +17,30 @@ export const formatDateInBrazil = (dateString: string): string => {
   }
 };
 
+/**
+ * Converte com segurança uma data de fechamento ou timestamp ISO para a chave local 'YYYY-MM-DD',
+ * respeitando o fuso horário local (evita que fechamentos noturnos após as 21h em Brasília rolem para o dia seguinte em UTC).
+ */
+export const getLocalDateKey = (rawDate: string): string => {
+  if (!rawDate) return '';
+  if (rawDate.length === 10 && !rawDate.includes('T')) return rawDate;
+  const d = new Date(rawDate);
+  if (isNaN(d.getTime())) return rawDate.split('T')[0];
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+};
+
+export const formatLocalDatePtBR = (rawDate: string): string => {
+  if (!rawDate) return '';
+  const key = getLocalDateKey(rawDate);
+  const parts = key.split('-');
+  if (parts.length !== 3) return rawDate;
+  const [y, m, d] = parts;
+  return `${d}/${m}/${y}`;
+};
+
 export const getDayFromDate = (dateString: string): number => {
     if (!dateString) return 0;
     if (dateString.includes('T')) {
@@ -29,12 +53,81 @@ export const getDayFromDate = (dateString: string): number => {
     }
 };
 
-export const trackViewUsage = (view: string): void => {
+export interface FeatureUsageLocalEntry {
+  featureId: string;
+  usageCount: number;
+  lastUsedAt: string | null;
+}
+
+export interface FeatureAuditLocalStore {
+  monitoringStartedAt: string;
+  features: Record<string, FeatureUsageLocalEntry>;
+  uninstalledFeatures: string[];
+  whitelistedUntil: Record<string, string>;
+}
+
+const AUDIT_STORAGE_KEY = 'belinha_feature_audit_v1';
+
+export const getLocalFeatureAuditStore = (): FeatureAuditLocalStore => {
   try {
+    const raw = localStorage.getItem(AUDIT_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.monitoringStartedAt && parsed.features) {
+        return {
+          monitoringStartedAt: parsed.monitoringStartedAt,
+          features: parsed.features || {},
+          uninstalledFeatures: Array.isArray(parsed.uninstalledFeatures) ? parsed.uninstalledFeatures : [],
+          whitelistedUntil: parsed.whitelistedUntil || {}
+        };
+      }
+    }
+  } catch (e) {}
+  const initial: FeatureAuditLocalStore = {
+    monitoringStartedAt: new Date().toISOString(),
+    features: {},
+    uninstalledFeatures: [],
+    whitelistedUntil: {}
+  };
+  try {
+    localStorage.setItem(AUDIT_STORAGE_KEY, JSON.stringify(initial));
+  } catch (e) {}
+  return initial;
+};
+
+export const trackViewUsage = (view: string, userName?: string): void => {
+  try {
+    // Mantém compatibilidade com a chave legada
     const statsStr = localStorage.getItem('belinha_usage_stats') || '{}';
     const stats = JSON.parse(statsStr);
     stats[view] = (stats[view] || 0) + 1;
     localStorage.setItem('belinha_usage_stats', JSON.stringify(stats));
+
+    // Novo motor de auditoria de 15 dias (Local + Backend SQLite)
+    const nowIso = new Date().toISOString();
+    const store = getLocalFeatureAuditStore();
+    const current = store.features[view] || { featureId: view, usageCount: 0, lastUsedAt: null };
+    store.features[view] = {
+      featureId: view,
+      usageCount: (current.usageCount || 0) + 1,
+      lastUsedAt: nowIso
+    };
+    localStorage.setItem(AUDIT_STORAGE_KEY, JSON.stringify(store));
+
+    // Sincroniza de forma assíncrona com o servidor SQLite da farmácia
+    let resolvedUser = userName;
+    if (!resolvedUser) {
+      try {
+        const uStr = localStorage.getItem('belinha_session_user');
+        if (uStr) resolvedUser = JSON.parse(uStr)?.name;
+      } catch (e) {}
+    }
+
+    fetch('/api/system/feature-audit/track', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ featureId: view, userName: resolvedUser || 'Operador' })
+    }).catch(() => {});
   } catch (e) {
     console.error('Erro ao salvar estatísticas de uso:', e);
   }
@@ -161,14 +254,21 @@ export function calculateWeeklyBudgetsCascade(
 
         // Filtra boletos com vencimento nessa semana
         const weekBoletos = boletos.filter(b => {
-          if (!b.due_date) return false;
-          const [by, bm, bd] = b.due_date.split('-').map(Number);
+          if (!b || !b.due_date) return false;
+          const cleanDate = String(b.due_date).split('T')[0];
+          const parts = cleanDate.split('-');
+          if (parts.length < 3) return false;
+          const by = Number(parts[0]);
+          const bm = Number(parts[1]);
+          const bd = Number(parts[2]);
           // Usa meio-dia para evitar problemas de borda de fuso horário
           const boletoDate = new Date(by, bm - 1, bd, 12, 0, 0);
+          if (isNaN(boletoDate.getTime())) return false;
           return boletoDate >= rw.startDate && boletoDate <= rw.endDate;
         });
 
-        const spent = weekBoletos.reduce((sum, b) => sum + b.value, 0);
+        const spent = weekBoletos.reduce((sum, b) => sum + (b.value || 0), 0);
+
         totalMonthSpent += spent;
 
         // Limite ajustado: limite base menos o excesso herdado de semanas anteriores

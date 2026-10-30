@@ -186,8 +186,19 @@ async function connect(db) {
           return;
         }
 
-        // Reconexão transparente para restartRequired (515), timeout (408), connectionLost, etc.
-        const delay = (statusCode === DisconnectReason?.restartRequired || statusCode === 515) ? 1000 : 3000;
+        // Se o QR Code expirou sem leitura (408), não reconecta em loop automático
+        const isQrTimeout = statusCode === 408 || statusCode === DisconnectReason?.timedOut || reason.includes('QR refs');
+        if (isQrTimeout) {
+          console.log('[Baileys-Secondary] ⏸️ QR Code expirou sem leitura (Código 408). Pausando reconexão automática para economizar memória. Aguardando clique do usuário na tela.');
+          lastError = 'QR Code expirou. Clique em Conectar para gerar um novo.';
+          lastQR = null;
+          isConnecting = false;
+          if (reconnectTimer) clearTimeout(reconnectTimer);
+          return;
+        }
+
+        // Reconexão transparente para restartRequired (515), connectionLost, etc.
+        const delay = (statusCode === DisconnectReason?.restartRequired || statusCode === 515) ? 1000 : 5000;
         console.log(`[Baileys-Secondary] 🔄 Reconectando sessão existente em ${delay}ms (Código: ${statusCode})...`);
         if (reconnectTimer) clearTimeout(reconnectTimer);
         reconnectTimer = setTimeout(() => connect(savedDb), delay);

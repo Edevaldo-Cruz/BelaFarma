@@ -23,6 +23,8 @@ dist-ssr
 
 # Environment & Configs
 .env
+.jwt_secret
+*/.jwt_secret
 auth.json
 auth_check.json
 current_auth.json
@@ -36,6 +38,7 @@ models_agent.json
 
 # Database
 *.db
+data/auditoria_links/
 *.db-shm
 *.db-wal
 *.db-journal
@@ -66,3 +69,8 @@ bancoInter/
 *.pem
 certs/
 scratch/
+.agents/teamwork/
+*.class
+cloudflared.exe
+cloudflare-credentials.json
+cloudflare-config.yml

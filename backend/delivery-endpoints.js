@@ -2,10 +2,229 @@ const express = require('express');
 const {
   scanDeliveriesFromWhatsApp,
   syncAndEnqueueChats,
-  analyzeSingleChatWithAI
+  analyzeSingleChatWithAI,
+  descartarRotasDiasAnteriores
 } = require('./services/whatsapp-delivery-service');
+const { findOrCreateDigifarmaCustomer } = require('./services/digifarma.service');
 
 function initializeDeliveryEndpoints(app, db) {
+  // GET /api/deliveries/in-transit - Listar pedidos atualmente Em Rota para confirmação (apenas do dia atual)
+  app.get('/api/deliveries/in-transit', (req, res) => {
+    try {
+      // Regra de negócio: pedidos em rota de dias anteriores são descartados automaticamente
+      descartarRotasDiasAnteriores(db);
+
+      const sql = `
+        SELECT d.*, 
+               COALESCE(
+                 NULLIF(wc.pushName, ''), 
+                 NULLIF(wc.name, ''), 
+                 NULLIF(wc2.pushName, ''), 
+                 NULLIF(wc2.name, '')
+               ) as wa_name,
+               c.id as customer_record_id,
+               c.digifarma_id
+        FROM deliveries d
+        LEFT JOIN whatsapp_contacts wc ON wc.id = d.phone
+        LEFT JOIN whatsapp_contacts wc2 ON wc2.id = d.phone || '@s.whatsapp.net'
+        LEFT JOIN customers c ON (c.phone LIKE '%' || substr(d.phone, -8) OR c.phone = d.phone)
+        WHERE d.status = 'Em Rota'
+          AND (
+            d.conversation_date = date('now', 'localtime')
+            OR date(d.created_at, 'localtime') = date('now', 'localtime')
+          )
+        GROUP BY d.phone, COALESCE(d.items, d.id)
+        ORDER BY d.created_at DESC
+      `;
+      const inTransit = db.prepare(sql).all();
+      res.json({
+        success: true,
+        count: inTransit.length,
+        deliveries: inTransit
+      });
+    } catch (err) {
+      console.error('[DeliveryEndpoints] Erro ao buscar pedidos em rota:', err);
+      res.status(500).json({ error: 'Erro ao carregar pedidos em rota.', details: err.message });
+    }
+  });
+
+  // POST /api/deliveries/:id/confirm-status - Confirmar Entrega ou Reagendar/Cancelar com Nome e Endereço
+  app.post('/api/deliveries/:id/confirm-status', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const {
+        status, // 'Entregue' | 'Pendente' | 'Cancelado' | 'Nao_Fechado'
+        customer_name,
+        delivery_address,
+        neighborhood,
+        unclosed_reason
+      } = req.body;
+
+      const delivery = db.prepare('SELECT * FROM deliveries WHERE id = ?').get(id);
+      if (!delivery) {
+        return res.status(404).json({ error: 'Registro de entrega não encontrado.' });
+      }
+
+      const finalStatus = status || 'Entregue';
+      const isClosed = (finalStatus === 'Entregue' || finalStatus === 'Em Rota' || finalStatus === 'Pendente') ? 1 : 0;
+      const cleanPhone = delivery.phone ? delivery.phone.replace(/\D/g, '') : '';
+      const finalName = (customer_name && customer_name.trim() !== '') ? customer_name.trim() : delivery.customer_name;
+      const finalAddress = (delivery_address && delivery_address.trim() !== '') ? delivery_address.trim() : delivery.delivery_address;
+      const finalNeighborhood = (neighborhood && neighborhood.trim() !== '') ? neighborhood.trim() : delivery.neighborhood;
+
+      // 1. Atualizar entrega no SQLite
+      db.prepare(`
+        UPDATE deliveries SET
+          status = ?,
+          sale_closed = ?,
+          customer_name = ?,
+          delivery_address = ?,
+          neighborhood = COALESCE(?, neighborhood),
+          unclosed_reason = ?,
+          review_status = 'reviewed',
+          updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(
+        finalStatus,
+        isClosed,
+        finalName,
+        finalAddress,
+        finalNeighborhood,
+        unclosed_reason || null,
+        id
+      );
+
+      // Cascata: Se houverem duplicatas para este mesmo telefone em 'Em Rota' ou com o mesmo last_message_id, atualizar todas
+      if (cleanPhone) {
+        db.prepare(`
+          UPDATE deliveries SET
+            status = ?,
+            sale_closed = ?,
+            customer_name = ?,
+            delivery_address = ?,
+            neighborhood = COALESCE(?, neighborhood),
+            unclosed_reason = ?,
+            review_status = 'reviewed',
+            updated_at = CURRENT_TIMESTAMP
+          WHERE phone = ? AND id != ? AND (status = 'Em Rota' OR last_message_id = ?)
+        `).run(
+          finalStatus,
+          isClosed,
+          finalName,
+          finalAddress,
+          finalNeighborhood,
+          unclosed_reason || null,
+          delivery.phone,
+          id,
+          delivery.last_message_id
+        );
+      }
+
+      // 2. Atualizar cadastro local do cliente e memória de endereços
+      if (cleanPhone) {
+        try {
+          const cust = db.prepare('SELECT id, digifarma_id FROM customers WHERE phone LIKE ? OR phone = ? LIMIT 1').get(`%${cleanPhone.slice(-8)}%`, cleanPhone);
+          const custId = cust ? cust.id : null;
+
+          if (finalName && !['cliente', 'cliente whatsapp', 'atendente'].includes(finalName.toLowerCase())) {
+            db.prepare(`
+              UPDATE customers 
+              SET name = ?, updated_at = CURRENT_TIMESTAMP 
+              WHERE phone LIKE ? AND (name IS NULL OR name = '' OR name LIKE 'Cliente%')
+            `).run(finalName, `%${cleanPhone.slice(-8)}%`);
+
+            db.prepare(`
+              INSERT INTO whatsapp_contacts (id, name, updated_at)
+              VALUES (?, ?, CURRENT_TIMESTAMP)
+              ON CONFLICT(id) DO UPDATE SET name = excluded.name, updated_at = CURRENT_TIMESTAMP
+            `).run(cleanPhone, finalName);
+          }
+
+          if (finalAddress && finalAddress !== 'Endereço a confirmar' && finalAddress !== 'Balcão / Loja' && finalAddress.length >= 5) {
+            db.prepare(`
+              INSERT INTO customer_address_history (id, phone, customer_id, address, neighborhood, last_used_at, created_at)
+              VALUES (?, ?, ?, ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime'))
+            `).run(`addr_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`, cleanPhone, custId, finalAddress, finalNeighborhood || null);
+
+            if (custId) {
+              db.prepare(`
+                UPDATE customers 
+                SET address = ?, neighborhood = COALESCE(?, neighborhood), updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+              `).run(finalAddress, finalNeighborhood || null, custId);
+            }
+          }
+        } catch (errMem) {
+          console.warn('[DeliveryEndpoints] ⚠️ Falha ao atualizar memória de cliente:', errMem.message);
+        }
+      }
+
+      // 3. Sincronização e Cadastro Automático no Digifarma
+      let digiResult = null;
+      if (cleanPhone) {
+        try {
+          digiResult = await findOrCreateDigifarmaCustomer({
+            name: finalName,
+            phone: cleanPhone,
+            address: finalAddress,
+            neighborhood: finalNeighborhood
+          });
+
+          if (digiResult && digiResult.success && digiResult.cliente_id) {
+            db.prepare('UPDATE deliveries SET digifarma_cliente_id = ? WHERE id = ?').run(digiResult.cliente_id, id);
+            db.prepare('UPDATE customers SET digifarma_id = ? WHERE phone LIKE ? OR phone = ?').run(digiResult.cliente_id, `%${cleanPhone.slice(-8)}%`, cleanPhone);
+          }
+        } catch (errDigi) {
+          console.warn('[DeliveryEndpoints] ⚠️ Erro na sincronização do Digifarma:', errDigi.message);
+        }
+      }
+
+      const updated = db.prepare('SELECT * FROM deliveries WHERE id = ?').get(id);
+
+      res.json({
+        success: true,
+        message: finalStatus === 'Entregue' ? 'Entrega confirmada com sucesso!' : 'Status atualizado com sucesso!',
+        delivery: updated,
+        digifarma: digiResult
+      });
+    } catch (err) {
+      console.error('[DeliveryEndpoints] Erro ao confirmar status da entrega:', err);
+      res.status(500).json({ error: 'Erro ao confirmar entrega.', details: err.message });
+    }
+  });
+
+  // POST /api/deliveries/:id/sync-digifarma - Sincronização explícita com o Digifarma
+  app.post('/api/deliveries/:id/sync-digifarma', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const delivery = db.prepare('SELECT * FROM deliveries WHERE id = ?').get(id);
+      if (!delivery) {
+        return res.status(404).json({ error: 'Entrega não encontrada.' });
+      }
+
+      const digiResult = await findOrCreateDigifarmaCustomer({
+        name: delivery.customer_name,
+        phone: delivery.phone,
+        address: delivery.delivery_address,
+        neighborhood: delivery.neighborhood
+      });
+
+      if (digiResult && digiResult.success && digiResult.cliente_id) {
+        db.prepare('UPDATE deliveries SET digifarma_cliente_id = ? WHERE id = ?').run(digiResult.cliente_id, id);
+        const cleanPhone = delivery.phone.replace(/\D/g, '');
+        db.prepare('UPDATE customers SET digifarma_id = ? WHERE phone LIKE ? OR phone = ?').run(digiResult.cliente_id, `%${cleanPhone.slice(-8)}%`, cleanPhone);
+      }
+
+      res.json({
+        success: true,
+        digifarma: digiResult
+      });
+    } catch (err) {
+      console.error('[DeliveryEndpoints] Erro ao sincronizar com Digifarma:', err);
+      res.status(500).json({ error: 'Erro ao sincronizar com Digifarma.', details: err.message });
+    }
+  });
+
   // POST /api/deliveries/sync-chats - Sincronizar conversas retroativas (ex: desde 01/08/2026) e colocar na fila de pendentes
   app.post('/api/deliveries/sync-chats', async (req, res) => {
     try {
@@ -69,25 +288,25 @@ function initializeDeliveryEndpoints(app, db) {
       const { status, period = 'month', search, filterClosed } = req.query;
 
       let timeClause = '';
+      const dateCol = "COALESCE(d.conversation_date, date(d.created_at, 'localtime'))";
       if (period === 'today') {
         timeClause = `AND (
-          date(created_at, 'localtime') = date('now', 'localtime') OR
-          date(created_at) = date('now') OR
-          created_at >= date('now', 'start of day') OR
-          created_at LIKE date('now', 'localtime') || '%'
+          ${dateCol} = date('now', 'localtime') OR
+          date(d.created_at, 'localtime') = date('now', 'localtime') OR
+          d.created_at LIKE date('now', 'localtime') || '%'
         )`;
       } else if (period === '7days') {
-        timeClause = "AND created_at >= datetime('now', '-7 days')";
+        timeClause = `AND ${dateCol} >= date('now', '-7 days', 'localtime')`;
       } else if (period === '30days') {
-        timeClause = "AND created_at >= datetime('now', '-30 days')";
+        timeClause = `AND ${dateCol} >= date('now', '-30 days', 'localtime')`;
       } else if (period === 'month') {
-        timeClause = "AND (strftime('%Y-%m', created_at, 'localtime') = strftime('%Y-%m', 'now', 'localtime') OR strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now'))";
+        timeClause = `AND substr(${dateCol}, 1, 7) = strftime('%Y-%m', 'now', 'localtime')`;
       } else if (period === 'prev_month') {
         // Mês anterior
-        timeClause = "AND strftime('%Y-%m', created_at, 'localtime') = strftime('%Y-%m', 'now', 'start of month', '-1 month', 'localtime')";
+        timeClause = `AND substr(${dateCol}, 1, 7) = strftime('%Y-%m', 'now', 'start of month', '-1 month', 'localtime')`;
       } else if (period && period.match(/^\d{4}-\d{2}$/)) {
         // Mês específico YYYY-MM (ex: 2026-07)
-        timeClause = `AND strftime('%Y-%m', created_at, 'localtime') = '${period}'`;
+        timeClause = `AND substr(${dateCol}, 1, 7) = '${period}'`;
       } else if (period === 'all') {
         timeClause = '';
       }
@@ -501,6 +720,242 @@ function initializeDeliveryEndpoints(app, db) {
     } catch (err) {
       console.error('[DeliveryEndpoints] Erro ao carregar métricas de rejeição:', err);
       res.status(500).json({ error: 'Erro ao carregar métricas de rejeição.', details: err.message });
+    }
+  });
+
+  // GET /api/deliveries/analytics - Inteligência Geográfica, SLA, Produtos e Fidelidade
+  app.get('/api/deliveries/analytics', (req, res) => {
+    try {
+      const { period = 'month' } = req.query;
+
+      let timeClause = '';
+      let timeClauseWph = '';
+      const dateCol = "COALESCE(conversation_date, date(created_at, 'localtime'))";
+      const dateColWph = "COALESCE(interaction_date, date(created_at, 'localtime'))";
+
+      if (period === 'today') {
+        timeClause = `AND (${dateCol} = date('now', 'localtime') OR created_at LIKE date('now', 'localtime') || '%')`;
+        timeClauseWph = `AND (${dateColWph} = date('now', 'localtime') OR created_at LIKE date('now', 'localtime') || '%')`;
+      } else if (period === '7days') {
+        timeClause = `AND ${dateCol} >= date('now', '-7 days', 'localtime')`;
+        timeClauseWph = `AND ${dateColWph} >= date('now', '-7 days', 'localtime')`;
+      } else if (period === '30days') {
+        timeClause = `AND ${dateCol} >= date('now', '-30 days', 'localtime')`;
+        timeClauseWph = `AND ${dateColWph} >= date('now', '-30 days', 'localtime')`;
+      } else if (period === 'month') {
+        timeClause = `AND substr(${dateCol}, 1, 7) = strftime('%Y-%m', 'now', 'localtime')`;
+        timeClauseWph = `AND substr(${dateColWph}, 1, 7) = strftime('%Y-%m', 'now', 'localtime')`;
+      } else if (period === 'prev_month') {
+        timeClause = `AND substr(${dateCol}, 1, 7) = strftime('%Y-%m', 'now', 'start of month', '-1 month', 'localtime')`;
+        timeClauseWph = `AND substr(${dateColWph}, 1, 7) = strftime('%Y-%m', 'now', 'start of month', '-1 month', 'localtime')`;
+      } else if (period && period.match(/^\d{4}-\d{2}$/)) {
+        timeClause = `AND substr(${dateCol}, 1, 7) = '${period}'`;
+        timeClauseWph = `AND substr(${dateColWph}, 1, 7) = '${period}'`;
+      }
+
+      // 1. Geolocalização / Bairros
+      const geoRows = db.prepare(`
+        SELECT 
+          COALESCE(NULLIF(neighborhood, ''), 'Não Informado / Balcão') as neighborhood,
+          COUNT(*) as count,
+          SUM(CASE WHEN sale_closed = 1 THEN 1 ELSE 0 END) as closedCount,
+          SUM(CASE WHEN sale_closed = 1 THEN total_amount ELSE 0 END) as totalAmount,
+          AVG(CASE WHEN sale_closed = 1 AND total_amount > 0 THEN total_amount ELSE NULL END) as avgTicket
+        FROM deliveries
+        WHERE (classification_type IS NULL OR classification_type != 'nao_relevante') ${timeClause}
+        GROUP BY neighborhood
+        ORDER BY totalAmount DESC, count DESC
+        LIMIT 15
+      `).all();
+
+      const geoAnalytics = geoRows.map(r => ({
+        neighborhood: r.neighborhood,
+        count: r.count,
+        closedCount: r.closedCount || 0,
+        totalAmount: Number((r.totalAmount || 0).toFixed(2)),
+        avgTicket: Number((r.avgTicket || 0).toFixed(2))
+      }));
+
+      // 2. Top Produtos Vendidos
+      const topSoldRows = db.prepare(`
+        SELECT product_name, COUNT(*) as count
+        FROM whatsapp_product_history
+        WHERE status = 'comprado' ${timeClauseWph}
+        GROUP BY product_name
+        ORDER BY count DESC
+        LIMIT 10
+      `).all();
+
+      let topSoldProducts = topSoldRows;
+      if (topSoldProducts.length === 0) {
+        const fallbackSold = db.prepare(`
+          SELECT items, total_amount FROM deliveries
+          WHERE sale_closed = 1 AND items IS NOT NULL AND items != '' ${timeClause}
+          LIMIT 50
+        `).all();
+        const mapCount = {};
+        for (const f of fallbackSold) {
+          const name = f.items.split('\n')[0].replace(/^\d+x\s*/, '').trim();
+          if (name && name !== 'Receita / Imagem' && name.length > 2) {
+            mapCount[name] = (mapCount[name] || 0) + 1;
+          }
+        }
+        topSoldProducts = Object.entries(mapCount)
+          .map(([product_name, count]) => ({ product_name, count }))
+          .sort((a, b) => b.count - a.count)
+          .slice(0, 10);
+      }
+
+      // 3. Top Produtos Perdidos / Não Fechados
+      const topLostRows = db.prepare(`
+        SELECT product_name, COUNT(*) as count,
+          CASE 
+            WHEN status = 'nao_encontrado' THEN 'Falta de Estoque'
+            WHEN status = 'cancelado' THEN 'Desistência'
+            ELSE 'Preço / Sem Resposta'
+          END as reason
+        FROM whatsapp_product_history
+        WHERE status IN ('nao_encontrado', 'pesquisado', 'cancelado') ${timeClauseWph}
+        GROUP BY product_name, reason
+        ORDER BY count DESC
+        LIMIT 10
+      `).all();
+
+      // 4. Fidelidade: Novos vs Recorrentes
+      const loyaltyRow = db.prepare(`
+        SELECT 
+          SUM(CASE WHEN is_new_customer = 1 THEN 1 ELSE 0 END) as newCustomersCount,
+          SUM(CASE WHEN is_repeat_customer = 1 OR is_new_customer = 0 THEN 1 ELSE 0 END) as repeatCustomersCount,
+          COUNT(*) as totalOrders
+        FROM deliveries
+        WHERE (classification_type IS NULL OR classification_type != 'nao_relevante') ${timeClause}
+      `).get() || { newCustomersCount: 0, repeatCustomersCount: 0, totalOrders: 0 };
+
+      const totalL = (loyaltyRow.newCustomersCount || 0) + (loyaltyRow.repeatCustomersCount || 0);
+      const loyaltyRate = totalL > 0 ? ((loyaltyRow.repeatCustomersCount || 0) / totalL) * 100 : 0;
+
+      const topCustomers = db.prepare(`
+        SELECT 
+          d.phone,
+          COALESCE(NULLIF(d.customer_name, ''), 'Cliente') as name,
+          COUNT(*) as orderCount,
+          SUM(d.total_amount) as totalSpent
+        FROM deliveries d
+        WHERE d.sale_closed = 1 ${timeClause}
+        GROUP BY d.phone
+        ORDER BY orderCount DESC, totalSpent DESC
+        LIMIT 8
+      `).all().map(c => ({
+        phone: c.phone,
+        name: c.name,
+        orderCount: c.orderCount,
+        totalSpent: Number((c.totalSpent || 0).toFixed(2))
+      }));
+
+      // 5. SLA de Primeira Resposta
+      const slaRow = db.prepare(`
+        SELECT 
+          AVG(first_response_time_seconds) as avgFirstResponseSeconds,
+          SUM(CASE WHEN first_response_time_seconds > 0 AND first_response_time_seconds <= 60 THEN 1 ELSE 0 END) as under1Min,
+          SUM(CASE WHEN first_response_time_seconds > 60 AND first_response_time_seconds <= 300 THEN 1 ELSE 0 END) as oneToFiveMin,
+          SUM(CASE WHEN first_response_time_seconds > 300 AND first_response_time_seconds <= 900 THEN 1 ELSE 0 END) as fiveToFifteenMin,
+          SUM(CASE WHEN first_response_time_seconds > 900 THEN 1 ELSE 0 END) as over15Min
+        FROM deliveries
+        WHERE first_response_time_seconds > 0 ${timeClause}
+      `).get() || {};
+
+      // 6. Horários de Pico (0 a 23)
+      const hoursRows = db.prepare(`
+        SELECT 
+          CAST(strftime('%H', created_at, 'localtime') AS INTEGER) as hour,
+          COUNT(*) as count
+        FROM deliveries
+        WHERE (classification_type IS NULL OR classification_type != 'nao_relevante') ${timeClause}
+        GROUP BY hour
+        ORDER BY hour ASC
+      `).all();
+
+      const peakHours = [];
+      const hourMap = {};
+      for (const h of hoursRows) {
+        hourMap[h.hour] = h.count;
+      }
+      for (let hr = 7; hr <= 22; hr++) {
+        peakHours.push({
+          hour: hr,
+          label: `${String(hr).padStart(2, '0')}h`,
+          count: hourMap[hr] || 0
+        });
+      }
+
+      // 7. Dias da Semana (0=Dom, 1=Seg, ... 6=Sab)
+      const dayNames = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+      const daysRows = db.prepare(`
+        SELECT 
+          CAST(strftime('%w', created_at, 'localtime') AS INTEGER) as dayIndex,
+          COUNT(*) as count
+        FROM deliveries
+        WHERE (classification_type IS NULL OR classification_type != 'nao_relevante') ${timeClause}
+        GROUP BY dayIndex
+      `).all();
+
+      const dayMap = {};
+      for (const d of daysRows) {
+        dayMap[d.dayIndex] = d.count;
+      }
+      const peakDays = dayNames.map((name, idx) => ({
+        day: name,
+        dayIndex: idx,
+        count: dayMap[idx] || 0
+      }));
+
+      // 8. Funil
+      const funnelRow = db.prepare(`
+        SELECT 
+          COUNT(*) as totalConversations,
+          SUM(CASE WHEN total_amount > 0 OR (items IS NOT NULL AND items != '') THEN 1 ELSE 0 END) as quotesGenerated,
+          SUM(CASE WHEN sale_closed = 1 THEN 1 ELSE 0 END) as salesClosed
+        FROM deliveries
+        WHERE (classification_type IS NULL OR classification_type != 'nao_relevante') ${timeClause}
+      `).get() || { totalConversations: 0, quotesGenerated: 0, salesClosed: 0 };
+
+      const funnel = {
+        totalConversations: funnelRow.totalConversations || 0,
+        quotesGenerated: funnelRow.quotesGenerated || 0,
+        salesClosed: funnelRow.salesClosed || 0,
+        conversionRate: funnelRow.totalConversations > 0
+          ? Number(((funnelRow.salesClosed / funnelRow.totalConversations) * 100).toFixed(1))
+          : 0
+      };
+
+      res.json({
+        success: true,
+        period,
+        analytics: {
+          geoAnalytics,
+          topSoldProducts,
+          topLostProducts: topLostRows,
+          customerLoyalty: {
+            newCustomersCount: loyaltyRow.newCustomersCount || 0,
+            repeatCustomersCount: loyaltyRow.repeatCustomersCount || 0,
+            loyaltyRate: Number(loyaltyRate.toFixed(1)),
+            topCustomers
+          },
+          slaAnalytics: {
+            avgFirstResponseSeconds: Math.round(slaRow.avgFirstResponseSeconds || 0),
+            under1Min: slaRow.under1Min || 0,
+            oneToFiveMin: slaRow.oneToFiveMin || 0,
+            fiveToFifteenMin: slaRow.fiveToFifteenMin || 0,
+            over15Min: slaRow.over15Min || 0
+          },
+          peakHours,
+          peakDays,
+          funnel
+        }
+      });
+    } catch (err) {
+      console.error('[DeliveryEndpoints] Erro ao carregar analytics:', err);
+      res.status(500).json({ error: 'Erro ao gerar analytics de delivery.', details: err.message });
     }
   });
 

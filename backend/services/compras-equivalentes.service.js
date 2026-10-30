@@ -6,11 +6,13 @@ function getDb(db) {
 }
 
 const LABS_RECONHECIDOS = [
-  'MEDQUIMICA', 'MEDQUIMIC', 'LEGRAND', 'EMS', 'CIMED', 'NEO QUIMICA', 'MEDLEY', 'EUROFARMA',
+  'MEDQUIMICA', 'MEDQUIMIC', 'LEGRAND', 'EMS', 'CIMED', 'NEO QUIMICA', 'NEOQUIMICA', 'MEDLEY', 'EUROFARMA',
   'TEUTO', 'GERMED', 'PRATI', 'ACHE', 'SANDOZ', 'BIOLAB', 'NOVA QUIMICA', 'GEOLAB',
   'SANVAL', 'BELFAR', 'PHARLAB', 'LISMED', 'BIOSINTETICA', 'HYPERA', 'GLAXO',
   'ASTRAZENECA', 'SANOFI', 'NOVARTIS', 'BAYER', 'TAKEDA', 'ABBOTT', 'APSEN',
-  'CRISTALIA', 'MANTECORP', 'VITAMEDIC', 'VITAPAN', 'GLOBO', 'ONE'
+  'CRISTALIA', 'MANTECORP', 'VITAMEDIC', 'VITAPAN', 'GLOBO', 'NATULAB', 'CIFARMA',
+  'MULTILAB', 'BRAINFARMA', 'AUROBINDO', 'RANBAXY', 'TORRENT', 'ZODIAC', 'MOMENTA',
+  'SUPERA', 'UNIAO QUIMICA', 'AIRELA', 'mariol', 'KLEY HERTZ', 'HERTZ', 'FARMAX', 'CATARINENSE'
 ];
 
 /**
@@ -26,13 +28,15 @@ function extrairAtributosProduto(nome) {
     return { principio: 'OUTROS', dosagem: '', unidades: 1, forma: 'UN', laboratorio: null, chave: 'OUTROS 1' };
   }
 
-  const norm = nome.toUpperCase().trim();
+  let norm = nome.toUpperCase().trim();
 
-  // Detecta laboratório
+  // Detecta laboratório e remove da string de análise de princípio ativo
   let laboratorio = null;
   for (const lab of LABS_RECONHECIDOS) {
-    if (norm.includes(lab)) {
-      laboratorio = lab;
+    const labUp = lab.toUpperCase();
+    if (norm.includes(labUp)) {
+      laboratorio = labUp;
+      norm = norm.replace(new RegExp(`\\b${labUp}\\b`, 'g'), ' ');
       break;
     }
   }
@@ -43,8 +47,8 @@ function extrairAtributosProduto(nome) {
   if (multMatch) {
     unidades = parseInt(multMatch[1], 10) * parseInt(multMatch[2], 10);
   } else {
-    const unMatch = /(?:C\/|CX\/|COM|\/)\s*(\d+)\s*(?:CPS|CP|CPR|COMP|CAPS|FLAC|AMP|ENV|SACH|TB)?\b/i.exec(norm) ||
-                    /\b(\d+)\s*(?:CPS|CPR|COMP|CAPS|FLAC|AMP|ENV)\b/i.exec(norm);
+    const unMatch = /(?:C\/|CX\/|COM|\/)\s*(\d+)\s*(?:CPS|CP|CPR|COMP|CAPS|FLAC|AMP|ENV|SACH|TB|DRG)?\b/i.exec(norm) ||
+                    /\b(\d+)\s*(?:CPS|CP|CPR|COMP|CAPS|FLAC|AMP|ENV|DRG)\b/i.exec(norm);
     if (unMatch) {
       unidades = parseInt(unMatch[1], 10);
     }
@@ -52,7 +56,7 @@ function extrairAtributosProduto(nome) {
 
   // Detecta dosagem
   let dosagem = '';
-  const doseMatch = /(\d+(?:[,\.]\d+)?)\s*(MG|G|MCG|ML|L)\b/i.exec(norm);
+  const doseMatch = /(\d+(?:[,\.]\d+)?)\s*(MG\/ML|MCG\/ML|MG|G|MCG|ML|UI)\b/i.exec(norm);
   if (doseMatch) {
     dosagem = doseMatch[1].replace(',', '.') + doseMatch[2].toUpperCase();
   }
@@ -64,33 +68,63 @@ function extrairAtributosProduto(nome) {
   else if (norm.includes('SUSP')) forma = 'SUSPENSÃO';
   else if (norm.includes('POM') || norm.includes('POMADA')) forma = 'POMADA';
   else if (norm.includes('CREME') || norm.includes('CRM')) forma = 'CREME';
-  else if (norm.includes('INJ') || norm.includes('INJETAVEL')) forma = 'INJETÁVEL';
+  else if (norm.includes('INJ') || norm.includes('INJETAVEL') || norm.includes('AMP')) forma = 'INJETÁVEL';
   else if (norm.includes('CPS') || norm.includes('CAPS')) forma = 'CÁPSULA';
-  else if (norm.includes('CPR') || norm.includes('COMP')) forma = 'COMPRIMIDO';
+  else if (norm.includes('CPR') || norm.includes('COMP') || norm.includes('CP')) forma = 'COMPRIMIDO';
 
   // Extrai princípio ativo / nome base (remove stopwords, labs e números de apresentação)
   const stopwords = new Set([
-    'DE', 'DA', 'DO', 'DOS', 'DAS', 'COM', 'PARA', 'POR', 'C', 'MG', 'CPR', 'CAPS', 'CPS', 'COMP',
-    'DRG', 'G', 'ML', 'L', 'GEN', 'GENERICO', 'GENÉRICO', 'SIMILAR', 'REF', 'REFERENCIA',
-    'LOTES', 'BL', 'CX', 'FR', 'TB', ...LABS_RECONHECIDOS
+    'DE', 'DA', 'DO', 'DOS', 'DAS', 'COM', 'PARA', 'POR', 'C', 'MG', 'CPR', 'CAPS', 'CPS', 'COMP', 'CP',
+    'DRG', 'G', 'ML', 'L', 'MCG', 'UI', 'GEN', 'GENERICO', 'GENÉRICO', 'SIMILAR', 'REF', 'REFERENCIA',
+    'LOTES', 'BL', 'CX', 'FR', 'TB', 'REV', 'REVESTIDO', 'SOL', 'ORAL', 'USO', 'ADULTO', 'PEDIATRICO',
+    'INFANTIL', 'GOTAS', 'GTS', 'XPE', 'XAROPE', 'POM', 'POMADA', 'CRM', 'CREME', 'SUSP',
+    ...LABS_RECONHECIDOS.map(l => l.toUpperCase())
   ]);
 
-  const tokens = norm.replace(/[^A-Z0-9\s]/g, ' ')
+  const saisPrefixos = new Set([
+    'CLORIDRATO', 'CLOR', 'MALEATO', 'BESILATO', 'SULFATO', 'BROMIDRATO', 'HEMITARTARATO',
+    'VALERATO', 'FOSFATO', 'SUCCINATO', 'TARTARATO', 'CITRATO', 'CARBONATO', 'ACETATO',
+    'PROPIONATO', 'FUROATO', 'NITRATO', 'OXALATO', 'DICLOFENACO', 'DIPROPIONATO', ' ENANTATO'
+  ]);
+
+  const sufixosCompostos = new Set([
+    'POTASSICA', 'POTASSICO', 'SODICA', 'SODICO', 'CLAVULANATO', 'MONOIDRATADA', 'MONOIDRATADO',
+    'DIIDRATADA', 'DIIDRATADO', 'TRIIDRATADA', 'TRIIDRATADO', ' cálcica', 'CALCICA', 'CALCICO',
+    'CAFEINA', 'HIDROCLOROTIAZIDA', ' dipirona', 'COLCHICINA'
+  ]);
+
+  // Remove padrões de dosagem da string antes de tokenizar o princípio ativo
+  const normSemDose = norm
+    .replace(/(\d+(?:[,\.]\d+)?)\s*(MG\/ML|MCG\/ML|MG|G|MCG|ML|UI)\b/gi, ' ')
+    .replace(/(?:C\/|CX\/|COM|\/)\s*\d+/gi, ' ');
+
+  const tokens = normSemDose.replace(/[^A-Z0-9\s]/g, ' ')
     .split(/\s+/)
     .filter(w => w.length >= 3 && !stopwords.has(w) && !/^\d+$/.test(w));
 
   let principio = tokens.length > 0 ? tokens[0] : 'OUTROS';
-  // Casos compostos comuns (ex: AMOXICILINA CLAVULANATO, LOSARTANA POTASSICA, DIPIRONA MONOIDRATADA)
-  if (tokens.length >= 2 && ['POTASSICA', 'CLAVULANATO', 'POTASSICO', 'SODICA', 'SODICO'].includes(tokens[1])) {
-    principio = `${tokens[0]} ${tokens[1]}`;
+  if (tokens.length >= 2) {
+    if (saisPrefixos.has(tokens[0])) {
+      // Se começa com sal (ex: CLORIDRATO METFORMINA, MALEATO ENALAPRIL), inclui o fármaco principal!
+      principio = `${tokens[0]} ${tokens[1]}`;
+      if (tokens.length >= 3 && sufixosCompostos.has(tokens[2])) {
+        principio += ` ${tokens[2]}`;
+      }
+    } else if (sufixosCompostos.has(tokens[1])) {
+      // Ex: LOSARTANA POTASSICA, AMOXICILINA CLAVULANATO, DIPIRONA SODICA
+      principio = `${tokens[0]} ${tokens[1]}`;
+    }
   }
 
-  const chave = `${principio} ${dosagem} C/ ${unidades} ${forma}`.replace(/\s+/g, ' ').trim();
+  const isMensal = (unidades === 28 || unidades === 30) && (forma === 'COMPRIMIDO' || forma === 'CÁPSULA' || forma === 'COMP/CAPS');
+  const unidadesChave = isMensal ? '28-30' : unidades;
+  const chave = `${principio} ${dosagem} C/ ${unidadesChave} ${forma}`.replace(/\s+/g, ' ').trim();
 
   return {
     principio,
     dosagem,
     unidades,
+    unidadesChave,
     forma,
     laboratorio,
     chave
@@ -128,10 +162,12 @@ function obterEstoqueConsolidadoGrupo(grupoId, dbInstance) {
 
   let saldoTotal = 0;
   let estMinimoTotal = 0;
+  let vmdTotal = 0;
   let comprasValidas = [];
 
   for (const p of produtos) {
     saldoTotal += Number(p.saldo || 0);
+    vmdTotal += Number(p.vmd_ponderado || 0);
     // Para produtos equivalentes intercambiáveis, o estoque mínimo do grupo reflete o giro conjunto
     estMinimoTotal = Math.max(estMinimoTotal, Number(p.est_minimo || 0));
     if (p.ultima_compra_valor && Number(p.ultima_compra_valor) > 0) {
@@ -142,6 +178,28 @@ function obterEstoqueConsolidadoGrupo(grupoId, dbInstance) {
   // Se o grupo tem um estoque mínimo explicitamente configurado, respeita
   if (grupo.est_minimo_grupo && Number(grupo.est_minimo_grupo) > 0) {
     estMinimoTotal = Number(grupo.est_minimo_grupo);
+  }
+
+  vmdTotal = Number(vmdTotal.toFixed(4));
+  let diasDuracaoEstoque = 0;
+  if (saldoTotal <= 0) {
+    diasDuracaoEstoque = 0;
+  } else if (vmdTotal > 0) {
+    diasDuracaoEstoque = Math.round(saldoTotal / vmdTotal);
+  } else {
+    diasDuracaoEstoque = 999;
+  }
+
+  let dataPrevisaoEsgotamento = null;
+  if (diasDuracaoEstoque === 0) {
+    dataPrevisaoEsgotamento = 'Ruptura (Hoje)';
+  } else if (diasDuracaoEstoque >= 365) {
+    dataPrevisaoEsgotamento = '+1 ano';
+  } else {
+    const d = new Date();
+    d.setDate(d.getDate() + diasDuracaoEstoque);
+    const pad = (n) => String(n).padStart(2, '0');
+    dataPrevisaoEsgotamento = `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
   }
 
   const menorUltimaCompra = comprasValidas.length > 0 ? Math.min(...comprasValidas) : 0;
@@ -160,12 +218,55 @@ function obterEstoqueConsolidadoGrupo(grupoId, dbInstance) {
     formaFarmaceutica: grupo.forma_farmaceutica,
     saldoTotal,
     estMinimoTotal,
+    vmdTotal,
+    diasDuracaoEstoque,
+    dataPrevisaoEsgotamento,
     emRuptura,
     menorUltimaCompra,
     mediaUltimaCompra,
     quantidadeProdutos: produtos.length,
     produtos
   };
+}
+
+/**
+ * Consulta o estoque consolidado em lote para uma lista de produtos.
+ * Retorna um objeto chave-valor mapeado por produtoId.
+ * @param {Array<number>} produtoIds
+ * @param {Object} dbInstance
+ * @returns {Record<number, Object>}
+ */
+function obterConsolidadoParaProdutos(produtoIds = [], dbInstance) {
+  const db = getDb(dbInstance);
+  if (!db || !Array.isArray(produtoIds) || produtoIds.length === 0) return {};
+
+  const placeholders = produtoIds.map(() => '?').join(',');
+  const vinculos = db.prepare(`
+    SELECT produto_id, grupo_id 
+    FROM compras_produtos_equivalentes 
+    WHERE produto_id IN (${placeholders})
+  `).all(...produtoIds);
+
+  if (vinculos.length === 0) return {};
+
+  const gruposCarregados = new Map();
+  const resultado = {};
+
+  for (const v of vinculos) {
+    let grupoData = gruposCarregados.get(v.grupo_id);
+    if (!grupoData) {
+      grupoData = obterEstoqueConsolidadoGrupo(v.grupo_id, db);
+      if (grupoData) {
+        gruposCarregados.set(v.grupo_id, grupoData);
+      }
+    }
+
+    if (grupoData) {
+      resultado[v.produto_id] = grupoData;
+    }
+  }
+
+  return resultado;
 }
 
 /**
@@ -192,17 +293,26 @@ function buscarGrupoPorProduto(produtoId, ean, produtoNome, dbInstance) {
     }
   }
 
-  // 3. Busca por correspondência exata de Princípio Ativo + Dosagem + Unidades
+  // 3. Busca por correspondência de Princípio Ativo + Dosagem + Unidades (com tolerância mensal 28 vs 30)
   if (produtoNome) {
     const attr = extrairAtributosProduto(produtoNome);
     if (attr.principio && attr.principio !== 'OUTROS' && attr.unidades > 0) {
-      const matchGrupo = db.prepare(`
-        SELECT id FROM compras_grupos_equivalentes 
-        WHERE principio_ativo = ? 
-          AND unidades_embalagem = ?
-          AND (dosagem = ? OR (dosagem IS NULL AND ? = ''))
-        LIMIT 1
-      `).get(attr.principio, attr.unidades, attr.dosagem || '', attr.dosagem || '');
+      const isMensal = (attr.unidades === 28 || attr.unidades === 30) && (attr.forma === 'COMPRIMIDO' || attr.forma === 'CÁPSULA' || attr.forma === 'COMP/CAPS');
+      const matchGrupo = isMensal
+        ? db.prepare(`
+            SELECT id FROM compras_grupos_equivalentes 
+            WHERE principio_ativo = ? 
+              AND unidades_embalagem IN (28, 30)
+              AND (dosagem = ? OR (dosagem IS NULL AND ? = ''))
+            LIMIT 1
+          `).get(attr.principio, attr.dosagem || '', attr.dosagem || '')
+        : db.prepare(`
+            SELECT id FROM compras_grupos_equivalentes 
+            WHERE principio_ativo = ? 
+              AND unidades_embalagem = ?
+              AND (dosagem = ? OR (dosagem IS NULL AND ? = ''))
+            LIMIT 1
+          `).get(attr.principio, attr.unidades, attr.dosagem || '', attr.dosagem || '');
 
       if (matchGrupo) {
         return obterEstoqueConsolidadoGrupo(matchGrupo.id, db);
@@ -234,13 +344,16 @@ function gerarGruposAutomaticos(dbInstance) {
     const attr = extrairAtributosProduto(p.descricao);
     if (!attr.principio || attr.principio === 'OUTROS' || attr.principio.length < 3) continue;
 
-    const chave = `${attr.principio}|${attr.dosagem}|${attr.unidades}|${attr.forma}`;
+    const isMensal = (attr.unidades === 28 || attr.unidades === 30) && (attr.forma === 'COMPRIMIDO' || attr.forma === 'CÁPSULA' || attr.forma === 'COMP/CAPS');
+    const unidadesChave = isMensal ? '28-30' : attr.unidades;
+    const chave = `${attr.principio}|${attr.dosagem}|${unidadesChave}|${attr.forma}`;
     if (!gruposMap.has(chave)) {
       gruposMap.set(chave, {
-        nomeGrupo: `${attr.principio} ${attr.dosagem} C/ ${attr.unidades} ${attr.forma}`.replace(/\s+/g, ' ').trim(),
+        nomeGrupo: `${attr.principio} ${attr.dosagem} C/ ${unidadesChave} ${attr.forma}`.replace(/\s+/g, ' ').trim(),
         principio: attr.principio,
         dosagem: attr.dosagem,
-        unidades: attr.unidades,
+        unidades: isMensal ? 30 : attr.unidades,
+        isMensal,
         forma: attr.forma,
         produtos: []
       });
@@ -262,10 +375,17 @@ function gerarGruposAutomaticos(dbInstance) {
       // Cria grupo para itens que possuem 2 ou mais equivalentes (ou se for princípio farmacêutico reconhecido)
       if (gData.produtos.length < 2) continue;
 
-      let grupo = db.prepare(`
-        SELECT id FROM compras_grupos_equivalentes 
-        WHERE principio_ativo = ? AND dosagem = ? AND unidades_embalagem = ?
-      `).get(gData.principio, gData.dosagem, gData.unidades);
+      let grupo = gData.isMensal
+        ? db.prepare(`
+            SELECT id FROM compras_grupos_equivalentes 
+            WHERE principio_ativo = ? AND (dosagem = ? OR (dosagem IS NULL AND ? = '')) AND unidades_embalagem IN (28, 30)
+            LIMIT 1
+          `).get(gData.principio, gData.dosagem || '', gData.dosagem || '')
+        : db.prepare(`
+            SELECT id FROM compras_grupos_equivalentes 
+            WHERE principio_ativo = ? AND (dosagem = ? OR (dosagem IS NULL AND ? = '')) AND unidades_embalagem = ?
+            LIMIT 1
+          `).get(gData.principio, gData.dosagem || '', gData.dosagem || '', gData.unidades);
 
       let grupoId = grupo ? grupo.id : null;
 
@@ -485,5 +605,6 @@ module.exports = {
   salvarGrupoManual,
   vincularProdutoAoGrupo,
   desvincularProdutoDoGrupo,
-  removerGrupoEquivalente
+  removerGrupoEquivalente,
+  obterConsolidadoParaProdutos
 };

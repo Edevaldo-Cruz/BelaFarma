@@ -126,7 +126,12 @@ export const FinancialArchive: React.FC<FinancialArchiveProps> = ({ orders, bole
           const isVisible = isDetailsVisible[month];
           // Group items by due date
           const itemsByDay = data.items.reduce((acc, item) => {
-            const dueDate = 'due_date' in item ? item.due_date : ('installments' in item && item.installments.length > 0 ? item.installments[0].dueDate.split('T')[0] : item.orderDate);
+            const rawDate = ('due_date' in item && item.due_date) 
+              ? item.due_date 
+              : (('installments' in item && item.installments && item.installments.length > 0 && item.installments[0].dueDate) 
+                  ? item.installments[0].dueDate 
+                  : (item.orderDate || 'Desconhecido'));
+            const dueDate = rawDate && typeof rawDate === 'string' ? rawDate.split('T')[0] : String(rawDate || 'Desconhecido');
             if (!acc[dueDate]) {
               acc[dueDate] = [];
             }

@@ -7,6 +7,7 @@ const messageSender = require('./services/message-sender.service');
 const db = require('./database-factory');
 const { callAI } = require('./services/ai.service');
 const { buscarClimaReal } = require('./services/marketing-agent.service');
+const security = require('./security.js');
 
 // Configuração do diretório de uploads persistente (Windows = public/uploads, Linux/Docker = ../data/uploads)
 const uploadDir = process.platform === 'win32'
@@ -17,18 +18,32 @@ if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
 
-// Configuração do Multer para upload de imagens
+// Configuração do Multer para upload de imagens com sanitização e filtro
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     cb(null, uploadDir);
   },
   filename: (req, file, cb) => {
+    const safeOriginal = path.basename(file.originalname || 'media');
+    const safeExt = path.extname(safeOriginal).replace(/[^a-zA-Z0-9.]/g, '');
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, uniqueSuffix + path.extname(file.originalname));
+    cb(null, uniqueSuffix + safeExt);
   }
 });
 
-const upload = multer({ storage: storage });
+const upload = multer({
+  storage: storage,
+  limits: {
+    fileSize: 100 * 1024 * 1024,
+    fieldSize: 100 * 1024 * 1024
+  },
+  fileFilter: (req, file, cb) => {
+    if (!security.isSafeUploadFile(file.originalname)) {
+      return cb(new Error('Tipo de arquivo não permitido por segurança.'));
+    }
+    cb(null, true);
+  }
+});
 
 /**
  * Inicializa os endpoints relacionados aos grupos do WhatsApp
@@ -36,8 +51,8 @@ const upload = multer({ storage: storage });
  */
 function initializeWhatsAppGroupEndpoints(app) {
   
-  // Expõe a pasta de uploads de forma estática e persistente na URL /uploads
-  app.use('/uploads', express.static(uploadDir));
+  // Expõe a pasta de uploads com proteção de arquivos privados vs públicos
+  app.use('/uploads', security.uploadsAuthMiddleware, express.static(uploadDir));
   
   // 1. Listar Grupos (Consome a Evolution API + Grupos locais salvos no banco SQLite)
   app.get('/api/whatsapp/groups', async (req, res) => {
@@ -321,12 +336,12 @@ function initializeWhatsAppGroupEndpoints(app) {
   });
 
 
-  // 7. Ver Logs do RPA (Debug)
-  app.get('/api/whatsapp/rpa-logs', (req, res) => {
+  // 7. Ver Logs do RPA (Debug - Apenas Administrador)
+  app.get('/api/whatsapp/rpa-logs', security.requireAdmin, (req, res) => {
     try {
         const logPath = path.join(__dirname, 'rpa-debug.log');
         if (fs.existsSync(logPath)) {
-            const content = fs.readFileSync(logPath, 'utf8');
+            const content = fs.readFileSync(logPath, 'utf8').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
             res.send(`<pre>${content}</pre>`);
         } else {
             res.send('Arquivo de log não encontrado.');
@@ -336,8 +351,8 @@ function initializeWhatsAppGroupEndpoints(app) {
     }
   });
 
-  // 8. Debug Evolution API Status
-  app.get('/api/whatsapp/debug-evolution', async (req, res) => {
+  // 8. Debug Evolution API Status (Apenas Administrador)
+  app.get('/api/whatsapp/debug-evolution', security.requireAdmin, async (req, res) => {
     try {
         const url = `${process.env.EVOLUTION_API_URL || 'http://evolution-api:8080'}/instance/connectionState/${process.env.EVOLUTION_INSTANCE_NAME || 'belaFarma'}`;
         const response = await fetch(url, {
@@ -372,15 +387,15 @@ function initializeWhatsAppGroupEndpoints(app) {
     }
   });
 
-  // 10. Ver Logs do Sistema (Arquivo)
-  app.get('/api/system/logs', (req, res) => {
+  // 10. Ver Logs do Sistema (Arquivo - Apenas Administrador)
+  app.get('/api/system/logs', security.requireAdmin, (req, res) => {
     try {
         const logPath = process.platform === 'win32'
             ? path.join(__dirname, 'backend.log')
             : path.join(__dirname, 'data', 'backend.log');
         if (fs.existsSync(logPath)) {
             const content = fs.readFileSync(logPath, 'utf8');
-            const lines = content.split('\n').slice(-200).join('\n');
+            const lines = content.split('\n').slice(-200).join('\n').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
             res.send(`<pre style="background:#1e1e1e; color:#d4d4d4; padding:20px; font-family:monospace; white-space:pre-wrap;">${lines}</pre>`);
         } else {
             res.send('Arquivo de log ainda não gerado.');
@@ -390,8 +405,8 @@ function initializeWhatsAppGroupEndpoints(app) {
     }
   });
 
-  // 10b. Busca no log completo por palavra-chave
-  app.get('/api/system/logs/search', (req, res) => {
+  // 10b. Busca no log completo por palavra-chave (Apenas Administrador)
+  app.get('/api/system/logs/search', security.requireAdmin, (req, res) => {
     try {
         const { q } = req.query;
         if (!q) return res.status(400).send('Use ?q=termo para buscar.');
@@ -401,18 +416,20 @@ function initializeWhatsAppGroupEndpoints(app) {
         if (!fs.existsSync(logPath)) return res.send('Log não encontrado.');
         const content = fs.readFileSync(logPath, 'utf8');
         const lines = content.split('\n').filter(l => l.toLowerCase().includes(q.toLowerCase()));
-        const result = lines.length > 0 ? lines.join('\n') : `Nenhum resultado para: "${q}"`;
+        const result = (lines.length > 0 ? lines.join('\n') : `Nenhum resultado para: "${q}"`)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         res.send(`<pre style="background:#1e1e1e; color:#d4d4d4; padding:20px; font-family:monospace; white-space:pre-wrap;">${result}</pre>`);
     } catch (err) {
         res.status(500).send(err.message);
     }
   });
 
-  // 11. Rodar Comando de Diagnóstico/Criação (Evolution API)
-  app.get('/api/system/run-diag', async (req, res) => {
+  // 11. Rodar Comando de Diagnóstico/Criação (Evolution API - Apenas Administrador)
+  app.get('/api/system/run-diag', security.requireAdmin, async (req, res) => {
     try {
         const { exec } = require('child_process');
-        const cmd = `curl -X POST http://evolution-api:8080/instance/create -H 'Content-Type: application/json' -H 'apikey: BelafarmaSul2026' -d '{"instanceName": "belaFarma", "token": "BelafarmaSul2026", "qrcode": true}'`;
+        const evoKey = process.env.EVOLUTION_API_KEY || 'BelafarmaSul2026';
+        const cmd = `curl -X POST http://evolution-api:8080/instance/create -H 'Content-Type: application/json' -H 'apikey: ${evoKey}' -d '{"instanceName": "belaFarma", "token": "${evoKey}", "qrcode": true}'`;
         exec(cmd, (error, stdout, stderr) => {
             res.json({ 
                 command: 'Criar Instância belaFarma',
@@ -632,6 +649,22 @@ Responda apenas com o JSON.`;
         extractedData.productName = originalNameClean;
       }
 
+      // Se o cliente (frontend da Liquidação) enviou dados exatos via req.body, utiliza com prioridade
+      if (req.body) {
+        if (req.body.productName && req.body.productName.trim()) {
+          extractedData.productName = req.body.productName.trim();
+        }
+        if (req.body.price && !isNaN(parseFloat(req.body.price))) {
+          extractedData.price = parseFloat(req.body.price);
+        }
+        if (req.body.category && req.body.category.trim()) {
+          extractedData.category = req.body.category.trim().toLowerCase();
+        }
+        if (req.body.aiCaption && req.body.aiCaption.trim()) {
+          extractedData.aiCaption = req.body.aiCaption.trim();
+        }
+      }
+
       const id = 'offer-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5);
       await db.prepare(`
         INSERT INTO whatsapp_offers_bank (id, productName, price, category, mediaPath, aiCaption, createdAt)
@@ -718,6 +751,27 @@ Responda apenas com o JSON.`;
       await db.prepare('DELETE FROM whatsapp_offers_bank WHERE id = ?').run(offerId);
       res.json({ success: true, message: 'Oferta excluída do banco com sucesso!' });
     } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 3b. Limpar TODAS as Ofertas do Banco (Apenas Administrador)
+  app.delete('/api/whatsapp/offers-bank/clear-all', security.requireAdmin, async (req, res) => {
+    try {
+      const offers = await db.prepare('SELECT mediaPath FROM whatsapp_offers_bank').all();
+      for (const offer of offers) {
+        if (offer.mediaPath) {
+          const fullPath = path.join(__dirname, 'public', offer.mediaPath);
+          if (fs.existsSync(fullPath)) {
+            try { fs.unlinkSync(fullPath); } catch (e) {}
+          }
+        }
+      }
+      await db.prepare('DELETE FROM whatsapp_offers_bank').run();
+      console.log('[RoboOfertas] 🧹 Todas as ofertas foram removidas do banco de dados.');
+      res.json({ success: true, message: 'Todas as ofertas cadastradas foram removidas com sucesso!' });
+    } catch (err) {
+      console.error('[RoboOfertas] Erro ao limpar todas as ofertas:', err.message);
       res.status(500).json({ error: err.message });
     }
   });
@@ -919,8 +973,8 @@ Aloque no mínimo 6 a 12 slots distribuídos estrategicamente pelos dias. Respon
     }
   });
 
-  // 15. Abrir pasta do agente localmente no Windows Explorer
-  app.get('/api/system/open-agent-folder', (req, res) => {
+  // 15. Abrir pasta do agente localmente no Windows Explorer (Apenas Administrador)
+  app.get('/api/system/open-agent-folder', security.requireAdmin, (req, res) => {
     try {
       const { exec } = require('child_process');
       const folderPath = path.join(__dirname, 'windows-rpa-agent');
@@ -933,8 +987,8 @@ Aloque no mínimo 6 a 12 slots distribuídos estrategicamente pelos dias. Respon
     }
   });
 
-  // 16. Baixar Instalador do Robô RPA compactado em ZIP (excluindo node_modules)
-  app.get('/api/system/download-agent', (req, res) => {
+  // 16. Baixar Instalador do Robô RPA compactado em ZIP (excluindo node_modules) - Apenas Administrador
+  app.get('/api/system/download-agent', security.requireAdmin, (req, res) => {
     try {
       const AdmZip = require('adm-zip');
       const zip = new AdmZip();
@@ -1065,10 +1119,15 @@ async function escolherEPostarOfertaInteligente() {
       return;
     }
 
-    // 2. Buscar todas as ofertas disponíveis
-    const availableOffers = db.prepare('SELECT * FROM whatsapp_offers_bank').all();
+    // 2. Buscar todas as ofertas disponíveis que possuem imagem válida no disco
+    const availableOffersRaw = db.prepare("SELECT * FROM whatsapp_offers_bank WHERE mediaPath IS NOT NULL AND mediaPath != ''").all();
+    const availableOffers = availableOffersRaw.filter(o => {
+      const absPath = path.join(uploadDir, path.basename(o.mediaPath));
+      return fs.existsSync(absPath);
+    });
+
     if (availableOffers.length === 0) {
-      console.log('[RoboOfertas JIT] Nenhuma oferta disponível no banco. Abortando.');
+      console.log('[RoboOfertas JIT] Nenhuma oferta válida com imagem disponível no banco. Abortando.');
       return;
     }
 
@@ -1177,16 +1236,17 @@ Responda EXATAMENTE um JSON válido com o seguinte formato (sem formatação mar
                 const absoluteMediaPath = path.join(uploadDir, path.basename(attemptOffer.mediaPath));
                 if (fs.existsSync(absoluteMediaPath)) {
                   await baileys.sendImageToGroup(groupName, absoluteMediaPath, finalContent);
+                  success = true;
+                  status = 'Enviado';
+                  console.log(`[RoboOfertas JIT] ✅ Sucesso no envio (imagem + legenda) do produto "${attemptOffer.productName}" para "${groupName}"!`);
                 } else {
-                  console.warn(`[RoboOfertas JIT] ⚠️ Imagem física não encontrada em: ${absoluteMediaPath}. Enviando apenas texto como fallback de emergência.`);
-                  await baileys.sendTextToGroup(groupName, finalContent);
+                  console.warn(`[RoboOfertas JIT] ⚠️ Imagem física não encontrada em: ${absoluteMediaPath}. Postagens sem imagem não são permitidas. Pulando oferta...`);
+                  break; // Aborta envio sem imagem e busca alternativa
                 }
               } else {
-                await baileys.sendTextToGroup(groupName, finalContent);
+                console.warn(`[RoboOfertas JIT] ⚠️ Oferta sem imagem registrada. Postagens sem imagem não são permitidas. Pulando oferta...`);
+                break; // Aborta envio sem imagem e busca alternativa
               }
-              success = true;
-              status = 'Enviado';
-              console.log(`[RoboOfertas JIT] ✅ Sucesso no envio do produto "${attemptOffer.productName}" para "${groupName}"!`);
             } catch (sendErr) {
               console.error(`[RoboOfertas JIT] ❌ Falha na tentativa #${sendAttempt}/3 de envio para "${groupName}":`, sendErr.message);
               if (sendAttempt < 3) {

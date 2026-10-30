@@ -37,6 +37,29 @@ export const IFoodControl: React.FC<IFoodControlProps> = ({ user, onLog }) => {
   }, [viewMode, filterMonth, filterYear]);
   const [showAddForm, setShowAddForm] = useState(false);
   const [expandedCard, setExpandedCard] = useState<string | null>(null);
+  const [isSyncingNapp, setIsSyncingNapp] = useState(false);
+
+  const handleSyncNapp = async (includePast30Days = true) => {
+    setIsSyncingNapp(true);
+    try {
+      const res = await fetch('/api/napp/sync-orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ includePast30Days })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        addToast(`✅ Sincronização Napp concluída! ${data.processed || 0} pedidos verificados.`, 'success');
+        fetchData();
+      } else {
+        addToast(data.error || 'Erro na sincronização com Napp.', 'error');
+      }
+    } catch (err) {
+      addToast('Erro ao sincronizar com Napp.', 'error');
+    } finally {
+      setIsSyncingNapp(false);
+    }
+  };
 
   // Form state
   const [formData, setFormData] = useState({
@@ -311,15 +334,24 @@ export const IFoodControl: React.FC<IFoodControlProps> = ({ user, onLog }) => {
 
         <div className="flex items-center gap-3">
           <button
+            onClick={() => handleSyncNapp(true)}
+            disabled={isSyncingNapp}
+            className="px-4 py-3 bg-white dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-2xl font-black text-sm hover:border-red-500 hover:text-red-600 transition-all shadow-sm flex items-center gap-2 disabled:opacity-50 cursor-pointer"
+            title="Buscar novos pedidos entregues do iFood via Napp Solutions e atualizar os últimos 30 dias"
+          >
+            <RefreshCw className={`w-4 h-4 text-red-500 ${isSyncingNapp ? 'animate-spin' : ''}`} />
+            <span>{isSyncingNapp ? 'Sincronizando Napp...' : 'Sincronizar Napp (30d)'}</span>
+          </button>
+          <button
             onClick={() => setShowAddForm(!showAddForm)}
-            className="px-6 py-3 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-2xl font-black text-sm hover:from-red-600 hover:to-red-700 transition-all shadow-lg shadow-red-500/25 flex items-center gap-2"
+            className="px-6 py-3 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-2xl font-black text-sm hover:from-red-600 hover:to-red-700 transition-all shadow-lg shadow-red-500/25 flex items-center gap-2 cursor-pointer"
           >
             <DollarSign className="w-4 h-4" />
             Nova Venda iFood
           </button>
           <button
             onClick={fetchData}
-            className="p-3 bg-white dark:bg-slate-800 rounded-2xl border-2 border-slate-100 dark:border-slate-700 text-slate-500 hover:text-slate-700 transition-all"
+            className="p-3 bg-white dark:bg-slate-800 rounded-2xl border-2 border-slate-100 dark:border-slate-700 text-slate-500 hover:text-slate-700 transition-all cursor-pointer"
             title="Atualizar"
           >
             <RefreshCw className={`w-5 h-5 ${isLoading ? 'animate-spin' : ''}`} />

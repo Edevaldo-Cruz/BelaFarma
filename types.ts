@@ -32,6 +32,24 @@ export interface Installment {
   dueDate: string;
 }
 
+export interface OrderItem {
+  id?: string | number;
+  codigo?: string | number;
+  codigoProduto?: string | number;
+  ean?: string;
+  codigoBarras?: string;
+  descricao: string;
+  quantidade: number;
+  quantidadeSolicitada?: number;
+  quantidadeAtendida?: number;
+  quantidadeCorte?: number;
+  precoUnitario: number;
+  valorST?: number;
+  desconto?: number;
+  subtotal: number;
+  status?: string; // 'Atendido', 'Corte', 'Não Atendido', 'Pendente'
+}
+
 export interface Order {
   id: string;
   orderDate: string;
@@ -46,6 +64,7 @@ export interface Order {
   receiptDate?: string;
   notes?: string;
   installments?: Installment[];
+  items?: OrderItem[];
   boletoFile?: File;
   isFogueteAmarelo?: boolean; // Flag para identificar pedidos Foguete Amarelo
 }
@@ -201,6 +220,21 @@ export interface Boleto {
   status: BoletoStatus;
   installment_number: number;
   invoice_number?: string;
+  barcode?: string;
+  bank_code?: string;
+  bank_name?: string;
+  convenio_key?: string;
+  created_at?: string;
+}
+
+export interface BoletoSupplierMemory {
+  id: number;
+  convenio_key: string;
+  bank_code?: string;
+  bank_name?: string;
+  supplier_name: string;
+  last_used_at: string;
+  use_count: number;
 }
 
 export interface MonthlyLimit {
@@ -500,7 +534,75 @@ export interface iFoodNotification {
   daysLate?: number;
 }
 
-export type View = 'dashboard' | 'central-compras' | 'deliveries' | 'orders' | 'financial' | 'settings' | 'users' | 'shortages' | 'medication-search' | 'cash-closing' | 'safe' | 'daily-records' | 'logs' | 'checking-account' | 'contas-a-pagar' | 'days-in-debt' | 'crediario-report' | 'task-management' | 'fixed-accounts' | 'customers' | 'debtors-report' | 'backups' | 'invoices' | 'foguete-amarelo' | 'sales' | 'consignados' | 'ifood-control' | 'notifications' | 'messaging-center' | 'ai-portal' | 'financial-health' | 'caixa-provisoes' | 'radio-manager' | 'whatsapp-crm' | 'labels' | 'compras-live' | 'suppliers' | 'whatsapp-vendas' | 'sales-report' | 'critical-stock' | 'system-watcher' | 'purchase-calendar' | 'inventario' | 'price-manager' | 'pricing-simulator' | 'agenda' | 'anvisa-alerts' | 'notes' | 'card-machines';
+export type View = 'dashboard' | 'belaped' | 'central-compras' | 'deliveries' | 'orders' | 'financial' | 'settings' | 'users' | 'shortages' | 'medication-search' | 'cash-closing' | 'safe' | 'daily-records' | 'logs' | 'checking-account' | 'contas-a-pagar' | 'days-in-debt' | 'crediario-report' | 'task-management' | 'fixed-accounts' | 'customers' | 'debtors-report' | 'backups' | 'invoices' | 'foguete-amarelo' | 'sales' | 'consignados' | 'ifood-control' | 'notifications' | 'messaging-center' | 'ai-portal' | 'financial-health' | 'caixa-provisoes' | 'radio-manager' | 'whatsapp-crm' | 'labels' | 'compras-live' | 'suppliers' | 'whatsapp-vendas' | 'sales-report' | 'critical-stock' | 'system-watcher' | 'purchase-calendar' | 'inventario' | 'price-manager' | 'pricing-simulator' | 'agenda' | 'anvisa-alerts' | 'notes' | 'card-machines' | 'perdas-avarias' | 'temperature-map' | 'reposicao-tabela' | 'liquidacao-caixa';
+
+export interface TemperatureRecord {
+  id: string;
+  record_date: string; // YYYY-MM-DD
+  turn: 'manha' | 'tarde';
+  record_time: string; // HH:mm
+  loja_temp_atual: number | null;
+  loja_temp_min: number | null;
+  loja_temp_max: number | null;
+  loja_umid_atual: number | null;
+  loja_umid_min: number | null;
+  loja_umid_max: number | null;
+  almo_temp_atual: number | null;
+  almo_temp_min: number | null;
+  almo_temp_max: number | null;
+  almo_umid_atual: number | null;
+  almo_umid_min: number | null;
+  almo_umid_max: number | null;
+  is_sunday: number;
+  status: 'registrado' | 'fechado';
+  manual_override: number;
+  notes?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface TemperatureConfig {
+  farmaceutico_nome: string;
+  farmaceutico_crf: string;
+  termometro_modelo: string;
+  termometro_certificado: string;
+  printed_months?: string[];
+}
+
+export type MotivoPerda = 'Vencido' | 'Avariado' | 'Furto/Roubo' | 'Uso Interno/Descarte';
+
+export interface ItemLotePerda {
+  id?: string;
+  lote_id?: string;
+  produto_id?: string | number;
+  codigo_barras: string;
+  descricao: string;
+  quantidade: number;
+  motivo: MotivoPerda;
+  preco_custo: number;
+  preco_venda: number;
+  saldo_anterior_digifarma?: number;
+  saldo_baixado_digifarma?: number;
+  observacao?: string;
+  is_controlado?: boolean;
+  is_antibiotico?: boolean;
+  is_especial?: boolean;
+  tipo_especial?: string;
+  status_baixa?: 'sucesso' | 'ignorado_especial' | 'falha' | 'nao_encontrado';
+  mensagem_baixa?: string;
+}
+
+export interface LotePerda {
+  id: string;
+  data_hora: string;
+  usuario_id?: string;
+  usuario_nome: string;
+  total_itens: number;
+  total_custo: number;
+  total_venda: number;
+  observacao_geral?: string;
+  itens?: ItemLotePerda[];
+}
 
 export interface CardMachineReceivable {
   id: string;
@@ -731,6 +833,7 @@ export interface Delivery {
   customer_name?: string;
   wa_name?: string;
   delivery_address?: string;
+  neighborhood?: string;
   items?: string;
   total_amount: number;
   payment_method?: string;
@@ -744,6 +847,9 @@ export interface Delivery {
   // Audit & Review fields (M1)
   review_status?: string; // 'pending' | 'reviewed' | 'dismissed'
   is_new_customer?: number; // 1 = Novo cliente, 0 = Cliente recorrente
+  is_repeat_customer?: number;
+  first_response_time_seconds?: number;
+  conversation_date?: string;
   chat_duration_seconds?: number;
   chat_message_count?: number;
   discussed_products_json?: string;
@@ -752,6 +858,60 @@ export interface Delivery {
   reviewed_at?: string;
   products_identified?: ProductIdentified[];
   chat_messages?: ChatMessage[];
+  digifarma_cliente_id?: number | null;
+}
+
+export interface DeliveryAnalyticsData {
+  geoAnalytics: Array<{
+    neighborhood: string;
+    count: number;
+    closedCount: number;
+    totalAmount: number;
+    avgTicket: number;
+  }>;
+  topSoldProducts: Array<{
+    product_name: string;
+    count: number;
+  }>;
+  topLostProducts: Array<{
+    product_name: string;
+    count: number;
+    reason: string;
+  }>;
+  customerLoyalty: {
+    newCustomersCount: number;
+    repeatCustomersCount: number;
+    loyaltyRate: number;
+    topCustomers: Array<{
+      phone: string;
+      name: string;
+      orderCount: number;
+      totalSpent: number;
+    }>;
+  };
+  slaAnalytics: {
+    avgFirstResponseSeconds: number;
+    under1Min: number;
+    oneToFiveMin: number;
+    fiveToFifteenMin: number;
+    over15Min: number;
+  };
+  peakHours: Array<{
+    hour: number;
+    label: string;
+    count: number;
+  }>;
+  peakDays: Array<{
+    day: string;
+    dayIndex: number;
+    count: number;
+  }>;
+  funnel: {
+    totalConversations: number;
+    quotesGenerated: number;
+    salesClosed: number;
+    conversionRate: number;
+  };
 }
 
 export interface DeliveryMetrics {
@@ -937,6 +1097,12 @@ export interface EstoqueMinimoProduto {
   ultimaCompraData?: string;
   sincronizadoDigifarma?: number;
   sugeridoReposicao: number;
+  saldoEquivalentes?: number;
+  grupoEquivalenteNome?: string;
+  grupoEquivalenteId?: string;
+  estMinimoConsolidado?: number;
+  diasDuracaoEstoque?: number;
+  dataPrevisaoEsgotamento?: string;
   atualizadoEm?: string;
 }
 
@@ -965,6 +1131,12 @@ export interface OportunidadeMinerada {
   estoqueAtual?: number;
   estoqueMinimo?: number;
   emRuptura?: boolean;
+  qtdMinima?: number;
+  faixasPreco?: Array<{
+    qtdMinima: number;
+    preco: number;
+    descontoPercentual?: number;
+  }> | null;
   economiaValor?: number;
   scoreRelevancia?: number;
   grupoEquivalente?: GrupoEquivalenteResumo | null;
@@ -1158,6 +1330,36 @@ declare global {
   const __BUILD_TIME__: string;
 }
 
+export interface ReplenishmentItem {
+  id: string;
+  codigo: string;
+  produto: string;
+  apresentacao: string;
+  saldo: number;
+  estMin: number;
+  saldoEquiv: number;
+  totalVenda: number;
+  media: number;
+  ciclo: number;
+  curvaAbc: string;
+  lucroObtido: number;
+  pedir: number;
+  ultimaCompra: string;
+  ultimoPrLiquido: number;
+  valorTotalEstimado: number; // pedir * ultimoPrLiquido
+  fabricante: string;
+  categoria: string;
+  codBarras: string;
+  codBarrasHospitalar?: string;
+  ultimoFornecedor?: string;
+}
 
-
-
+export interface ReplenishmentAnalysis {
+  id: string;
+  title: string;
+  createdAt: string;
+  totalItems: number;
+  totalPedir: number;
+  totalValor: number;
+  items: ReplenishmentItem[];
+}

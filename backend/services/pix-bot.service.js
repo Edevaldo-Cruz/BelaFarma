@@ -140,7 +140,9 @@ class PixBotService {
       const aiResponse = await callAI(prompt, "Você é um auditor financeiro rigoroso antifraude da Bela Farma.", {
         imageData: base64,
         mimeType: mimeType,
-        temperature: 0.0 // 0.0 para ser estritamente analítico e sem alucinações
+        temperature: 0.0, // 0.0 para ser estritamente analítico e sem alucinações
+        isPriority: true,
+        bypassLimit: true
       });
 
       // Limpar resposta da IA (extrair apenas o bloco JSON caso haja texto extra do Gemini)
@@ -196,6 +198,11 @@ class PixBotService {
    */
   async processBaileysImage(base64Image, mimeType, phone, messageId) {
     try {
+      if (!phone || phone === 'status' || phone.includes('broadcast') || phone.endsWith('@g.us')) {
+        console.log(`[PixBot] ℹ️ Ignorando imagem com remetente inválido ou status: ${phone}`);
+        return false;
+      }
+
       console.log(`[PixBot] 📸 Imagem interceptada do Baileys para o número ${phone}. Iniciando auditoria...`);
       
       const todayDateStr = new Intl.DateTimeFormat('pt-BR', {
@@ -238,7 +245,9 @@ class PixBotService {
       const aiResponse = await callAI(prompt, "Você é um auditor financeiro rigoroso antifraude da Bela Farma.", {
         imageData: base64Image,
         mimeType: mimeType || 'image/jpeg',
-        temperature: 0.0
+        temperature: 0.0,
+        isPriority: true,
+        bypassLimit: true
       });
 
       let cleanJson = aiResponse.replace(/```json/gi, '').replace(/```/g, '').trim();
@@ -278,6 +287,7 @@ class PixBotService {
       return true;
     } catch (err) {
       console.error('[PixBot-Baileys] 💥 Erro ao processar imagem:', err.message);
+      return false;
     }
   }
 
@@ -373,19 +383,19 @@ class PixBotService {
       timeZone: 'America/Sao_Paulo',
       year: 'numeric', month: '2-digit', day: '2-digit'
     }).format(new Date());
-    const id = `pix_${Date.now()}`;
+    const id = messageId ? `pix_${messageId}` : `pix_${Date.now()}`;
 
     try {
       // 1. Salvar no histórico de confirmações PIX
       this.db.prepare(`
-        INSERT INTO pix_confirmations (id, phone, value, senderName, pixDate, status, aiAnalysis, createdAt)
+        INSERT OR REPLACE INTO pix_confirmations (id, phone, value, senderName, pixDate, status, aiAnalysis, createdAt)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `).run(id, phone, pixData.value, pixData.senderName, pixData.date, 'Confirmado', pixData.reason, now);
 
       console.log(`[PixBot] ✅ PIX de R$ ${pixData.value} (${pixData.senderName}) confirmado. Realizando lançamento financeiro...`);
 
       // 2. Lançamento no Pix Direto (registro diário / fechamento)
-      this.recordPixDirect(pixData.value, pixData.senderName, today);
+      this.recordPixDirect(pixData.value, pixData.senderName, today, id);
 
     } catch (err) {
       console.error('[PixBot] Erro ao salvar confirmação:', err.message);
@@ -395,13 +405,13 @@ class PixBotService {
   /**
    * Realiza o lançamento financeiro na tabela daily_records
    */
-  recordPixDirect(value, senderName, date) {
+  recordPixDirect(value, senderName, date, entryId) {
     try {
       // Buscar registro não fechado do dia (aceita formato YYYY-MM-DD ou ISO)
       let record = this.db.prepare('SELECT * FROM daily_records WHERE date LIKE ? AND lancado = 0 LIMIT 1').get(`${date}%`);
       
       const newEntry = {
-        id: Date.now().toString(),
+        id: entryId || Date.now().toString(),
         desc: senderName || 'Cliente WhatsApp',
         val: parseFloat(value)
       };
@@ -431,6 +441,13 @@ class PixBotService {
           pixList = JSON.parse(record.pixDiretoList || '[]');
         } catch (e) { pixList = []; }
         
+        // Evitar duplicata exata no mesmo registro
+        const jaExiste = pixList.some(p => p.id === newEntry.id || (p.desc === newEntry.desc && Math.abs(p.val - newEntry.val) < 0.01));
+        if (jaExiste) {
+          console.log(`[PixBot] ℹ️ Entrada de PIX já existente no registro diário: ${newEntry.desc} - R$ ${newEntry.val}`);
+          return;
+        }
+
         pixList.push(newEntry);
 
         this.db.prepare('UPDATE daily_records SET pixDiretoList = ? WHERE id = ?')

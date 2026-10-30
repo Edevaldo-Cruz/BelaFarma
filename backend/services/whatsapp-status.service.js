@@ -10,6 +10,11 @@ async function delay(ms) {
 }
 
 async function postarStatusDiario() {
+  const STATUS_ROBOT_ENABLED = process.env.STATUS_ROBOT_ENABLED === 'true';
+  if (!STATUS_ROBOT_ENABLED) {
+    console.log('[WhatsAppStatus] ⏸️ Robô de postagem de Status está desativado a pedido do usuário.');
+    return;
+  }
   try {
     console.log('[WhatsAppStatus] Iniciando a rotina diária de postagem de Status (08:00)...');
 
@@ -112,12 +117,28 @@ Responda EXATAMENTE com um array JSON no formato abaixo (sem markdown \`\`\` em 
         try {
           const baileys = require('../baileys-service.js');
           const baileysStatus = baileys ? baileys.getStatus() : null;
-          if (baileys && baileysStatus && baileysStatus.connected) {
-            const absolutePath = path.join(process.cwd(), 'public', offer.mediaPath);
-            await baileys.sendStatus(absolutePath, caption);
-            baileysSent = true;
-            console.log(`[WhatsAppStatus] 🚀 Status ${i + 1} postado DIRETO via Baileys!`);
-          }
+            const filename = path.basename(offer.mediaPath);
+            const possiblePaths = [
+              path.join(__dirname, '..', 'public', 'uploads', filename),
+              path.join(__dirname, '..', 'public', filename),
+              path.join(process.cwd(), 'public', 'uploads', filename),
+              path.join(process.cwd(), 'public', filename),
+              path.join(__dirname, '..', 'data', 'uploads', filename)
+            ];
+            let absolutePath = null;
+            for (const p of possiblePaths) {
+              if (fs.existsSync(p)) {
+                absolutePath = p;
+                break;
+              }
+            }
+            if (absolutePath) {
+              await baileys.sendStatus(absolutePath, caption);
+              baileysSent = true;
+              console.log(`[WhatsAppStatus] 🚀 Status ${i + 1} postado DIRETO via Baileys!`);
+            } else {
+              console.warn(`[WhatsAppStatus] ⚠️ Imagem física do status não encontrada em disco: ${offer.mediaPath}`);
+            }
         } catch (bErr) {
           console.warn(`[WhatsAppStatus] ⚠️ Baileys falhou para status ${i + 1} (${bErr.message}). Colocando na fila RPA...`);
         }

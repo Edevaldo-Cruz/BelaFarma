@@ -38,8 +38,12 @@ export const Auth: React.FC<AuthProps> = ({ onLogin }) => {
         throw new Error(errMsg);
       }
 
-      const userFound: User = await response.json();
-      onLogin(userFound);
+      const data: any = await response.json();
+      if (data && data.token) {
+        localStorage.setItem('belinha_auth_token', data.token);
+      }
+      const { token, accessKey, ...cleanUser } = data || {};
+      onLogin(cleanUser as User);
 
     } catch (err: any) {
       setError(err.message || 'Erro ao tentar fazer login.');

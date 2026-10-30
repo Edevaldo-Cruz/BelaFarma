@@ -9,17 +9,23 @@ import basicSsl from '@vitejs/plugin-basic-ssl';
 // Obtém metadados de versão e git
 let commitHash = 'unknown';
 let commitMessage = 'Atualização do sistema';
+let recentCommits: Array<{ hash: string; date: string; message: string }> = [];
 const buildTime = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
 
 try {
   commitHash = execSync('git rev-parse --short HEAD').toString().trim();
   commitMessage = execSync('git log -1 --pretty=%s').toString().trim();
+  const gitLogRaw = execSync('git log -n 12 --pretty=format:"%h|%ad|%s" --date=format:"%d/%m/%Y"').toString().trim();
+  recentCommits = gitLogRaw.split('\n').filter(Boolean).map(line => {
+    const [h, d, ...m] = line.replace(/^"/, '').replace(/"$/, '').split('|');
+    return { hash: h ? h.trim() : '', date: d ? d.trim() : '', message: m.join('|').trim() };
+  });
 } catch (e) {
   console.warn('Não foi possível obter dados do git no vite.config:', e);
 }
 
 const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8'));
-const appVersion = pkg.version || '1.1.0';
+const appVersion = pkg.version || '1.2.0';
 
 // Grava arquivo public/version.json para auditoria e checagem remota
 try {
@@ -31,7 +37,8 @@ try {
       version: appVersion,
       commitHash,
       commitMessage,
-      buildTime
+      buildTime,
+      recentCommits
     }, null, 2)
   );
 } catch (e) {
@@ -46,6 +53,7 @@ export default defineConfig(({ mode }) => {
         __COMMIT_HASH__: JSON.stringify(commitHash),
         __COMMIT_MESSAGE__: JSON.stringify(commitMessage),
         __BUILD_TIME__: JSON.stringify(buildTime),
+        __RECENT_COMMITS__: JSON.stringify(recentCommits),
       },
       server: {
         port: 5173,
@@ -83,13 +91,15 @@ export default defineConfig(({ mode }) => {
           registerType: 'autoUpdate',
           includeAssets: ['favicon.ico', 'pwa-192x192.png', 'pwa-512x512.png'],
           workbox: {
-            maximumFileSizeToCacheInBytes: 5 * 1024 * 1024, // 5 MiB
+            skipWaiting: true,
+            clientsClaim: true,
+            maximumFileSizeToCacheInBytes: 8 * 1024 * 1024, // 8 MiB
           },
           manifest: {
-            name: 'Belinha',
-            short_name: 'Belinha',
-            description: 'Gestão Inteligente para Farmácias',
-            theme_color: '#ffffff',
+            name: 'Bela Farma Sul - Gestão Inteligente',
+            short_name: 'Bela Farma',
+            description: 'Gestão Inteligente para Farmácias - Bela Farma Sul',
+            theme_color: '#c8102e',
             background_color: '#ffffff',
             display: 'standalone',
             icons: [
@@ -110,9 +120,10 @@ export default defineConfig(({ mode }) => {
         })
       ],
       resolve: {
-        alias: {
-          '@': path.resolve(__dirname, '.'),
-        }
+        alias: [
+          { find: '@', replacement: path.resolve(__dirname, '.') },
+          { find: /^react-aria\/(.*)$/, replacement: path.resolve(__dirname, 'node_modules/react-aria/dist/exports/$1.js') }
+        ]
       }
     };
 });

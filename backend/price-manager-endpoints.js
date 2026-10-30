@@ -181,7 +181,15 @@ async function processScheduledPriceSteps(db) {
       SET preco_venda = ?,
           preco_normal = ?,
           atualizado_em = ?
-      WHERE produto_id = ?
+      WHERE produto_id = ? OR CAST(produto_id AS INTEGER) = ?
+    `);
+
+    const updateComprasCacheStmt = db.prepare(`
+      UPDATE compras_estoque_cache 
+      SET preco_venda_vigente = ?,
+          preco_normal = ?,
+          atualizado_em = ?
+      WHERE produto_id = ? OR CAST(produto_id AS TEXT) = ?
     `);
 
     const insertSnapshotStmt = db.prepare(`
@@ -231,12 +239,22 @@ async function processScheduledPriceSteps(db) {
           step.criado_por || 'Sistema Automático'
         );
 
-        // Atualiza Digifarma Firebird
-        await queryDigifarma('UPDATE PRODUTOS SET PROD_PRVENDA = ? WHERE PRODUTO_ID = ?', [nextPrice, prodId]);
-        await queryDigifarma('UPDATE PRODUTOS SET PROD_PRPROMOCAO = ? WHERE PRODUTO_ID = ? AND PROD_PRPROMOCAO > 0', [nextPrice, prodId]);
+        // Atualiza Digifarma Firebird com flags completas para o PDV / Caixas
+        await queryDigifarma(`
+          UPDATE PRODUTOS 
+          SET 
+            PROD_PRVENDA = ?,
+            PROD_PRPROMOCAO = CASE WHEN PROD_PRPROMOCAO > 0 THEN ? ELSE PROD_PRPROMOCAO END,
+            PRECO_ANTERIOR = COALESCE(?, PROD_PRVENDA),
+            LASTUPDATE = CURRENT_TIMESTAMP,
+            ATUALIZAR_PRECO = 'S',
+            ITEM_REAJUSTADO = 1
+          WHERE PRODUTO_ID = ?
+        `, [nextPrice, nextPrice, currentPrice, prodId]);
 
         // Atualiza SQLite cache
-        updateCacheStmt.run(nextPrice, nextPrice, new Date().toISOString(), prodId);
+        updateCacheStmt.run(nextPrice, nextPrice, new Date().toISOString(), String(prodId), prodId);
+        try { updateComprasCacheStmt.run(nextPrice, nextPrice, new Date().toISOString(), prodId, String(prodId)); } catch(e) {}
 
         // Atualiza status do agendamento
         const isComplete = nextPrice === targetPrice || step.etapa_atual >= step.total_etapas;
@@ -282,15 +300,16 @@ module.exports = function (db) {
           c.produto_id as PRODUTO_ID,
           c.descricao as PRODUTO,
           c.codigo_barras as COD_BARRAS,
-          c.preco_venda as PROD_PRVENDA,
-          c.preco_promocao as PROD_PRPROMOCAO,
-          c.preco_custo as PROD_PRCOMPRA,
-          c.estoque_atual as ESTOQUE,
-          c.curva as CURVA,
+          COALESCE(NULLIF(ce.preco_venda_vigente, 0), c.preco_venda) as PROD_PRVENDA,
+          COALESCE(ce.preco_promocional, c.preco_promocao) as PROD_PRPROMOCAO,
+          COALESCE(NULLIF(ce.custo_unitario, 0), NULLIF(ce.preco_unitario_ult_compra, 0), c.preco_custo) as PROD_PRCOMPRA,
+          COALESCE(ce.saldo, c.estoque_atual) as ESTOQUE,
+          COALESCE(ce.curva_abc, c.curva) as CURVA,
           COALESCE(n.preco_proffer_medio, n.preco_proffer) as PRECO_PROFFER_MEDIO,
           COALESCE(n.preco_proffer_baixo, n.preco_proffer) as PRECO_PROFFER_BAIXO,
           COALESCE(n.preco_proffer_alto, n.preco_proffer) as PRECO_PROFFER_ALTO
         FROM digifarma_products_cache c
+        LEFT JOIN compras_estoque_cache ce ON CAST(c.produto_id AS INTEGER) = ce.produto_id
         LEFT JOIN napp_prices n ON c.codigo_barras = n.ean
         WHERE c.descricao LIKE ? OR c.codigo_barras LIKE ? OR c.produto_id LIKE ?
         ORDER BY 
@@ -298,7 +317,7 @@ module.exports = function (db) {
                WHEN c.codigo_barras = ? THEN 2
                WHEN c.descricao LIKE ? THEN 3
                ELSE 4 END,
-          c.curva ASC, c.descricao ASC
+          COALESCE(ce.curva_abc, c.curva) ASC, c.descricao ASC
         LIMIT ?
       `).all(searchLike, searchLike, searchLike, q, q, `${q}%`, limit);
 
@@ -338,12 +357,12 @@ module.exports = function (db) {
           c.produto_id as id,
           c.categoria_id,
           c.descricao as name,
-          c.estoque_atual as stock,
-          c.preco_venda as price,
-          c.preco_custo as cost_price,
-          c.preco_promocao as promo_price,
-          c.preco_normal as normal_price,
-          c.curva as curve,
+          COALESCE(ce.saldo, c.estoque_atual) as stock,
+          COALESCE(NULLIF(ce.preco_venda_vigente, 0), c.preco_venda) as price,
+          COALESCE(NULLIF(ce.custo_unitario, 0), NULLIF(ce.preco_unitario_ult_compra, 0), c.preco_custo) as cost_price,
+          COALESCE(ce.preco_promocional, c.preco_promocao) as promo_price,
+          COALESCE(NULLIF(ce.preco_normal, 0), c.preco_normal) as normal_price,
+          COALESCE(ce.curva_abc, c.curva) as curve,
           c.tributacao_monofasica,
           c.cst_pis,
           c.cst_cofins,
@@ -351,16 +370,17 @@ module.exports = function (db) {
           c.imposto_aliq,
           c.ncm,
           c.cest,
-          c.atualizado_em as cached_at,
+          COALESCE(ce.atualizado_em, c.atualizado_em) as cached_at,
           COALESCE(n.preco_proffer_medio, n.preco_proffer) as region_price,
           COALESCE(n.preco_proffer_baixo, n.preco_proffer) as region_price_baixo,
           COALESCE(n.preco_proffer_medio, n.preco_proffer) as region_price_medio,
           COALESCE(n.preco_proffer_alto, n.preco_proffer) as region_price_alto,
           n.atualizado_em as region_updated_at
         FROM digifarma_products_cache c
+        LEFT JOIN compras_estoque_cache ce ON CAST(c.produto_id AS INTEGER) = ce.produto_id
         LEFT JOIN napp_prices n ON c.codigo_barras = n.ean
         ${whereSQL}
-        ORDER BY c.curva ASC, c.descricao ASC
+        ORDER BY COALESCE(ce.curva_abc, c.curva) ASC, c.descricao ASC
         LIMIT ? OFFSET ?
       `;
       
@@ -481,12 +501,34 @@ module.exports = function (db) {
       if (!descricao) descricao = `Produto Cód ${prodId}`;
       if (!previousPrice) previousPrice = finalPrice;
 
+      // Extrair parametrização detalhada (Pró-labore, Fixo, Impostos, Margens) se fornecida
+      const pricingInputs = req.body.pricingInputs || null;
+      let impostoPct = 0, taxaCartaoPct = 0, custosVarPct = 0, custoFixoPct = 0;
+      let proLabore1Pct = 0, proLabore2Pct = 0, proLaboreTotalPct = 0, margemLiqPct = 0;
+      let markupDiv = 0, markupMult = 0, categoriaPreset = '', categoriaNome = '';
+
+      if (pricingInputs) {
+        impostoPct = Number(pricingInputs.impostoPercent) || 0;
+        taxaCartaoPct = Number(pricingInputs.taxaCartaoPercent) || 0;
+        custosVarPct = Number(pricingInputs.custosVariaveisPercent) || 0;
+        custoFixoPct = Number(pricingInputs.custoFixoPercent) || 0;
+        proLabore1Pct = Number(pricingInputs.proLaboreSocio1Percent) || 0;
+        proLabore2Pct = Number(pricingInputs.proLaboreSocio2Percent) || 0;
+        proLaboreTotalPct = Number((proLabore1Pct + proLabore2Pct).toFixed(2));
+        margemLiqPct = Number(pricingInputs.margemLiquidaPercent) || 0;
+        markupDiv = Number(pricingInputs.markupDivisor) || 0;
+        markupMult = Number(pricingInputs.markupMultiplicador) || 0;
+        categoriaPreset = String(pricingInputs.categoriaPreset || '');
+        categoriaNome = String(pricingInputs.categoriaNome || '');
+      }
+
       // 1. Gravar Snapshot de Backup
       const snapId = `snap_${Date.now()}_${prodId}`;
       db.prepare(`
         INSERT INTO price_change_snapshots (
-          id, produto_id, descricao, cod_barras, preco_anterior, novo_preco, preco_custo, tipo, motivo, usuario
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          id, produto_id, descricao, cod_barras, preco_anterior, novo_preco, preco_custo, tipo, motivo, usuario,
+          imposto_pct, taxa_cartao_pct, custos_variaveis_pct, custo_fixo_pct, pro_labore_1_pct, pro_labore_2_pct, pro_labore_total_pct, margem_liquida_pct, markup_divisor
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         snapId,
         prodId,
@@ -497,8 +539,76 @@ module.exports = function (db) {
         precoCusto,
         tipo || 'direto',
         motivo || 'Alteração manual no Gestão de Preços / Simulador',
-        usuario || 'Administrador'
+        usuario || 'Administrador',
+        impostoPct,
+        taxaCartaoPct,
+        custosVarPct,
+        custoFixoPct,
+        proLabore1Pct,
+        proLabore2Pct,
+        proLaboreTotalPct,
+        margemLiqPct,
+        markupDiv
       );
+
+      // 1.1 Gravar / Atualizar Customização do Produto para cálculo de médias
+      if (pricingInputs) {
+        const estoque = prodCache ? (Number(prodCache.estoque) || 0) : 0;
+        try {
+          db.prepare(`
+            INSERT INTO product_pricing_customizations (
+              produto_id, descricao, cod_barras, cmv, imposto_pct, taxa_cartao_pct, custos_variaveis_pct,
+              custo_fixo_pct, pro_labore_1_pct, pro_labore_2_pct, pro_labore_total_pct, margem_liquida_pct,
+              preco_venda, preco_anterior, markup_divisor, markup_multiplicador, categoria_preset, categoria_nome,
+              estoque, atualizado_por, atualizado_em
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
+            ON CONFLICT(produto_id) DO UPDATE SET
+              descricao = excluded.descricao,
+              cod_barras = excluded.cod_barras,
+              cmv = excluded.cmv,
+              imposto_pct = excluded.imposto_pct,
+              taxa_cartao_pct = excluded.taxa_cartao_pct,
+              custos_variaveis_pct = excluded.custos_variaveis_pct,
+              custo_fixo_pct = excluded.custo_fixo_pct,
+              pro_labore_1_pct = excluded.pro_labore_1_pct,
+              pro_labore_2_pct = excluded.pro_labore_2_pct,
+              pro_labore_total_pct = excluded.pro_labore_total_pct,
+              margem_liquida_pct = excluded.margem_liquida_pct,
+              preco_venda = excluded.preco_venda,
+              preco_anterior = excluded.preco_anterior,
+              markup_divisor = excluded.markup_divisor,
+              markup_multiplicador = excluded.markup_multiplicador,
+              categoria_preset = excluded.categoria_preset,
+              categoria_nome = excluded.categoria_nome,
+              estoque = excluded.estoque,
+              atualizado_por = excluded.atualizado_por,
+              atualizado_em = datetime('now', 'localtime')
+          `).run(
+            prodId,
+            descricao,
+            codBarras,
+            precoCusto,
+            impostoPct,
+            taxaCartaoPct,
+            custosVarPct,
+            custoFixoPct,
+            proLabore1Pct,
+            proLabore2Pct,
+            proLaboreTotalPct,
+            margemLiqPct,
+            finalPrice,
+            previousPrice,
+            markupDiv,
+            markupMult,
+            categoriaPreset,
+            categoriaNome,
+            estoque,
+            usuario || 'Administrador'
+          );
+        } catch (errPpc) {
+          console.error('[Price Manager] Erro ao gravar product_pricing_customizations:', errPpc);
+        }
+      }
 
       // 2. Gravar Log de Auditoria em logs
       const logId = `log_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
@@ -514,16 +624,33 @@ module.exports = function (db) {
         );
       } catch (logErr) {}
 
-      // 3. Atualizar no Digifarma Firebird
-      await queryDigifarma('UPDATE PRODUTOS SET PROD_PRVENDA = ? WHERE PRODUTO_ID = ?', [finalPrice, prodId]);
-      await queryDigifarma('UPDATE PRODUTOS SET PROD_PRPROMOCAO = ? WHERE PRODUTO_ID = ? AND PROD_PRPROMOCAO > 0', [finalPrice, prodId]);
+      // 3. Atualizar no Digifarma Firebird com atomicidade e flags completas para PDV / Caixas
+      await queryDigifarma(`
+        UPDATE PRODUTOS 
+        SET 
+          PROD_PRVENDA = ?,
+          PROD_PRPROMOCAO = CASE WHEN PROD_PRPROMOCAO > 0 THEN ? ELSE PROD_PRPROMOCAO END,
+          PRECO_ANTERIOR = COALESCE(?, PROD_PRVENDA),
+          LASTUPDATE = CURRENT_TIMESTAMP,
+          ATUALIZAR_PRECO = 'S',
+          ITEM_REAJUSTADO = 1
+        WHERE PRODUTO_ID = ?
+      `, [finalPrice, finalPrice, previousPrice, prodId]);
 
-      // 4. Atualizar no SQLite Cache Local
+      // 4. Atualizar no SQLite Cache Local garantindo compatibilidade de tipos (TEXT e INTEGER)
       db.prepare(`
         UPDATE digifarma_products_cache 
-        SET preco_venda = ?, preco_normal = ?, atualizado_em = datetime('now', 'localtime')
-        WHERE produto_id = ?
-      `).run(finalPrice, finalPrice, prodId);
+        SET preco_venda = ?, preco_normal = ?, preco_promocao = CASE WHEN preco_promocao > 0 THEN ? ELSE preco_promocao END, atualizado_em = datetime('now', 'localtime')
+        WHERE produto_id = ? OR CAST(produto_id AS INTEGER) = ? OR (codigo_barras != '' AND codigo_barras = ?)
+      `).run(finalPrice, finalPrice, finalPrice, String(prodId), prodId, String(codBarras || ''));
+
+      try {
+        db.prepare(`
+          UPDATE compras_estoque_cache 
+          SET preco_venda_vigente = ?, preco_normal = ?, preco_promocional = CASE WHEN preco_promocional > 0 THEN ? ELSE preco_promocional END, atualizado_em = datetime('now', 'localtime')
+          WHERE produto_id = ? OR CAST(produto_id AS TEXT) = ? OR (ean != '' AND ean = ?)
+        `).run(finalPrice, finalPrice, finalPrice, prodId, String(prodId), String(codBarras || ''));
+      } catch (ceErr) {}
 
       res.json({
         success: true,
@@ -604,16 +731,33 @@ module.exports = function (db) {
         usuario || 'Administrador'
       );
 
-      // 2. Atualiza Digifarma Firebird na 1ª etapa
-      await queryDigifarma('UPDATE PRODUTOS SET PROD_PRVENDA = ? WHERE PRODUTO_ID = ?', [firstStepPrice, prodId]);
-      await queryDigifarma('UPDATE PRODUTOS SET PROD_PRPROMOCAO = ? WHERE PRODUTO_ID = ? AND PROD_PRPROMOCAO > 0', [firstStepPrice, prodId]);
+      // 2. Atualiza Digifarma Firebird na 1ª etapa com atomicidade e flags para caixas
+      await queryDigifarma(`
+        UPDATE PRODUTOS 
+        SET 
+          PROD_PRVENDA = ?,
+          PROD_PRPROMOCAO = CASE WHEN PROD_PRPROMOCAO > 0 THEN ? ELSE PROD_PRPROMOCAO END,
+          PRECO_ANTERIOR = COALESCE(?, PROD_PRVENDA),
+          LASTUPDATE = CURRENT_TIMESTAMP,
+          ATUALIZAR_PRECO = 'S',
+          ITEM_REAJUSTADO = 1
+        WHERE PRODUTO_ID = ?
+      `, [firstStepPrice, firstStepPrice, currentPrice, prodId]);
 
       // 3. Atualiza SQLite Cache
       db.prepare(`
         UPDATE digifarma_products_cache 
-        SET preco_venda = ?, preco_normal = ?, atualizado_em = datetime('now', 'localtime')
-        WHERE produto_id = ?
-      `).run(firstStepPrice, firstStepPrice, prodId);
+        SET preco_venda = ?, preco_normal = ?, preco_promocao = CASE WHEN preco_promocao > 0 THEN ? ELSE preco_promocao END, atualizado_em = datetime('now', 'localtime')
+        WHERE produto_id = ? OR CAST(produto_id AS INTEGER) = ? OR (codigo_barras != '' AND codigo_barras = ?)
+      `).run(firstStepPrice, firstStepPrice, firstStepPrice, String(prodId), prodId, String(prodCache.codigo_barras || ''));
+
+      try {
+        db.prepare(`
+          UPDATE compras_estoque_cache 
+          SET preco_venda_vigente = ?, preco_normal = ?, preco_promocional = CASE WHEN preco_promocional > 0 THEN ? ELSE preco_promocional END, atualizado_em = datetime('now', 'localtime')
+          WHERE produto_id = ? OR CAST(produto_id AS TEXT) = ? OR (ean != '' AND ean = ?)
+        `).run(firstStepPrice, firstStepPrice, firstStepPrice, prodId, String(prodId), String(prodCache.codigo_barras || ''));
+      } catch (ceErr) {}
 
       // 4. Insere registro de agendamento escalonado
       db.prepare(`
@@ -898,16 +1042,32 @@ module.exports = function (db) {
 
       revertPrice = roundUpToAcceptedCents(revertPrice);
 
-      // 1. Reverte no Digifarma Firebird
-      await queryDigifarma('UPDATE PRODUTOS SET PROD_PRVENDA = ? WHERE PRODUTO_ID = ?', [revertPrice, prodId]);
-      await queryDigifarma('UPDATE PRODUTOS SET PROD_PRPROMOCAO = ? WHERE PRODUTO_ID = ? AND PROD_PRPROMOCAO > 0', [revertPrice, prodId]);
+      // 1. Reverte no Digifarma Firebird com atomicidade e flags para caixas
+      await queryDigifarma(`
+        UPDATE PRODUTOS 
+        SET 
+          PROD_PRVENDA = ?,
+          PROD_PRPROMOCAO = CASE WHEN PROD_PRPROMOCAO > 0 THEN ? ELSE PROD_PRPROMOCAO END,
+          LASTUPDATE = CURRENT_TIMESTAMP,
+          ATUALIZAR_PRECO = 'S',
+          ITEM_REAJUSTADO = 1
+        WHERE PRODUTO_ID = ?
+      `, [revertPrice, revertPrice, prodId]);
 
-      // 2. Reverte no SQLite Cache
+      // 2. Reverte no SQLite Cache garantindo compatibilidade de tipos
       db.prepare(`
         UPDATE digifarma_products_cache 
-        SET preco_venda = ?, preco_normal = ?, atualizado_em = datetime('now', 'localtime')
-        WHERE produto_id = ?
-      `).run(revertPrice, revertPrice, prodId);
+        SET preco_venda = ?, preco_normal = ?, preco_promocao = CASE WHEN preco_promocao > 0 THEN ? ELSE preco_promocao END, atualizado_em = datetime('now', 'localtime')
+        WHERE produto_id = ? OR CAST(produto_id AS INTEGER) = ? OR (codigo_barras != '' AND codigo_barras = ?)
+      `).run(revertPrice, revertPrice, revertPrice, String(prodId), prodId, String(snapshot.cod_barras || ''));
+
+      try {
+        db.prepare(`
+          UPDATE compras_estoque_cache 
+          SET preco_venda_vigente = ?, preco_normal = ?, preco_promocional = CASE WHEN preco_promocional > 0 THEN ? ELSE preco_promocional END, atualizado_em = datetime('now', 'localtime')
+          WHERE produto_id = ? OR CAST(produto_id AS TEXT) = ? OR (ean != '' AND ean = ?)
+        `).run(revertPrice, revertPrice, revertPrice, prodId, String(prodId), String(snapshot.cod_barras || ''));
+      } catch (ceErr) {}
 
       // 3. Atualiza o snapshot com o preco_anterior corrigido e marca como Revertido
       db.prepare(`
@@ -1145,6 +1305,237 @@ module.exports = function (db) {
       res.json({ success: true, message: 'Categoria atualizada com sucesso!' });
     } catch (err) {
       console.error('[Price Manager API] Erro ao atualizar categoria:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  /**
+   * 15. GET /api/price-manager/customizations/averages
+   * Retorna os produtos com parametrização individual gravada e a média de cada campo (pró-labore, fixo, impostos, margens)
+   */
+  router.get('/customizations/averages', (req, res) => {
+    try {
+      const items = db.prepare(`
+        SELECT * FROM product_pricing_customizations 
+        ORDER BY atualizado_em DESC
+      `).all();
+
+      const totalItems = items.length;
+
+      if (totalItems === 0) {
+        return res.json({
+          success: true,
+          totalModifiedProducts: 0,
+          simpleAverages: {
+            proLabore1Pct: 0,
+            proLabore2Pct: 0,
+            proLaboreTotalPct: 0,
+            custoFixoPct: 0,
+            impostoPct: 0,
+            taxaCartaoPct: 0,
+            custosVariaveisPct: 0,
+            margemLiquidaPct: 0,
+            markupDivisor: 0,
+            markupMultiplicador: 0
+          },
+          weightedAverages: {
+            proLaboreTotalPct: 0,
+            custoFixoPct: 0,
+            impostoPct: 0,
+            taxaCartaoPct: 0,
+            custosVariaveisPct: 0,
+            margemLiquidaPct: 0,
+            totalEstoqueValor: 0
+          },
+          items: []
+        });
+      }
+
+      // Cálculo das Médias Simples
+      let sumProLabore1 = 0;
+      let sumProLabore2 = 0;
+      let sumProLaboreTotal = 0;
+      let sumCustoFixo = 0;
+      let sumImposto = 0;
+      let sumTaxaCartao = 0;
+      let sumCustosVariaveis = 0;
+      let sumMargemLiquida = 0;
+      let sumMarkupDivisor = 0;
+      let sumMarkupMultiplicador = 0;
+
+      // Ponderada por valor de venda total em estoque (ou preço de venda se estoque zerado)
+      let sumPesoVenda = 0;
+      let wSumProLaboreTotal = 0;
+      let wSumCustoFixo = 0;
+      let wSumImposto = 0;
+      let wSumTaxaCartao = 0;
+      let wSumCustosVariaveis = 0;
+      let wSumMargemLiquida = 0;
+
+      items.forEach(item => {
+        sumProLabore1 += item.pro_labore_1_pct || 0;
+        sumProLabore2 += item.pro_labore_2_pct || 0;
+        sumProLaboreTotal += item.pro_labore_total_pct || 0;
+        sumCustoFixo += item.custo_fixo_pct || 0;
+        sumImposto += item.imposto_pct || 0;
+        sumTaxaCartao += item.taxa_cartao_pct || 0;
+        sumCustosVariaveis += item.custos_variaveis_pct || 0;
+        sumMargemLiquida += item.margem_liquida_pct || 0;
+        sumMarkupDivisor += item.markup_divisor || 0;
+        sumMarkupMultiplicador += item.markup_multiplicador || 0;
+
+        const peso = (item.preco_venda || 0) * (item.estoque > 0 ? item.estoque : 1);
+        if (peso > 0) {
+          sumPesoVenda += peso;
+          wSumProLaboreTotal += (item.pro_labore_total_pct || 0) * peso;
+          wSumCustoFixo += (item.custo_fixo_pct || 0) * peso;
+          wSumImposto += (item.imposto_pct || 0) * peso;
+          wSumTaxaCartao += (item.taxa_cartao_pct || 0) * peso;
+          wSumCustosVariaveis += (item.custos_variaveis_pct || 0) * peso;
+          wSumMargemLiquida += (item.margem_liquida_pct || 0) * peso;
+        }
+      });
+
+      const simpleAverages = {
+        proLabore1Pct: parseFloat((sumProLabore1 / totalItems).toFixed(2)),
+        proLabore2Pct: parseFloat((sumProLabore2 / totalItems).toFixed(2)),
+        proLaboreTotalPct: parseFloat((sumProLaboreTotal / totalItems).toFixed(2)),
+        custoFixoPct: parseFloat((sumCustoFixo / totalItems).toFixed(2)),
+        impostoPct: parseFloat((sumImposto / totalItems).toFixed(2)),
+        taxaCartaoPct: parseFloat((sumTaxaCartao / totalItems).toFixed(2)),
+        custosVariaveisPct: parseFloat((sumCustosVariaveis / totalItems).toFixed(2)),
+        margemLiquidaPct: parseFloat((sumMargemLiquida / totalItems).toFixed(2)),
+        markupDivisor: parseFloat((sumMarkupDivisor / totalItems).toFixed(4)),
+        markupMultiplicador: parseFloat((sumMarkupMultiplicador / totalItems).toFixed(2))
+      };
+
+      const weightedAverages = sumPesoVenda > 0 ? {
+        proLaboreTotalPct: parseFloat((wSumProLaboreTotal / sumPesoVenda).toFixed(2)),
+        custoFixoPct: parseFloat((wSumCustoFixo / sumPesoVenda).toFixed(2)),
+        impostoPct: parseFloat((wSumImposto / sumPesoVenda).toFixed(2)),
+        taxaCartaoPct: parseFloat((wSumTaxaCartao / sumPesoVenda).toFixed(2)),
+        custosVariaveisPct: parseFloat((wSumCustosVariaveis / sumPesoVenda).toFixed(2)),
+        margemLiquidaPct: parseFloat((wSumMargemLiquida / sumPesoVenda).toFixed(2)),
+        totalEstoqueValor: parseFloat(sumPesoVenda.toFixed(2))
+      } : { ...simpleAverages, totalEstoqueValor: 0 };
+
+      res.json({
+        success: true,
+        totalModifiedProducts: totalItems,
+        simpleAverages,
+        weightedAverages,
+        items
+      });
+    } catch (err) {
+      console.error('[Price Manager API] Erro ao obter médias de customização:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  /**
+   * 16. GET /api/price-manager/customizations/:produtoId
+   * Retorna os percentuais gravados para um produto específico
+   */
+  router.get('/customizations/:produtoId', (req, res) => {
+    try {
+      const prodId = parseInt(req.params.produtoId);
+      const row = db.prepare('SELECT * FROM product_pricing_customizations WHERE produto_id = ?').get(prodId);
+      res.json({ success: true, customization: row || null });
+    } catch (err) {
+      console.error('[Price Manager API] Erro ao obter customização do produto:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  /**
+   * 17. POST /api/price-manager/customizations/save
+   * Permite salvar ou atualizar parametrização de um produto diretamente
+   */
+  router.post('/customizations/save', (req, res) => {
+    try {
+      const { produtoId, descricao, codBarras, cmv, precoVenda, pricingInputs, usuario } = req.body;
+      if (!produtoId || !pricingInputs) {
+        return res.status(400).json({ error: 'produtoId e pricingInputs são obrigatórios.' });
+      }
+
+      const prodId = parseInt(produtoId);
+      const impostoPct = Number(pricingInputs.impostoPercent) || 0;
+      const taxaCartaoPct = Number(pricingInputs.taxaCartaoPercent) || 0;
+      const custosVarPct = Number(pricingInputs.custosVariaveisPercent) || 0;
+      const custoFixoPct = Number(pricingInputs.custoFixoPercent) || 0;
+      const proLabore1Pct = Number(pricingInputs.proLaboreSocio1Percent) || 0;
+      const proLabore2Pct = Number(pricingInputs.proLaboreSocio2Percent) || 0;
+      const proLaboreTotalPct = Number((proLabore1Pct + proLabore2Pct).toFixed(2));
+      const margemLiqPct = Number(pricingInputs.margemLiquidaPercent) || 0;
+      const markupDiv = Number(pricingInputs.markupDivisor) || 0;
+      const markupMult = Number(pricingInputs.markupMultiplicador) || 0;
+      const categoriaPreset = String(pricingInputs.categoriaPreset || '');
+      const categoriaNome = String(pricingInputs.categoriaNome || '');
+      const precoFinal = Number(precoVenda) || 0;
+      const precoCusto = Number(cmv) || 0;
+
+      // Buscar estoque do cache
+      const prodCache = db.prepare(`
+        SELECT COALESCE(ce.saldo, c.estoque_atual, 0) as estoque 
+        FROM digifarma_products_cache c
+        LEFT JOIN compras_estoque_cache ce ON CAST(c.produto_id AS INTEGER) = ce.produto_id
+        WHERE c.produto_id = ? OR CAST(c.produto_id AS INTEGER) = ?
+      `).get(String(prodId), prodId);
+      const estoque = prodCache ? (Number(prodCache.estoque) || 0) : 0;
+
+      db.prepare(`
+        INSERT INTO product_pricing_customizations (
+          produto_id, descricao, cod_barras, cmv, imposto_pct, taxa_cartao_pct, custos_variaveis_pct,
+          custo_fixo_pct, pro_labore_1_pct, pro_labore_2_pct, pro_labore_total_pct, margem_liquida_pct,
+          preco_venda, preco_anterior, markup_divisor, markup_multiplicador, categoria_preset, categoria_nome,
+          estoque, atualizado_por, atualizado_em
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
+        ON CONFLICT(produto_id) DO UPDATE SET
+          descricao = excluded.descricao,
+          cod_barras = excluded.cod_barras,
+          cmv = excluded.cmv,
+          imposto_pct = excluded.imposto_pct,
+          taxa_cartao_pct = excluded.taxa_cartao_pct,
+          custos_variaveis_pct = excluded.custos_variaveis_pct,
+          custo_fixo_pct = excluded.custo_fixo_pct,
+          pro_labore_1_pct = excluded.pro_labore_1_pct,
+          pro_labore_2_pct = excluded.pro_labore_2_pct,
+          pro_labore_total_pct = excluded.pro_labore_total_pct,
+          margem_liquida_pct = excluded.margem_liquida_pct,
+          preco_venda = excluded.preco_venda,
+          markup_divisor = excluded.markup_divisor,
+          markup_multiplicador = excluded.markup_multiplicador,
+          categoria_preset = excluded.categoria_preset,
+          categoria_nome = excluded.categoria_nome,
+          estoque = excluded.estoque,
+          atualizado_por = excluded.atualizado_por,
+          atualizado_em = datetime('now', 'localtime')
+      `).run(
+        prodId, descricao || `Produto ${prodId}`, codBarras || '', precoCusto,
+        impostoPct, taxaCartaoPct, custosVarPct, custoFixoPct,
+        proLabore1Pct, proLabore2Pct, proLaboreTotalPct, margemLiqPct,
+        precoFinal, precoFinal, markupDiv, markupMult, categoriaPreset, categoriaNome,
+        estoque, usuario || 'Administrador'
+      );
+
+      res.json({ success: true, message: 'Parametrização gravada com sucesso!' });
+    } catch (err) {
+      console.error('[Price Manager API] Erro ao salvar customização:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  /**
+   * 18. DELETE /api/price-manager/customizations/:produtoId
+   * Remove a parametrização customizada de um produto
+   */
+  router.delete('/customizations/:produtoId', (req, res) => {
+    try {
+      const prodId = parseInt(req.params.produtoId);
+      db.prepare('DELETE FROM product_pricing_customizations WHERE produto_id = ?').run(prodId);
+      res.json({ success: true, message: 'Parametrização removida.' });
+    } catch (err) {
+      console.error('[Price Manager API] Erro ao remover customização:', err);
       res.status(500).json({ error: err.message });
     }
   });

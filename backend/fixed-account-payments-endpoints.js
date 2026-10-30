@@ -1,25 +1,35 @@
-// --- FIXED ACCOUNT PAYMENTS ENDPOINTS ---
-
 // GET /api/fixed-account-payments - Get payments for a specific month (with auto-generation)
 app.get('/api/fixed-account-payments', (req, res) => {
   try {
-    const { month } = req.query; // Expected format: YYYY-MM
+    let { month, year } = req.query; // Expected format: YYYY-MM
     
     if (!month) {
-      return res.status(400).json({ error: 'Month parameter is required (format: YYYY-MM)' });
+      return res.status(400).json({ error: 'Month parameter is required' });
     }
     
+    let targetYear = year;
+    let targetMonthNum = month;
+
+    if (String(month).includes('-')) {
+      const parts = String(month).split('-');
+      targetYear = parts[0];
+      targetMonthNum = parts[1];
+    }
+
+    if (!targetYear) targetYear = new Date().getFullYear().toString();
+    targetMonthNum = String(targetMonthNum).padStart(2, '0');
+    const monthKey = `${targetYear}-${targetMonthNum}`;
+
     // 1. Check if payments already exist for this month
-    let payments = db.prepare('SELECT * FROM fixed_account_payments WHERE month = ?').all(month);
+    let payments = db.prepare('SELECT * FROM fixed_account_payments WHERE month = ?').all(monthKey);
     
     // 2. If no payments exist, generate them automatically from active fixed accounts
     if (payments.length === 0) {
       const activeAccounts = db.prepare('SELECT * FROM fixed_accounts WHERE isActive = 1').all();
       
       activeAccounts.forEach(acc => {
-        const [year, monthNum] = month.split('-');
-        const dueDay = String(acc.dueDay).padStart(2, '0');
-        const dueDate = `${year}-${monthNum}-${dueDay}`;
+        const dueDay = String(acc.dueDay || 1).padStart(2, '0');
+        const dueDate = `${targetYear}-${targetMonthNum}-${dueDay}`;
         
         const payment = {
           id: `fap_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
@@ -27,7 +37,7 @@ app.get('/api/fixed-account-payments', (req, res) => {
           fixedAccountName: acc.name,
           value: acc.value,
           dueDate,
-          month,
+          month: monthKey,
           status: 'Pendente',
           paidAt: null,
           notes: null
@@ -52,7 +62,7 @@ app.get('/api/fixed-account-payments', (req, res) => {
         payments.push(payment);
       });
       
-      console.log(`Auto-generated ${payments.length} fixed account payments for ${month}`);
+      console.log(`Auto-generated ${payments.length} fixed account payments for ${monthKey}`);
     }
     
     res.json(payments);
@@ -61,6 +71,7 @@ app.get('/api/fixed-account-payments', (req, res) => {
     res.status(500).json({ error: 'Failed to fetch fixed account payments' });
   }
 });
+
 
 // PUT /api/fixed-account-payments/:id - Update payment status
 app.put('/api/fixed-account-payments/:id', (req, res) => {

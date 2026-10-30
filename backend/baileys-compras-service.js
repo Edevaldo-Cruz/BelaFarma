@@ -162,35 +162,9 @@ async function connect(db) {
           }
         }
 
-        // 🤖 Automação: Disparar varredura das últimas 2 semanas (14 dias) automaticamente após conexão
-        setTimeout(async () => {
-          try {
-            console.log('[Baileys-Compras] 🤖 Iniciando varredura automática das últimas 2 semanas de ofertas...');
-            const comprasMineracaoService = require('./services/compras-mineracao.service');
-            await comprasMineracaoService.executarVarreduraRetroativa90Dias(savedDb, { dias: 14 });
-          } catch (autoErr) {
-            console.warn('[Baileys-Compras] Aviso na varredura automática inicial:', autoErr.message);
-          }
-        }, 2000);
-
-        // Iniciar ciclo de varredura periódica em background a cada 5 minutos (Segunda a Sábado)
-        if (!global.comprasAutoMinerInterval) {
-          global.comprasAutoMinerInterval = setInterval(async () => {
-            try {
-              // Domingo o bot não precisa trabalhar
-              if (new Date().getDay() === 0) {
-                return;
-              }
-
-              if (savedDb) {
-                const comprasMineracaoService = require('./services/compras-mineracao.service');
-                await comprasMineracaoService.executarVarreduraRetroativa90Dias(savedDb, { dias: 1 });
-              }
-            } catch (cronErr) {
-              console.warn('[Baileys-Compras] Aviso no ciclo periódico de mineração (5m):', cronErr.message);
-            }
-          }, 5 * 60 * 1000);
-        }
+        // 🛡️ OTIMIZAÇÃO DE PERFORMANCE: Varreduras em massa de 14 dias e ciclos de 5m desativados em background
+        // A mineração em massa agora roda exclusivamente sob demanda quando acionada pelo usuário na Central de Compras.
+        console.log('[Baileys-Compras] ⚡ Modo econômico de recursos ativo (varredura pesada sob demanda).');
       }
 
       if (connection === 'close') {
@@ -222,8 +196,19 @@ async function connect(db) {
           return;
         }
 
-        // Reconexão transparente para restartRequired (515), timeout (408), connectionLost, etc.
-        const delay = (statusCode === DisconnectReason?.restartRequired || statusCode === 515) ? 1000 : 3000;
+        // Se o QR Code expirou sem leitura (408), não reconecta em loop automático
+        const isQrTimeout = statusCode === 408 || statusCode === DisconnectReason?.timedOut || reason.includes('QR refs');
+        if (isQrTimeout) {
+          console.log('[Baileys-Compras] ⏸️ QR Code de compras expirou sem leitura (Código 408). Pausando reconexão automática para economizar memória. Aguardando clique do usuário na tela.');
+          lastError = 'QR Code expirou. Clique em Conectar para gerar um novo.';
+          lastQR = null;
+          isConnecting = false;
+          if (reconnectTimer) clearTimeout(reconnectTimer);
+          return;
+        }
+
+        // Reconexão transparente para restartRequired (515), connectionLost, etc.
+        const delay = (statusCode === DisconnectReason?.restartRequired || statusCode === 515) ? 1000 : 5000;
         console.log(`[Baileys-Compras] 🔄 Reconectando sessão existente em ${delay}ms (Código: ${statusCode})...`);
         if (reconnectTimer) clearTimeout(reconnectTimer);
         reconnectTimer = setTimeout(() => connect(savedDb), delay);
@@ -235,16 +220,7 @@ async function connect(db) {
       const { messages } = history;
       if (!messages || messages.length === 0) return;
 
-      console.log(`[Baileys-Compras] 📥 Histórico recebido na instância de compras: ${messages.length} mensagens.`);
-      
-      if (savedDb) {
-        try {
-          const comprasMineracaoService = require('./services/compras-mineracao.service');
-          await comprasMineracaoService.processarMensagensEmLote(messages, savedDb);
-        } catch (minErr) {
-          console.error('[Baileys-Compras] Erro ao processar histórico para mineração:', minErr.message);
-        }
-      }
+      console.log(`[Baileys-Compras] 📥 Histórico recebido na instância de compras (${messages.length} msgs). Mineração em lote aguardando acionamento sob demanda.`);
     });
 
     // ── Mensagens Recebidas em Tempo Real ────────────────────────────
@@ -268,23 +244,24 @@ async function connect(db) {
         else if (contentMsg?.ephemeralMessage?.message) contentMsg = contentMsg.ephemeralMessage.message;
         else if (contentMsg?.documentWithCaptionMessage?.message) contentMsg = contentMsg.documentWithCaptionMessage.message;
 
-        const messageType = Object.keys(contentMsg)[0] || '';
         let text = null;
         let mediaType = 'texto';
 
-        if (messageType === 'conversation') {
-          text = contentMsg.conversation;
-        } else if (messageType === 'extendedTextMessage') {
-          text = contentMsg.extendedTextMessage?.text;
-        } else if (messageType === 'imageMessage') {
-          text = contentMsg.imageMessage?.caption || '[📷 Imagem de Tabela/Oferta]';
+        if (contentMsg?.imageMessage) {
+          text = contentMsg.imageMessage.caption || '[📷 Imagem de Tabela/Oferta]';
           mediaType = 'imagem';
-        } else if (messageType === 'documentMessage') {
-          text = contentMsg.documentMessage?.caption || `[📄 Documento: ${contentMsg.documentMessage?.fileName || 'anexo'}]`;
+        } else if (contentMsg?.documentMessage) {
+          text = contentMsg.documentMessage.caption || `[📄 Documento: ${contentMsg.documentMessage.fileName || 'anexo'}]`;
           mediaType = 'documento';
-        } else if (messageType === 'audioMessage') {
+        } else if (contentMsg?.audioMessage) {
           text = '[🎙️ Áudio]';
           mediaType = 'audio';
+        } else if (contentMsg?.conversation) {
+          text = contentMsg.conversation;
+          mediaType = 'texto';
+        } else if (contentMsg?.extendedTextMessage?.text) {
+          text = contentMsg.extendedTextMessage.text;
+          mediaType = 'texto';
         }
 
         const phone = remoteJid.split('@')[0];
@@ -319,7 +296,7 @@ async function connect(db) {
               dateStr
             );
 
-            // Se for mensagem recebida (não enviada por nós), ativa o Agente Horácio e a Mineração
+            // Se for mensagem recebida (não enviada por nós), ativa Belinha Compras, Horácio e Mineração
             if (!fromMe) {
               const horacioAgent = require('./services/horacio-agent.service');
 
@@ -327,9 +304,30 @@ async function connect(db) {
               if (mediaType === 'imagem' || mediaType === 'documento') {
                 try {
                   const { downloadMediaMessage } = require('@whiskeysockets/baileys');
-                  const buffer = await downloadMediaMessage(msg, 'buffer', {});
+                  const buffer = await downloadMediaMessage(msg, 'buffer', {}, {
+                    logger: sock?.logger,
+                    reuploadRequest: sock?.updateMediaMessage
+                  });
                   const mime = contentMsg.imageMessage?.mimetype || contentMsg.documentMessage?.mimetype || (mediaType === 'imagem' ? 'image/jpeg' : 'application/pdf');
                   if (buffer) {
+                    // Belinha Compras: extração multimodal direta (Gemini Vision + JSON estrito + Radar BelaPed)
+                    try {
+                      const belinhaComprasService = require('./services/belinha-compras.service');
+                      await belinhaComprasService.processarMensagemComercial({
+                        messageId,
+                        remoteJid,
+                        phone,
+                        pushName: contactName,
+                        buffer,
+                        mimeType: mime,
+                        caption: contentMsg.imageMessage?.caption || '',
+                        db: savedDb
+                      });
+                    } catch (belinhaErr) {
+                      console.warn('[Baileys-Compras] Erro na Belinha Compras (mídia):', belinhaErr.message);
+                    }
+
+                    // Suporte retroativo para Horácio
                     await horacioAgent.processarMidiaMultimodal(buffer, mime, contactName, phone, savedDb);
                   }
                 } catch(mediaErr) {
@@ -339,6 +337,21 @@ async function connect(db) {
 
               // 2. Processamento de Texto e Mineração de Ofertas
               if (text && !text.startsWith('[📷') && !text.startsWith('[📄') && !text.startsWith('[🎙️')) {
+                // Belinha Compras: extração comercial especializada e alimentação BelaPed
+                try {
+                  const belinhaComprasService = require('./services/belinha-compras.service');
+                  await belinhaComprasService.processarMensagemComercial({
+                    messageId,
+                    remoteJid,
+                    phone,
+                    pushName: contactName,
+                    text,
+                    db: savedDb
+                  });
+                } catch (belinhaErr) {
+                  console.warn('[Baileys-Compras] Erro na Belinha Compras (texto):', belinhaErr.message);
+                }
+
                 const comprasMineracaoService = require('./services/compras-mineracao.service');
                 const resultadoMineracao = await comprasMineracaoService.processarMensagemRecebida({
                   id: messageId,

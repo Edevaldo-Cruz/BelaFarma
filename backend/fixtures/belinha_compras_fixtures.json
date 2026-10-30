@@ -1,0 +1,988 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "metadata": {
+    "suite": "Belinha Compras Pharmaceutical Test Suite",
+    "version": "1.0.0",
+    "generatedAt": "2026-10-26T20:45:00Z",
+    "targetRequirements": ["R1", "R2", "R3", "R4"],
+    "totalFixtures": 68
+  },
+  "tier1_feature_fixtures": [
+    {
+      "id": "T1_01_CLASS_COMMERCIAL",
+      "feature": "ehOfertaComercial",
+      "description": "Standard commercial offer classified as ehOfertaComercial: true",
+      "input": {
+        "text": "OFERTAS DA SEMANA:\nAMOXICILINA 500MG COM 21 CAPSULAS - EMS - R$ 12,50\nLOSARTANA 50MG COM 30 COMPRIMIDOS - MEDLEY - R$ 3,80\nPrazos 28/42 dias. Pedido mínimo R$ 300.",
+        "pushName": "João Panpharma",
+        "phone": "5532999990001"
+      },
+      "expected": {
+        "sucesso": true,
+        "ehOfertaComercial": true,
+        "produtosCountMin": 2
+      }
+    },
+    {
+      "id": "T1_02_CLASS_NON_COMMERCIAL",
+      "feature": "ehOfertaComercial",
+      "description": "Casual conversation classified as ehOfertaComercial: false",
+      "input": {
+        "text": "Bom dia Dr. Carlos! Como está o movimento na BelaFarma hoje? Tenha uma ótima semana!",
+        "pushName": "Carlos Amigo",
+        "phone": "5532999990002"
+      },
+      "expected": {
+        "sucesso": true,
+        "ehOfertaComercial": false,
+        "produtosOfertados": []
+      }
+    },
+    {
+      "id": "T1_03_SUPP_PANPHARMA",
+      "feature": "fornecedor.distribuidora",
+      "description": "Distributor identification: Panpharma",
+      "input": {
+        "text": "PANPHARMA DISTRIBUIDORA DE MEDICAMENTOS\nTABELA DE PREÇOS MINAS GERAIS\nCLONAZEPAM 2MG 30CPR EMS R$ 4,90\nPrazos 28/35/42",
+        "pushName": "Vendas Panpharma",
+        "phone": "5532988880001"
+      },
+      "expected": {
+        "distribuidora": "PANPHARMA"
+      }
+    },
+    {
+      "id": "T1_04_SUPP_SANTACRUZ",
+      "feature": "fornecedor.distribuidora",
+      "description": "Distributor identification: Santa Cruz",
+      "input": {
+        "text": "DISTRIBUIDORA SANTA CRUZ OFERTAS BALCÃO\nDIPIRONA 500MG COM 100 CPR MEDLEY R$ 18,90\nPedido mínimo R$ 400",
+        "pushName": "Santa Cruz Farma",
+        "phone": "5532988880002"
+      },
+      "expected": {
+        "distribuidora": "SANTA CRUZ"
+      }
+    },
+    {
+      "id": "T1_05_SUPP_PROFARMA",
+      "feature": "fornecedor.distribuidora",
+      "description": "Distributor identification: Profarma",
+      "input": {
+        "text": "PROFARMA DISTRIBUIDORA S/A\nPROMOÇÃO DA SEMANA:\nIBUPROFENO 600MG 20CPR PRATI R$ 6,50",
+        "pushName": "Atendimento Profarma",
+        "phone": "5532988880003"
+      },
+      "expected": {
+        "distribuidora": "PROFARMA"
+      }
+    },
+    {
+      "id": "T1_06_SUPP_EMS",
+      "feature": "fornecedor.distribuidora",
+      "description": "Direct industry identification: EMS",
+      "input": {
+        "text": "EMS S/A - DIRETO DA INDÚSTRIA\nTABELA EXCLUSIVA BELAFARMA\nAMOXICILINA 500MG 21CAP R$ 11,90\nCondição: 30/60/90",
+        "pushName": "Representante EMS",
+        "phone": "5532988880004"
+      },
+      "expected": {
+        "distribuidora": "EMS"
+      }
+    },
+    {
+      "id": "T1_07_SUPP_CIMED",
+      "feature": "fornecedor.distribuidora",
+      "description": "Direct industry identification: Cimed",
+      "input": {
+        "text": "CIMED INDÚSTRIA DE MEDICAMENTOS\nAMARELINHO CIMED PROMOÇÃO\nCIMELIDE 100MG 12CPR R$ 2,99\nPedido mínimo R$ 350",
+        "pushName": "Vendedor Cimed",
+        "phone": "5532988880005"
+      },
+      "expected": {
+        "distribuidora": "CIMED"
+      }
+    },
+    {
+      "id": "T1_08_SUPP_NEOQUIMICA",
+      "feature": "fornecedor.distribuidora",
+      "description": "Direct industry identification: Neo Química",
+      "input": {
+        "text": "NEO QUÍMICA GENÉRICOS E SIMILARES\nOFERTAS ESPECIAIS\nLOSARTANA 50MG 30CPR R$ 1,75\nPrazo: 28/42 dias",
+        "pushName": "Neo Quimica MG",
+        "phone": "5532988880006"
+      },
+      "expected": {
+        "distribuidora": "NEO QUIMICA"
+      }
+    },
+    {
+      "id": "T1_09_SUPP_EUROFARMA",
+      "feature": "fornecedor.distribuidora",
+      "description": "Direct industry identification: Eurofarma",
+      "input": {
+        "text": "EUROFARMA LABORATÓRIOS S/A\nTABELA HOSPITALAR E VAREJO\nCEFTRIAXONA 1G INJ R$ 15,20\nÀ vista PIX com 2% desc",
+        "pushName": "Comercial Eurofarma",
+        "phone": "5532988880007"
+      },
+      "expected": {
+        "distribuidora": "EUROFARMA"
+      }
+    },
+    {
+      "id": "T1_10_REP_SPOKEN_TEXT",
+      "feature": "fornecedor.representante",
+      "description": "Representative extracted from spoken text intro",
+      "input": {
+        "text": "Olá BelaFarma, sou o representante Marcos da Panpharma.\nSegue nossa tabela:\nPARACETAMOL 750MG 20CPR R$ 3,20",
+        "pushName": "Marcos Panpharma",
+        "phone": "5532991112222"
+      },
+      "expected": {
+        "representante": "Marcos"
+      }
+    },
+    {
+      "id": "T1_11_REP_PUSHNAME",
+      "feature": "fornecedor.representante",
+      "description": "Representative fallback to pushName when absent from text",
+      "input": {
+        "text": "Tabela de ofertas Santa Cruz:\nOMEPRAZOL 20MG 28CAP R$ 4,50",
+        "pushName": "Rodrigo Farma",
+        "phone": "5532991113333"
+      },
+      "expected": {
+        "representante": "Rodrigo Farma"
+      }
+    },
+    {
+      "id": "T1_12_TERMS_COMPOUND",
+      "feature": "fornecedor.condicaoPagamento",
+      "description": "Compound payment terms extraction: 28/42 dias",
+      "input": {
+        "text": "DISTRIBUIDORA PROFARMA\nPrazos de pagamento: 28/42 dias no boleto.\nLOSARTANA 50MG R$ 1,90",
+        "pushName": "Profarma",
+        "phone": "5532991114444"
+      },
+      "expected": {
+        "condicaoPagamento": "28/42 dias"
+      }
+    },
+    {
+      "id": "T1_13_TERMS_CASH_PIX",
+      "feature": "fornecedor.condicaoPagamento",
+      "description": "Cash/PIX payment condition",
+      "input": {
+        "text": "Condição comercial: À vista no Pix com 5% de desconto.\nPARACETAMOL 750MG R$ 2,50",
+        "pushName": "Fornecedor",
+        "phone": "5532991115555"
+      },
+      "expected": {
+        "condicaoPagamento": "À vista"
+      }
+    },
+    {
+      "id": "T1_14_TERMS_DDL",
+      "feature": "fornecedor.condicaoPagamento",
+      "description": "Single term in days (ddl)",
+      "input": {
+        "text": "Pagamento faturado em 30 ddl.\nMETFORMINA 850MG 30CPR R$ 3,10",
+        "pushName": "Fornecedor",
+        "phone": "5532991116666"
+      },
+      "expected": {
+        "condicaoPagamento": "30 dias"
+      }
+    },
+    {
+      "id": "T1_15_MIN_ORDER_300",
+      "feature": "fornecedor.pedidoMinimo",
+      "description": "Minimum order value R$ 300,00",
+      "input": {
+        "text": "OFERTAS ESPECIAIS:\nPEDIDO MÍNIMO: R$ 300,00\nATENOLOL 50MG 30CPR R$ 2,40",
+        "pushName": "Distribuidora",
+        "phone": "5532991117777"
+      },
+      "expected": {
+        "pedidoMinimo": 300
+      }
+    },
+    {
+      "id": "T1_16_MIN_ORDER_500",
+      "feature": "fornecedor.pedidoMinimo",
+      "description": "Minimum order value R$ 500,00",
+      "input": {
+        "text": "Faturamento mínimo exigido: R$ 500,00 para entrega em Juiz de Fora.\nSINVASTATINA 20MG 30CPR R$ 4,80",
+        "pushName": "Distribuidora",
+        "phone": "5532991118888"
+      },
+      "expected": {
+        "pedidoMinimo": 500
+      }
+    },
+    {
+      "id": "T1_17_VALIDITY_DATE",
+      "feature": "fornecedor.validadeOferta",
+      "description": "Offer validity ISO conversion or string",
+      "input": {
+        "text": "Promoção válida até 31/10/2026 ou enquanto durar o estoque.\nCLONAZEPAM 2MG R$ 4,10",
+        "pushName": "Distribuidora",
+        "phone": "5532991119999"
+      },
+      "expected": {
+        "validadeOferta": "2026-10-31"
+      }
+    },
+    {
+      "id": "T1_18_PRODUCT_FULL_NAME",
+      "feature": "produtosOfertados.nomeComercial",
+      "description": "Full commercial drug name extraction without price pollution",
+      "input": {
+        "text": "AMOXICILINA 500MG COM 21 CAPSULAS CX - EMS - R$ 14,50",
+        "pushName": "EMS",
+        "phone": "5532991110001"
+      },
+      "expected": {
+        "nomeComercial": "AMOXICILINA 500MG COM 21 CAPSULAS CX"
+      }
+    },
+    {
+      "id": "T1_19_EAN_STRICT_13",
+      "feature": "produtosOfertados.ean",
+      "description": "13-digit EAN extraction with valid GS1 modulo 10 checksum",
+      "input": {
+        "text": "7896004701233 AMOXICILINA 500MG 21CAP EMS R$ 14,50",
+        "pushName": "EMS",
+        "phone": "5532991110002"
+      },
+      "expected": {
+        "ean": "7896004701233"
+      }
+    },
+    {
+      "id": "T1_20_LAB_TEXT",
+      "feature": "produtosOfertados.laboratorio",
+      "description": "Laboratory extracted from product line text: MEDLEY",
+      "input": {
+        "text": "LOSARTANA 50MG 30CPR GEN MEDLEY R$ 3,50",
+        "pushName": "Medley",
+        "phone": "5532991110003"
+      },
+      "expected": {
+        "laboratorio": "MEDLEY"
+      }
+    },
+    {
+      "id": "T1_21_LAB_GS1_INFERENCE",
+      "feature": "produtosOfertados.laboratorio",
+      "description": "Laboratory inferred from GS1 prefix: CIMED (78965232)",
+      "input": {
+        "text": "7896523206547 PARACETAMOL 750MG 20CPR R$ 3,90",
+        "pushName": "Cimed",
+        "phone": "5532991110004"
+      },
+      "expected": {
+        "laboratorio": "CIMED"
+      }
+    },
+    {
+      "id": "T1_22_NET_PRICE_BRL",
+      "feature": "produtosOfertados.precoOfertado",
+      "description": "Numeric price precision in BRL float: 14.50",
+      "input": {
+        "text": "DIPIRONA 1G 10CPR EMS R$ 14,50",
+        "pushName": "Fornecedor",
+        "phone": "5532991110005"
+      },
+      "expected": {
+        "precoOfertado": 14.50
+      }
+    },
+    {
+      "id": "T1_23_NET_PRICE_DECIMAL_DOT",
+      "feature": "produtosOfertados.precoOfertado",
+      "description": "Numeric price parsing with dot notation: 8.95",
+      "input": {
+        "text": "IBUPROFENO 600MG 20CPR R$ 8.95 cada",
+        "pushName": "Fornecedor",
+        "phone": "5532991110006"
+      },
+      "expected": {
+        "precoOfertado": 8.95
+      }
+    },
+    {
+      "id": "T1_24_UNIT_PACKAGING_CX",
+      "feature": "produtosOfertados.unidade",
+      "description": "Packaging unit detection: cx",
+      "input": {
+        "text": "CLONAZEPAM 2MG CX COM 30 COMPRIMIDOS R$ 4,80",
+        "pushName": "Fornecedor",
+        "phone": "5532991110007"
+      },
+      "expected": {
+        "unidade": "cx"
+      }
+    },
+    {
+      "id": "T1_25_UNIT_PACKAGING_FRASCO",
+      "feature": "produtosOfertados.unidade",
+      "description": "Packaging unit detection: frasco",
+      "input": {
+        "text": "DIPIRONA SODICA 500MG/ML GOTAS FRASCO 20ML R$ 2,50",
+        "pushName": "Fornecedor",
+        "phone": "5532991110008"
+      },
+      "expected": {
+        "unidade": "frasco"
+      }
+    },
+    {
+      "id": "T1_26_BONIFICATION_DILUTION",
+      "feature": "produtosOfertados.bonificacao",
+      "description": "Bonification dilution calculation (10+2: 12 units for price of 10)",
+      "input": {
+        "text": "DORIL COMPRE 10 GANHE 2 A R$ 12,00",
+        "pushName": "Fornecedor",
+        "phone": "5532991110009"
+      },
+      "expected": {
+        "precoOfertado": 10.00,
+        "bonificacaoPresent": true
+      }
+    },
+    {
+      "id": "T1_27_PROGRESSIVE_TIERS",
+      "feature": "produtosOfertados.descontoProgressivo",
+      "description": "Progressive discount tiers extraction",
+      "input": {
+        "text": "NISTATINA+OXIDO DE ZINCO 60G PDA-NQG\n• 1 un. → R$ 8,29\n• 6 un. → R$ 7,69\n• 60 un. → R$ 7,19",
+        "pushName": "Neo Quimica",
+        "phone": "5532991110010"
+      },
+      "expected": {
+        "precoOfertado": 8.29,
+        "descontoProgressivoPresent": true
+      }
+    }
+  ],
+  "tier2_boundary_corner_fixtures": [
+    {
+      "id": "T2_01_NOISE_GREETING_SIMPLE",
+      "category": "noise",
+      "description": "Simple casual greeting: Bom dia",
+      "input": {
+        "text": "Bom dia!",
+        "pushName": "Carlos Rep",
+        "phone": "5532999991111"
+      },
+      "expected": {
+        "sucesso": true,
+        "ehOfertaComercial": false,
+        "produtosOfertados": []
+      }
+    },
+    {
+      "id": "T2_02_NOISE_GREETING_INFORMAL",
+      "category": "noise",
+      "description": "Informal greeting: Como vai você?",
+      "input": {
+        "text": "Boa tarde doutor, como vai você? Tudo tranquilo?",
+        "pushName": "Marcos",
+        "phone": "5532999991112"
+      },
+      "expected": {
+        "sucesso": true,
+        "ehOfertaComercial": false,
+        "produtosOfertados": []
+      }
+    },
+    {
+      "id": "T2_03_NOISE_GREETING_CASUAL",
+      "category": "noise",
+      "description": "Casual chat: Olá tudo bem por aí?",
+      "input": {
+        "text": "Olá Carlos, tudo bem por aí? Bom trabalho pra equipe da farmácia!",
+        "pushName": "Amigo",
+        "phone": "5532999991113"
+      },
+      "expected": {
+        "sucesso": true,
+        "ehOfertaComercial": false,
+        "produtosOfertados": []
+      }
+    },
+    {
+      "id": "T2_04_NOISE_PIX_VOUCHER",
+      "category": "noise",
+      "description": "Payment receipt voucher message",
+      "input": {
+        "text": "Segue o comprovante do pix de R$ 350,00 referente ao boleto da Santa Cruz.",
+        "pushName": "Financeiro",
+        "phone": "5532999991114"
+      },
+      "expected": {
+        "sucesso": true,
+        "ehOfertaComercial": false,
+        "produtosOfertados": []
+      }
+    },
+    {
+      "id": "T2_05_NOISE_DELIVERY_CONFIRM",
+      "category": "noise",
+      "description": "Operational delivery notice",
+      "input": {
+        "text": "Motorista na rota com a mercadoria da Profarma. Chegada prevista às 14h.",
+        "pushName": "Logística Profarma",
+        "phone": "5532999991115"
+      },
+      "expected": {
+        "sucesso": true,
+        "ehOfertaComercial": false,
+        "produtosOfertados": []
+      }
+    },
+    {
+      "id": "T2_06_NOISE_STOCK_QUERY",
+      "category": "noise",
+      "description": "Customer query asking about stock availability without prices",
+      "input": {
+        "text": "Vocês têm dipirona 500mg com 100 aí na farmácia? Quanto custa?",
+        "pushName": "Cliente",
+        "phone": "5532999991116"
+      },
+      "expected": {
+        "sucesso": true,
+        "ehOfertaComercial": false,
+        "produtosOfertados": []
+      }
+    },
+    {
+      "id": "T2_07_NOISE_STICKER_EMOJI",
+      "category": "noise",
+      "description": "Sticker emoji representation",
+      "input": {
+        "text": "[Figurinha] 👍🙏",
+        "pushName": "Contato",
+        "phone": "5532999991117"
+      },
+      "expected": {
+        "sucesso": true,
+        "ehOfertaComercial": false,
+        "produtosOfertados": []
+      }
+    },
+    {
+      "id": "T2_08_NOISE_EMPTY_WHITESPACE",
+      "category": "noise",
+      "description": "Empty whitespace string",
+      "input": {
+        "text": "   \n\t   ",
+        "pushName": "Contato",
+        "phone": "5532999991118"
+      },
+      "expected": {
+        "sucesso": true,
+        "ehOfertaComercial": false,
+        "produtosOfertados": []
+      }
+    },
+    {
+      "id": "T2_09_EAN_INVALID_CHECKSUM",
+      "category": "ean_boundary",
+      "description": "13-digit barcode with invalid modulo-10 check digit",
+      "input": {
+        "text": "7891058001239 AMOXICILINA 500MG R$ 12,00",
+        "pushName": "Rep",
+        "phone": "5532999991119"
+      },
+      "expected": {
+        "eanNull": true
+      }
+    },
+    {
+      "id": "T2_10_EAN_TOO_SHORT",
+      "category": "ean_boundary",
+      "description": "Barcode with 11 digits (less than 13)",
+      "input": {
+        "text": "78910580012 DIPIRONA 500MG R$ 5,00",
+        "pushName": "Rep",
+        "phone": "5532999991120"
+      },
+      "expected": {
+        "eanNull": true
+      }
+    },
+    {
+      "id": "T2_11_EAN_TOO_LONG",
+      "category": "ean_boundary",
+      "description": "Barcode with 14 digits (more than 13)",
+      "input": {
+        "text": "78910580012345 PARACETAMOL 750MG R$ 4,00",
+        "pushName": "Rep",
+        "phone": "5532999991121"
+      },
+      "expected": {
+        "eanNull": true
+      }
+    },
+    {
+      "id": "T2_12_EAN_NON_NUMERIC",
+      "category": "ean_boundary",
+      "description": "13-character string containing letters",
+      "input": {
+        "text": "789105800123A IBUPROFENO 600MG R$ 7,50",
+        "pushName": "Rep",
+        "phone": "5532999991122"
+      },
+      "expected": {
+        "eanNull": true
+      }
+    },
+    {
+      "id": "T2_13_COMMA_DOSAGE_CLONAZEPAM",
+      "category": "dosage_boundary",
+      "description": "Comma dosage CLONAZEPAM 2,00 without currency should not be parsed as R$ 2,00",
+      "input": {
+        "text": "CLONAZEPAM 2,00 GOTAS 20ML EMS",
+        "pushName": "Rep",
+        "phone": "5532999991123"
+      },
+      "expected": {
+        "ehOfertaComercial": false,
+        "produtosOfertados": []
+      }
+    },
+    {
+      "id": "T2_14_COMMA_DOSAGE_DIPIRONA",
+      "category": "dosage_boundary",
+      "description": "Comma concentration DIPIRONA 500,00 without currency should not be parsed as R$ 500,00",
+      "input": {
+        "text": "DIPIRONA 500,00 COMPRIMIDOS MEDLEY",
+        "pushName": "Rep",
+        "phone": "5532999991124"
+      },
+      "expected": {
+        "ehOfertaComercial": false,
+        "produtosOfertados": []
+      }
+    },
+    {
+      "id": "T2_15_COMMA_DOSAGE_COLIRIO",
+      "category": "dosage_boundary",
+      "description": "Percentage dosage BIOLAGRIMA 0,15 should not be parsed as R$ 0,15",
+      "input": {
+        "text": "BIOLAGRIMA 0,15 COLÍRIO 10ML",
+        "pushName": "Rep",
+        "phone": "5532999991125"
+      },
+      "expected": {
+        "ehOfertaComercial": false,
+        "produtosOfertados": []
+      }
+    },
+    {
+      "id": "T2_16_BRL_THOUSAND_SEPARATOR",
+      "category": "price_boundary",
+      "description": "Brazilian currency with thousand dot and decimal comma: R$ 1.250,50",
+      "input": {
+        "text": "PARACETAMOL 750MG HOSPITALAR CX C/ 500 R$ 1.250,50",
+        "pushName": "Rep",
+        "phone": "5532999991126"
+      },
+      "expected": {
+        "precoOfertado": 1250.50
+      }
+    },
+    {
+      "id": "T2_17_BRL_DECIMAL_COMMA",
+      "category": "price_boundary",
+      "description": "Cent value with leading zero: R$ 0,85",
+      "input": {
+        "text": "LOSARTANA POTASSICA 50MG 30CPR R$ 0,85",
+        "pushName": "Rep",
+        "phone": "5532999991127"
+      },
+      "expected": {
+        "precoOfertado": 0.85
+      }
+    },
+    {
+      "id": "T2_18_PRICE_ZERO_REJECTED",
+      "category": "price_boundary",
+      "description": "Zero price R$ 0,00 should be rejected",
+      "input": {
+        "text": "DIPIRONA 500MG R$ 0,00",
+        "pushName": "Rep",
+        "phone": "5532999991128"
+      },
+      "expected": {
+        "produtosOfertados": []
+      }
+    },
+    {
+      "id": "T2_19_PRICE_NEGATIVE_REJECTED",
+      "category": "price_boundary",
+      "description": "Negative price -R$ 15,00 should be rejected",
+      "input": {
+        "text": "DIPIRONA 500MG -R$ 15,00",
+        "pushName": "Rep",
+        "phone": "5532999991129"
+      },
+      "expected": {
+        "produtosOfertados": []
+      }
+    },
+    {
+      "id": "T2_20_ISOLATED_PACKAGING",
+      "category": "packaging_boundary",
+      "description": "Isolated packaging line C/ 30 R$ 1,50 without drug name rejected",
+      "input": {
+        "text": "C/ 30 R$ 1,50",
+        "pushName": "Rep",
+        "phone": "5532999991130"
+      },
+      "expected": {
+        "produtosOfertados": []
+      }
+    },
+    {
+      "id": "T2_21_CHILD_PACKAGING_WITH_PARENT",
+      "category": "packaging_boundary",
+      "description": "Child packaging line inherits drug name from parent line",
+      "input": {
+        "text": "LOSARTANA 50MG GENÉRICO NEO QUÍMICA\nC30 R$ 2,80",
+        "pushName": "Neo Quimica",
+        "phone": "5532999991131"
+      },
+      "expected": {
+        "nomeContains": "LOSARTANA 50MG",
+        "precoOfertado": 2.80
+      }
+    },
+    {
+      "id": "T2_22_CORRUPTED_BUFFER_HANDLING",
+      "category": "buffer_boundary",
+      "description": "Corrupted or empty image buffer handled gracefully without unhandled exception",
+      "input": {
+        "bufferEmpty": true,
+        "mimeType": "image/jpeg",
+        "pushName": "Rep",
+        "phone": "5532999991132"
+      },
+      "expected": {
+        "sucesso": true,
+        "ehOfertaComercial": false
+      }
+    }
+  ],
+  "tier3_combination_fixtures": [
+    {
+      "id": "T3_01_MULTI_BONIFICATION",
+      "description": "Santa Cruz offer with 3 products: normal price, 10+2 bonification, and compre 5 ganhe 1",
+      "input": {
+        "text": "SANTA CRUZ DISTRIBUIDORA\nPrazos 28/42 dias. Pedido mínimo R$ 400.\n1. PARACETAMOL 750MG 20CPR - R$ 3,50\n2. DORIL COMPRE 10 GANHE 2 A R$ 12,00\n3. NEOSALDINA 30DRG COMPRE 5 GANHE 1 A R$ 18,00",
+        "pushName": "Santa Cruz",
+        "phone": "5532992220001"
+      },
+      "expected": {
+        "distribuidora": "SANTA CRUZ",
+        "produtosCount": 3,
+        "precosEsperados": [3.50, 10.00, 15.00]
+      }
+    },
+    {
+      "id": "T3_02_TERMS_MIN_ORDER_EANS",
+      "description": "Panpharma broadcast with terms 28/42, min order R$ 350, validity, and 4 products with valid 13-digit EANs",
+      "input": {
+        "text": "PANPHARMA DISTRIBUIDORA\nCondição: 28/42 dias | Pedido Mínimo: R$ 350,00 | Válido até 31/10/2026\n7896004701233 AMOXICILINA 500MG 21CAP EMS - R$ 14,50\n7896523206547 PARACETAMOL 750MG 20CPR CIMED - R$ 3,90\n7896714201238 LOSARTANA 50MG 30CPR NEO QUIMICA - R$ 1,85\n7891317001230 CLONAZEPAM 2MG 30CPR EUROFARMA - R$ 4,20",
+        "pushName": "Representante Panpharma",
+        "phone": "5532992220002"
+      },
+      "expected": {
+        "distribuidora": "PANPHARMA",
+        "condicaoPagamento": "28/42 dias",
+        "pedidoMinimo": 350,
+        "validadeOferta": "2026-10-31",
+        "produtosCount": 4,
+        "allEansValid13": true
+      }
+    },
+    {
+      "id": "T3_03_PROG_TIERS_SUPPLIER",
+      "description": "Neo Química broadcast with supplier, min order, and multi-tier pricing",
+      "input": {
+        "text": "NEO QUÍMICA GENÉRICOS\nPedido mínimo R$ 300,00. Prazos 30/60.\n🔹 NISTATINA+OXIDO DE ZINCO 60G PDA\n• 1 un. → R$ 8,29\n• 6 un. → R$ 7,69\n• 60 un. → R$ 7,19\n🔹 LOSARTANA 50MG 30CPR\n• 30 un. → R$ 1,75\n• 60 un. → R$ 1,49",
+        "pushName": "Neo Quimica",
+        "phone": "5532992220003"
+      },
+      "expected": {
+        "distribuidora": "NEO QUIMICA",
+        "pedidoMinimo": 300,
+        "produtosCount": 2,
+        "hasDescontoProgressivo": true
+      }
+    },
+    {
+      "id": "T3_04_PARTIAL_EANS",
+      "description": "Mixed broadcast: 2 items with 13-digit EANs, 1 item description only (ean: null)",
+      "input": {
+        "text": "OFERTAS:\n7896004701233 AMOXICILINA 500MG EMS R$ 12,00\n7896523206547 PARACETAMOL 750MG CIMED R$ 3,80\nDIPIRONA 500MG 20CPR PRATI R$ 2,90",
+        "pushName": "Fornecedor",
+        "phone": "5532992220004"
+      },
+      "expected": {
+        "produtosCount": 3,
+        "firstTwoEans13": true,
+        "thirdEanNull": true
+      }
+    },
+    {
+      "id": "T3_05_COMBO_BUNDLE",
+      "description": "Combo offer: bundle identified with combo structure",
+      "input": {
+        "text": "COMBO GRIPE E RESFRIADO CIMED:\nCIMELIDE 100MG + PARACETAMOL 750MG + VITAMINA C 1G\nValor do combo: R$ 12,90\nPedido mínimo R$ 200",
+        "pushName": "Cimed",
+        "phone": "5532992220005"
+      },
+      "expected": {
+        "distribuidora": "CIMED",
+        "ehOfertaComercial": true,
+        "precoOfertado": 12.90
+      }
+    },
+    {
+      "id": "T3_06_MULTI_LAB_MIX",
+      "description": "Offer listing multiple known laboratories in different rows",
+      "input": {
+        "text": "MIX DE GENÉRICOS:\n7896004701233 AMOXICILINA 500MG - EMS - R$ 14,00\n7891317001230 CLONAZEPAM 2MG - EUROFARMA - R$ 4,50\n7896422501231 LOSARTANA 50MG - MEDLEY - R$ 3,20\n7896658001239 DIPIRONA 1G - ACHE - R$ 8,90",
+        "pushName": "Distribuidora Farma",
+        "phone": "5532992220006"
+      },
+      "expected": {
+        "produtosCount": 4,
+        "labsEsperados": ["EMS", "EUROFARMA", "MEDLEY", "ACHE"]
+      }
+    },
+    {
+      "id": "T3_07_PRICE_PF_PMC_NET",
+      "description": "Table with PF, PMC and Líquido columns - extracts strictly Líquido",
+      "input": {
+        "text": "TABELA BALCÃO:\nDORFLEX 36 CPR - PF: 21,50 | PMC: 28,90 | LÍQ: 14,80\nNEOSALDINA 30 DRG - PF: 24,00 | PMC: 32,50 | LÍQUIDO: 16,90",
+        "pushName": "Representante",
+        "phone": "5532992220007"
+      },
+      "expected": {
+        "produtosCount": 2,
+        "precosEsperados": [14.80, 16.90]
+      }
+    },
+    {
+      "id": "T3_08_DISCOUNT_PERCENT",
+      "description": "Percentage discount applied to gross price",
+      "input": {
+        "text": "IBUPROFENO 600MG 20CPR PRATI R$ 10,00 COM 20% DE DESCONTO COMERCIAL",
+        "pushName": "Prati",
+        "phone": "5532992220008"
+      },
+      "expected": {
+        "precoOfertado": 8.00,
+        "bonificacao": "20% de desconto comercial"
+      }
+    },
+    {
+      "id": "T3_09_DIFFERENT_UNITS",
+      "description": "Products with different packaging units: cx, frasco, ampola",
+      "input": {
+        "text": "AMOXICILINA 500MG CX COM 21 CAP R$ 13,00\nDIPIRONA GOTAS FRASCO 20ML R$ 2,80\nCOMPLEXO B AMPOLA 2ML R$ 1,95",
+        "pushName": "Distribuidora",
+        "phone": "5532992220009"
+      },
+      "expected": {
+        "produtosCount": 3,
+        "unidadesEsperadas": ["cx", "frasco", "ampola"]
+      }
+    },
+    {
+      "id": "T3_10_MULTILINE_MESSY_WHATSAPP",
+      "description": "Messy real WhatsApp transmission with emojis, header, items, and footer",
+      "input": {
+        "text": "🔥 *OFERTAS IMPERDÍVEIS PANPHARMA* 🔥\n\nFala pessoal da BelaFarma! Marcos aqui.\nSeguem alguns itens com preço especial para fechar hoje:\n\n👉 7896004701233 AMOXICILINA 500MG 21CAP EMS - R$ 13,80\n👉 7896523206547 PARACETAMOL 750MG 20CPR CIMED - R$ 3,60\n👉 7896714201238 LOSARTANA 50MG 30CPR NEO QUIMICA - R$ 1,69\n\n📌 *Condições*:\n- Prazos: 28/42 dias no boleto\n- Pedido mínimo: R$ 350,00\n- Validade: até 30/10/2026\n\nQualquer dúvida me chamem!",
+        "pushName": "Marcos Panpharma",
+        "phone": "5532992220010"
+      },
+      "expected": {
+        "distribuidora": "PANPHARMA",
+        "representante": "Marcos",
+        "condicaoPagamento": "28/42 dias",
+        "pedidoMinimo": 350,
+        "validadeOferta": "2026-10-30",
+        "produtosCount": 3
+      }
+    },
+    {
+      "id": "T3_11_PUSHNAME_VS_TEXT_PRIORITY",
+      "description": "Representative stated in text takes precedence over pushName",
+      "input": {
+        "text": "Bom dia, aqui é o vendedor Alexandre da Profarma.\nPARACETAMOL 750MG 20CPR R$ 3,10",
+        "pushName": "Profarma Vendas Geral",
+        "phone": "5532992220011"
+      },
+      "expected": {
+        "representante": "Alexandre"
+      }
+    },
+    {
+      "id": "T3_12_BONIF_X_PLUS_Y_COMPACT",
+      "description": "Compact bonification format 20+4 (pay 20, get 24)",
+      "input": {
+        "text": "NEOSALDINA 30 DRG 20+4 R$ 15,00",
+        "pushName": "Fornecedor",
+        "phone": "5532992220012"
+      },
+      "expected": {
+        "precoOfertado": 12.50,
+        "bonificacaoPresent": true
+      }
+    },
+    {
+      "id": "T3_13_VALIDITY_TEXTUAL_ORIGINAL",
+      "description": "Textual validity captured when exact date absent",
+      "input": {
+        "text": "OFERTAS RELÂMPAGO:\nVálido apenas hoje até as 18 horas ou fim do lote!\nDIPIRONA 1G R$ 7,50",
+        "pushName": "Fornecedor",
+        "phone": "5532992220013"
+      },
+      "expected": {
+        "validadePresent": true,
+        "ehOfertaComercial": true
+      }
+    },
+    {
+      "id": "T3_14_HIGH_PRECISION_BRL",
+      "description": "High precision price format preservation",
+      "input": {
+        "text": "AMOXICILINA+CLAVULANATO 875MG 14CPR EUROFARMA R$ 42,75",
+        "pushName": "Fornecedor",
+        "phone": "5532992220014"
+      },
+      "expected": {
+        "precoOfertado": 42.75
+      }
+    },
+    {
+      "id": "T3_15_COMPLEX_MIN_ORDER_TEXT",
+      "description": "Minimum order with tiered freight condition",
+      "input": {
+        "text": "Faturamento mínimo R$ 450,00 com frete grátis para BelaFarma.\nCLONAZEPAM 2MG R$ 3,90",
+        "pushName": "Fornecedor",
+        "phone": "5532992220015"
+      },
+      "expected": {
+        "pedidoMinimo": 450
+      }
+    }
+  ],
+  "tier4_scenario_fixtures": [
+    {
+      "id": "T4_01_PANPHARMA_BROADCAST_10_ITEMS",
+      "scenario": "Panpharma WhatsApp Broadcast with 10 Products",
+      "input": {
+        "text": "📢 *PANPHARMA DISTRIBUIDORA - OFERTAS DA SEMANA MG* 📢\nRepresentante: Carlos Eduardo | Tel: (32) 99888-1122\nCondições: 28/42 dias | Faturamento Mínimo: R$ 350,00 | Validade: 31/10/2026\n\n1. 7896004701233 AMOXICILINA 500MG 21CAP EMS - R$ 13,90\n2. 7896523206547 PARACETAMOL 750MG 20CPR CIMED - R$ 3,45\n3. 7896714201238 LOSARTANA 50MG 30CPR NEO QUIMICA - R$ 1,65\n4. 7891317001230 CLONAZEPAM 2MG 30CPR EUROFARMA - R$ 4,15\n5. 7896422501231 ATENOLOL 50MG 30CPR MEDLEY - R$ 2,80\n6. 7896658001239 DIPIRONA 1G 10CPR ACHE - R$ 7,90\n7. 7896112101239 OMEPRAZOL 20MG 28CAP TEUTO - R$ 4,30\n8. 7898148291236 METFORMINA 850MG 30CPR PRATI - R$ 2,95\n9. 7896112407911 EZETIMIBA 10MG 60CPR BIOLAB - R$ 24,50\n10. 7899620915183 DESLORATADINA 5MG 30CPR GLOBO - R$ 13,80\n\nAguardamos seu pedido!",
+        "pushName": "Carlos Eduardo Panpharma",
+        "phone": "5532998881122"
+      },
+      "expected": {
+        "distribuidora": "PANPHARMA",
+        "representante": "Carlos Eduardo",
+        "condicaoPagamento": "28/42 dias",
+        "pedidoMinimo": 350,
+        "validadeOferta": "2026-10-31",
+        "produtosCount": 10,
+        "allEansValid13": true
+      }
+    },
+    {
+      "id": "T4_02_SANTA_CRUZ_IMAGE_MULTIMODAL",
+      "scenario": "Santa Cruz Flyer Image Multimodal Vision Simulation",
+      "input": {
+        "isImage": true,
+        "caption": "Encarte Promocional Distribuidora Santa Cruz Outubro 2026",
+        "pushName": "Santa Cruz Farma",
+        "phone": "5532998882233",
+        "simulatedOcrText": "DISTRIBUIDORA SANTA CRUZ\nTABELA OUTUBRO 2026\nPEDIDO MINIMO R$ 500,00 | PRAZO 30 DIAS NO BOLETO\n7896004701233 AMOXICILINA 500MG 21CAP EMS R$ 14,20\n7896523206547 PARACETAMOL 750MG 20CPR CIMED R$ 3,75\n7896714201238 LOSARTANA 50MG 30CPR NEO QUIMICA R$ 1,70"
+      },
+      "expected": {
+        "distribuidora": "SANTA CRUZ",
+        "condicaoPagamento": "30 dias no boleto",
+        "pedidoMinimo": 500,
+        "produtosCount": 3,
+        "expectedConfiancaOcr": 0.95
+      }
+    },
+    {
+      "id": "T4_03_INFORMAL_REP_BONIF_10_2",
+      "scenario": "Informal WhatsApp Rep Message with Bonification 10+2 and 20+4",
+      "input": {
+        "text": "Fala Carlos meu amigo, beleza? Aqui é o Fernando da Profarma.\nConsegui duas bonificações top pra BelaFarma hoje:\n- NEOSALDINA 30DRG 20+4 a R$ 15,00 cada\n- DORIL ENXAQUECA COMPRE 10 GANHE 2 a R$ 12,00 a unidade\nPedido mínimo 300 reais pra fechar no boleto 28 dias. Consegue me mandar o pedido até as 17h?",
+        "pushName": "Fernando Profarma",
+        "phone": "5532998883344"
+      },
+      "expected": {
+        "distribuidora": "PROFARMA",
+        "representante": "Fernando",
+        "pedidoMinimo": 300,
+        "condicaoPagamento": "28 dias",
+        "produtosCount": 2,
+        "precosEsperados": [12.50, 10.00]
+      }
+    },
+    {
+      "id": "T4_04_CASUAL_CHAT_NOISE",
+      "scenario": "Full Casual Conversation Noise without Offers",
+      "input": {
+        "text": "Bom dia Dr. Carlos! Tudo bem com o senhor e a família? Passando aqui na região de Juiz de Fora e lembrei da BelaFarma. Semana que vem passo aí pra tomar um café. Um abraço e boas vendas!",
+        "pushName": "Ricardo Representante",
+        "phone": "5532998884455"
+      },
+      "expected": {
+        "sucesso": true,
+        "ehOfertaComercial": false,
+        "produtosOfertados": []
+      }
+    },
+    {
+      "id": "T4_05_ESCALATED_VOLUME_TABLE",
+      "scenario": "Neo Química Tiered Pricing Table by Volume",
+      "input": {
+        "text": "*💊 OFERTAS OVM NEO ESCALONADA*\nDistribuidora: NEO QUÍMICA | Pedido Mínimo R$ 300,00 | Prazo: 30/60\n\n🔹 NISTATINA+OXIDO DE ZINCO 60G PDA-NQG\n• 1 un. → R$ 8,29\n• 6 un. → R$ 7,69\n• 60 un. → R$ 7,19\n\n🔹 FP LOSARTANA 50MG GEN 30 CPR REV-NQG\n• 30 un. → R$ 1,75\n• 60 un. → R$ 1,49\n• 120 un. → R$ 1,39\n\n🔹 DIPIRONA 1G GEN 20 CPR-NQG\n• 1 un. → R$ 8,19\n• 30 un. → R$ 7,49\n• 120 un. → R$ 6,85",
+        "pushName": "Neo Quimica Tabela",
+        "phone": "5532998885566"
+      },
+      "expected": {
+        "distribuidora": "NEO QUIMICA",
+        "pedidoMinimo": 300,
+        "produtosCount": 3,
+        "precosBase": [8.29, 1.75, 8.19],
+        "hasEscalonamento": true
+      }
+    },
+    {
+      "id": "T4_06_END_TO_END_DB_PERSISTENCE",
+      "scenario": "End-to-End Ingestion with DB Persistence and BelaPed Radar Upsert",
+      "input": {
+        "text": "PROFARMA OFERTAS EXCLUSIVAS\nPrazos 28/42 dias. Pedido mínimo R$ 400.\n7896112407911 EZETIMIBA 10MG 60CPR BIOLAB R$ 22,90\n7899620915183 DESLORATADINA 5MG 30CPR GLOBO R$ 12,50",
+        "pushName": "Profarma Radar",
+        "phone": "5532998886677"
+      },
+      "expected": {
+        "distribuidora": "PROFARMA",
+        "produtosCount": 2,
+        "verifyDbHistorical": true,
+        "verifyDbOpportunities": true,
+        "verifyDbBelaPedQuotes": true,
+        "eansToVerify": ["7896112407911", "7899620915183"]
+      }
+    }
+  ]
+}

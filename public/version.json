@@ -1,6 +1,68 @@
 {
-  "version": "1.1.0",
-  "commitHash": "7097f0b",
-  "commitMessage": "fix(horacio): corrigir matching de dosagem/XR e padronizar preco historico de CMV oficial para GLIFAGE 500XR",
-  "buildTime": "04/09/2026, 19:53:29"
+  "version": "1.2.0",
+  "commitHash": "dd78660",
+  "commitMessage": "feat(pricing): script de populacao e organizacao das porcentagens para todos os 4017 produtos ativos da loja",
+  "buildTime": "30/10/2026, 08:48:15",
+  "recentCommits": [
+    {
+      "hash": "dd78660",
+      "date": "29/10/2026",
+      "message": "feat(pricing): script de populacao e organizacao das porcentagens para todos os 4017 produtos ativos da loja"
+    },
+    {
+      "hash": "0e1a898",
+      "date": "29/10/2026",
+      "message": "feat(pricing): script de reorganizacao proporcional das porcentagens de custo fixo (30%), pro-labore (16%) e lucro (2.5%)"
+    },
+    {
+      "hash": "6804665",
+      "date": "05/09/2026",
+      "message": "fix(compras): priorizar PROD_CMV do Digifarma sobre VALOR_ULT_COMPRA na sincronizacao e avaliacao de custos"
+    },
+    {
+      "hash": "88bebf6",
+      "date": "05/09/2026",
+      "message": "feat(compras): filtrar produtos no Agente Horacio considerando apenas itens com estoque > 0 ou movimentacao nos ultimos 10 meses"
+    },
+    {
+      "hash": "4d42d55",
+      "date": "04/09/2026",
+      "message": "fix(compras): padronizacao do CMV na mineracao e relatorio Horacio com calculo de desconto/acrescimo"
+    },
+    {
+      "hash": "7097f0b",
+      "date": "04/09/2026",
+      "message": "fix(horacio): corrigir matching de dosagem/XR e padronizar preco historico de CMV oficial para GLIFAGE 500XR"
+    },
+    {
+      "hash": "d8c6ab3",
+      "date": "04/09/2026",
+      "message": "feat(cmv): padronizar valor de CMV oficial em todos os modulos com base em VALOR_ULT_COMPRA do Digifarma"
+    },
+    {
+      "hash": "0030bcc",
+      "date": "04/09/2026",
+      "message": "chore(sync): ajustar agendamento diario para 08:45 e 15:45"
+    },
+    {
+      "hash": "a6877d5",
+      "date": "04/09/2026",
+      "message": "feat(compras): motor unificado de busca e inteligencia de estoque de medicamentos"
+    },
+    {
+      "hash": "4e10d66",
+      "date": "03/09/2026",
+      "message": "docs(audit): relatorios de auditoria independente da correcao de ultima compra"
+    },
+    {
+      "hash": "0541a3c",
+      "date": "03/09/2026",
+      "message": "build: atualiza bundle de producao dist com melhorias de ultima compra"
+    },
+    {
+      "hash": "d6a6e01",
+      "date": "03/09/2026",
+      "message": "fix(compras-mineracao): correcao de escopo estItem, fracionamento bonificado, status consistente e formatacao UI"
+    }
+  ]
 }

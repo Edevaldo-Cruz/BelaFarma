@@ -43,6 +43,7 @@ import { PurchaseCalendar } from "./components/PurchaseCalendar";
 import { StockManagement } from "./components/StockManagement";
 import SuppliersManager from "./components/SuppliersManager";
 import { InventoryManager } from "./components/InventoryManager";
+import { LossesManager } from "./components/LossesManager";
 import { PwaUpdater } from "./components/PwaUpdater";
 import { MobileHeader } from "./components/MobileHeader";
 import { SalesReport } from "./components/SalesReport";
@@ -57,10 +58,19 @@ import { CardMachinesManager } from "./components/CardMachinesManager";
 import { CardMachineReconcileModal } from "./components/CardMachineReconcileModal";
 import { MuralModal } from "./components/MuralModal";
 import { CentralCompras } from "./components/CentralCompras";
+import { BelaPedPortal } from "./components/compras/BelaPedPortal";
 import { EstoqueIdealModal } from "./components/compras/EstoqueIdealModal";
 import { VersionNotifier } from "./components/VersionNotifier";
 import { VersionModal } from "./components/VersionModal";
 import { useToast } from "./components/ToastContext";
+import { StartupModalManager, StartupModalItem, StartupModalType } from "./components/StartupModalManager";
+import { TemperatureMap } from "./components/TemperatureMap";
+import { TemperaturePrintReminderModal } from "./components/TemperaturePrintReminderModal";
+import { AnaliseReposicao } from "./components/AnaliseReposicao";
+import { LiquidacaoCaixa } from "./components/LiquidacaoCaixa";
+import { VitrineSplash } from "./components/vitrine/VitrineSplash";
+import { VitrineAniversario } from "./components/vitrine/VitrineAniversario";
+import { isPublicVitrineRoute } from "./components/vitrine/vitrineTypes";
 
 
 import {
@@ -81,7 +91,7 @@ import {
   Delivery,
 } from "./types";
 import { Loader2 } from "lucide-react";
-import { trackViewUsage, calculateWeeklyBudgetsCascade } from "./utils";
+import { trackViewUsage, calculateWeeklyBudgetsCascade, getLocalDateKey } from "./utils";
 
 const LOGOUT_TIME = 15 * 60 * 1000;
 
@@ -98,6 +108,24 @@ const App: React.FC = () => {
     return null;
   });
   const [isMobile, setIsMobile] = useState(false);
+  const [isPublicRoute, setIsPublicRoute] = useState<boolean>(() => isPublicVitrineRoute());
+  const [showSplash, setShowSplash] = useState<boolean>(true);
+
+  useEffect(() => {
+    const handleRouteChange = () => {
+      const active = isPublicVitrineRoute();
+      setIsPublicRoute(active);
+      if (active) {
+        setShowSplash(true);
+      }
+    };
+    window.addEventListener("popstate", handleRouteChange);
+    window.addEventListener("hashchange", handleRouteChange);
+    return () => {
+      window.removeEventListener("popstate", handleRouteChange);
+      window.removeEventListener("hashchange", handleRouteChange);
+    };
+  }, []);
 
   useEffect(() => {
     const checkIfMobile = () => {
@@ -130,6 +158,21 @@ const App: React.FC = () => {
   const [isCardMachineModalOpen, setIsCardMachineModalOpen] = useState(false);
   const [isEstoqueIdealModalOpen, setIsEstoqueIdealModalOpen] = useState(false);
   const [isMuralOpen, setIsMuralOpen] = useState(false);
+  const [startupQueue, setStartupQueue] = useState<StartupModalItem[]>([]);
+  const [startupIndex, setStartupIndex] = useState(0);
+  const [isStartupActive, setIsStartupActive] = useState(false);
+
+  const activeStartupModalId: StartupModalType | null = 
+    isStartupActive && startupQueue[startupIndex] ? startupQueue[startupIndex].id : null;
+
+  const handleCloseStartup = () => {
+    setIsStartupActive(false);
+    setStartupQueue([]);
+    setIsTeraModalOpen(false);
+    setIsEstoqueIdealModalOpen(false);
+    setIsCardMachineModalOpen(false);
+    setIsMuralOpen(false);
+  };
   const [muralPendingCount, setMuralPendingCount] = useState(0);
   const [pendingReviewCount, setPendingReviewCount] = useState(0);
   const [anvisaAlertCount, setAnvisaAlertCount] = useState(0);
@@ -140,6 +183,20 @@ const App: React.FC = () => {
   const [pendingReviewMode, setPendingReviewMode] = useState<'pedido' | 'cotacao'>('pedido');
   const [lastReviewedDeliveryId, setLastReviewedDeliveryId] = useState<string | null>(null);
   const [isVersionModalOpen, setIsVersionModalOpen] = useState(false);
+  const [tempReminderData, setTempReminderData] = useState<{
+    pending: boolean;
+    previousMonth: string;
+    previousMonthLabel: string;
+  } | null>(null);
+  const [isTempReminderOpen, setIsTempReminderOpen] = useState(false);
+
+  const handleOpenAndPrintTemp = (targetMonth: string) => {
+    try {
+      localStorage.setItem(`belafarma_temp_printed_${targetMonth}`, 'true');
+    } catch (e) {}
+    setIsTempReminderOpen(false);
+    setCurrentView('temperature-map');
+  };
 
   const handleReviewSubmitted = (deliveryId?: string) => {
     if (deliveryId) {
@@ -196,17 +253,26 @@ const App: React.FC = () => {
 
     // Calcula gastos totais já lançados do Mês 1
     const spent1 = boletos.filter(b => {
-      if (!b.due_date) return false;
-      const [by, bm] = b.due_date.split('-').map(Number);
+      if (!b || !b.due_date) return false;
+      const cleanDate = String(b.due_date).split('T')[0];
+      const parts = cleanDate.split('-');
+      if (parts.length < 2) return false;
+      const by = Number(parts[0]);
+      const bm = Number(parts[1]);
       return by === y1 && bm === m1Number;
-    }).reduce((sum, b) => sum + b.value, 0);
+    }).reduce((sum, b) => sum + (b.value || 0), 0);
 
     // Calcula gastos totais já lançados do Mês 2
     const spent2 = boletos.filter(b => {
-      if (!b.due_date) return false;
-      const [by, bm] = b.due_date.split('-').map(Number);
+      if (!b || !b.due_date) return false;
+      const cleanDate = String(b.due_date).split('T')[0];
+      const parts = cleanDate.split('-');
+      if (parts.length < 2) return false;
+      const by = Number(parts[0]);
+      const bm = Number(parts[1]);
       return by === y2 && bm === m2Number;
-    }).reduce((sum, b) => sum + b.value, 0);
+    }).reduce((sum, b) => sum + (b.value || 0), 0);
+
 
     const calcStatus = (spent: number, limit: number): 'safe' | 'warning' | 'danger' => {
       const pct = (spent / limit) * 100;
@@ -253,12 +319,26 @@ const App: React.FC = () => {
     setUser(null);
     handleNavigate("dashboard");
     localStorage.removeItem("belinha_session_user");
+    localStorage.removeItem("belinha_auth_token");
+    fetch("/api/logout", { method: "POST" }).catch(() => {});
     if (logoutTimerRef.current) clearTimeout(logoutTimerRef.current);
+    handleCloseStartup();
   };
+
+  useEffect(() => {
+    const onUnauthorized = () => {
+      if (user && !isPublicRoute) {
+        handleLogout();
+        addToast("Sessão expirada ou atualizada por segurança. Faça login novamente.", "warning");
+      }
+    };
+    window.addEventListener("belinha:unauthorized", onUnauthorized);
+    return () => window.removeEventListener("belinha:unauthorized", onUnauthorized);
+  }, [user, isPublicRoute]);
 
   const handleNavigate = (view: View) => {
     setCurrentView(view);
-    trackViewUsage(view);
+    trackViewUsage(view, user?.name);
   };
 
   const resetLogoutTimer = () => {
@@ -274,140 +354,248 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (user) {
-      fetchData();
+      const initSessionAndFetch = async () => {
+        // Migração transparente: se a sessão legada tinha accessKey mas não token JWT, renova silenciosamente
+        const existingToken = localStorage.getItem("belinha_auth_token");
+        const legacyKey = (user as any).accessKey;
+        if (!existingToken && legacyKey) {
+          try {
+            const loginRes = await fetch("/api/login", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ accessKey: legacyKey })
+            });
+            if (loginRes.ok) {
+              const loginData = await loginRes.json();
+              if (loginData && loginData.token) {
+                localStorage.setItem("belinha_auth_token", loginData.token);
+              }
+              const { token, accessKey, ...cleanUser } = loginData || user;
+              localStorage.setItem("belinha_session_user", JSON.stringify(cleanUser));
+            }
+          } catch (e) {}
+        }
+        await fetchData();
+      };
+      initSessionAndFetch();
       
       const events = ["mousedown", "keydown", "touchstart"];
       const reset = () => resetLogoutTimer();
       events.forEach((event) => window.addEventListener(event, reset));
       resetLogoutTimer();
 
-      // --- Lógica de Auto-exibição Diária do VW Tera para a Nayane ---
-      if (user.name.toLowerCase().includes("nayane") && !isMobile) {
-        const hoje = new Date().toISOString().slice(0, 10); // Formato YYYY-MM-DD
-        const ultimaDataExibida = localStorage.getItem("tera_popup_last_date");
-        if (ultimaDataExibida !== hoje) {
-          setIsTeraModalOpen(true);
-          localStorage.setItem("tera_popup_last_date", hoje);
-        }
-      }
-
-      // --- Lógica de Auto-exibição Diária do Estoque Ideal para Comprador(a) / Nayane ---
-      const isBuyer = (user.jobRole && String(user.jobRole).toLowerCase().includes("comprador")) || user.name.toLowerCase().includes("nayane");
-      if (isBuyer) {
+      // --- Lógica Centralizada de Popups de Abertura (Fila Limitada a 2 por Ordem de Prioridade) ---
+      const initStartupPopups = async () => {
+        const candidateItems: StartupModalItem[] = [];
         const hoje = new Date().toISOString().slice(0, 10);
-        const ultimaDataEstoqueIdeal = localStorage.getItem("estoque_ideal_last_date");
-        if (ultimaDataEstoqueIdeal !== hoje) {
-          setIsEstoqueIdealModalOpen(true);
-        }
-      }
 
-      // --- Lógica de Auto-exibição Diária de Conferência de Maquininha e Provisões para Edevaldo/ADM ---
-      if (user.name.toLowerCase().includes("edevaldo") || user.role === UserRole.ADM) {
-        const checkCardMachinePending = async () => {
-          try {
-            const now = new Date();
-            const dayOfWeek = now.getDay(); // 0 = Domingo, 6 = Sábado
-            // Não há repasse em finais de semana (Sábado e Domingo)
-            if (dayOfWeek === 0 || dayOfWeek === 6) return;
-
-            const [resPending, resClosings] = await Promise.all([
-              fetch('/api/card-machine-receivables/pending-due'),
-              fetch('/api/cash-closings')
-            ]);
-
-            if (!resPending.ok) return;
-            const pending = await resPending.json();
-            if (Array.isArray(pending) && pending.length > 0) {
-              setIsCardMachineModalOpen(true);
-              const isMonday = dayOfWeek === 1;
-
-              let closings: any[] = [];
-              if (resClosings.ok) {
-                try { closings = await resClosings.json(); } catch(e) {}
-              }
-
-              // Calcular datas de referência para o faturamento base
-              const formatIsoDate = (d: Date) => {
-                const y = d.getFullYear();
-                const m = String(d.getMonth() + 1).padStart(2, '0');
-                const day = String(d.getDate()).padStart(2, '0');
-                return `${y}-${m}-${day}`;
-              };
-
-              let targetDates: string[] = [];
-              if (isMonday) {
-                // Sexta, Sábado e Domingo anteriores
-                const dFri = new Date(now); dFri.setDate(dFri.getDate() - 3);
-                const dSat = new Date(now); dSat.setDate(dSat.getDate() - 2);
-                const dSun = new Date(now); dSun.setDate(dSun.getDate() - 1);
-                targetDates = [formatIsoDate(dFri), formatIsoDate(dSat), formatIsoDate(dSun)];
-              } else {
-                // Dia útil anterior
-                const dPrev = new Date(now); dPrev.setDate(dPrev.getDate() - 1);
-                targetDates = [formatIsoDate(dPrev)];
-              }
-
-              const refSales = closings
-                .filter((c: any) => targetDates.includes(c.date))
-                .reduce((sum: number, c: any) => sum + (Number(c.totalSales) || 0), 0);
-
-              const formatBRL = (v: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0);
-
-              if (refSales > 0) {
-                const valProlabore = refSales * 0.12;
-                const valTax = refSales * 0.04;
-                const valReserve = refSales * 0.01;
-                const valTotal = valProlabore + valTax + valReserve;
-
-                addToast(
-                  `💳 ${pending.length} repasse(s) ${isMonday ? 'do Fim de Semana' : 'de ontem'} a conferir. Lembre-se de reservar ${formatBRL(valTotal)} para as provisões de hoje (Pró-labore: ${formatBRL(valProlabore)}, Impostos: ${formatBRL(valTax)}, Reserva: ${formatBRL(valReserve)})!`,
-                  "info"
-                );
-              } else {
-                addToast(
-                  isMonday 
-                    ? `💳 Acumulado de Fim de Semana disponível para conferência (${pending.length} repasses)!` 
-                    : `💳 ${pending.length} repasse(s) de maquininha a conferir hoje!`, 
-                  "info"
-                );
-              }
-            }
-          } catch (err) {
-            console.error("Erro ao checar pendências de maquininha:", err);
+        // 1. Meta VW Tera (Prioridade 1 Comercial)
+        const isNayane = user.name.toLowerCase().includes("nayane");
+        if (isNayane && !isMobile) {
+          const ultimaDataExibida = localStorage.getItem("tera_popup_last_date");
+          if (ultimaDataExibida !== hoje) {
+            candidateItems.push({
+              id: 'tera',
+              title: 'Meta VW Tera 2026',
+              badge: 'Incentivo',
+              badgeColor: 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
+            });
+            localStorage.setItem("tera_popup_last_date", hoje);
           }
-        };
+        }
 
-        checkCardMachinePending();
-      }
+        // 2. Estoque Ideal (Prioridade 2 Comercial)
+        const isBuyer = (user.jobRole && String(user.jobRole).toLowerCase().includes("comprador")) || isNayane;
+        if (isBuyer) {
+          const ultimaDataEstoqueIdeal = localStorage.getItem("estoque_ideal_last_date");
+          if (ultimaDataEstoqueIdeal !== hoje) {
+            candidateItems.push({
+              id: 'estoque-ideal',
+              title: 'Alerta de Estoque Ideal',
+              badge: 'Compras',
+              badgeColor: 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+            });
+          }
+        }
 
-      // --- Lógica de Auto-exibição do Mural de Pendências ao entrar ---
-      const checkMuralPendencias = async () => {
+        // 3. Mural de Pendências (Prioridade 3 Comercial)
         try {
           const res = await fetch(`/api/mural/pendencias?userId=${encodeURIComponent(user.id)}&userName=${encodeURIComponent(user.name)}`);
-          if (!res.ok) return;
-          const data = await res.json();
-          if (data.success) {
-            const isAdm = user.role === UserRole.ADM || String(user.role).toUpperCase().includes('ADM') || String(user.role).toUpperCase().includes('GERENTE');
-            const parados = data.totalMinhasPendencias || (data.produtosParados ? data.produtosParados.length : 0);
-            const variacoes = isAdm ? (data.totalVariacaoPrecos || 0) : 0;
-            const count = parados + variacoes;
-            setMuralPendingCount(count);
-            
-            if (isAdm && variacoes > 0) {
-              addToast(`🔔 Atenção ADM: Existem ${variacoes} variações de preço de compras aguardando sua auditoria no Mural!`, 'warning');
-            }
-            
-            const sessionDismissed = sessionStorage.getItem("belafarma_mural_dismissed");
-            if (count > 0 && !sessionDismissed) {
-              setIsMuralOpen(true);
+          if (res.ok) {
+            const data = await res.json();
+            if (data.success) {
+              const isAdm = user.role === UserRole.ADM || String(user.role).toUpperCase().includes('ADM') || String(user.role).toUpperCase().includes('GERENTE');
+              const parados = data.totalMinhasPendencias || (data.produtosParados ? data.produtosParados.length : 0);
+              const variacoes = isAdm ? (data.totalVariacaoPrecos || 0) : 0;
+              const count = parados + variacoes;
+              setMuralPendingCount(count);
+              
+              if (isAdm && variacoes > 0) {
+                addToast(`🔔 Atenção ADM: Existem ${variacoes} variações de preço de compras aguardando sua auditoria no Mural!`, 'warning');
+              }
+              
+              const sessionDismissed = sessionStorage.getItem("belafarma_mural_dismissed");
+              if (count > 0 && !sessionDismissed) {
+                candidateItems.push({
+                  id: 'mural',
+                  title: 'Mural de Pendências & Auditoria',
+                  badge: 'Pendências',
+                  badgeColor: 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                });
+              }
             }
           }
         } catch (err) {
           console.error("Erro ao checar pendências do mural:", err);
         }
+
+        // 4. Conferência de Maquininha e Provisões (Prioridade 4 Comercial)
+        // RESTRITO APENAS PARA O ADM DO FINANCEIRO / EDEVALDO
+        const isFinancialAdm = (
+          user.name.toLowerCase().includes("edevaldo") || 
+          String(user.jobRole || "").toLowerCase().includes("financeiro")
+        ) && (
+          user.role === UserRole.ADM || 
+          String(user.role || "").toUpperCase().includes("ADM") || 
+          user.name.toLowerCase().includes("edevaldo")
+        );
+
+        if (isFinancialAdm) {
+          try {
+            const now = new Date();
+            const dayOfWeek = now.getDay(); // 0 = Domingo, 6 = Sábado
+            // Não há repasse em finais de semana (Sábado e Domingo)
+            if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+              const [resPending, resClosings, resIFood] = await Promise.all([
+                fetch('/api/card-machine-receivables/pending-due'),
+                fetch('/api/cash-closings'),
+                fetch('/api/ifood-sales/reconcile-today')
+              ]);
+
+              let hasIFoodPending = false;
+              if (resIFood && resIFood.ok) {
+                try {
+                  const ifoodJson = await resIFood.json();
+                  hasIFoodPending = !!(ifoodJson && ifoodJson.count > 0);
+                } catch (e) {}
+              }
+
+              if (resPending.ok) {
+                const pending = await resPending.json();
+                if ((Array.isArray(pending) && pending.length > 0) || hasIFoodPending) {
+                  candidateItems.push({
+                    id: 'card-machines',
+                    title: 'Conferência de Repasses & Provisões',
+                    badge: 'Financeiro',
+                    badgeColor: 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+                  });
+
+                  const isMonday = dayOfWeek === 1;
+
+                  let closings: any[] = [];
+                  if (resClosings.ok) {
+                    try { closings = await resClosings.json(); } catch(e) {}
+                  }
+
+                  const sortedClosings = [...closings].sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
+                  
+                  const yesterday = new Date(now);
+                  yesterday.setDate(yesterday.getDate() - 1);
+                  const yesterdayStr = getLocalDateKey(yesterday.toISOString());
+                  const yesterdayClosing = sortedClosings.find((c: any) => c.date && getLocalDateKey(c.date) === yesterdayStr);
+
+                  const todayKey = getLocalDateKey(now.toISOString());
+                  const referenceClosing = yesterdayClosing || sortedClosings.find((c: any) => c.date && getLocalDateKey(c.date) < todayKey) || sortedClosings[0];
+
+                  const refSales = Number(referenceClosing?.totalSales) || 0;
+                  const refClosingDate = referenceClosing?.date ? getLocalDateKey(referenceClosing.date) : yesterdayStr;
+
+                  const isDatePastSecondDay = (dateStr: string): boolean => {
+                    if (!dateStr) return true;
+                    const clean = getLocalDateKey(dateStr);
+                    const parts = clean.split('-');
+                    if (parts.length !== 3) return true;
+                    const [y, m, d] = parts.map(Number);
+                    const fromDate = new Date(y, m - 1, d);
+                    fromDate.setHours(0, 0, 0, 0);
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    if (fromDate >= today) return false;
+
+                    let bDays = 0;
+                    const cur = new Date(fromDate);
+                    while (cur < today) {
+                      cur.setDate(cur.getDate() + 1);
+                      const day = cur.getDay();
+                      if (day !== 0 && day !== 6) bDays++;
+                    }
+                    return bDays > 2;
+                  };
+
+                  const isExpired = isDatePastSecondDay(refClosingDate);
+
+                  let isFullyPaid = false;
+                  try {
+                    const resPaid = await fetch('/api/settings/paid_provisions_dates');
+                    if (resPaid.ok) {
+                      const dataPaid = await resPaid.json();
+                      const paidArr = dataPaid?.value ? JSON.parse(dataPaid.value) : [];
+                      if (Array.isArray(paidArr)) {
+                        const pPaid = paidArr.includes(`prolabore-${refClosingDate}`);
+                        const tPaid = paidArr.includes(`tax-${refClosingDate}`);
+                        const rPaid = paidArr.includes(`reserve-${refClosingDate}`);
+                        isFullyPaid = pPaid && tPaid && rPaid;
+                      }
+                    }
+                  } catch(e) {}
+
+                  const canShowProvisions = refSales > 0 && !isExpired && !isFullyPaid;
+                  const formatBRL = (v: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0);
+
+                  if (canShowProvisions) {
+                    const valProlabore = refSales * 0.12;
+                    const valTax = refSales * 0.04;
+                    const valReserve = refSales * 0.01;
+                    const valTotal = valProlabore + valTax + valReserve;
+
+                    addToast(
+                      `💳 ${pending.length} repasse(s) a conferir. Lembre-se de reservar ${formatBRL(valTotal)} para as provisões sobre o fechamento anterior (${formatBRL(refSales)}): Pró-labore ${formatBRL(valProlabore)}, Impostos ${formatBRL(valTax)}, Reserva ${formatBRL(valReserve)}!`,
+                      "info"
+                    );
+                  } else {
+                    addToast(
+                      isMonday 
+                        ? `💳 Acumulado de Fim de Semana disponível para conferência (${pending.length} repasses)!` 
+                        : `💳 ${pending.length} repasse(s) de maquininha a conferir hoje!`, 
+                      "info"
+                    );
+                  }
+                }
+              }
+            }
+          } catch (err) {
+            console.error("Erro ao checar pendências de maquininha:", err);
+          }
+        }
+
+        // Ordenação estrita por prioridade comercial:
+        // 1º Meta VW Tera -> 2º Estoque Ideal -> 3º Mural de Pendências -> 4º Conferência de Maquininha/Provisões
+        const priorityOrder: StartupModalType[] = ['tera', 'estoque-ideal', 'mural', 'card-machines'];
+        candidateItems.sort((a, b) => priorityOrder.indexOf(a.id) - priorityOrder.indexOf(b.id));
+
+        // Limita a NO MÁXIMO 2 popups na abertura
+        const finalQueue = candidateItems.slice(0, 2);
+
+        if (finalQueue.length > 0) {
+          setStartupQueue(finalQueue);
+          setStartupIndex(0);
+          setIsStartupActive(true);
+        }
       };
 
-      checkMuralPendencias();
+      // Popups na abertura desativados permanentemente conforme solicitado:
+      // initStartupPopups();
+      // checkPendingTempPrint();
 
       return () => {
         events.forEach((event) => window.removeEventListener(event, reset));
@@ -1005,6 +1193,39 @@ const App: React.FC = () => {
 
   const isTauri = typeof window !== 'undefined' && ('__TAURI_INTERNALS__' in window || '__TAURI__' in window);
 
+  if (isPublicRoute) {
+    const handleExitPublicRoute = () => {
+      try {
+        if (
+          window.location.hash.includes("promocao") ||
+          window.location.hash.includes("aniversario") ||
+          window.location.hash.includes("vitrine")
+        ) {
+          window.location.hash = "";
+        }
+        if (
+          window.location.pathname.includes("promocao") ||
+          window.location.pathname.includes("aniversario") ||
+          window.location.search.includes("vitrine")
+        ) {
+          window.history.pushState({}, "", "/");
+        }
+      } catch (e) {
+        console.error("Erro ao sincronizar histórico de rotas:", e);
+      }
+      setIsPublicRoute(false);
+    };
+
+    // Vitrine Pública de Aniversário & Liquidação BelaFarma
+    // Mensagem de Impacto Oficial: Mais de 100 itens com preços incríveis e descontos imperdíveis!
+    return (
+      <VitrineAniversario
+        onExit={handleExitPublicRoute}
+        initialShowSplash={showSplash}
+      />
+    );
+  }
+
   if (!user)
     return (
       <Auth
@@ -1022,6 +1243,19 @@ const App: React.FC = () => {
         <div className="max-w-7xl mx-auto p-4">
           <WhatsAppVendas />
         </div>
+      </div>
+    );
+  }
+
+  if (currentView === "belaped" && user.role === UserRole.ADM) {
+    return (
+      <div className="h-screen w-screen overflow-hidden flex flex-col bg-[#070b14]">
+        <PwaUpdater />
+        <BelaPedPortal
+          user={user}
+          theme={theme}
+          onNavigate={handleNavigate}
+        />
       </div>
     );
   }
@@ -1093,6 +1327,7 @@ const App: React.FC = () => {
                   onUpdate={updateOrder}
                   onDelete={deleteOrder}
                   onUpdateBoletos={handleUpdateBoletos}
+                  onRefresh={fetchData}
                 />
               )}
               {currentView === "shortages" && (
@@ -1131,7 +1366,7 @@ const App: React.FC = () => {
                   onLog={(act, det) => createLog("Cofre", act, det)}
                 />
               )}
-              {currentView === "financial" && user.role === UserRole.ADM && (
+              {(currentView === "financial" || currentView === "contas-a-pagar") && user.role === UserRole.ADM && (
                 <Financial 
                   user={user}
                   orders={orders} 
@@ -1145,6 +1380,7 @@ const App: React.FC = () => {
                   onLog={(act, det) => createLog("Financeiro", act, det)}
                   cashClosings={cashClosings}
                   onOpenBudgetSummary={() => setIsBudgetSummaryOpen(true)}
+                  initialTab={currentView === 'contas-a-pagar' ? 'payable' : 'overview'}
                 />
               )}
               {currentView === "users" && user.role === UserRole.ADM && (
@@ -1191,6 +1427,9 @@ const App: React.FC = () => {
               )}
               {currentView === 'inventario' && (
                 <InventoryManager user={user} />
+              )}
+              {currentView === 'perdas-avarias' && (
+                <LossesManager user={user} theme={theme} />
               )}
               {currentView === 'backups' && user.role === UserRole.ADM && (
                 <BackupManager />
@@ -1277,38 +1516,75 @@ const App: React.FC = () => {
               {currentView === 'labels' && <EtiquetasManager user={user} />}
               {currentView === 'anvisa-alerts' && <AnvisaAlerts theme={theme} />}
               {currentView === 'notes' && <NotesManager user={user} theme={theme} />}
+              {currentView === 'temperature-map' && <TemperatureMap />}
+              {currentView === 'reposicao-tabela' && (
+                <AnaliseReposicao user={user} onNavigate={handleNavigate} />
+              )}
               {currentView === 'card-machines' && user.role === UserRole.ADM && (
                 <CardMachinesManager user={user} />
               )}
               {currentView === 'price-manager' && user.role === UserRole.ADM && (
                 <PriceManager user={user} />
               )}
+              {currentView === 'liquidacao-caixa' && user.role === UserRole.ADM && (
+                <LiquidacaoCaixa user={user} />
+              )}
               {currentView === "settings" && <Settings user={user} limits={monthlyLimits} onSaveLimit={handleSaveLimit} />}
             </>
           )}
         </div>
-        <footer className="w-full text-center py-4 text-xs text-slate-400 font-medium absolute bottom-0 left-0 bg-slate-100">
-          <p>Versão Beta - Desenvolvido por Edevaldo Cruz</p>
+        <footer className="w-full text-center py-3 text-xs text-slate-500 dark:text-slate-400 font-medium bg-slate-100 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex items-center justify-center gap-2 flex-wrap">
+          <span>Desenvolvido por <strong className="font-bold text-slate-700 dark:text-slate-200">Edevaldo Cruz</strong></span>
+          <span>•</span>
+          <a
+            href="https://wa.me/5532988634755?text=Ol%C3%A1%20Edevaldo%2C%20vi%20seu%20contato%20no%20site%20da%20BelaFarma!"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 font-bold transition-all border border-emerald-500/30 hover:scale-105 active:scale-95"
+            title="Conversar com o desenvolvedor no WhatsApp"
+          >
+            <span>💬 (32) 98863-4755</span>
+          </a>
         </footer>
       </main>
 
+      {/* Barra Superior Unificada de Controle dos Avisos de Abertura */}
+      {isStartupActive && startupQueue.length > 0 && (
+        <StartupModalManager
+          queue={startupQueue}
+          currentIndex={startupIndex}
+          onNavigate={(newIndex) => setStartupIndex(newIndex)}
+          onClose={handleCloseStartup}
+        />
+      )}
+
       {/* Modal de Incentivo VW Tera exclusivo para Nayane */}
-      {!isMobile && <TeraIncentiveModal isOpen={isTeraModalOpen} onClose={() => setIsTeraModalOpen(false)} />}
+      {!isMobile && (
+        <TeraIncentiveModal
+          isOpen={isTeraModalOpen || activeStartupModalId === 'tera'}
+          onClose={() => {
+            setIsTeraModalOpen(false);
+            if (isStartupActive) handleCloseStartup();
+          }}
+        />
+      )}
 
       {/* Modal de Alerta de Estoque Ideal para Comprador(a) / Nayane */}
       {user && (
         <EstoqueIdealModal
-          isOpen={isEstoqueIdealModalOpen}
+          isOpen={isEstoqueIdealModalOpen || activeStartupModalId === 'estoque-ideal'}
           user={user}
           onClose={() => {
             setIsEstoqueIdealModalOpen(false);
             const hoje = new Date().toISOString().slice(0, 10);
             localStorage.setItem("estoque_ideal_last_date", hoje);
+            if (isStartupActive) handleCloseStartup();
           }}
           onNavigateToCompras={() => {
             setIsEstoqueIdealModalOpen(false);
             const hoje = new Date().toISOString().slice(0, 10);
             localStorage.setItem("estoque_ideal_last_date", hoje);
+            if (isStartupActive) handleCloseStartup();
             handleNavigate('central-compras');
           }}
         />
@@ -1316,14 +1592,17 @@ const App: React.FC = () => {
 
       {/* Modal de Conferência Diária de Maquininha e Provisões para Edevaldo */}
       <CardMachineReconcileModal
-        isOpen={isCardMachineModalOpen}
+        isOpen={isCardMachineModalOpen || activeStartupModalId === 'card-machines'}
         onClose={() => {
           setIsCardMachineModalOpen(false);
+          if (isStartupActive) handleCloseStartup();
         }}
         onNavigateToFullView={() => {
+          if (isStartupActive) handleCloseStartup();
           handleNavigate('card-machines');
         }}
         userName={user?.name}
+        cashClosings={cashClosings}
         onReconcileSuccess={() => {
           fetchData();
         }}
@@ -1332,17 +1611,21 @@ const App: React.FC = () => {
       {/* Modal / Mural de Pendências e Produtos Parados 90d+ */}
       {user && (
         <MuralModal
-          isOpen={isMuralOpen}
+          isOpen={isMuralOpen || activeStartupModalId === 'mural'}
           onClose={() => {
             setIsMuralOpen(false);
             sessionStorage.setItem("belafarma_mural_dismissed", "true");
+            if (isStartupActive) handleCloseStartup();
           }}
           user={user}
           tasks={tasks}
           boletos={boletos}
           pendingReviewCount={pendingReviewCount}
           anvisaAlertCount={anvisaAlertCount}
-          onNavigate={handleNavigate}
+          onNavigate={(view) => {
+            if (isStartupActive) handleCloseStartup();
+            handleNavigate(view);
+          }}
           onRefreshPending={async () => {
             try {
               const res = await fetch(`/api/mural/pendencias?userId=${encodeURIComponent(user.id)}&userName=${encodeURIComponent(user.name)}`);
@@ -1443,6 +1726,17 @@ const App: React.FC = () => {
         isOpen={isVersionModalOpen}
         onClose={() => setIsVersionModalOpen(false)}
       />
+
+      {/* Modal de Aviso de Impressão da Folha Mensal de Temperatura */}
+      {isTempReminderOpen && tempReminderData && (
+        <TemperaturePrintReminderModal
+          isOpen={isTempReminderOpen}
+          previousMonth={tempReminderData.previousMonth}
+          previousMonthLabel={tempReminderData.previousMonthLabel}
+          onClose={() => setIsTempReminderOpen(false)}
+          onOpenAndPrint={handleOpenAndPrintTemp}
+        />
+      )}
     </div>
   );
 };

@@ -3,6 +3,7 @@ const router = express.Router();
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const security = require('./security.js');
 
 const reportsDir = path.join(__dirname, 'reports/digifarma');
 
@@ -11,20 +12,29 @@ if (!fs.existsSync(reportsDir)) {
   fs.mkdirSync(reportsDir, { recursive: true });
 }
 
-// Configuração do Multer para relatórios
+// Configuração do Multer para relatórios com sanitização e filtro
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     cb(null, reportsDir);
   },
   filename: (req, file, cb) => {
+    const safeOriginal = path.basename(file.originalname || 'report');
+    const safeExt = path.extname(safeOriginal).replace(/[^a-zA-Z0-9.]/g, '');
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
+    cb(null, file.fieldname + '-' + uniqueSuffix + safeExt);
   }
 });
 
 const upload = multer({ 
   storage: storage,
-  limits: { fileSize: 100 * 1024 * 1024 } // 100MB
+  limits: { fileSize: 100 * 1024 * 1024 }, // 100MB
+  fileFilter: (req, file, cb) => {
+    const ext = path.extname(file.originalname || '').toLowerCase();
+    if (!security.isSafeUploadFile(file.originalname) || (ext !== '.csv' && ext !== '.pdf')) {
+      return cb(new Error('Apenas relatórios .csv ou .pdf são permitidos.'));
+    }
+    cb(null, true);
+  }
 });
 
 
@@ -76,9 +86,13 @@ module.exports = (db) => {
     });
   });
 
-  // Deletar arquivo
+  // Deletar arquivo (com proteção contra Path Traversal)
   router.delete('/:filename', (req, res) => {
-    const filePath = path.join(reportsDir, req.params.filename);
+    const safeFilename = security.sanitizeSafeFilename(req.params.filename, ['.csv', '.pdf']);
+    if (!safeFilename) {
+      return res.status(400).json({ error: 'Nome de arquivo inválido.' });
+    }
+    const filePath = path.join(reportsDir, safeFilename);
     try {
       if (fs.existsSync(filePath)) {
         fs.unlinkSync(filePath);

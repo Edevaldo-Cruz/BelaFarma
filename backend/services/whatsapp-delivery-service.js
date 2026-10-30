@@ -1,7 +1,9 @@
 const { callAI } = require('./ai.service');
+const { findOrCreateDigifarmaCustomer } = require('./digifarma.service');
+const messageSender = require('./message-sender.service');
 
 /**
- * Serviço de Varredura e Auditoria de Vendas (Fechadas x Não Fechadas) e Deliveries via IA
+ * Serviço de Varredura e Auditoria Unificada de Vendas, Deliveries, CRM e Faltas (Shortages) via IA
  */
 
 function formatPhone(phone) {
@@ -31,21 +33,167 @@ function parseJsonFromAiResponse(text) {
   return null;
 }
 
+/**
+ * Pré-filtro local de relevância: economiza tokens ao descartar conversas sem conteúdo comercial antes de chamar a IA
+ */
+function isChatRelevantForAudit(messages) {
+  if (!messages || messages.length < 2) {
+    return false;
+  }
+
+  const allText = messages.map(m => (m.messageText || '').toLowerCase().trim()).join(' ');
+  if (allText.length < 5) {
+    return false;
+  }
+
+  // Detectar spam / propaganda externa sem resposta da farmácia
+  const spamKeywords = [
+    'cardápio', 'cardapio', 'marmitex', 'almoço', 'almoco',
+    'peça já', 'peca ja', 'feijoada', 'restaurante', 'saboor', 'prato do dia'
+  ];
+  const isSpam = spamKeywords.some(kw => allText.includes(kw));
+  if (isSpam) {
+    const hasPharmacyReply = messages.some(m => m.fromMe === 1 || m.fromMe === true);
+    if (!hasPharmacyReply || messages.length <= 4) {
+      return false;
+    }
+  }
+
+  // Detectar conversas que são apenas cumprimentos triviais (ex: "Bom dia", "Olá", "Tudo bem?")
+  const greetingPhrases = new Set([
+    'oi', 'ola', 'olá', 'bom dia', 'boa tarde', 'boa noite',
+    'tudo bem', 'tudo bem?', 'tudo bom', 'tudo bom?', 'ok', 'blz',
+    'obrigado', 'obrigada', 'valeu', 'tchau', 'sim', 'nao', 'não',
+    'ta bom', 'tá bom', 'por nada', 'de nada', '👍', '🙏', '❤️'
+  ]);
+
+  const meaningfulWords = [
+    'remédio', 'remedio', 'mg', 'ml', 'comprimido', 'gotas', 'pomada', 'creme',
+    'xarope', 'caixa', 'valor', 'preço', 'preco', 'quanto', 'custa', 'tem',
+    'entrega', 'entregar', 'rua', 'bairro', 'pix', 'cartão', 'cartao', 'troco',
+    'receita', 'foto', 'pedido', 'falta', 'estoque', 'paracetamol', 'dipirona',
+    'amoxicilina', 'ibuprofeno', 'antigripal', 'fralda', 'leite'
+  ];
+
+  const hasMeaningfulWord = meaningfulWords.some(w => allText.includes(w));
+  if (!hasMeaningfulWord) {
+    const allAreGreetings = messages.every(m => {
+      const cleanMsg = (m.messageText || '').toLowerCase().replace(/[^\w\s]/gi, '').trim();
+      return greetingPhrases.has(cleanMsg) || cleanMsg.length <= 3;
+    });
+    if (allAreGreetings) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Cadastra faltas detectadas diretamente no banco de dados SQLite (tabela shortages)
+ */
+function registrarFaltasUnificadas(db, cleanPhone, customerName, shortagesList, unclosedReason, discussedProducts, conversationDate) {
+  const newShortages = [];
+  let list = Array.isArray(shortagesList) ? [...shortagesList] : [];
+
+  // Se o motivo da venda não fechada foi Falta de Estoque e a lista veio vazia, inferir dos produtos discutidos
+  if (list.length === 0 && unclosedReason === 'Falta de Estoque' && Array.isArray(discussedProducts) && discussedProducts.length > 0) {
+    for (const p of discussedProducts) {
+      if (typeof p === 'string' && p.trim().length >= 2) {
+        list.push({
+          nome: p.trim(),
+          tipo: 'Marca (Referência)',
+          motivo: 'Falta de estoque informada pelo atendente'
+        });
+      }
+    }
+  }
+
+  for (const item of list) {
+    if (!item || !item.nome || typeof item.nome !== 'string' || item.nome.trim().length < 2) continue;
+    const nomeProduto = item.nome.toUpperCase().trim();
+    const tipoProduto = item.tipo || 'Marca (Referência)';
+
+    try {
+      const shortageExists = db.prepare(`
+        SELECT id FROM shortages 
+        WHERE productName = ? AND source = 'WhatsApp' AND purchased = 0 AND ordered = 0
+      `).get(nomeProduto);
+
+      if (!shortageExists) {
+        const shortageId = `sh_wa_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+        const dataAtual = new Date().toISOString();
+        const notes = `Solicitado por ${customerName} (${cleanPhone}) - Identificado na auditoria unificada em ${conversationDate || new Date().toLocaleDateString('pt-BR')}`;
+
+        db.prepare(`
+          INSERT INTO shortages (id, productName, type, clientInquiry, notes, createdAt, userName, source, purchased, ordered)
+          VALUES (?, ?, ?, 1, ?, ?, 'WhatsApp Bot', 'WhatsApp', 0, 0)
+        `).run(shortageId, nomeProduto, tipoProduto, notes, dataAtual);
+
+        newShortages.push({
+          nome: nomeProduto,
+          cliente: customerName,
+          telefone: cleanPhone,
+          tipo: tipoProduto
+        });
+        console.log(`[DeliveryAIService] 🔴 Falta cadastrada via auditoria unificada: ${nomeProduto} (solicitado por ${customerName})`);
+      }
+    } catch (errSh) {
+      console.warn(`[DeliveryAIService] ⚠️ Erro ao registrar falta de ${nomeProduto}:`, errSh.message);
+    }
+  }
+
+  return newShortages;
+}
+
+/**
+ * Descarta pedidos com status 'Em Rota' de dias anteriores ao dia atual.
+ * Conforme regra do negócio: pedidos em rota de dias que não sejam o dia atual devem ser descartados.
+ */
+function descartarRotasDiasAnteriores(db) {
+  try {
+    const res = db.prepare(`
+      UPDATE deliveries 
+      SET status = 'Cancelado', 
+          notes = CASE 
+            WHEN notes IS NULL OR notes = '' THEN '[Descartado: Em rota de dia anterior]'
+            ELSE notes || ' [Descartado: Em rota de dia anterior]'
+          END,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE status = 'Em Rota' 
+        AND (
+          (conversation_date IS NOT NULL AND conversation_date < date('now', 'localtime'))
+          OR date(created_at, 'localtime') < date('now', 'localtime')
+        )
+    `).run();
+
+    if (res.changes > 0) {
+      console.log(`[DeliveryAIService] 🗑️ Descartados ${res.changes} pedidos 'Em Rota' de dias anteriores.`);
+    }
+    return res.changes;
+  } catch (err) {
+    console.error('[DeliveryAIService] ⚠️ Erro ao descartar rotas de dias anteriores:', err.message);
+    return 0;
+  }
+}
+
 const DELIVERY_AUDIT_SYSTEM_PROMPT = `
 Você é o auditor financeiro e de vendas da Drogaria BelaFarma.
 Sua missão é analisar o diálogo no WhatsApp entre o Cliente e a Farmácia e classificar a conversa:
 
-Determine 2 pontos cruciais:
+Determine 3 pontos cruciais em uma única resposta:
 1. FOI FECHADA UMA VENDA / PEDIDO DE ENTREGA? ("sale_closed": true ou false)
    - true: O cliente aceitou o orçamento, passou o endereço/dados, confirmou a compra ou a entrega foi agendada/realizada.
    - false: O cliente apenas perguntou preço/estoque, pediu orçamento e não respondeu mais, achou caro, ou o produto estava em falta.
 
 2. QUAIS OS DETALHES DO ATENDIMENTO?
-   - "customer_name": Nome do cliente (se mencionado) ou "Cliente".
+   - "customer_name": Nome do cliente (se mencionado/identificado) ou "Cliente".
    - "is_delivery": true se for pedido para entrega em casa, false se for retirada no balcão ou apenas orçamento.
-   - "delivery_address": Endereço de entrega (se informado) ou null.
+   - "delivery_address": Endereço de entrega (se informado na conversa, incluindo rua, número, etc.) ou null.
+   - "neighborhood": Nome do Bairro ou Região (ex: "Centro", "Jardim Planalto", "Vila Nova", "Setor Sul", etc.) se mencionado no endereço ou contexto. Caso não seja possível identificar ou seja retirada no balcão, retorne null.
    - "items": Lista/Resumo dos medicamentos e produtos consultados ou comprados. IMPORTANTE: Se a conversa mencionar ou indicar o envio de uma foto, receita ou áudio (sem texto claro do nome), escreva "Receita / Imagem". Deixe vazio ("") APENAS se for uma conversa sem menção a produtos/receitas (ex: só "Bom dia").
    - "products_discussed": Array contendo os nomes individuais de TODOS os produtos ou medicamentos citados/consultados na conversa. Exemplo: ["Dipirona 500mg", "Dorflex 30 comprimidos"]. Se nenhum produto for citado, retorne [].
+   - "products_bought": Array contendo os nomes individuais dos produtos que foram efetivamente COMPRADOS (se sale_closed for true). Se a venda não foi fechada, retorne [].
    - "total_amount": Valor total em R$ (valor cobrado se fechou a venda, ou valor total orçado se não fechou).
    - "payment_method": Forma de pagamento (Pix, Cartão, Dinheiro, Crediário, A combinar).
    - "status": 
@@ -60,14 +208,38 @@ Determine 2 pontos cruciais:
        - null (caso a venda tenha sido FECHADA com sucesso).
    - "notes": Resumo direto de 1 linha sobre a negociação.
 
+3. HOUVE PRODUTO EM FALTA (SHORTAGE)?
+   - "shortages": Array com produtos que o cliente pediu ou cotou e a farmácia informou que NÃO TEM em estoque, que acabou, que está zerado ou que não trabalha com a marca, OU se o atendente procurou com fornecedor/parceiro e a resposta foi negativa.
+   - Se nenhum produto estiver em falta, retorne [].
+   - Formato de cada item:
+     {
+       "nome": "Nome do Produto em Falta",
+       "tipo": "Genérico" | "Similar" | "Perfumaria" | "Marca (Referência)",
+       "motivo": "Sem estoque no momento"
+     }
+
+REGRAS DE AUDITORIA CRÍTICAS (ANTI-DUPLICAÇÃO E ANTI-SPAM):
+- FOCO EXCLUSIVO NO DIA ATUAL: Analise EXCLUSIVAMENTE o atendimento e a negociação de HOJE. Não inclua itens, valores ou acordos de pedidos anteriores já finalizados em dias passados.
+- NÃO RESUSCITE PEDIDOS ANTIGOS: Se a conversa contiver pedidos antigos que já foram finalizados no passado, e as mensagens mais recentes forem apenas propagandas/cardápios externos (ex: marmitex, restaurantes, promoções), agradecimentos, cumprimentos isolados ("bom dia", "obrigado") ou mensagens automáticas recebidas sem nova negociação de compra em andamento, defina "sale_closed": false e "unclosed_reason": "Apenas Cotação". NUNCA recrie pedidos antigos que já foram concluídos!
+- MENSAGENS DE PROPAGANDA EXTERNA NÃO SÃO VENDAS: Se o contato estiver enviando cardápio de restaurante, divulgação de terceiros ou spam, NUNCA considere venda fechada da farmácia ("sale_closed": false).
+
 RESPONDA EXCLUSIVAMENTE EM FORMATO JSON VÁLIDO:
 {
   "sale_closed": true ou false,
   "is_delivery": true ou false,
   "customer_name": "Nome do cliente",
   "delivery_address": "Endereço ou null",
+  "neighborhood": "Bairro ou null",
   "items": "Descrição dos produtos",
   "products_discussed": ["Produto 1", "Produto 2"],
+  "products_bought": ["Produto Comprado 1"],
+  "shortages": [
+    {
+      "nome": "Nome do Produto",
+      "tipo": "Genérico | Similar | Perfumaria | Marca (Referência)",
+      "motivo": "Sem estoque"
+    }
+  ],
   "total_amount": 0.00,
   "payment_method": "Pix | Cartão | Dinheiro | Crediário | Outro",
   "status": "Pendente | Em Rota | Entregue | Nao_Fechado | Cancelado",
@@ -205,25 +377,14 @@ async function syncMessagesFromEvolution(db) {
   }
 }
 
+let isScanningDeliveries = false;
+
 async function scanDeliveriesFromWhatsApp(db, options = {}) {
-  // Sincronizar mensagens reais da Evolution API primeiro
-  await syncMessagesFromEvolution(db);
-
-  const now = new Date();
-  let timeLimit = 0;
-  let chatLimit = 200;
-
-  if (options.currentMonth) {
-    // Pegar desde o primeiro dia do mês atual às 00:00:00
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-    timeLimit = startOfMonth;
-    chatLimit = 500;
-    console.log(`[DeliveryAIService] 📅 Varredura COMPLETA do MÊS ATUAL (${now.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })})...`);
-  } else {
-    const hoursToAnalyze = options.hours || 48;
-    timeLimit = Date.now() - (hoursToAnalyze * 60 * 60 * 1000);
-    console.log(`[DeliveryAIService] 🛵 Auditoria de Vendas & Deliveries (últimas ${hoursToAnalyze}h)...`);
+  if (isScanningDeliveries) {
+    console.log('[DeliveryAIService] ⏳ Varredura de entregas já em execução. Ignorando chamada concorrente.');
+    return { skipped: true };
   }
+  isScanningDeliveries = true;
 
   const stats = {
     processedChats: 0,
@@ -231,11 +392,34 @@ async function scanDeliveriesFromWhatsApp(db, options = {}) {
     closedSalesAmount: 0,
     unclosedSalesCount: 0,
     unclosedSalesAmount: 0,
+    shortagesDetected: 0,
     errors: 0
   };
 
   try {
-    // Buscar chats ativos no período com pelo menos 2 mensagens
+    // Sincronizar mensagens reais da Evolution API primeiro
+    await syncMessagesFromEvolution(db);
+
+    const now = new Date();
+    // Início do dia atual às 00:00:00.000 local (foco estrito no dia de hoje)
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0).getTime();
+
+    // Descartar pedidos 'Em Rota' de dias anteriores que não foram finalizados
+    descartarRotasDiasAnteriores(db);
+
+    let timeLimit = startOfToday;
+    let chatLimit = 200;
+
+    if (options.allDays && options.hours) {
+      console.log(`[DeliveryAIService] 🛵 Auditoria de Vendas & Deliveries (últimas ${options.hours}h)...`);
+      timeLimit = Date.now() - (options.hours * 60 * 60 * 1000);
+    } else {
+      console.log(`[DeliveryAIService] 🛵 Auditoria de Vendas & Deliveries FOCADA NO DIA ATUAL (${now.toLocaleDateString('pt-BR')})...`);
+    }
+
+    const allNewShortages = [];
+
+    // Buscar chats ativos no dia atual com mensagens
     const recentChats = db.prepare(`
       SELECT phone, MAX(timestamp) as lastTimestamp, COUNT(*) as msgCount
       FROM whatsapp_messages
@@ -268,16 +452,18 @@ async function scanDeliveriesFromWhatsApp(db, options = {}) {
         }
       } catch (e) { /* ignora */ }
 
+      // OTIMIZAÇÃO E INTEGRIDADE: Carregar até 20 mensagens APENAS do dia atual (timestamp >= timeLimit).
+      // Isso impede que conversas de dias/semanas anteriores contaminem ou ressuscitem pedidos passados!
       const messages = db.prepare(`
         SELECT * FROM (
           SELECT id, fromMe, messageText, timestamp
           FROM whatsapp_messages
-          WHERE phone = ?
+          WHERE phone = ? AND timestamp >= ?
           ORDER BY timestamp DESC
-          LIMIT 50
+          LIMIT 20
         )
         ORDER BY timestamp ASC
-      `).all(chat.phone);
+      `).all(chat.phone, timeLimit);
 
       if (!messages || messages.length === 0) continue;
 
@@ -293,12 +479,70 @@ async function scanDeliveriesFromWhatsApp(db, options = {}) {
         continue;
       }
 
+      // Pré-filtro local de relevância: ignora saudações isoladas e spams externos sem gastar tokens da IA
+      if (!isChatRelevantForAudit(messages)) {
+        continue;
+      }
+
+      // Evita ressuscitar pedidos antigos já entregues caso as mensagens recentes sejam apenas spam/cardápios externos
+      const lastFinishedDelivery = db.prepare(`
+        SELECT id, created_at, items, total_amount FROM deliveries 
+        WHERE phone = ? AND (status = 'Entregue' OR status = 'Cancelado')
+        ORDER BY created_at DESC LIMIT 1
+      `).get(cleanPhone);
+
+      if (lastFinishedDelivery) {
+        const deliveryTs = new Date(lastFinishedDelivery.created_at).getTime();
+        const newMsgsAfterDelivery = messages.filter(m => m.timestamp > deliveryTs);
+        
+        // Se após a entrega anterior não houve nenhuma mensagem nova de negociação
+        if (newMsgsAfterDelivery.length === 0) {
+          continue;
+        }
+
+        const hasPharmacyReply = newMsgsAfterDelivery.some(m => m.fromMe === 1 || m.fromMe === true);
+        // Se todas as mensagens após a entrega foram apenas do cliente e a farmácia não respondeu
+        if (!hasPharmacyReply) {
+          const allSpamText = newMsgsAfterDelivery.map(m => m.messageText || '').join(' ').toLowerCase();
+          const isBroadcastOrSpam = allSpamText.includes('cardápio') || allSpamText.includes('marmitex') || 
+            allSpamText.includes('saboor') || allSpamText.includes('almoço') || allSpamText.includes('peça já') || 
+            allSpamText.includes('feijoada') || allSpamText.includes('promoção') || allSpamText.includes('lasanha') ||
+            allSpamText.includes('legenda') || allSpamText.includes('restaurante');
+          if (isBroadcastOrSpam || newMsgsAfterDelivery.length <= 3) {
+            continue;
+          }
+        }
+      }
+
       // Métricas da conversa
       const timestamps = messages.map(m => m.timestamp);
       const minTimestamp = Math.min(...timestamps);
       const maxTimestamp = Math.max(...timestamps);
       const chatDurationSeconds = messages.length > 1 ? Math.round((maxTimestamp - minTimestamp) / 1000) : 0;
       const chatMessageCount = messages.length;
+
+      // Tempo de primeira resposta da farmácia (SLA de atendimento em segundos)
+      let firstResponseTimeSeconds = 0;
+      const firstCustomerMsg = messages.find(m => m.fromMe === 0 || m.fromMe === false);
+      if (firstCustomerMsg) {
+        const firstAttendantReply = messages.find(m => (m.fromMe === 1 || m.fromMe === true) && m.timestamp >= firstCustomerMsg.timestamp);
+        if (firstAttendantReply) {
+          firstResponseTimeSeconds = Math.max(0, Math.round((firstAttendantReply.timestamp - firstCustomerMsg.timestamp) / 1000));
+        }
+      }
+
+      // Timestamp e datas reais da última mensagem
+      const lastMsgObj = messages[messages.length - 1];
+      const lastMsgTs = lastMsgObj.timestamp || maxTimestamp;
+      const dateObj = new Date(lastMsgTs);
+      const year = dateObj.getFullYear();
+      const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+      const day = String(dateObj.getDate()).padStart(2, '0');
+      const hours = String(dateObj.getHours()).padStart(2, '0');
+      const minutes = String(dateObj.getMinutes()).padStart(2, '0');
+      const seconds = String(dateObj.getSeconds()).padStart(2, '0');
+      const conversationDate = `${year}-${month}-${day}`;
+      const realCreatedAt = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
 
       // Verificação de Novo Cliente (is_new_customer)
       let isNewCustomer = 1;
@@ -330,6 +574,7 @@ async function scanDeliveriesFromWhatsApp(db, options = {}) {
           if (hasPriorClosedDelivery) isNewCustomer = 0;
         } catch (e2) {}
       }
+      const isRepeatCustomer = isNewCustomer === 1 ? 0 : 1;
 
       const transcript = messages.map(m => {
         const sender = m.fromMe === 1 ? 'Atendente BelaFarma' : customerName;
@@ -366,6 +611,7 @@ Determine se a venda foi FECHADA ou NÃO FECHADA e retorne o JSON conforme o pro
           const finalName = (result.customer_name && result.customer_name !== 'Cliente') ? result.customer_name : customerName;
           const totalAmount = parseFloat(result.total_amount) || 0;
           const address = result.delivery_address || (result.is_delivery ? 'Endereço a confirmar' : 'Balcão / Loja');
+          const neighborhood = (result.neighborhood && result.neighborhood !== 'null' && result.neighborhood !== 'undefined') ? result.neighborhood.trim() : null;
           const paymentMethod = result.payment_method || 'A combinar';
           
           let status = result.status;
@@ -399,6 +645,7 @@ Determine se a venda foi FECHADA ou NÃO FECHADA e retorne o JSON conforme o pro
               UPDATE deliveries SET
                 customer_name = ?,
                 delivery_address = ?,
+                neighborhood = COALESCE(?, neighborhood),
                 items = ?,
                 total_amount = ?,
                 payment_method = ?,
@@ -409,14 +656,19 @@ Determine se a venda foi FECHADA ou NÃO FECHADA e retorne o JSON conforme o pro
                 notes = ?,
                 review_status = ?,
                 is_new_customer = ?,
+                is_repeat_customer = ?,
                 chat_duration_seconds = ?,
                 chat_message_count = ?,
+                first_response_time_seconds = ?,
                 discussed_products_json = ?,
+                conversation_date = ?,
+                created_at = ?,
                 updated_at = CURRENT_TIMESTAMP
               WHERE id = ?
             `).run(
               finalName,
               address,
+              neighborhood,
               itemsStr,
               totalAmount,
               paymentMethod,
@@ -427,25 +679,52 @@ Determine se a venda foi FECHADA ou NÃO FECHADA e retorne o JSON conforme o pro
               notes,
               reviewStatus,
               isNewCustomer,
+              isRepeatCustomer,
               chatDurationSeconds,
               chatMessageCount,
+              firstResponseTimeSeconds,
               discussedProductsJson,
+              conversationDate,
+              realCreatedAt,
               existingPending.id
             );
           } else {
+            // Checar se já existe entrega para esse telefone e last_message_id (evita corridas de concorrência)
+            const existingAny = db.prepare(`
+              SELECT id FROM deliveries WHERE phone = ? AND last_message_id = ? LIMIT 1
+            `).get(cleanPhone, lastMsgId);
+
+            if (existingAny) {
+              continue;
+            }
+
+            // Evita criar duplicata se já existir um pedido com os mesmos itens e valor em andamento
+            if (isClosed) {
+              const existingSame = db.prepare(`
+                SELECT id FROM deliveries 
+                WHERE phone = ? AND items = ? AND total_amount = ? AND status IN ('Em Rota', 'Pendente')
+                LIMIT 1
+              `).get(cleanPhone, itemsStr, totalAmount);
+              if (existingSame) {
+                continue;
+              }
+            }
+
             const deliveryId = `deliv_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
             db.prepare(`
-              INSERT INTO deliveries (
-                id, phone, customer_name, delivery_address, items,
+              INSERT OR IGNORE INTO deliveries (
+                id, phone, customer_name, delivery_address, neighborhood, items,
                 total_amount, payment_method, status, sale_closed, unclosed_reason,
                 last_message_id, notes,
-                review_status, is_new_customer, chat_duration_seconds, chat_message_count, discussed_products_json
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                review_status, is_new_customer, is_repeat_customer, chat_duration_seconds, chat_message_count,
+                first_response_time_seconds, discussed_products_json, conversation_date, created_at, updated_at
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             `).run(
               deliveryId,
               cleanPhone,
               finalName,
               address,
+              neighborhood,
               itemsStr,
               totalAmount,
               paymentMethod,
@@ -456,10 +735,151 @@ Determine se a venda foi FECHADA ou NÃO FECHADA e retorne o JSON conforme o pro
               notes,
               reviewStatus,
               isNewCustomer,
+              isRepeatCustomer,
               chatDurationSeconds,
               chatMessageCount,
-              discussedProductsJson
+              firstResponseTimeSeconds,
+              discussedProductsJson,
+              conversationDate,
+              realCreatedAt
             );
+          }
+
+          // A. Atualizar Nome do Cliente em customers e cache de contatos
+          if (finalName && !['cliente', 'cliente whatsapp', 'atendente', 'null', 'undefined'].includes(finalName.toLowerCase())) {
+            try {
+              db.prepare(`
+                UPDATE customers 
+                SET name = ?, updated_at = CURRENT_TIMESTAMP 
+                WHERE phone LIKE ? AND (name IS NULL OR name = '' OR name LIKE 'Cliente%')
+              `).run(finalName, `%${cleanPhone.slice(-8)}%`);
+
+              db.prepare(`
+                INSERT INTO whatsapp_contacts (id, name, updated_at)
+                VALUES (?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(id) DO UPDATE SET name = excluded.name, updated_at = CURRENT_TIMESTAMP
+              `).run(cleanPhone, finalName);
+            } catch (eName) {}
+          }
+
+          // B. Histórico de Endereços Informados pelo Cliente
+          if (address && address !== 'Endereço a confirmar' && address !== 'Balcão / Loja' && address.length >= 5) {
+            try {
+              const cust = db.prepare('SELECT id FROM customers WHERE phone LIKE ? LIMIT 1').get(`%${cleanPhone.slice(-8)}%`);
+              const custId = cust ? cust.id : null;
+              const addrId = `addr_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+              
+              db.prepare(`
+                INSERT INTO customer_address_history (id, phone, customer_id, address, neighborhood, last_used_at, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+              `).run(
+                addrId,
+                cleanPhone,
+                custId,
+                address,
+                neighborhood || null,
+                realCreatedAt,
+                realCreatedAt
+              );
+
+              if (custId) {
+                db.prepare(`
+                  UPDATE customers 
+                  SET address = COALESCE(NULLIF(address, ''), ?),
+                      neighborhood = COALESCE(NULLIF(neighborhood, ''), ?),
+                      updated_at = CURRENT_TIMESTAMP
+                  WHERE id = ?
+                `).run(address, neighborhood || null, custId);
+              }
+            } catch (eAddr) {}
+          }
+
+          // C. Sincronização Automática com o Digifarma para Clientes de Venda/Entrega
+          if (isClosed && cleanPhone && finalName && !['cliente', 'cliente whatsapp', 'atendente'].includes(finalName.toLowerCase())) {
+            try {
+              const digiResult = await findOrCreateDigifarmaCustomer({
+                name: finalName,
+                phone: cleanPhone,
+                address: address && address !== 'Endereço a confirmar' ? address : null,
+                neighborhood: neighborhood || null
+              });
+              if (digiResult && digiResult.success && digiResult.cliente_id) {
+                db.prepare('UPDATE deliveries SET digifarma_cliente_id = ? WHERE phone = ?').run(digiResult.cliente_id, cleanPhone);
+                db.prepare('UPDATE customers SET digifarma_id = ? WHERE phone LIKE ? OR phone = ?').run(digiResult.cliente_id, `%${cleanPhone.slice(-8)}%`, cleanPhone);
+              }
+            } catch (eDigi) {
+              // Conexão firebird pode falhar silenciosamente sem interromper o fluxo de varredura
+            }
+          }
+
+          // D. Histórico de Produtos Comprados e Pesquisados pelo Cliente (whatsapp_product_history)
+          const boughtProducts = (Array.isArray(result.products_bought) && result.products_bought.length > 0)
+            ? result.products_bought
+            : (isClosed && Array.isArray(result.products_discussed) ? result.products_discussed : []);
+
+          if (isClosed && boughtProducts.length > 0) {
+            const cust = db.prepare('SELECT id FROM customers WHERE phone LIKE ? LIMIT 1').get(`%${cleanPhone.slice(-8)}%`);
+            const custId = cust ? cust.id : null;
+            for (const prod of boughtProducts) {
+              if (!prod || typeof prod !== 'string' || prod.trim().length < 2) continue;
+              const cleanProd = prod.trim();
+              const wphId = `wph_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+              try {
+                db.prepare(`
+                  INSERT INTO whatsapp_product_history (
+                    id, phone, customer_id, product_name, status, interaction_date, source, notes, created_at
+                  ) VALUES (?, ?, ?, ?, 'comprado', ?, 'WhatsApp Delivery', ?, ?)
+                `).run(
+                  wphId,
+                  cleanPhone,
+                  custId,
+                  cleanProd,
+                  conversationDate,
+                  notes || 'Compra via WhatsApp Delivery',
+                  realCreatedAt
+                );
+              } catch (eProd) {}
+            }
+          } else if (!isClosed && Array.isArray(result.products_discussed) && result.products_discussed.length > 0) {
+            const cust = db.prepare('SELECT id FROM customers WHERE phone LIKE ? LIMIT 1').get(`%${cleanPhone.slice(-8)}%`);
+            const custId = cust ? cust.id : null;
+            const statusProd = (unclosedReason === 'Falta de Estoque') ? 'nao_encontrado' : 'pesquisado';
+            for (const prod of result.products_discussed) {
+              if (!prod || typeof prod !== 'string' || prod.trim().length < 2) continue;
+              const cleanProd = prod.trim();
+              const wphId = `wph_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+              try {
+                db.prepare(`
+                  INSERT INTO whatsapp_product_history (
+                    id, phone, customer_id, product_name, status, interaction_date, source, notes, created_at
+                  ) VALUES (?, ?, ?, ?, ?, ?, 'WhatsApp Delivery', ?, ?)
+                `).run(
+                  wphId,
+                  cleanPhone,
+                  custId,
+                  cleanProd,
+                  statusProd,
+                  conversationDate,
+                  notes || `Consulta: ${unclosedReason || 'Cotação'}`,
+                  realCreatedAt
+                );
+              } catch (eProd) {}
+            }
+          }
+
+          // E. Extração Unificada de Faltas (Shortages) para CRM e Compras
+          const detectedShortages = registrarFaltasUnificadas(
+            db,
+            cleanPhone,
+            finalName,
+            result.shortages,
+            unclosedReason,
+            discussedProducts,
+            conversationDate
+          );
+          if (detectedShortages.length > 0) {
+            stats.shortagesDetected += detectedShortages.length;
+            allNewShortages.push(...detectedShortages);
           }
         }
       } catch (aiErr) {
@@ -471,9 +891,27 @@ Determine se a venda foi FECHADA ou NÃO FECHADA e retorne o JSON conforme o pro
       await new Promise(resolve => setTimeout(resolve, 3000));
     }
 
-    console.log(`[DeliveryAIService] ✅ Auditoria concluída. Vendas Fechadas: ${stats.closedSalesCount} (R$ ${stats.closedSalesAmount.toFixed(2)}), Não Fechadas: ${stats.unclosedSalesCount} (R$ ${stats.unclosedSalesAmount.toFixed(2)})`);
+    // Notificação consolidada para o administrador caso novas faltas tenham sido identificadas
+    if (allNewShortages.length > 0 && process.env.EDEVALDO_WHATSAPP) {
+      const targetPhone = process.env.EDEVALDO_WHATSAPP;
+      let msg = `🤖 *BelaFarma Bot: Detecção de Faltas no WhatsApp*\n\n`;
+      msg += `Identifiquei de forma automatizada *${allNewShortages.length}* novo(s) produto(s) em falta em conversas recentes:\n\n`;
+      allNewShortages.forEach((p, idx) => {
+        msg += `🛒 *${idx + 1}. ${p.nome}*\n   └ Solicitado por: _${p.cliente}_\n`;
+      });
+      msg += `\nTodos já foram incluídos na sua *Lista de Faltas* no painel do sistema como urgentes (Procura de Cliente) 🔔`;
+
+      console.log(`[DeliveryAIService] 📱 Enviando notificação de faltas para Edevaldo (${targetPhone})...`);
+      messageSender.sendMessage(targetPhone, msg).catch(e => {
+        console.warn(`[DeliveryAIService] ⚠️ Falha ao enviar notificação de faltas para ${targetPhone}:`, e.message);
+      });
+    }
+
+    console.log(`[DeliveryAIService] ✅ Auditoria concluída. Vendas Fechadas: ${stats.closedSalesCount} (R$ ${stats.closedSalesAmount.toFixed(2)}), Não Fechadas: ${stats.unclosedSalesCount} (R$ ${stats.unclosedSalesAmount.toFixed(2)}), Faltas Registradas: ${stats.shortagesDetected}`);
   } catch (err) {
     console.error('[DeliveryAIService] ❌ Erro geral na auditoria:', err);
+  } finally {
+    isScanningDeliveries = false;
   }
 
   return stats;
@@ -514,16 +952,17 @@ async function syncAndEnqueueChats(db, options = {}) {
       const cleanPhone = formatPhone(chat.phone);
       if (!cleanPhone) continue;
 
+      // OTIMIZAÇÃO DE TOKENS E INTEGRIDADE: Carregar até 20 mensagens a partir de minTimestamp
       const messages = db.prepare(`
         SELECT * FROM (
           SELECT id, fromMe, messageText, timestamp
           FROM whatsapp_messages
-          WHERE phone = ?
+          WHERE phone = ? AND timestamp >= ?
           ORDER BY timestamp DESC
-          LIMIT 50
+          LIMIT 20
         )
         ORDER BY timestamp ASC
-      `).all(chat.phone);
+      `).all(chat.phone, minTimestamp);
 
       if (!messages || messages.length === 0) continue;
 
@@ -583,6 +1022,27 @@ async function syncAndEnqueueChats(db, options = {}) {
         }
       } catch (errCust) {}
 
+      // Tempo de primeira resposta da farmácia
+      let firstResponseTimeSeconds = 0;
+      const firstCustomerMsg = messages.find(m => m.fromMe === 0 || m.fromMe === false);
+      if (firstCustomerMsg) {
+        const firstAttendantReply = messages.find(m => (m.fromMe === 1 || m.fromMe === true) && m.timestamp >= firstCustomerMsg.timestamp);
+        if (firstAttendantReply) {
+          firstResponseTimeSeconds = Math.max(0, Math.round((firstAttendantReply.timestamp - firstCustomerMsg.timestamp) / 1000));
+        }
+      }
+
+      const dateObj = new Date(lastMsg.timestamp);
+      const year = dateObj.getFullYear();
+      const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+      const day = String(dateObj.getDate()).padStart(2, '0');
+      const hours = String(dateObj.getHours()).padStart(2, '0');
+      const minutes = String(dateObj.getMinutes()).padStart(2, '0');
+      const seconds = String(dateObj.getSeconds()).padStart(2, '0');
+      const conversationDate = `${year}-${month}-${day}`;
+      const realCreatedAt = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+      const isRepeatCustomer = isNewCustomer === 1 ? 0 : 1;
+
       // Verifica se já existe registro dessa conversa
       const existing = db.prepare(`
         SELECT id, review_status FROM deliveries WHERE phone = ? LIMIT 1
@@ -595,9 +1055,9 @@ async function syncAndEnqueueChats(db, options = {}) {
             id, phone, customer_name, delivery_address, items,
             total_amount, payment_method, status, sale_closed, unclosed_reason,
             last_message_id, notes,
-            review_status, is_new_customer, chat_duration_seconds, chat_message_count, discussed_products_json,
-            created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime(?, 'unixepoch', 'localtime'))
+            review_status, is_new_customer, is_repeat_customer, chat_duration_seconds, chat_message_count,
+            first_response_time_seconds, discussed_products_json, conversation_date, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         `).run(
           deliveryId,
           cleanPhone,
@@ -613,10 +1073,13 @@ async function syncAndEnqueueChats(db, options = {}) {
           `Última mensagem: "${lastSnippet}"`,
           'pending_review',
           isNewCustomer,
+          isRepeatCustomer,
           chatDurationSeconds,
           chatMessageCount,
+          firstResponseTimeSeconds,
           JSON.stringify([]),
-          Math.round(lastMsg.timestamp / 1000)
+          conversationDate,
+          realCreatedAt
         );
         enqueuedCount++;
       }
@@ -639,17 +1102,19 @@ Determine os detalhes do atendimento e identifique individualmente CADA produto 
 1. "customer_name": Nome do cliente (se mencionado) ou "Cliente".
 2. "is_delivery": true se for pedido para entrega em casa, false se for retirada no balcão ou apenas orçamento.
 3. "delivery_address": Endereço de entrega (se informado) ou null.
-4. "items": Resumo em texto dos produtos (ex: "2x Dipirona 500mg, 1x Dorflex").
-5. "products_identified": Lista estruturada com CADA PRODUTO citado:
+4. "neighborhood": Nome do Bairro ou Região se informado, ou null.
+5. "items": Resumo em texto dos produtos (ex: "2x Dipirona 500mg, 1x Dorflex").
+6. "products_identified": Lista estruturada com CADA PRODUTO citado:
    - "name": Nome claro do produto/medicamento.
    - "quantity": Quantidade mencionada (ex: "1 caixa", "2 un").
    - "price": Valor unitário ou total estimado em R$ (número).
    - "status": "accepted" se o cliente comprou/aceitou, ou "rejected" se recusou/não levou.
    - "rejection_reason": Se "status" for "rejected", motivo provável: "Preço Alto", "Falta de Estoque", "Sem Resposta do Cliente", "Desistiu", ou "Outro".
-6. "total_amount": Valor total em R$ (valor cobrado se fechou a venda, ou valor total orçado se não fechou).
-7. "payment_method": Forma de pagamento (Pix, Cartão, Dinheiro, Crediário, A combinar).
-8. "unclosed_reason": Se a venda não foi fechada, motivo geral ("Preço Alto", "Falta de Estoque", "Sem Resposta do Cliente", "Desistiu", "Apenas Cotação").
-9. "notes": Resumo direto de 1 linha sobre a negociação.
+7. "total_amount": Valor total em R$ (valor cobrado se fechou a venda, ou valor total orçado se não fechou).
+8. "payment_method": Forma de pagamento (Pix, Cartão, Dinheiro, Crediário, A combinar).
+9. "unclosed_reason": Se a venda não foi fechada, motivo geral ("Preço Alto", "Falta de Estoque", "Sem Resposta do Cliente", "Desistiu", "Apenas Cotação").
+10. "notes": Resumo direto de 1 linha sobre a negociação.
+11. "shortages": Array com produtos em falta identificados na conversa (quando o cliente pediu e não tem estoque, ou se o produto foi rejeitado por Falta de Estoque). Formato: [{ "nome": "Nome", "tipo": "Genérico | Similar | Perfumaria | Marca (Referência)", "motivo": "Sem estoque" }] ou [].
 
 RESPONDA EXCLUSIVAMENTE EM FORMATO JSON VÁLIDO:
 {
@@ -657,6 +1122,7 @@ RESPONDA EXCLUSIVAMENTE EM FORMATO JSON VÁLIDO:
   "is_delivery": true ou false,
   "customer_name": "Nome do cliente",
   "delivery_address": "Endereço ou null",
+  "neighborhood": "Bairro ou null",
   "items": "Descrição resumida dos produtos",
   "products_identified": [
     {
@@ -665,6 +1131,13 @@ RESPONDA EXCLUSIVAMENTE EM FORMATO JSON VÁLIDO:
       "price": 12.50,
       "status": "accepted",
       "rejection_reason": null
+    }
+  ],
+  "shortages": [
+    {
+      "nome": "Produto Em Falta",
+      "tipo": "Genérico | Similar | Perfumaria | Marca (Referência)",
+      "motivo": "Sem estoque"
     }
   ],
   "total_amount": 0.00,
@@ -685,13 +1158,14 @@ async function analyzeSingleChatWithAI(db, deliveryId, targetType = 'cotacao') {
   }
 
   const cleanPhone = formatPhone(delivery.phone);
+  // OTIMIZAÇÃO DE TOKENS: Limitar a 20 mensagens mais recentes
   const messages = db.prepare(`
     SELECT * FROM (
       SELECT id, fromMe, messageText, timestamp
       FROM whatsapp_messages
       WHERE phone = ? OR phone = ?
       ORDER BY timestamp DESC
-      LIMIT 30
+      LIMIT 20
     )
     ORDER BY timestamp ASC
   `).all(cleanPhone, delivery.phone);
@@ -749,9 +1223,12 @@ Analise e extraia os dados em JSON conforme instruído.
       ? productsIdentified.map(p => p.name)
       : (Array.isArray(result.products_discussed) ? result.products_discussed : (itemsStr ? [itemsStr] : []));
 
+    const finalNeighborhood = (result.neighborhood && result.neighborhood !== 'null') ? result.neighborhood.trim() : (delivery.neighborhood || null);
+
     const updatedData = {
       customer_name: (result.customer_name && result.customer_name !== 'Cliente') ? result.customer_name : customerName,
       delivery_address: result.delivery_address || '',
+      neighborhood: finalNeighborhood,
       items: itemsStr,
       products_discussed: discussedProducts,
       products_identified: productsIdentified,
@@ -767,6 +1244,7 @@ Analise e extraia os dados em JSON conforme instruído.
       UPDATE deliveries SET
         customer_name = ?,
         delivery_address = ?,
+        neighborhood = COALESCE(?, neighborhood),
         items = ?,
         total_amount = ?,
         payment_method = ?,
@@ -778,6 +1256,7 @@ Analise e extraia os dados em JSON conforme instruído.
     `).run(
       updatedData.customer_name,
       updatedData.delivery_address,
+      updatedData.neighborhood,
       updatedData.items,
       updatedData.total_amount,
       updatedData.payment_method,
@@ -786,6 +1265,47 @@ Analise e extraia os dados em JSON conforme instruído.
       JSON.stringify(updatedData.products_discussed),
       deliveryId
     );
+
+    // Salvar memória de endereço e produtos
+    try {
+      if (updatedData.delivery_address && updatedData.delivery_address.length >= 5) {
+        const cust = db.prepare('SELECT id FROM customers WHERE phone LIKE ? LIMIT 1').get(`%${cleanPhone.slice(-8)}%`);
+        const custId = cust ? cust.id : null;
+        db.prepare(`
+          INSERT INTO customer_address_history (id, phone, customer_id, address, neighborhood, last_used_at, created_at)
+          VALUES (?, ?, ?, ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime'))
+        `).run(`addr_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`, cleanPhone, custId, updatedData.delivery_address, updatedData.neighborhood);
+      }
+    } catch (eAddr) {}
+
+    // Registrar faltas caso identificadas na análise do chat
+    try {
+      const shortagesFromAI = Array.isArray(result.shortages) ? result.shortages : [];
+      if (productsIdentified.length > 0) {
+        for (const p of productsIdentified) {
+          if (p.status === 'rejected' && p.rejection_reason === 'Falta de Estoque' && p.name) {
+            if (!shortagesFromAI.some(s => s.nome && s.nome.toLowerCase() === p.name.toLowerCase())) {
+              shortagesFromAI.push({
+                nome: p.name,
+                tipo: 'Marca (Referência)',
+                motivo: 'Falta de estoque'
+              });
+            }
+          }
+        }
+      }
+      registrarFaltasUnificadas(
+        db,
+        cleanPhone,
+        updatedData.customer_name,
+        shortagesFromAI,
+        updatedData.unclosed_reason,
+        updatedData.products_discussed,
+        delivery.conversation_date
+      );
+    } catch (eShortage) {
+      console.warn('[DeliveryAIService] ⚠️ Erro ao registrar falta no chat individual:', eShortage.message);
+    }
 
     return updatedData;
   } catch (err) {
@@ -808,6 +1328,7 @@ Analise e extraia os dados em JSON conforme instruído.
 module.exports = {
   scanDeliveriesFromWhatsApp,
   syncAndEnqueueChats,
-  analyzeSingleChatWithAI
+  analyzeSingleChatWithAI,
+  descartarRotasDiasAnteriores
 };
 

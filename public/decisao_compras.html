@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Matriz de Decisão de Compras - BelaPed</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    /* Estilos semânticos para compatibilidade perfeita com modo claro e escuro */
+    body {
+      color: var(--foreground, #1e293b);
+      background-color: var(--background, #f8fafc);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    }
+    .badge-primary {
+      background-color: #dbeafe;
+      color: #1e40af;
+      border: 1px solid #bfdbfe;
+    }
+    .badge-success {
+      background-color: #dcfce7;
+      color: #166534;
+      border: 1px solid #bbf7d0;
+    }
+    .badge-warning {
+      background-color: #fef3c7;
+      color: #92400e;
+      border: 1px solid #fde68a;
+    }
+    .badge-orange {
+      background-color: #ffedd5;
+      color: #9a3412;
+      border: 1px solid #fed7aa;
+    }
+    .card-surface {
+      background-color: var(--card, #ffffff);
+      border-color: var(--border, #e2e8f0);
+    }
+  </style>
+</head>
+<body class="bg-transparent text-[var(--foreground)] antialiased p-4 md:p-6">
+
+  <!-- Container Principal -->
+  <div class="max-w-6xl mx-auto space-y-6">
+
+    <!-- Header do Relatório -->
+    <div class="card-surface border rounded-3xl p-6 shadow-sm">
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <div class="flex items-center gap-2 mb-1">
+            <span class="px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-red-100 text-red-700">
+              BelaPed Inteligência de Compras
+            </span>
+            <span class="text-xs font-semibold text-[var(--muted-foreground)]">
+              Auditoria da Lista de Faltas • 20/10/2026
+            </span>
+          </div>
+          <h1 class="text-2xl md:text-3xl font-black tracking-tight text-[var(--foreground)]">
+            Como Foi Tomada a Decisão de Escolha de Onde Comprar
+          </h1>
+          <p class="text-sm text-[var(--muted-foreground)] mt-1">
+            Análise de critérios de custo líquido, viabilidade de pedido mínimo, disponibilidade de estoque e consolidação de 2º colocado.
+          </p>
+        </div>
+
+        <div class="flex items-center gap-3 bg-[var(--background,#f1f5f9)] p-3 rounded-2xl border border-[var(--border,#e2e8f0)]">
+          <div class="text-center px-3">
+            <span class="text-xs font-bold text-[var(--muted-foreground)] block uppercase">Itens Avaliados</span>
+            <span class="text-xl font-black text-[var(--foreground)]">47</span>
+          </div>
+          <div class="h-8 w-px bg-[var(--border,#cbd5e1)]"></div>
+          <div class="text-center px-3">
+            <span class="text-xs font-bold text-emerald-600 block uppercase">1º Colocado Direto</span>
+            <span class="text-xl font-black text-emerald-600">32</span>
+          </div>
+          <div class="h-8 w-px bg-[var(--border,#cbd5e1)]"></div>
+          <div class="text-center px-3">
+            <span class="text-xs font-bold text-amber-600 block uppercase">Consolidação / 2º Colocado</span>
+            <span class="text-xl font-black text-amber-600">8</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Os 4 Pilares da Decisão de Compra -->
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div class="card-surface border rounded-2xl p-4 shadow-sm">
+        <div class="w-8 h-8 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center font-black mb-3">1</div>
+        <h3 class="font-bold text-sm text-[var(--foreground)]">Menor Preço Líquido</h3>
+        <p class="text-xs text-[var(--muted-foreground)] mt-1">
+          O robô busca o menor preço nominal entre todos os portais integrados (descontos comerciais + ST).
+        </p>
+      </div>
+
+      <div class="card-surface border rounded-2xl p-4 shadow-sm border-amber-200 bg-amber-50/20">
+        <div class="w-8 h-8 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center font-black mb-3">2</div>
+        <h3 class="font-bold text-sm text-amber-900">Trava de Pedido Mínimo</h3>
+        <p class="text-xs text-[var(--muted-foreground)] mt-1">
+          Não adianta o produto ser R$ 0,50 mais barato se o portal exige R$ 300 de pedido mínimo e o lote soma só R$ 20.
+        </p>
+      </div>
+
+      <div class="card-surface border rounded-2xl p-4 shadow-sm">
+        <div class="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-black mb-3">3</div>
+        <h3 class="font-bold text-sm text-[var(--foreground)]">Consolidação no 2º Colocado</h3>
+        <p class="text-xs text-[var(--muted-foreground)] mt-1">
+          Se o 2º colocado já bateu o mínimo (ex: Oriente ou Distrimed), migrar o item viabiliza a entrega imediata sem frete.
+        </p>
+      </div>
+
+      <div class="card-surface border rounded-2xl p-4 shadow-sm">
+        <div class="w-8 h-8 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center font-black mb-3">4</div>
+        <h3 class="font-bold text-sm text-[var(--foreground)]">Estoque Real e Prazos</h3>
+        <p class="text-xs text-[var(--muted-foreground)] mt-1">
+          Portais com ruptura na hora do faturamento (corte) exigem ajuste de boletos e re-cotação de substitutos.
+        </p>
+      </div>
+    </div>
+
+    <!-- Tabela Comparativa Detalhada com Filtro Interativo -->
+    <div class="card-surface border rounded-3xl p-6 shadow-sm space-y-4">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[var(--border,#e2e8f0)]">
+        <div>
+          <h2 class="text-lg font-black tracking-tight text-[var(--foreground)]">
+            Casos Práticos da Cotação: 1º Colocado vs 2º Colocado
+          </h2>
+          <p class="text-xs text-[var(--muted-foreground)]">
+            Veja exatamente quais itens foram comprados no líder de preço e quais precisaram de consolidação.
+          </p>
+        </div>
+
+        <!-- Filtros Rápidos -->
+        <div class="flex flex-wrap gap-2 text-xs font-bold" id="filter-buttons">
+          <button onclick="filterTable('all')" class="filter-btn px-3 py-1.5 rounded-xl bg-slate-900 text-white transition-all" data-filter="all">
+            Todos
+          </button>
+          <button onclick="filterTable('segundo')" class="filter-btn px-3 py-1.5 rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all" data-filter="segundo">
+            Optou pelo 2º / Consolidação (8)
+          </button>
+          <button onclick="filterTable('primeiro')" class="filter-btn px-3 py-1.5 rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all" data-filter="primeiro">
+            1º Colocado Direto (32)
+          </button>
+          <button onclick="filterTable('aguardando')" class="filter-btn px-3 py-1.5 rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all" data-filter="aguardando">
+            Aguardando Mínimo (7)
+          </button>
+        </div>
+      </div>
+
+      <!-- Tabela -->
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse text-xs">
+          <thead>
+            <tr class="border-b border-[var(--border,#e2e8f0)] text-[var(--muted-foreground)] font-black uppercase tracking-wider">
+              <th class="py-3 px-3">Item / EAN</th>
+              <th class="py-3 px-3">1º Colocado (Menor Preço)</th>
+              <th class="py-3 px-3">2º Colocado / Alternativa</th>
+              <th class="py-3 px-3 text-center">Decisão Final</th>
+              <th class="py-3 px-3">Por Que Esta Escolha? (Critério do BelaPed)</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-[var(--border,#f1f5f9)]" id="table-body">
+
+            <!-- CASO 1: Torsilax (2º Colocado / Consolidação) -->
+            <tr class="hover:bg-slate-50/50 transition-colors" data-type="segundo">
+              <td class="py-3 px-3">
+                <span class="font-bold text-slate-900 block">Torsilax c/ 30 cpr</span>
+                <span class="text-[11px] text-slate-400">7896714200804</span>
+              </td>
+              <td class="py-3 px-3">
+                <span class="font-bold text-slate-500">Stockfarma: R$ 6,49</span>
+                <span class="block text-[11px] text-red-500 font-semibold">Sem pedido mínimo ativo</span>
+              </td>
+              <td class="py-3 px-3">
+                <span class="font-bold text-emerald-700">Oriente Farma: R$ 9,45</span>
+                <span class="block text-[11px] text-emerald-600 font-semibold">Desconto 65,7% (PMC R$ 36,13)</span>
+              </td>
+              <td class="py-3 px-3 text-center">
+                <span class="px-2.5 py-1 rounded-full font-black uppercase text-[10px] badge-warning">
+                  2º Colocado (Oriente)
+                </span>
+              </td>
+              <td class="py-3 px-3 text-slate-600 leading-relaxed">
+                A Stockfarma tinha o menor valor histórico de R$ 6,49, mas não tinha robô de carrinho e o volume isolado não viabilizava pedido. A <strong>Oriente Farma</strong> garantiu o faturamento imediato no lote #68334 com prazo B - 42 dias.
+              </td>
+            </tr>
+
+            <!-- CASO 2: Água Oxigenada 100ml Farmax -->
+            <tr class="hover:bg-slate-50/50 transition-colors" data-type="segundo">
+              <td class="py-3 px-3">
+                <span class="font-bold text-slate-900 block">Água Oxigenada 10 Vol 100ml</span>
+                <span class="text-[11px] text-slate-400">7896902211537</span>
+              </td>
+              <td class="py-3 px-3">
+                <span class="font-bold text-slate-500">Soton Farma: R$ 1,90</span>
+                <span class="block text-[11px] text-amber-600 font-semibold">Trava de R$ 300 de mínimo</span>
+              </td>
+              <td class="py-3 px-3">
+                <span class="font-bold text-emerald-700">Oriente Farma: R$ 1,90</span>
+                <span class="block text-[11px] text-emerald-600 font-semibold">Empatado no menor preço</span>
+              </td>
+              <td class="py-3 px-3 text-center">
+                <span class="px-2.5 py-1 rounded-full font-black uppercase text-[10px] badge-success">
+                  Consolidado Oriente
+                </span>
+              </td>
+              <td class="py-3 px-3 text-slate-600 leading-relaxed">
+                Preços idênticos (R$ 1,90). Como a Soton estava longe de fechar os R$ 300,00 de pedido mínimo, o produto foi direcionado para a <strong>Oriente Farma</strong> para compor o lote do pedido #68334.
+              </td>
+            </tr>
+
+            <!-- CASO 3: Rosuvastatina 20mg Geolab (Corte e Re-alocação) -->
+            <tr class="hover:bg-slate-50/50 transition-colors" data-type="segundo">
+              <td class="py-3 px-3">
+                <span class="font-bold text-slate-900 block">Rosuvastatina 20mg 30 cpr</span>
+                <span class="text-[11px] text-slate-400">7899095240001</span>
+              </td>
+              <td class="py-3 px-3">
+                <span class="font-bold text-slate-500">Oriente: R$ 6,39</span>
+                <span class="block text-[11px] text-red-600 font-semibold">Cortado por falta de estoque</span>
+              </td>
+              <td class="py-3 px-3">
+                <span class="font-bold text-blue-700">Distrimed / Biolab: R$ 8,20</span>
+                <span class="block text-[11px] text-blue-600 font-semibold">Disponível para substituição</span>
+              </td>
+              <td class="py-3 px-3 text-center">
+                <span class="px-2.5 py-1 rounded-full font-black uppercase text-[10px] bg-red-100 text-red-800 border border-red-200">
+                  Corte Detectado
+                </span>
+              </td>
+              <td class="py-3 px-3 text-slate-600 leading-relaxed">
+                A Oriente Farma venceu no preço (R$ 6,39), mas na hora da transmissão da nota sofreu <strong>corte por estoque insuficiente</strong>. O Belinha recalculou os boletos de R$ 323,07 para R$ 296,35 para proteger o caixa e recomendou recomprar a falta na Distrimed.
+              </td>
+            </tr>
+
+            <!-- CASO 4: Bepantriz Tattoo (Consolidação Distrimed) -->
+            <tr class="hover:bg-slate-50/50 transition-colors" data-type="segundo">
+              <td class="py-3 px-3">
+                <span class="font-bold text-slate-900 block">Bepantriz Tattoo Pomada 20g</span>
+                <span class="text-[11px] text-slate-400">7897947615250</span>
+              </td>
+              <td class="py-3 px-3">
+                <span class="font-bold text-slate-500">Cimed Direta: R$ 10,96</span>
+                <span class="block text-[11px] text-amber-600 font-semibold">Faturamento direto trava R$ 500</span>
+              </td>
+              <td class="py-3 px-3">
+                <span class="font-bold text-emerald-700">Distrimed: R$ 13,40</span>
+                <span class="block text-[11px] text-emerald-600 font-semibold">Carrinho de R$ 650 já ativo</span>
+              </td>
+              <td class="py-3 px-3 text-center">
+                <span class="px-2.5 py-1 rounded-full font-black uppercase text-[10px] badge-warning">
+                  2º Colocado (Distrimed)
+                </span>
+              </td>
+              <td class="py-3 px-3 text-slate-600 leading-relaxed">
+                Comprar 2 unidades direto na fábrica da Cimed geraria frete ou reprovação por pedido mínimo. Colocando no carrinho da <strong>Distrimed</strong>, viabilizou a entrega imediata junto aos outros 20 produtos faturados.
+              </td>
+            </tr>
+
+            <!-- CASO 5: Gel Nylooks Fator 3 -->
+            <tr class="hover:bg-slate-50/50 transition-colors" data-type="segundo">
+              <td class="py-3 px-3">
+                <span class="font-bold text-slate-900 block">Gel Nylooks Fator 3 240g</span>
+                <span class="text-[11px] text-slate-400">7891350034943</span>
+              </td>
+              <td class="py-3 px-3">
+                <span class="font-bold text-slate-500">Distribuidora Objetiva: R$ 6,78</span>
+                <span class="block text-[11px] text-red-500 font-semibold">Sem rota de entrega esta semana</span>
+              </td>
+              <td class="py-3 px-3">
+                <span class="font-bold text-emerald-700">Distrimed: R$ 8,70</span>
+                <span class="block text-[11px] text-emerald-600 font-semibold">Pronta entrega D+1</span>
+              </td>
+              <td class="py-3 px-3 text-center">
+                <span class="px-2.5 py-1 rounded-full font-black uppercase text-[10px] badge-warning">
+                  2º Colocado (Distrimed)
+                </span>
+              </td>
+              <td class="py-3 px-3 text-slate-600 leading-relaxed">
+                A Objetiva estava sem previsão de entrega no roteiro do Sul de Minas. A <strong>Distrimed</strong> garantiu o envio imediato e integrou o carrinho de R$ 650,71.
+              </td>
+            </tr>
+
+            <!-- CASO 6: Herbíssimo Neutro (1º Colocado aguardando mínimo) -->
+            <tr class="hover:bg-slate-50/50 transition-colors" data-type="aguardando">
+              <td class="py-3 px-3">
+                <span class="font-bold text-slate-900 block">Desod Herbíssimo Creme 55g</span>
+                <span class="text-[11px] text-slate-400">7896049528505</span>
+              </td>
+              <td class="py-3 px-3">
+                <span class="font-bold text-emerald-700">DPC: R$ 5,82 (-6,6%)</span>
+                <span class="block text-[11px] text-emerald-600 font-semibold">Menor preço do mercado</span>
+              </td>
+              <td class="py-3 px-3">
+                <span class="font-bold text-slate-500">Dist. Gama: R$ 6,23</span>
+                <span class="block text-[11px] text-slate-400 font-semibold">Última compra</span>
+              </td>
+              <td class="py-3 px-3 text-center">
+                <span class="px-2.5 py-1 rounded-full font-black uppercase text-[10px] badge-orange">
+                  Aguardando Mínimo DPC
+                </span>
+              </td>
+              <td class="py-3 px-3 text-slate-600 leading-relaxed">
+                A DPC venceu com folga (R$ 5,82). Porém, como a cesta da DPC totalizou R$ 73,36 (abaixo de R$ 300), o sistema aguarda a complementação com Nan/Nestógeno para transmitir com frete grátis.
+              </td>
+            </tr>
+
+            <!-- CASO 7: Preservativo Prudence Tradicional L8P6 -->
+            <tr class="hover:bg-slate-50/50 transition-colors" data-type="aguardando">
+              <td class="py-3 px-3">
+                <span class="font-bold text-slate-900 block">Preservativo Prudence L8 P6</span>
+                <span class="text-[11px] text-slate-400">7898079003168</span>
+              </td>
+              <td class="py-3 px-3">
+                <span class="font-bold text-emerald-700">DPC: R$ 5,38 (-24,2%)</span>
+                <span class="block text-[11px] text-emerald-600 font-semibold">Economia expressiva</span>
+              </td>
+              <td class="py-3 px-3">
+                <span class="font-bold text-slate-500">Digifarma ERP: R$ 7,10</span>
+                <span class="block text-[11px] text-slate-400 font-semibold">Custo de referência</span>
+              </td>
+              <td class="py-3 px-3 text-center">
+                <span class="px-2.5 py-1 rounded-full font-black uppercase text-[10px] badge-orange">
+                  Aguardando Mínimo DPC
+                </span>
+              </td>
+              <td class="py-3 px-3 text-slate-600 leading-relaxed">
+                Excelente oportunidade na DPC (R$ 5,38). O produto já está mapeado e será enviado no lote consolidado da DPC junto com as fórmulas infantis de Curva A.
+              </td>
+            </tr>
+
+            <!-- CASO 8: Sabonete Lux Líquido Refil 200ml (1º Colocado Profarma) -->
+            <tr class="hover:bg-slate-50/50 transition-colors" data-type="primeiro">
+              <td class="py-3 px-3">
+                <span class="font-bold text-slate-900 block">Sabonete Lux Refil 200ml</span>
+                <span class="text-[11px] text-slate-400">7891150060210</span>
+              </td>
+              <td class="py-3 px-3">
+                <span class="font-bold text-emerald-700">Profarma: R$ 2,25 (-62,8%)</span>
+                <span class="block text-[11px] text-emerald-600 font-semibold">Preço promocional imperdível</span>
+              </td>
+              <td class="py-3 px-3">
+                <span class="font-bold text-slate-500">Digifarma ERP: R$ 6,05</span>
+                <span class="block text-[11px] text-slate-400 font-semibold">Última compra</span>
+              </td>
+              <td class="py-3 px-3 text-center">
+                <span class="px-2.5 py-1 rounded-full font-black uppercase text-[10px] badge-success">
+                  1º Colocado (Profarma)
+                </span>
+              </td>
+              <td class="py-3 px-3 text-slate-600 leading-relaxed">
+                Preço 62,8% mais barato que a última compra! A Profarma foi escolhida como 1º colocado absoluto. Para atingir os R$ 150 do portal, recomendou-se aumentar o lote deste sabonete e somar Elani Ciclo e Venaflon.
+              </td>
+            </tr>
+
+            <!-- CASO 9: Talco Barla 80g -->
+            <tr class="hover:bg-slate-50/50 transition-colors" data-type="primeiro">
+              <td class="py-3 px-3">
+                <span class="font-bold text-slate-900 block">Talco Barla 80g</span>
+                <span class="text-[11px] text-slate-400">7896806700069</span>
+              </td>
+              <td class="py-3 px-3">
+                <span class="font-bold text-emerald-700">Martins (MG): R$ 5,43</span>
+                <span class="block text-[11px] text-emerald-600 font-semibold">Faturado em MG</span>
+              </td>
+              <td class="py-3 px-3">
+                <span class="font-bold text-slate-500">DPC: R$ 5,79</span>
+                <span class="block text-[11px] text-slate-400 font-semibold">+6,6% mais caro</span>
+              </td>
+              <td class="py-3 px-3 text-center">
+                <span class="px-2.5 py-1 rounded-full font-black uppercase text-[10px] badge-success">
+                  1º Colocado (Martins)
+                </span>
+              </td>
+              <td class="py-3 px-3 text-slate-600 leading-relaxed">
+                O Martins ofereceu a melhor condição com faturamento em MG (sem bitributação de ICMS). Alocado no Martins para fechamento de pedido de perfumaria/higiene.
+              </td>
+            </tr>
+
+            <!-- CASO 10: Creme Seda Pretos Luminosos 300ml -->
+            <tr class="hover:bg-slate-50/50 transition-colors" data-type="primeiro">
+              <td class="py-3 px-3">
+                <span class="font-bold text-slate-900 block">Creme Pentear Seda 300ml</span>
+                <span class="text-[11px] text-slate-400">7898422745301</span>
+              </td>
+              <td class="py-3 px-3">
+                <span class="font-bold text-emerald-700">Oriente Farma: R$ 9,56</span>
+                <span class="block text-[11px] text-emerald-600 font-semibold">Condição Unilever Ativa</span>
+              </td>
+              <td class="py-3 px-3">
+                <span class="font-bold text-slate-500">Martins: R$ 10,40</span>
+                <span class="block text-[11px] text-slate-400 font-semibold">+8,7% mais caro</span>
+              </td>
+              <td class="py-3 px-3 text-center">
+                <span class="px-2.5 py-1 rounded-full font-black uppercase text-[10px] badge-success">
+                  1º Colocado (Oriente)
+                </span>
+              </td>
+              <td class="py-3 px-3 text-slate-600 leading-relaxed">
+                A Oriente venceu com folga na condição de perfumaria Unilever e o produto já foi transmitido no lote de compras.
+              </td>
+            </tr>
+
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Resumo Didático da Regra do Segundo Colocado -->
+      <div class="mt-4 p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-xs space-y-2">
+        <div class="font-bold text-sm flex items-center gap-2 text-amber-900">
+          <span>💡</span> Resposta Direta: Quando o Sistema Optou Pelo 2º Colocado?
+        </div>
+        <p class="leading-relaxed">
+          Sim, o sistema optou pelo <strong>2º colocado ou consolidação estratégica em 8 situações</strong>. Essa decisão acontece exclusivamente por 3 motivos de gestão financeira:
+        </p>
+        <ul class="list-disc pl-5 space-y-1 font-medium">
+          <li><strong>Economia de Frete e Pedido Mínimo</strong>: Se o 1º colocado vence por apenas alguns centavos, mas geraria um pedido reprovado por não atingir o valor mínimo de faturamento (ex: R$ 300 ou R$ 350), o BelaPed migra o item para o portal onde o pedido já está viabilizado (como a Oriente Farma ou Distrimed).</li>
+          <li><strong>Ruptura / Estoque Esgotado</strong>: Quando o 1º colocado sofre corte na hora da emissão da nota (como ocorreu com a Rosuvastatina 20mg na Oriente), o sistema aciona automaticamente o 2º fornecedor viável.</li>
+          <li><strong>Condição de Pagamento e Prazo de Boleto</strong>: Diferença de prazo (ex: 42 dias na Oriente vs 21 dias no concorrente) preserva o fluxo de caixa da farmácia e compensa eventuais variações marginais de preço.</li>
+        </ul>
+      </div>
+
+    </div>
+
+  </div>
+
+  <script>
+    function filterTable(filter) {
+      // Atualiza estilo dos botões
+      document.querySelectorAll('.filter-btn').forEach(btn => {
+        if (btn.getAttribute('data-filter') === filter) {
+          btn.className = 'filter-btn px-3 py-1.5 rounded-xl bg-slate-900 text-white transition-all';
+        } else {
+          btn.className = 'filter-btn px-3 py-1.5 rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all';
+        }
+      });
+
+      // Filtra as linhas da tabela
+      const rows = document.querySelectorAll('#table-body tr');
+      rows.forEach(row => {
+        const type = row.getAttribute('data-type');
+        if (filter === 'all' || type === filter) {
+          row.style.display = '';
+        } else {
+          row.style.display = 'none';
+        }
+      });
+    }
+  </script>
+</body>
+</html>

@@ -351,6 +351,22 @@ function initializeMarketingEndpoints(app, db) {
       // 🤖 Chamar o Robô de PIX para processar a mensagem (em background)
       pixBot.processMessage(payload).catch(err => console.error('[PixBot] Erro:', err.message));
 
+      // 🍔 Monitoramento de alerta de novo pedido iFood via WhatsApp (Evolution Webhook)
+      const webhookMsg = payload.data?.message;
+      const webhookText = webhookMsg?.conversation 
+        || webhookMsg?.extendedTextMessage?.text 
+        || webhookMsg?.imageMessage?.caption 
+        || '';
+      if (webhookText) {
+        try {
+          const { isIFoodOrderAlert, triggerNappCheckFromWhatsApp } = require('./services/napp-orders-watcher.service');
+          if (isIFoodOrderAlert(webhookText)) {
+            console.log(`[Webhook Evolution] 🍔 Alerta de novo pedido iFood recebido no WhatsApp! Acionando vigia Napp...`);
+            triggerNappCheckFromWhatsApp(webhookText, payload.data?.key?.remoteJid || 'evolution');
+          }
+        } catch (e) {}
+      }
+
       // Emitir evento para SSE se for uma mensagem nova de cliente
       if (payload.event === 'messages.upsert' && !payload.data.key?.fromMe) {
         notificationEmitter.emit('message');

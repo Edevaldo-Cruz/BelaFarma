@@ -44,9 +44,14 @@ import {
   NotebookPen, // Added for Bloco de Notas
   RefreshCw, // Added for Digifarma Sync
   ShoppingBag, // Added for Central de Compras
+  Trash2, // Added for Perdas e Avarias
+  Thermometer, // Added for Mapa de Temperatura
+  TableProperties, // Added for Análise de Reposição / Importador Digifarma
+  Flame, // Added for Liquidação & Aceleração de Caixa
 } from 'lucide-react';
 import { View, User, UserRole, Task, Boleto, BoletoStatus } from '../types';
 import { NotificationPanel } from './NotificationPanel';
+import { FeatureAuditModal, FeatureAuditItem } from './FeatureAuditModal';
 
 interface SidebarProps {
   user: User;
@@ -153,6 +158,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return () => clearInterval(interval);
   }, [currentView]);
 
+  const [inTransitDeliveriesCount, setInTransitDeliveriesCount] = React.useState(0);
+
+  // Check in-transit active deliveries (questions)
+  React.useEffect(() => {
+    const checkInTransit = async () => {
+      try {
+        const res = await fetch('/api/deliveries/in-transit');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && typeof data.count === 'number') {
+            setInTransitDeliveriesCount(data.count);
+          }
+        }
+      } catch (error) {
+        // Fail silently
+      }
+    };
+    checkInTransit();
+    const interval = setInterval(checkInTransit, 20000);
+    return () => clearInterval(interval);
+  }, [currentView]);
+
   React.useEffect(() => {
     if (!isAdmin) return;
     const checkOverdue = async () => {
@@ -237,7 +264,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'anvisa-alerts', label: 'Alertas ANVISA', icon: ShieldAlert },
     { id: 'logs', label: 'Auditoria', icon: History },
+    { id: 'belaped', label: 'BelaPed Compras', icon: ShoppingBag },
     { id: 'central-compras', label: 'Central de Compras', icon: ShoppingBag },
+    { id: 'reposicao-tabela', label: 'Análise Reposição', icon: TableProperties },
     { id: 'customers', label: 'Clientes', icon: UsersIcon },
     { id: 'checking-account', label: 'Conta Corrente', icon: Banknote },
     { id: 'medication-search', label: 'Consultar Méd.', icon: Search },
@@ -245,10 +274,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'cash-closing', label: 'Fechamento', icon: Calculator },
     { id: 'agenda', label: 'Agenda & Tarefas', icon: Calendar },
     { id: 'notes', label: 'Anotações', icon: NotebookPen },
+    { id: 'temperature-map', label: 'Mapa de Temperatura', icon: Thermometer },
     { id: 'daily-records', label: 'Lançamentos', icon: Receipt },
 
     { id: 'shortages', label: 'Lista de Faltas', icon: ClipboardList },
     { id: 'inventario', label: 'Inventário Rotativo', icon: ClipboardList },
+    { id: 'perdas-avarias', label: 'Perdas e Avarias', icon: Trash2 },
     { id: 'orders', label: 'Pedidos', icon: ShoppingCart },
     { id: 'users', label: 'Usuários', icon: UsersIcon },
     { id: 'safe', label: 'Cofre', icon: Lock },
@@ -269,19 +300,99 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'purchase-calendar', label: 'Calendário de Compras', icon: Calendar },
     { id: 'suppliers', label: 'Fornecedores', icon: UsersIcon },
     { id: 'stock', label: 'Estoque', icon: Package },
+    { id: 'contas-a-pagar', label: 'Contas a Pagar', icon: Banknote },
+    { id: 'financial', label: 'Gestão Financeira', icon: Landmark },
     { id: 'financial-health', label: 'Saúde Financeira', icon: HeartPulse },
     { id: 'caixa-provisoes', label: 'Caixa & Provisões', icon: Wallet },
     { id: 'sales-report', label: 'Relatório Vendas', icon: TrendingUp },
     { id: 'critical-stock', label: 'Estoque Crítico', icon: AlertTriangle },
     { id: 'system-watcher', label: 'Vigilante', icon: Activity },
     { id: 'price-manager', label: 'Gestão de Preços', icon: TrendingUp },
+    { id: 'liquidacao-caixa', label: 'Liquidação & Caixa', icon: Flame },
     { id: 'settings', label: 'Configurações', icon: SettingsIcon },
   ];
 
 
-  // Filtra itens por permissão e garante que o Dashboard fique no topo e Configurações no final
+  const [auditReport, setAuditReport] = React.useState<{
+    monitoringStartedAt: string;
+    monitoringTargetDays: number;
+    elapsedDays: number;
+    daysRemaining: number;
+    isPeriodCompleted: boolean;
+    abandonedCount: number;
+    uninstalledCount: number;
+    features: FeatureAuditItem[];
+  } | null>(null);
+  const [isAuditModeActive, setIsAuditModeActive] = React.useState(false);
+  const [checkedAbandonedIds, setCheckedAbandonedIds] = React.useState<Record<string, boolean>>({});
+  const [isAuditModalOpen, setIsAuditModalOpen] = React.useState(false);
+
+  const applyAuditReport = React.useCallback((data: any) => {
+    if (!data || !Array.isArray(data.features)) return;
+    setAuditReport({
+      monitoringStartedAt: data.monitoringStartedAt || new Date().toISOString(),
+      monitoringTargetDays: data.monitoringTargetDays || 15,
+      elapsedDays: data.elapsedDays || 0,
+      daysRemaining: typeof data.daysRemaining === 'number' ? data.daysRemaining : 15,
+      isPeriodCompleted: Boolean(data.isPeriodCompleted),
+      abandonedCount: data.abandonedCount || 0,
+      uninstalledCount: data.uninstalledCount || 0,
+      features: data.features
+    });
+
+    // Pré-seleciona por padrão todos os itens abandonados (0 usos no período)
+    const defaultChecked: Record<string, boolean> = {};
+    data.features.forEach((f: FeatureAuditItem) => {
+      if (f.isAbandoned && f.status !== 'UNINSTALLED' && !f.isProtected) {
+        defaultChecked[f.featureId] = true;
+      }
+    });
+    setCheckedAbandonedIds(prev => {
+      // Preserva escolhas manuais já feitas na sessão atual se existirem
+      const merged: Record<string, boolean> = { ...defaultChecked };
+      Object.keys(prev).forEach(k => {
+        if (k in defaultChecked) merged[k] = prev[k];
+      });
+      return merged;
+    });
+
+    if (data.isPeriodCompleted && (data.abandonedCount || 0) > 0) {
+      setIsAuditModeActive(true);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    const fetchAuditStatus = async () => {
+      try {
+        const res = await fetch('/api/system/feature-audit/status');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success) {
+            applyAuditReport(data);
+          }
+        }
+      } catch (e) {}
+    };
+    fetchAuditStatus();
+  }, [currentView, applyAuditReport]);
+
+  const auditMap = React.useMemo(() => {
+    const map: Record<string, FeatureAuditItem> = {};
+    if (auditReport?.features) {
+      auditReport.features.forEach(f => {
+        map[f.featureId] = f;
+      });
+    }
+    return map;
+  }, [auditReport]);
+
+  // Filtra itens por permissão, oculta itens já desinstalados e garante que Dashboard fique no topo e Configurações no final
   const filteredMenuItems = menuItems.filter(item => {
-    const adminOnly = ['logs', 'central-compras', 'checking-account', 'cash-closing', 'financial', 'users', 'safe', 'debtors-report', 'backups', 'consignados', 'invoices', 'ifood-control', 'messaging-center', 'ai-portal', 'radio-manager', 'whatsapp-crm', 'stock', 'financial-health', 'caixa-provisoes', 'sales-report', 'critical-stock', 'system-watcher', 'purchase-calendar', 'price-manager', 'card-machines']; 
+    const auditItem = auditMap[item.id];
+    if (auditItem && auditItem.status === 'UNINSTALLED') return false;
+
+    const adminOnly = ['logs', 'belaped', 'central-compras', 'checking-account', 'cash-closing', 'financial', 'contas-a-pagar', 'users', 'safe', 'debtors-report', 'backups', 'consignados', 'invoices', 'ifood-control', 'messaging-center', 'ai-portal', 'radio-manager', 'whatsapp-crm', 'stock', 'financial-health', 'caixa-provisoes', 'sales-report', 'critical-stock', 'system-watcher', 'purchase-calendar', 'price-manager', 'card-machines', 'liquidacao-caixa']; 
+
     if (adminOnly.includes(item.id) && !isAdmin) return false;
     return true;
   });
@@ -294,7 +405,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
       .filter(i => i.id !== 'dashboard' && i.id !== 'settings')
       .sort((a, b) => a.label.localeCompare(b.label, 'pt-BR')),
     filteredMenuItems.find(i => i.id === 'settings')!
-  ];
+  ].filter(Boolean);
+
+  // Lista de abandonados visíveis para o Admin no menu
+  const visibleAbandonedIds = sortedMenuItems
+    .map(i => i.id)
+    .filter(id => {
+      const f = auditMap[id];
+      return f ? (f.isAbandoned && !f.isProtected && f.status !== 'UNINSTALLED') : false;
+    });
+
+  const selectedForUninstallIds = visibleAbandonedIds.filter(id => checkedAbandonedIds[id] !== false);
+  const keptFromAbandonedIds = visibleAbandonedIds.filter(id => checkedAbandonedIds[id] === false);
+  const showCleanupCheckboxes = isAdmin && (isAuditModeActive || Boolean(auditReport?.isPeriodCompleted));
 
   // Logic for task creator notifications (Operator asked for help)
   const taskAttentionNotifications = tasks.filter(task => 
@@ -403,12 +526,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="flex flex-col h-full">
           <div className="flex items-center justify-between px-6 py-8">
             <div className="flex items-center gap-2.5">
-              <div className="p-1.5 bg-white dark:bg-slate-800 rounded-xl shadow-md border border-slate-200 dark:border-slate-700 flex items-center justify-center">
-                <img src="/images/logo-icon.png" alt="Bela Farma" className="w-7 h-7 object-contain" />
-              </div>
-              <div className="flex flex-col leading-none">
-                <span className="text-2xl font-black tracking-tighter" style={{ color: 'var(--bf-logo-text)' }}>belinha</span>
-                <span className="text-[10px] font-bold ml-auto tracking-widest uppercase italic" style={{ color: 'var(--bf-logo-sub)' }}>sistema</span>
+              <div className="bg-white px-2.5 py-1.5 rounded-xl shadow-md border border-slate-200/80 dark:border-white/20 flex items-center justify-center">
+                <img src="/images/logo-bela-farma.jpg" alt="Bela Farma Sul" className="h-8 w-auto object-contain" />
               </div>
             </div>
             <div className="flex items-center gap-3">
@@ -528,6 +647,54 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </div>
               </button>
             )}
+            {/* Painel de Auditoria de Recursos (15 Dias) exclusivo para Administradores */}
+            {isAdmin && auditReport && (
+              <div className="p-2.5 rounded-2xl border border-slate-300/60 dark:border-slate-700/60 bg-slate-100/70 dark:bg-slate-800/60 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <ClipboardCheck className="w-3.5 h-3.5 text-red-600 dark:text-red-400 shrink-0" />
+                    <span className="text-[10px] font-black uppercase tracking-tight text-slate-800 dark:text-slate-200 truncate">
+                      {auditReport.isPeriodCompleted
+                        ? `Limpeza 15d (${visibleAbandonedIds.length} s/ uso)`
+                        : `Auditoria 15d (Faltam ${auditReport.daysRemaining}d)`}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsAuditModeActive(!isAuditModeActive)}
+                    className={`px-2 py-0.5 rounded-lg text-[9px] font-black uppercase transition-all cursor-pointer ${
+                      showCleanupCheckboxes
+                        ? 'bg-red-600 text-white'
+                        : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300'
+                    }`}
+                    title="Ativar/Desativar visualização de checkboxes de limpeza no menu"
+                  >
+                    {showCleanupCheckboxes ? 'Ocultar' : 'Auditar'}
+                  </button>
+                </div>
+
+                {showCleanupCheckboxes && visibleAbandonedIds.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setIsAuditModalOpen(true)}
+                    className="w-full py-1.5 px-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-[10px] font-black uppercase tracking-wide flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer active:scale-95"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 shrink-0" />
+                    <span>Desinstalar selecionados ({selectedForUninstallIds.length})</span>
+                  </button>
+                )}
+
+                {showCleanupCheckboxes && visibleAbandonedIds.length === 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setIsAuditModalOpen(true)}
+                    className="w-full py-1 px-2 rounded-xl bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-[10px] font-bold flex items-center justify-center gap-1 cursor-pointer"
+                  >
+                    <span>Ver Relatório / Quarentena ({auditReport.uninstalledCount})</span>
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
           <nav className="flex-1 px-4 space-y-1 overflow-y-auto custom-scrollbar">
@@ -535,6 +702,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
               const Icon = item.icon;
               const isActive = currentView === item.id;
               const isVendas = item.id === 'whatsapp-vendas';
+              const auditInfo = auditMap[item.id];
+              const isItemAbandoned = Boolean(auditInfo?.isAbandoned && !auditInfo?.isProtected && auditInfo?.status !== 'UNINSTALLED');
+              const isCheckedForRemoval = checkedAbandonedIds[item.id] !== false;
 
               let buttonClass = '';
               let iconClass = '';
@@ -560,43 +730,81 @@ export const Sidebar: React.FC<SidebarProps> = ({
               }
 
               return (
-                <button
+                <div
                   key={item.id}
-                  onClick={() => {
-                    setView(item.id as View);
-                    if (window.innerWidth < 768) setIsOpen(false);
-                  }}
-                  className={`flex items-center w-full gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${buttonClass}`}
-                  style={buttonStyle}
+                  className={`flex items-center gap-1.5 rounded-xl transition-all ${
+                    showCleanupCheckboxes && isItemAbandoned && isCheckedForRemoval
+                      ? 'bg-red-500/10 dark:bg-red-950/30 border border-red-400/30 dark:border-red-800/40 pr-1.5'
+                      : ''
+                  }`}
                 >
-                  <Icon className={`w-5 h-5 ${iconClass}`} style={iconStyle} />
-                  <span className="truncate">{item.label}</span>
-                  {isVendas && (
-                    <span className={`ml-auto px-2 py-0.5 text-[10px] font-black rounded-full shadow-sm ${
-                      isActive ? 'bg-white text-orange-600' : 'bg-gradient-to-r from-amber-400 to-orange-500 text-white animate-pulse'
-                    }`}>
-                      Destaque
+                  {showCleanupCheckboxes && isItemAbandoned && (
+                    <input
+                      type="checkbox"
+                      checked={isCheckedForRemoval}
+                      onChange={(e) => {
+                        e.stopPropagation();
+                        setCheckedAbandonedIds(prev => ({
+                          ...prev,
+                          [item.id]: e.target.checked
+                        }));
+                      }}
+                      title={
+                        isCheckedForRemoval
+                          ? 'Sem uso nos últimos 15 dias (Sugestão: Desinstalar). Desmarque se quiser manter este recurso.'
+                          : 'Marcado para manter no sistema por mais 15 dias.'
+                      }
+                      className="ml-2.5 w-4 h-4 accent-red-600 rounded cursor-pointer shrink-0"
+                    />
+                  )}
+
+                  <button
+                    onClick={() => {
+                      setView(item.id as View);
+                      if (window.innerWidth < 768) setIsOpen(false);
+                    }}
+                    className={`flex items-center flex-1 min-w-0 gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition-all ${buttonClass}`}
+                    style={buttonStyle}
+                  >
+                    <Icon className={`w-5 h-5 shrink-0 ${iconClass}`} style={iconStyle} />
+                    <span className={`truncate ${showCleanupCheckboxes && isItemAbandoned && isCheckedForRemoval ? 'line-through opacity-75' : ''}`}>
+                      {item.label}
                     </span>
-                  )}
-                  {item.id === 'debtors-report' && hasOverdue && (
-                    <span className="ml-auto w-2 h-2 bg-red-600 rounded-full animate-pulse shadow-sm" title="Existem clientes com pagamento atrasado" />
-                  )}
-                  {item.id === 'anvisa-alerts' && anvisaAlertCount > 0 && (
-                    <span className="ml-auto px-2 py-0.5 text-xs font-bold text-white bg-red-600 rounded-full animate-pulse shadow-sm" title={`${anvisaAlertCount} produtos em estoque proibidos pela ANVISA`}>
-                      {anvisaAlertCount}
-                    </span>
-                  )}
-                  {item.id === 'central-compras' && purchasingPendingCount > 0 && (
-                    <span className="ml-auto px-2 py-0.5 text-xs font-bold text-white bg-red-600 rounded-full animate-pulse shadow-sm" title={`${purchasingPendingCount} aprovações pendentes`}>
-                      {purchasingPendingCount}
-                    </span>
-                  )}
-                  {item.id === 'deliveries' && pendingReviewCount > 0 && (
-                    <span className="ml-auto px-2 py-0.5 text-xs font-bold text-white bg-amber-500 dark:bg-amber-600 rounded-full animate-pulse shadow-sm" title={`${pendingReviewCount} revisões pendentes`}>
-                      {pendingReviewCount}
-                    </span>
-                  )}
-                </button>
+                    {showCleanupCheckboxes && isItemAbandoned && (
+                      <span
+                        className="ml-auto px-1.5 py-0.5 text-[9px] font-black uppercase rounded bg-red-500/20 text-red-600 dark:text-red-400 shrink-0"
+                        title="0 acessos nos últimos 15 dias"
+                      >
+                        0 usos
+                      </span>
+                    )}
+                    {isVendas && !showCleanupCheckboxes && (
+                      <span className={`ml-auto px-2 py-0.5 text-[10px] font-black rounded-full shadow-sm ${
+                        isActive ? 'bg-white text-orange-600' : 'bg-gradient-to-r from-amber-400 to-orange-500 text-white animate-pulse'
+                      }`}>
+                        Destaque
+                      </span>
+                    )}
+                    {item.id === 'debtors-report' && hasOverdue && !showCleanupCheckboxes && (
+                      <span className="ml-auto w-2 h-2 bg-red-600 rounded-full animate-pulse shadow-sm" title="Existem clientes com pagamento atrasado" />
+                    )}
+                    {item.id === 'anvisa-alerts' && anvisaAlertCount > 0 && !showCleanupCheckboxes && (
+                      <span className="ml-auto px-2 py-0.5 text-xs font-bold text-white bg-red-600 rounded-full animate-pulse shadow-sm" title={`${anvisaAlertCount} produtos em estoque proibidos pela ANVISA`}>
+                        {anvisaAlertCount}
+                      </span>
+                    )}
+                    {item.id === 'central-compras' && purchasingPendingCount > 0 && !showCleanupCheckboxes && (
+                      <span className="ml-auto px-2 py-0.5 text-xs font-bold text-white bg-red-600 rounded-full animate-pulse shadow-sm" title={`${purchasingPendingCount} aprovações pendentes`}>
+                        {purchasingPendingCount}
+                      </span>
+                    )}
+                    {item.id === 'deliveries' && (pendingReviewCount > 0 || inTransitDeliveriesCount > 0) && !showCleanupCheckboxes && (
+                      <span className="ml-auto px-2 py-0.5 text-xs font-bold text-white bg-amber-500 dark:bg-amber-600 rounded-full animate-pulse shadow-sm" title={`${pendingReviewCount} revisões pendentes, ${inTransitDeliveriesCount} perguntas ativas em rota`}>
+                        {pendingReviewCount + inTransitDeliveriesCount}
+                      </span>
+                    )}
+                  </button>
+                </div>
               );
             })}
           </nav>
@@ -653,6 +861,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </div>
       </aside>
+
+      {/* Modal de Auditoria e Verificação de Segurança de Dependências */}
+      {isAdmin && auditReport && (
+        <FeatureAuditModal
+          isOpen={isAuditModalOpen}
+          onClose={() => setIsAuditModalOpen(false)}
+          selectedFeatureIds={selectedForUninstallIds}
+          keptFeatureIds={keptFromAbandonedIds}
+          allFeatures={auditReport.features}
+          monitoringStartedAt={auditReport.monitoringStartedAt}
+          elapsedDays={auditReport.elapsedDays}
+          daysRemaining={auditReport.daysRemaining}
+          isPeriodCompleted={auditReport.isPeriodCompleted}
+          userName={user.name}
+          onSuccessUpdate={(updatedReport) => {
+            applyAuditReport(updatedReport);
+          }}
+        />
+      )}
     </>
   );
 };

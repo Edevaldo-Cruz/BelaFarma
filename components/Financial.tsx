@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Wallet, TrendingUp, Calendar, ArrowUpRight, ChevronDown, ChevronUp, CheckCircle2, AlertTriangle, Clock, Archive, DollarSign } from 'lucide-react';
+import { Wallet, TrendingUp, Calendar, ArrowUpRight, ChevronDown, ChevronUp, CheckCircle2, AlertTriangle, Clock, Archive, DollarSign, Barcode } from 'lucide-react';
 import { Order, OrderStatus, Installment, Boleto, BoletoStatus, FixedAccount, User, MonthlyLimit, CashClosingRecord } from '../types';
 import { TransactionDetailsModal } from './TransactionDetailsModal';
 import { FinancialArchive } from './FinancialArchive';
@@ -7,6 +7,7 @@ import { ContasAPagar } from './ContasAPagar';
 import { FixedAccountsPage } from './FixedAccountsPage';
 import { DaysInDebt } from './DaysInDebt';
 import { ProvisionsPanel } from './ProvisionsPanel';
+import { BoletoScannerTab } from './BoletoScannerTab';
 
 interface FinancialProps {
   user: User;
@@ -21,6 +22,7 @@ interface FinancialProps {
   onLog: (action: string, details: string) => void;
   cashClosings: CashClosingRecord[];
   onOpenBudgetSummary: () => void;
+  initialTab?: 'overview' | 'payable' | 'fixed' | 'debt' | 'provisions' | 'scanner';
 }
 
 type Transaction = Order | Boleto | (FixedAccount & { isFixed: true, targetDate: string });
@@ -42,12 +44,14 @@ export const Financial: React.FC<FinancialProps> = ({
   onDeleteBoleto,
   onLog,
   cashClosings,
-  onOpenBudgetSummary
+  onOpenBudgetSummary,
+  initialTab = 'overview'
 }) => {
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [isDetailsVisible, setIsDetailsVisible] = useState<Record<string, boolean>>({});
   const [showArchive, setShowArchive] = useState(false);
-  const [activeTab, setActiveTab] = useState<'overview' | 'payable' | 'fixed' | 'debt' | 'provisions'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'payable' | 'fixed' | 'debt' | 'provisions' | 'scanner'>(initialTab);
+
 
   const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
@@ -85,21 +89,26 @@ export const Financial: React.FC<FinancialProps> = ({
       let dueDate: Date | null = null;
       let monthName: string;
 
-      if ('due_date' in item) { // Boleto
-        dueDate = new Date(item.due_date + 'T00:00:00');
-        monthName = capitalize(dueDate.toLocaleString('pt-BR', { month: 'long', year: 'numeric' }));
-      } else if ('installments' in item && item.installments.length > 0) { // Order with installments
+      if ('due_date' in item && item.due_date) { // Boleto
+        const cleanDate = String(item.due_date).split('T')[0];
+        dueDate = new Date(cleanDate + 'T00:00:00');
+        monthName = !isNaN(dueDate.getTime()) 
+          ? capitalize(dueDate.toLocaleString('pt-BR', { month: 'long', year: 'numeric' }))
+          : 'Não Definido';
+      } else if ('installments' in item && item.installments && item.installments.length > 0) { // Order with installments
         item.installments.forEach(inst => {
+          if (!inst.dueDate) return;
           const instDueDate = new Date(inst.dueDate);
+          if (isNaN(instDueDate.getTime())) return;
           const instMonthName = capitalize(instDueDate.toLocaleString('pt-BR', { month: 'long', year: 'numeric' }));
           if (!data[instMonthName]) {
             data[instMonthName] = { total: 0, count: 0, pending: 0, items: [] };
           }
-          data[instMonthName].total += inst.value;
+          data[instMonthName].total += inst.value || 0;
           data[instMonthName].count += 1;
           data[instMonthName].items.push(item);
           if (item.status === OrderStatus.PENDENTE) {
-            data[instMonthName].pending += inst.value;
+            data[instMonthName].pending += inst.value || 0;
           }
         });
         return; // Skip to next item
@@ -110,7 +119,7 @@ export const Financial: React.FC<FinancialProps> = ({
       if (!data[monthName]) {
         data[monthName] = { total: 0, count: 0, pending: 0, items: [] };
       }
-      const value = 'value' in item ? item.value : ('totalValue' in item ? item.totalValue : 0);
+      const value = 'value' in item ? (item.value || 0) : ('totalValue' in item ? (item.totalValue || 0) : 0);
       data[monthName].total += value;
       data[monthName].count += 1;
       data[monthName].items.push(item);
@@ -121,23 +130,25 @@ export const Financial: React.FC<FinancialProps> = ({
 
     // Integrated Fixed Accounts Projection
     const displayedMonths = Object.keys(data);
-    fixedAccounts.filter(acc => acc.isActive).forEach(acc => {
+    fixedAccounts.filter(acc => acc && acc.isActive).forEach(acc => {
       displayedMonths.forEach(monthYear => {
+        if (!monthYear || !monthYear.includes(' de ')) return;
         const [monthName, yearStr] = monthYear.split(' de ');
         const year = parseInt(yearStr);
         const monthIndex = monthsOrder.indexOf(monthName);
+        if (monthIndex < 0 || isNaN(year)) return;
         
         // Construct a virtual date
         const monthPart = String(monthIndex + 1).padStart(2, '0');
-        const dayPart = String(acc.dueDay).padStart(2, '0');
+        const dayPart = String(acc.dueDay || 1).padStart(2, '0');
         const targetDate = `${year}-${monthPart}-${dayPart}`;
         
         const virtualAcc = { ...acc, isFixed: true as const, targetDate };
         
-        data[monthYear].total += acc.value;
+        data[monthYear].total += acc.value || 0;
         data[monthYear].count += 1;
         data[monthYear].items.push(virtualAcc);
-        data[monthYear].pending += acc.value;
+        data[monthYear].pending += acc.value || 0;
       });
     });
     
@@ -151,13 +162,18 @@ export const Financial: React.FC<FinancialProps> = ({
   const currentYear = now.getFullYear();
 
   const sortedMonths = Object.keys(monthlyData).filter(monthYear => {
+      if (!monthYear || !monthYear.includes(' de ')) return false;
       const [monthName, yearStr] = monthYear.split(' de ');
       const year = parseInt(yearStr);
       const monthIndex = monthsOrder.indexOf(monthName);
+      if (isNaN(year) || monthIndex < 0) return false;
       return year > currentYear || (year === currentYear && monthIndex >= currentMonthIndex);
   }).sort((a, b) => {
-    const [monthA, yearA] = a.split(' de ');
-    const [monthB, yearB] = b.split(' de ');
+    const partsA = a.split(' de ');
+    const partsB = b.split(' de ');
+    if (partsA.length < 2 || partsB.length < 2) return 0;
+    const [monthA, yearA] = partsA;
+    const [monthB, yearB] = partsB;
     if (yearA !== yearB) return parseInt(yearA) - parseInt(yearB);
     return monthsOrder.indexOf(monthA) - monthsOrder.indexOf(monthB);
   });
@@ -223,6 +239,13 @@ export const Financial: React.FC<FinancialProps> = ({
           Contas a Pagar
         </button>
         <button 
+          onClick={() => setActiveTab('scanner')}
+          className={`flex items-center gap-1.5 px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${activeTab === 'scanner' ? 'bg-red-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-600'}`}
+        >
+          <Barcode className="w-3.5 h-3.5" />
+          Scanner com Memória
+        </button>
+        <button 
           onClick={() => setActiveTab('fixed')}
           className={`px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${activeTab === 'fixed' ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
         >
@@ -276,20 +299,23 @@ export const Financial: React.FC<FinancialProps> = ({
           const isVisible = isDetailsVisible[month];
           const itemsByDay = data.items.reduce((acc, item) => {
             let dueDateStr: string;
-            if ('due_date' in item) { // Boleto
-                dueDateStr = item.due_date;
-            } else if ('installments' in item && item.installments.length > 0) { // Order with Installments
+            if ('due_date' in item && item.due_date) { // Boleto
+                dueDateStr = String(item.due_date).split('T')[0];
+            } else if ('installments' in item && item.installments && item.installments.length > 0) { // Order with Installments
                 // Find installment for the current month
-                const [monthName, year] = month.split(' de ');
+                const parts = (month || '').split(' de ');
+                const monthName = parts[0] ? parts[0].toLowerCase() : '';
+                const year = parts[1] ? parseInt(parts[1]) : 0;
                 const inst = item.installments.find(i => {
+                    if (!i.dueDate) return false;
                     const d = new Date(i.dueDate);
-                    return d.toLocaleString('pt-BR', {month: 'long'}) === monthName.toLowerCase() && d.getFullYear() === parseInt(year);
+                    return !isNaN(d.getTime()) && d.toLocaleString('pt-BR', {month: 'long'}) === monthName && d.getFullYear() === year;
                 });
-                dueDateStr = inst ? inst.dueDate.split('T')[0] : item.orderDate;
+                dueDateStr = inst && inst.dueDate ? inst.dueDate.split('T')[0] : (item.orderDate || 'Desconhecido');
             } else if ('targetDate' in item) {
                 dueDateStr = (item as any).targetDate;
             } else { // Order without installments
-                dueDateStr = item.orderDate;
+                dueDateStr = item.orderDate || 'Desconhecido';
             }
             if (!acc[dueDateStr]) acc[dueDateStr] = [];
             acc[dueDateStr].push(item);
@@ -345,7 +371,10 @@ export const Financial: React.FC<FinancialProps> = ({
                 <div className="mt-6 pt-4 border-t border-slate-100 space-y-4">
                    {sortedDays.map(day => (
                        <div key={day}>
-                           <p className="font-bold text-sm text-slate-600 mb-2 border-b pb-1">Dia {day.split('-')[2]}</p>
+                           <p className="font-bold text-sm text-slate-600 mb-2 border-b pb-1">
+                             Dia {day && day.includes('-') ? day.split('T')[0].split('-')[2] || day : (day || '-')}
+                           </p>
+
                            {itemsByDay[day].map((item, index) => {
                                 const isFixed = 'targetDate' in item;
                                 const name = 'distributor' in item ? item.distributor : (isFixed ? `[FIXA] ${(item as any).name}` : (item as any).supplierName);
@@ -426,6 +455,17 @@ export const Financial: React.FC<FinancialProps> = ({
           <ProvisionsPanel 
             cashClosings={cashClosings}
             fixedAccounts={fixedAccounts}
+          />
+        </div>
+      )}
+
+      {activeTab === 'scanner' && (
+        <div className="animate-in fade-in slide-in-from-bottom-2 duration-500">
+          <BoletoScannerTab
+            user={user}
+            onAddBoleto={onAddBoleto}
+            onLog={onLog}
+            existingBoletos={boletos}
           />
         </div>
       )}

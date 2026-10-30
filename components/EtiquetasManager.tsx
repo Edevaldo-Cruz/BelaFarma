@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Printer, 
+  Download,
   Trash2, 
   Edit3, 
   Plus, 
@@ -108,6 +109,8 @@ export const EtiquetasManager: React.FC<EtiquetasManagerProps> = ({ user }) => {
   const [queue, setQueue] = useState<QueuedLabel[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const [pdfProgress, setPdfProgress] = useState('');
   const [toast, setToast] = useState<{ type: 'success' | 'error' | 'info', message: string } | null>(null);
 
   // ── CONFIGURAÇÕES DA GRADE A4 ─────────────────────────────
@@ -429,6 +432,147 @@ export const EtiquetasManager: React.FC<EtiquetasManagerProps> = ({ user }) => {
     }
   };
 
+  // ── ABRIR HTML NATIVO EM NOVA ABA (100% VETORIAL SEM PDF) ──
+  const handleAbrirHtmlImpressao = () => {
+    if (selectedIds.length === 0) {
+      showToast('info', 'Por favor, selecione pelo menos uma etiqueta na fila.');
+      return;
+    }
+
+    const printableElement = document.getElementById('printable-area');
+    if (!printableElement) {
+      showToast('error', 'Área de impressão não encontrada.');
+      return;
+    }
+
+    const win = window.open('', '_blank');
+    if (!win) {
+      showToast('error', 'Por favor, permita os pop-ups do navegador para abrir a página HTML.');
+      return;
+    }
+
+    win.document.write(`
+      <!DOCTYPE html>
+      <html lang="pt-BR">
+        <head>
+          <meta charset="UTF-8" />
+          <title>Impressão Fila de Etiquetas BelaFarma</title>
+          <style>
+            @page {
+              size: A4 portrait;
+              margin: 0 !important;
+            }
+            * {
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+              box-sizing: border-box;
+            }
+            body {
+              margin: 0;
+              padding: 0;
+              background: #ffffff;
+              font-family: sans-serif;
+            }
+            .print-page {
+              width: 210mm !important;
+              height: 297mm !important;
+              max-height: 297mm !important;
+              overflow: hidden !important;
+              page-break-after: always !important;
+              break-after: page !important;
+              page-break-inside: avoid !important;
+            }
+          </style>
+        </head>
+        <body>
+          ${printableElement.innerHTML}
+          <script>
+            window.onload = function() {
+              setTimeout(function() { window.print(); }, 250);
+            };
+          </script>
+        </body>
+      </html>
+    `);
+    win.document.close();
+    showToast('success', '🎉 Folha HTML aberta em nova aba! Alinhamento vetorial 100% sem cortes.');
+  };
+
+  const handleDownloadPdf = async () => {
+    if (selectedIds.length === 0) {
+      showToast('info', 'Por favor, selecione pelo menos uma etiqueta na fila.');
+      return;
+    }
+
+    setDownloadingPdf(true);
+    setPdfProgress('Iniciando...');
+
+    try {
+      const { jsPDF } = await import('jspdf');
+      const html2canvas = (await import('html2canvas')).default;
+
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const printableElement = document.getElementById('printable-area');
+      if (!printableElement) throw new Error('Área de impressão não encontrada.');
+
+      // Container temporário para renderização do html2canvas sem display:none
+      const host = document.createElement('div');
+      host.style.cssText = 'position:fixed;left:0;top:0;width:210mm;height:297mm;z-index:-99999;opacity:0.01;pointer-events:none;background:#ffffff;overflow:hidden;';
+      host.innerHTML = printableElement.innerHTML;
+      document.body.appendChild(host);
+
+      const pageElements = Array.from(host.querySelectorAll('.print-page')) as HTMLElement[];
+
+      for (let p = 0; p < pageElements.length; p++) {
+        setPdfProgress(`Compilando folha ${p + 1} de ${pageElements.length}...`);
+        await new Promise(res => setTimeout(res, 25)); // Yield thread para manter a interface responsiva
+
+        const pageEl = pageElements[p];
+        const canvas = await html2canvas(pageEl, {
+          scale: 2,
+          useCORS: true,
+          allowTaint: true,
+          backgroundColor: '#ffffff',
+          width: 794,
+          height: 1123,
+          windowWidth: 794,
+          windowHeight: 1123
+        });
+
+        if (p > 0) pdf.addPage('a4', 'portrait');
+        pdf.addImage(canvas.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, 210, 297);
+      }
+
+      document.body.removeChild(host);
+
+      pdf.save(`Etiquetas_BelaFarma_Folhas_A4_${new Date().toISOString().slice(0, 10)}.pdf`);
+      showToast('success', '🎉 PDF baixado! DICA: Na impressora, escolha "Tamanho Real" (Escala 100%) para alinhamento perfeito.');
+
+      if (confirm('Deseja arquivar as etiquetas baixadas da fila?')) {
+        try {
+          const res = await fetch('/api/labels/print-batch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ids: selectedIds })
+          });
+          if (res.ok) {
+            showToast('success', 'Fila de impressão atualizada.');
+            setSelectedIds([]);
+            fetchQueue();
+          }
+        } catch (err) {
+          console.error(err);
+        }
+      }
+    } catch (err: any) {
+      console.error(err);
+      showToast('error', 'Erro ao gerar PDF: ' + (err.message || 'Falha no processamento.'));
+    } finally {
+      setDownloadingPdf(false);
+      setPdfProgress('');
+    }
+  };
+
   return (
     <div className="flex flex-col flex-1 p-6 md:p-8 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 min-h-screen">
       <style dangerouslySetInnerHTML={{__html: `
@@ -659,6 +803,37 @@ export const EtiquetasManager: React.FC<EtiquetasManagerProps> = ({ user }) => {
                 <h2 className="text-md font-black uppercase tracking-wider">Ajuste da Grade A4</h2>
               </div>
 
+              <div className="flex flex-col gap-1.5 border-b border-slate-50 dark:border-slate-800 pb-3">
+                <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Tamanho da Etiqueta / Preset</label>
+                <select 
+                  onChange={e => {
+                    const val = e.target.value;
+                    if (val === 'a4_oferta_2x3') {
+                      setGridCols(2); setGridRows(3); setMarginTop(10); setMarginBottom(15); setMarginLeft(6); setMarginRight(6); setColGap(4); setRowGap(4);
+                    } else if (val === '60x40') {
+                      setGridCols(3); setGridRows(7); setMarginTop(8); setMarginBottom(8); setMarginLeft(7); setMarginRight(7); setColGap(2); setRowGap(1);
+                    } else if (val === '100x30') {
+                      setGridCols(2); setGridRows(9); setMarginTop(10); setMarginBottom(10); setMarginLeft(4); setMarginRight(4); setColGap(2); setRowGap(1);
+                    } else if (val === '100x50') {
+                      setGridCols(2); setGridRows(5); setMarginTop(15); setMarginBottom(15); setMarginLeft(4); setMarginRight(4); setColGap(2); setRowGap(2);
+                    } else if (val === 'pimaco_3x10') {
+                      setGridCols(3); setGridRows(10); setMarginTop(10); setMarginBottom(10); setMarginLeft(7); setMarginRight(7); setColGap(2); setRowGap(0);
+                    } else if (val === 'pimaco_2x7') {
+                      setGridCols(2); setGridRows(7); setMarginTop(15); setMarginBottom(15); setMarginLeft(5); setMarginRight(5); setColGap(3); setRowGap(0);
+                    }
+                  }}
+                  className="p-3 bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl text-xs font-bold focus:ring-2 focus:ring-red-500 outline-none cursor-pointer"
+                >
+                  <option value="a4_oferta_2x3">🎯 Folha A4 Oferta 2x3 (6 etiquetas • 98 x 88 mm)</option>
+                  <option value="pimaco_3x10">Pimaco 3x10 (30 etiquetas • 70 x 29.7mm)</option>
+                  <option value="60x40">60 x 40 mm na Folha A4 (21 etiquetas • 3x7)</option>
+                  <option value="100x30">100 x 30 mm na Folha A4 (18 etiquetas • 2x9)</option>
+                  <option value="100x50">100 x 50 mm na Folha A4 (10 etiquetas • 2x5)</option>
+                  <option value="pimaco_2x7">Pimaco 2x7 (14 etiquetas • 101.6 x 38.1mm)</option>
+                  <option value="custom">Personalizado (Manual)</option>
+                </select>
+              </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <div className="flex flex-col gap-1.5">
                   <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Colunas</label>
@@ -742,6 +917,17 @@ export const EtiquetasManager: React.FC<EtiquetasManagerProps> = ({ user }) => {
                   />
                 </div>
               </div>
+
+              {/* Indicador de Cálculo de Capacidade A4 sem cortes */}
+              <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-xs font-bold text-emerald-800 dark:text-emerald-300 flex items-center gap-2">
+                <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                <div className="flex flex-col">
+                  <span className="font-black text-[11px] uppercase tracking-wide">Cálculo A4 Sem Cortes:</span>
+                  <span className="text-[10px] text-emerald-700 dark:text-emerald-400">
+                    {gridCols * gridRows} etiquetas/folha ({gridCols} col x {gridRows} lin) • {totalPages} folha{totalPages > 1 ? 's' : ''} A4 • {selectedLabelsExpanded.length} etiquetas marcadas
+                  </span>
+                </div>
+              </div>
             </div>
 
             {/* Bloco 2: Seletor Interativo de Posição Inicial */}
@@ -813,7 +999,7 @@ export const EtiquetasManager: React.FC<EtiquetasManagerProps> = ({ user }) => {
                 )}
               </div>
 
-              <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
+              <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto justify-end">
                 <button
                   onClick={() => setShowManualForm(!showManualForm)}
                   className="flex items-center gap-1.5 px-5 py-3 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-black uppercase tracking-wider rounded-2xl transition-all"
@@ -822,6 +1008,34 @@ export const EtiquetasManager: React.FC<EtiquetasManagerProps> = ({ user }) => {
                   Criar Manual
                 </button>
                 
+                <button
+                  onClick={handleAbrirHtmlImpressao}
+                  disabled={selectedIds.length === 0}
+                  className={`flex items-center gap-2 px-5 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all ${
+                    selectedIds.length > 0
+                      ? 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-lg shadow-blue-500/25 active:scale-[0.98]'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-400 cursor-not-allowed'
+                  }`}
+                  title="Abre as folhas de etiquetas em HTML puro em nova aba com alinhamento vetorial perfeito sem cortes"
+                >
+                  <FileText size={16} />
+                  Abrir HTML ({selectedIds.length})
+                </button>
+
+                <button
+                  onClick={handleDownloadPdf}
+                  disabled={selectedIds.length === 0 || downloadingPdf}
+                  className={`flex items-center gap-2 px-5 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all ${
+                    selectedIds.length > 0 && !downloadingPdf
+                      ? 'bg-slate-700 hover:bg-slate-800 text-white shadow-lg shadow-slate-700/25 active:scale-[0.98]'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-400 cursor-not-allowed'
+                  }`}
+                  title="Gera o PDF das folhas A4 montadas com as etiquetas selecionadas"
+                >
+                  <Download size={16} className={downloadingPdf ? 'animate-spin' : ''} />
+                  {downloadingPdf ? (pdfProgress || 'Gerando PDF...') : 'Baixar PDF'}
+                </button>
+
                 <button
                   onClick={handlePrint}
                   disabled={selectedIds.length === 0}
@@ -832,7 +1046,7 @@ export const EtiquetasManager: React.FC<EtiquetasManagerProps> = ({ user }) => {
                   }`}
                 >
                   <Printer size={16} />
-                  Imprimir Selecionadas ({selectedIds.length})
+                  Imprimir ({selectedIds.length})
                 </button>
               </div>
             </div>

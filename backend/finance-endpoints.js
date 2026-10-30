@@ -44,6 +44,13 @@ const handleDigifarmaError = (err, res, route, mockFallback) => {
         horarios: [],
         isOffline: true
       });
+    } else if (route === '/sold-products-report') {
+      return res.json({
+        totalItens: 0,
+        totalQtdGeral: 0,
+        categorias: [],
+        isOffline: true
+      });
     }
     return res.json({ isOffline: true });
   }
@@ -524,6 +531,190 @@ module.exports = function (db) {
     }
   });
 
+  // Rota de produtos vendidos agrupados por categoria
+  router.get('/sold-products-report', async (req, res) => {
+    try {
+      const { startDate, endDate } = req.query;
+
+      let start = startDate;
+      let end = endDate;
+
+      if (!start || !end) {
+        const today = new Date();
+        const past = new Date();
+        past.setDate(today.getDate() - 30);
+
+        const pad = (num) => String(num).padStart(2, '0');
+        start = `${past.getFullYear()}-${pad(past.getMonth() + 1)}-${pad(past.getDate())}`;
+        end = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
+      }
+
+      // Otimização de range para permitir uso de índice (SARGable)
+      const startDateTime = `${start} 03:00:00`;
+
+      const endParts = end.split('-');
+      const endDateObj = new Date(Number(endParts[0]), Number(endParts[1]) - 1, Number(endParts[2]));
+      endDateObj.setDate(endDateObj.getDate() + 1);
+      const pad = (num) => String(num).padStart(2, '0');
+      const endDateTime = `${endDateObj.getFullYear()}-${pad(endDateObj.getMonth() + 1)}-${pad(endDateObj.getDate())} 02:59:59`;
+
+      const sql = `
+        SELECT 
+          p.PRODUTO_ID,
+          p.PRODUTO,
+          p.APRESENTACAO,
+          p.COD_BARRAS,
+          p.PROD_SALDO,
+          COALESCE(c.CATEGORIA, 'OUTROS') AS CATEGORIA_NOME,
+          SUM(iv.ITEMVEND_QUANT) AS QTD_VENDIDA,
+          COALESCE(p.VALOR_ULT_COMPRA, p.PROD_PRCOMPRA, 0) AS ULTIMO_PRECO_DIGIFARMA
+        FROM ITEM_VENDAS iv
+        JOIN CAB_VENDAS v ON iv.VENDA_NOTA_ID = v.VENDA_NOTA_ID
+        JOIN PRODUTOS p ON iv.PRODUTO_ID = p.PRODUTO_ID
+        LEFT JOIN CATEGORIA c ON p.CATEGORIA_ID = c.CATEGORIA_ID
+        WHERE v.CANCELADO <> 'S'
+          AND v.VENDA_DATA_HORA BETWEEN ? AND ?
+        GROUP BY p.PRODUTO_ID, p.PRODUTO, p.APRESENTACAO, p.COD_BARRAS, p.PROD_SALDO, c.CATEGORIA, p.VALOR_ULT_COMPRA, p.PROD_PRCOMPRA
+        ORDER BY CATEGORIA_NOME ASC, QTD_VENDIDA DESC
+      `;
+
+      const results = await queryDigifarma(sql, [startDateTime, endDateTime]);
+
+      if (!results || results.length === 0) {
+        return res.json({
+          period: { startDate: start, endDate: end },
+          totalItens: 0,
+          totalQtdGeral: 0,
+          categorias: []
+        });
+      }
+
+      // Busca dados de último fornecedor e preço de custo no cache SQLite
+      const productIds = results.map(r => r.PRODUTO_ID).filter(Boolean);
+      const cacheMap = new Map();
+
+      if (db && productIds.length > 0) {
+        try {
+          const chunkSize = 500;
+          for (let i = 0; i < productIds.length; i += chunkSize) {
+            const chunk = productIds.slice(i, i + chunkSize);
+            const placeholders = chunk.map(() => '?').join(',');
+            const rows = db.prepare(`
+              SELECT produto_id, ultima_compra_fornecedor, preco_unitario_ult_compra, custo_unitario, ultima_compra_valor, saldo
+              FROM compras_estoque_cache
+              WHERE produto_id IN (${placeholders})
+            `).all(chunk);
+            rows.forEach(r => cacheMap.set(r.produto_id, r));
+          }
+        } catch (errDb) {
+          console.warn('[Finance] Erro ao buscar cache de fornecedor/custo:', errDb.message);
+        }
+      }
+
+      // Agrupa por categoria
+      const categoriaMap = new Map();
+      let totalQtdGeral = 0;
+
+      for (const r of results) {
+        const catNome = (r.CATEGORIA_NOME || 'OUTROS').trim().toUpperCase() || 'OUTROS';
+        const cached = cacheMap.get(r.PRODUTO_ID);
+
+        const qtdVendida = parseFloat(r.QTD_VENDIDA) || 0;
+        totalQtdGeral += qtdVendida;
+
+        // Determina último fornecedor
+        let ultimoFornecedor = cached?.ultima_compra_fornecedor ? String(cached.ultima_compra_fornecedor).trim() : null;
+        if (!ultimoFornecedor || ultimoFornecedor === 'Cadastro Geral Digifarma') {
+          ultimoFornecedor = 'Cadastro Geral / Não inf.';
+        }
+
+        // Determina último preço de custo
+        let ultimoPreco = 0;
+        if (cached && (cached.preco_unitario_ult_compra > 0 || cached.custo_unitario > 0 || cached.ultima_compra_valor > 0)) {
+          ultimoPreco = cached.preco_unitario_ult_compra || cached.custo_unitario || cached.ultima_compra_valor;
+        } else if (r.ULTIMO_PRECO_DIGIFARMA) {
+          ultimoPreco = parseFloat(r.ULTIMO_PRECO_DIGIFARMA) || 0;
+        }
+
+        // Determina saldo em estoque
+        let saldo = 0;
+        if (r.PROD_SALDO !== null && r.PROD_SALDO !== undefined) {
+          saldo = parseFloat(r.PROD_SALDO) || 0;
+        } else if (cached?.saldo !== undefined && cached?.saldo !== null) {
+          saldo = parseFloat(cached.saldo) || 0;
+        }
+
+        const item = {
+          produtoId: r.PRODUTO_ID,
+          produto: (r.PRODUTO || '').trim(),
+          apresentacao: (r.APRESENTACAO || '').trim(),
+          codBarras: (r.COD_BARRAS || '').trim(),
+          saldo: saldo,
+          qtdVendida: qtdVendida,
+          ultimoFornecedor: ultimoFornecedor,
+          ultimoPreco: ultimoPreco
+        };
+
+        if (!categoriaMap.has(catNome)) {
+          categoriaMap.set(catNome, {
+            categoria: catNome,
+            totalProdutos: 0,
+            totalQtd: 0,
+            produtos: []
+          });
+        }
+
+        const catObj = categoriaMap.get(catNome);
+        catObj.totalProdutos += 1;
+        catObj.totalQtd += qtdVendida;
+        catObj.produtos.push(item);
+      }
+
+      // Converte para array ordenado
+      const categoriasArray = Array.from(categoriaMap.values()).map(cat => ({
+        ...cat,
+        totalQtd: Math.round(cat.totalQtd * 100) / 100,
+        produtos: cat.produtos.sort((a, b) => b.qtdVendida - a.qtdVendida)
+      }));
+
+      // Ordena as categorias por total de quantidade vendida DESC
+      categoriasArray.sort((a, b) => b.totalQtd - a.totalQtd);
+
+      return res.json({
+        period: { startDate: start, endDate: end },
+        totalItens: results.length,
+        totalQtdGeral: Math.round(totalQtdGeral * 100) / 100,
+        categorias: categoriasArray
+      });
+    } catch (err) {
+      const mockSoldReport = {
+        period: { startDate: req.query.startDate || '', endDate: req.query.endDate || '' },
+        totalItens: 3,
+        totalQtdGeral: 45,
+        categorias: [
+          {
+            categoria: 'GENERICOS',
+            totalProdutos: 2,
+            totalQtd: 35,
+            produtos: [
+              { produtoId: 101, produto: 'DIPIRONA SODICA 500MG/ML', apresentacao: 'GTS 20ML', codBarras: '7891234567890', qtdVendida: 25, ultimoFornecedor: 'PROFARMA DIST.', ultimoPreco: 2.85 },
+              { produtoId: 102, produto: 'PARACETAMOL 750MG', apresentacao: 'CX 20 COMP', codBarras: '7891234567891', qtdVendida: 10, ultimoFornecedor: 'PANPHARMA', ultimoPreco: 4.20 }
+            ]
+          },
+          {
+            categoria: 'PERFUMARIA',
+            totalProdutos: 1,
+            totalQtd: 10,
+            produtos: [
+              { produtoId: 201, produto: 'FRALDA PAMPERS CONFORT SEC G', apresentacao: 'PCT 32 UN', codBarras: '7891234567892', qtdVendida: 10, ultimoFornecedor: 'COFARMA', ultimoPreco: 45.90 }
+            ]
+          }
+        ]
+      };
+      return handleDigifarmaError(err, res, '/sold-products-report', mockSoldReport);
+    }
+  });
+
   // Rota para obter o ranking dos 3 produtos mais vendidos e a classificação Curva ABC
   router.get('/top-products', async (req, res) => {
     try {
@@ -668,6 +859,521 @@ module.exports = function (db) {
       return handleDigifarmaError(err, res, '/top-products', { topProducts: mockTopProducts, abcCurve: mockAbcCurve });
     }
   });
+
+  /**
+   * GET /api/finance-agent/provisions/sales-mix
+   * GET /api/provisions/sales-mix
+   * Calcula as provisões diárias e mensais ponderadas pelo mix real de itens vendidos,
+   * EXCLUINDO vendas realizadas em Crediário (TIPO_PAGAMENTO_ID = 5).
+   *
+   * Query params:
+   *  - date: 'YYYY-MM-DD' (dia específico)
+   *  - month: 0-11 (mês)
+   *  - year: YYYY (ano)
+   */
+  const handleProvisionsSalesMix = async (req, res) => {
+    try {
+      const { date, month, year } = req.query;
+      let startDateTime, endDateTime;
+
+      if (date) {
+        const cleanDate = String(date).slice(0, 10);
+        startDateTime = `${cleanDate} 00:00:00`;
+        endDateTime = `${cleanDate} 23:59:59`;
+      } else {
+        const targetYear = parseInt(year) || new Date().getFullYear();
+        const targetMonth = month !== undefined ? parseInt(month) : new Date().getMonth();
+        const firstDay = `${targetYear}-${String(targetMonth + 1).padStart(2, '0')}-01 00:00:00`;
+        const lastDayNum = new Date(targetYear, targetMonth + 1, 0).getDate();
+        const lastDay = `${targetYear}-${String(targetMonth + 1).padStart(2, '0')}-${String(lastDayNum).padStart(2, '0')} 23:59:59`;
+        startDateTime = firstDay;
+        endDateTime = lastDay;
+      }
+
+      // 1. Consulta produtos customizados na tabela SQLite
+      const customMap = new Map();
+      if (db) {
+        try {
+          const customRows = db.prepare('SELECT * FROM product_pricing_customizations').all();
+          customRows.forEach(c => customMap.set(c.produto_id, c));
+        } catch (dbErr) {
+          console.warn('[Sales Mix Provisions] Erro ao ler customizações:', dbErr.message);
+        }
+      }
+
+      // 2. Consulta itens vendidos no Digifarma com preço de venda e promocional
+      const sql = `
+        SELECT 
+          CAST(v.VENDA_DATA_HORA AS DATE) as DATA_VENDA,
+          iv.PRODUTO_ID,
+          p.PRODUTO as NOME_PRODUTO,
+          p.PROD_PRVENDA,
+          p.PROD_PRPROMOCAO,
+          iv.ITEMVEND_PRVENDA,
+          SUM(iv.ITEMVEND_QUANT) as QTD_VENDIDA,
+          SUM(iv.ITEMVEND_PRVENDA * iv.ITEMVEND_QUANT) as TOTAL_VALOR
+        FROM ITEM_VENDAS iv
+        JOIN CAB_VENDAS v ON iv.VENDA_NOTA_ID = v.VENDA_NOTA_ID
+        JOIN PRODUTOS p ON iv.PRODUTO_ID = p.PRODUTO_ID
+        WHERE (v.CANCELADO IS NULL OR v.CANCELADO <> 'S')
+          AND v.VENDA_DATA_HORA BETWEEN ? AND ?
+          AND NOT EXISTS (
+            SELECT 1 FROM CAB_VENDAS_FPAGTOS fp
+            WHERE fp.VENDA_NOTA_ID = v.VENDA_NOTA_ID
+              AND fp.TIPO_PAGAMENTO_ID = 5
+          )
+        GROUP BY 1, 2, 3, 4, 5, 6
+      `;
+
+      let rows = [];
+      try {
+        rows = await queryDigifarma(sql, [startDateTime, endDateTime]);
+      } catch (errQ) {
+        console.error('[Sales Mix Provisions] Erro na query Firebird:', errQ.message);
+        return res.status(500).json({ error: 'Erro ao consultar vendas no Digifarma: ' + errQ.message });
+      }
+
+      // 2.1 Consulta itens de Crediário quitados no Digifarma (ARQUIVO_MORTO) com preços de referência
+      const sqlAM = `
+        SELECT 
+          CAST(am.ARQ_DATAPAG AS DATE) as DATA_PAGAMENTO,
+          am.CONTREC_ID,
+          am.PRODUTO_ID,
+          p.PRODUTO as NOME_PRODUTO,
+          p.PROD_PRVENDA,
+          p.PROD_PRPROMOCAO,
+          am.ARQ_QUANTIDADE as QTD,
+          am.ARQ_VALORPAG as VALOR_PAGO,
+          c.CLIENTE as NOME_CLIENTE
+        FROM ARQUIVO_MORTO am
+        LEFT JOIN PRODUTOS p ON am.PRODUTO_ID = p.PRODUTO_ID
+        LEFT JOIN CLIENTES c ON am.CLIENTE_ID = c.CLIENTE_ID
+        WHERE am.ARQ_DATAPAG BETWEEN ? AND ?
+        ORDER BY am.ARQ_DATAPAG ASC
+      `;
+
+      // 2.2 Consulta recibos de quitação (CONTAS_RECEBIDAS) para rastrear clientes e valores pagos
+      const sqlCrediario = `
+        SELECT 
+          CAST(cr.CONTREC_DATAPAG AS DATE) as DATA_PAGAMENTO,
+          cr.CONTREC_ID,
+          cr.CLIENTE_ID,
+          c.CLIENTE as NOME_CLIENTE,
+          COALESCE(cr.CONTREC_VALORPAG, 0) as VALOR_PAGO
+        FROM CONTAS_RECEBIDAS cr
+        LEFT JOIN CLIENTES c ON cr.CLIENTE_ID = c.CLIENTE_ID
+        WHERE cr.CONTREC_DATAPAG BETWEEN ? AND ?
+        ORDER BY cr.CONTREC_DATAPAG ASC
+      `;
+
+      // 2.3 Consulta regras de DESCONTO ESCALONADO (promoções por quantidade / atacado, ex: leve 3 por R$ 5 cada)
+      const sqlEscalonado = `
+        SELECT PRODUTO_ID, QUANTIDADE, VALOR_PACOTE
+        FROM DESCONTO_ESCALONADO
+        ORDER BY PRODUTO_ID, QUANTIDADE DESC
+      `;
+
+      let amRows = [];
+      let crediarioRows = [];
+      let escalonadoRows = [];
+      try {
+        [amRows, crediarioRows, escalonadoRows] = await Promise.all([
+          queryDigifarma(sqlAM, [startDateTime, endDateTime]),
+          queryDigifarma(sqlCrediario, [startDateTime, endDateTime]),
+          queryDigifarma(sqlEscalonado)
+        ]);
+      } catch (errCred) {
+        console.warn('[Sales Mix Provisions] Aviso: Erro ao consultar tabelas auxiliares no Digifarma:', errCred.message);
+      }
+
+      // Mapeia regras de desconto escalonado por PRODUTO_ID
+      const escalonadoMap = new Map();
+      if (escalonadoRows && escalonadoRows.length > 0) {
+        for (const esc of escalonadoRows) {
+          const pId = esc.PRODUTO_ID;
+          if (!escalonadoMap.has(pId)) {
+            escalonadoMap.set(pId, []);
+          }
+          const q = parseFloat(esc.QUANTIDADE || 0);
+          const vPacote = parseFloat(esc.VALOR_PACOTE || 0);
+          if (q > 0 && vPacote > 0) {
+            escalonadoMap.get(pId).push({
+              quantidade: q,
+              valorPacote: vPacote,
+              precoUnitario: vPacote / q
+            });
+          }
+        }
+        for (const tiers of escalonadoMap.values()) {
+          tiers.sort((a, b) => b.quantidade - a.quantidade);
+        }
+      }
+
+      // 3. Processa e consolida por data
+      const dailyMap = {};
+      let monthSales = 0;
+      let monthProlabore = 0;
+      let monthSocio1 = 0;
+      let monthSocio2 = 0;
+      let monthLucro = 0;
+      let monthImpostos = 0;
+      let totalCustomItemsCount = 0;
+      let monthCrediarioReceived = 0;
+      let monthTotalDiscounts = 0;
+
+      for (const r of rows) {
+        const dObj = new Date(r.DATA_VENDA);
+        const y = dObj.getFullYear();
+        const m = String(dObj.getMonth() + 1).padStart(2, '0');
+        const d = String(dObj.getDate()).padStart(2, '0');
+        const dateKey = `${y}-${m}-${d}`;
+
+        if (!dailyMap[dateKey]) {
+          dailyMap[dateKey] = {
+            date: dateKey,
+            sales: 0,
+            prolabore: 0,
+            socio1: 0,
+            socio2: 0,
+            lucro: 0,
+            impostos: 0,
+            customCount: 0,
+            totalItems: 0,
+            totalDiscounts: 0,
+            customItems: [],
+            crediarioReceived: 0,
+            crediarioPayments: []
+          };
+        }
+
+        const salesVal = parseFloat(r.TOTAL_VALOR || 0);
+        const qtd = parseFloat(r.QTD_VENDIDA || 0);
+        dailyMap[dateKey].sales += salesVal;
+        dailyMap[dateKey].totalItems += qtd;
+
+        monthSales += salesVal;
+
+        const cust = customMap.get(r.PRODUTO_ID);
+        
+        // Determina preço de referência (promocional ativo ou venda normal)
+        let refPrice = parseFloat(r.PROD_PRVENDA || 0);
+        if (r.PROD_PRPROMOCAO > 0 && r.PROD_PRPROMOCAO < refPrice) {
+          refPrice = parseFloat(r.PROD_PRPROMOCAO);
+        }
+        if (cust && cust.preco_venda && cust.preco_venda < refPrice) {
+          refPrice = cust.preco_venda;
+        }
+
+        // Se a quantidade vendida atingir regra de DESCONTO ESCALONADO oficial (ex: leve 3 por R$ 15 = R$ 5 cada),
+        // o preço de referência é o valor da promoção escalonada, evitando tratar como desconto indevido de balcão
+        const escTiers = escalonadoMap.get(r.PRODUTO_ID);
+        if (escTiers && escTiers.length > 0) {
+          const matchedTier = escTiers.find(t => qtd >= t.quantidade);
+          if (matchedTier && matchedTier.precoUnitario < refPrice) {
+            refPrice = matchedTier.precoUnitario;
+          }
+        }
+
+        const unitDiscount = Math.max(0, refPrice - parseFloat(r.ITEMVEND_PRVENDA || 0));
+        const totalDiscount = unitDiscount * qtd;
+
+        const pPct = cust ? (cust.pro_labore_total_pct || 12) : 12;
+        const s1Pct = cust ? (cust.pro_labore_1_pct || (pPct / 2)) : 6;
+        const s2Pct = cust ? (cust.pro_labore_2_pct || (pPct / 2)) : 6;
+        const lPct = cust ? (cust.margem_liquida_pct || 1) : 1;
+        const iPct = cust ? (cust.imposto_pct || 4) : 4;
+
+        const iVal = salesVal * (iPct / 100);
+        let lVal = salesVal * (lPct / 100);
+        let pVal = salesVal * (pPct / 100);
+
+        // REGRA DE DESCONTO:
+        // Descontar do lucro livre. Se o desconto for superior ao lucro líquido, descontar o restante do pró-labore.
+        if (totalDiscount > 0) {
+          dailyMap[dateKey].totalDiscounts = parseFloat(((dailyMap[dateKey].totalDiscounts || 0) + totalDiscount).toFixed(2));
+          monthTotalDiscounts += totalDiscount;
+
+          if (totalDiscount <= lVal) {
+            lVal -= totalDiscount;
+          } else {
+            const sobraDesconto = totalDiscount - lVal;
+            lVal = 0;
+            pVal = Math.max(0, pVal - sobraDesconto);
+          }
+        }
+
+        const s1Ratio = pPct > 0 ? (s1Pct / pPct) : 0.5;
+        const s2Ratio = pPct > 0 ? (s2Pct / pPct) : 0.5;
+        const s1Val = pVal * s1Ratio;
+        const s2Val = pVal * s2Ratio;
+
+        dailyMap[dateKey].prolabore += pVal;
+        dailyMap[dateKey].socio1 += s1Val;
+        dailyMap[dateKey].socio2 += s2Val;
+        dailyMap[dateKey].lucro += lVal;
+        dailyMap[dateKey].impostos += iVal;
+
+        if (cust) {
+          dailyMap[dateKey].customCount++;
+          dailyMap[dateKey].customItems.push({
+            produtoId: r.PRODUTO_ID,
+            descricao: (r.NOME_PRODUTO || cust.descricao || '').trim(),
+            vendas: salesVal,
+            qtd,
+            prolaborePct: pPct,
+            prolaboreValor: pVal,
+            descontoAplicado: totalDiscount
+          });
+          totalCustomItemsCount++;
+        }
+
+        monthProlabore += pVal;
+        monthSocio1 += s1Val;
+        monthSocio2 += s2Val;
+        monthLucro += lVal;
+        monthImpostos += iVal;
+      }
+
+      // 4. Processa itens de Crediário pagos (item a item de acordo com a porcentagem gravada ou padrão e absorção de desconto)
+      const processedContrecIds = new Set();
+      if (amRows && amRows.length > 0) {
+        for (const item of amRows) {
+          const valPago = parseFloat(item.VALOR_PAGO || 0);
+          const qtd = parseFloat(item.QTD || 1);
+          if (valPago <= 0) continue;
+
+          let dateKey;
+          if (item.DATA_PAGAMENTO instanceof Date) {
+            dateKey = item.DATA_PAGAMENTO.toISOString().slice(0, 10);
+          } else if (typeof item.DATA_PAGAMENTO === 'string') {
+            dateKey = item.DATA_PAGAMENTO.slice(0, 10);
+          } else {
+            continue;
+          }
+
+          if (!dailyMap[dateKey]) {
+            dailyMap[dateKey] = {
+              date: dateKey,
+              sales: 0,
+              prolabore: 0,
+              socio1: 0,
+              socio2: 0,
+              lucro: 0,
+              impostos: 0,
+              customCount: 0,
+              totalItems: 0,
+              totalDiscounts: 0,
+              customItems: [],
+              crediarioReceived: 0,
+              crediarioPayments: []
+            };
+          }
+
+          dailyMap[dateKey].sales += valPago;
+          dailyMap[dateKey].totalItems += qtd;
+          dailyMap[dateKey].crediarioReceived = parseFloat(((dailyMap[dateKey].crediarioReceived || 0) + valPago).toFixed(2));
+          monthSales += valPago;
+          monthCrediarioReceived += valPago;
+
+          if (item.CONTREC_ID) {
+            processedContrecIds.add(item.CONTREC_ID);
+          }
+
+          const cust = customMap.get(item.PRODUTO_ID);
+          
+          let refPrice = parseFloat(item.PROD_PRVENDA || 0);
+          if (item.PROD_PRPROMOCAO > 0 && item.PROD_PRPROMOCAO < refPrice) {
+            refPrice = parseFloat(item.PROD_PRPROMOCAO);
+          }
+          if (cust && cust.preco_venda && cust.preco_venda < refPrice) {
+            refPrice = cust.preco_venda;
+          }
+
+          // Se a quantidade vendida atingir regra de DESCONTO ESCALONADO oficial
+          const escTiers = escalonadoMap.get(item.PRODUTO_ID);
+          if (escTiers && escTiers.length > 0) {
+            const matchedTier = escTiers.find(t => qtd >= t.quantidade);
+            if (matchedTier && matchedTier.precoUnitario < refPrice) {
+              refPrice = matchedTier.precoUnitario;
+            }
+          }
+
+          const unitPrice = qtd > 0 ? (valPago / qtd) : valPago;
+          const unitDiscount = Math.max(0, refPrice - unitPrice);
+          const totalDiscount = unitDiscount * qtd;
+
+          const pPct = cust ? (cust.pro_labore_total_pct || 12) : 12;
+          const s1Pct = cust ? (cust.pro_labore_1_pct || (pPct / 2)) : 6;
+          const s2Pct = cust ? (cust.pro_labore_2_pct || (pPct / 2)) : 6;
+          const lPct = cust ? (cust.margem_liquida_pct || 1) : 1;
+          const iPct = cust ? (cust.imposto_pct || 4) : 4;
+
+          const iVal = valPago * (iPct / 100);
+          let lVal = valPago * (lPct / 100);
+          let pVal = valPago * (pPct / 100);
+
+          // REGRA DE DESCONTO:
+          if (totalDiscount > 0) {
+            dailyMap[dateKey].totalDiscounts = parseFloat(((dailyMap[dateKey].totalDiscounts || 0) + totalDiscount).toFixed(2));
+            monthTotalDiscounts += totalDiscount;
+
+            if (totalDiscount <= lVal) {
+              lVal -= totalDiscount;
+            } else {
+              const sobraDesconto = totalDiscount - lVal;
+              lVal = 0;
+              pVal = Math.max(0, pVal - sobraDesconto);
+            }
+          }
+
+          const s1Ratio = pPct > 0 ? (s1Pct / pPct) : 0.5;
+          const s2Ratio = pPct > 0 ? (s2Pct / pPct) : 0.5;
+          const s1Val = pVal * s1Ratio;
+          const s2Val = pVal * s2Ratio;
+
+          dailyMap[dateKey].prolabore += pVal;
+          dailyMap[dateKey].socio1 += s1Val;
+          dailyMap[dateKey].socio2 += s2Val;
+          dailyMap[dateKey].lucro += lVal;
+          dailyMap[dateKey].impostos += iVal;
+
+          if (cust) {
+            dailyMap[dateKey].customCount++;
+            dailyMap[dateKey].customItems.push({
+              produtoId: item.PRODUTO_ID,
+              descricao: (item.NOME_PRODUTO || cust.descricao || 'Item Crediário').trim(),
+              vendas: valPago,
+              qtd,
+              prolaborePct: pPct,
+              prolaboreValor: pVal,
+              isCrediario: true,
+              descontoAplicado: totalDiscount
+            });
+            totalCustomItemsCount++;
+          }
+
+          monthProlabore += pVal;
+          monthSocio1 += s1Val;
+          monthSocio2 += s2Val;
+          monthLucro += lVal;
+          monthImpostos += iVal;
+        }
+      }
+
+      // Adiciona o resumo dos pagamentos dos clientes por data
+      for (const cr of crediarioRows) {
+        let dateKey;
+        if (cr.DATA_PAGAMENTO instanceof Date) {
+          dateKey = cr.DATA_PAGAMENTO.toISOString().slice(0, 10);
+        } else if (typeof cr.DATA_PAGAMENTO === 'string') {
+          dateKey = cr.DATA_PAGAMENTO.slice(0, 10);
+        } else {
+          continue;
+        }
+
+        if (dailyMap[dateKey]) {
+          if (!dailyMap[dateKey].crediarioPayments) dailyMap[dateKey].crediarioPayments = [];
+          dailyMap[dateKey].crediarioPayments.push({
+            id: cr.CONTREC_ID,
+            cliente: (cr.NOME_CLIENTE || 'Cliente Crediário').trim(),
+            valor: parseFloat(cr.VALOR_PAGO || 0)
+          });
+        }
+
+        // Se o CONTREC_ID não tiver itens no ARQUIVO_MORTO (ex: pagamento avulso residual)
+        if (!processedContrecIds.has(cr.CONTREC_ID)) {
+          const valPago = parseFloat(cr.VALOR_PAGO || 0);
+          if (valPago > 0) {
+            if (!dailyMap[dateKey]) {
+              dailyMap[dateKey] = {
+                date: dateKey,
+                sales: 0,
+                prolabore: 0,
+                socio1: 0,
+                socio2: 0,
+                lucro: 0,
+                impostos: 0,
+                customCount: 0,
+                totalItems: 0,
+                customItems: [],
+                crediarioReceived: 0,
+                crediarioPayments: []
+              };
+            }
+            const pVal = valPago * 0.12;
+            const s1Val = valPago * 0.06;
+            const s2Val = valPago * 0.06;
+            const lVal = valPago * 0.01;
+            const iVal = valPago * 0.04;
+
+            dailyMap[dateKey].sales += valPago;
+            dailyMap[dateKey].prolabore += pVal;
+            dailyMap[dateKey].socio1 += s1Val;
+            dailyMap[dateKey].socio2 += s2Val;
+            dailyMap[dateKey].lucro += lVal;
+            dailyMap[dateKey].impostos += iVal;
+            dailyMap[dateKey].crediarioReceived = parseFloat(((dailyMap[dateKey].crediarioReceived || 0) + valPago).toFixed(2));
+
+            monthSales += valPago;
+            monthProlabore += pVal;
+            monthSocio1 += s1Val;
+            monthSocio2 += s2Val;
+            monthLucro += lVal;
+            monthImpostos += iVal;
+            monthCrediarioReceived += valPago;
+          }
+        }
+      }
+
+      // Calcula percentuais efetivos diários
+      Object.keys(dailyMap).forEach(k => {
+        const d = dailyMap[k];
+        d.effectiveProlaborePct = d.sales > 0 ? parseFloat(((d.prolabore / d.sales) * 100).toFixed(2)) : 12;
+        d.effectiveSocio1Pct = d.sales > 0 ? parseFloat(((d.socio1 / d.sales) * 100).toFixed(2)) : 6;
+        d.effectiveSocio2Pct = d.sales > 0 ? parseFloat(((d.socio2 / d.sales) * 100).toFixed(2)) : 6;
+        d.effectiveLucroPct = d.sales > 0 ? parseFloat(((d.lucro / d.sales) * 100).toFixed(2)) : 1;
+        d.effectiveImpostosPct = d.sales > 0 ? parseFloat(((d.impostos / d.sales) * 100).toFixed(2)) : 4;
+        d.prolabore = parseFloat(d.prolabore.toFixed(2));
+        d.socio1 = parseFloat(d.socio1.toFixed(2));
+        d.socio2 = parseFloat(d.socio2.toFixed(2));
+        d.lucro = parseFloat(d.lucro.toFixed(2));
+        d.impostos = parseFloat(d.impostos.toFixed(2));
+        d.sales = parseFloat(d.sales.toFixed(2));
+        d.crediarioReceived = parseFloat((d.crediarioReceived || 0).toFixed(2));
+        d.totalDiscounts = parseFloat((d.totalDiscounts || 0).toFixed(2));
+      });
+
+      const monthSummary = {
+        totalSales: parseFloat(monthSales.toFixed(2)),
+        totalProlabore: parseFloat(monthProlabore.toFixed(2)),
+        totalSocio1: parseFloat(monthSocio1.toFixed(2)),
+        totalSocio2: parseFloat(monthSocio2.toFixed(2)),
+        totalLucro: parseFloat(monthLucro.toFixed(2)),
+        totalImpostos: parseFloat(monthImpostos.toFixed(2)),
+        effectiveProlaborePct: monthSales > 0 ? parseFloat(((monthProlabore / monthSales) * 100).toFixed(2)) : 12,
+        effectiveSocio1Pct: monthSales > 0 ? parseFloat(((monthSocio1 / monthSales) * 100).toFixed(2)) : 6,
+        effectiveSocio2Pct: monthSales > 0 ? parseFloat(((monthSocio2 / monthSales) * 100).toFixed(2)) : 6,
+        effectiveLucroPct: monthSales > 0 ? parseFloat(((monthLucro / monthSales) * 100).toFixed(2)) : 1,
+        effectiveImpostosPct: monthSales > 0 ? parseFloat(((monthImpostos / monthSales) * 100).toFixed(2)) : 4,
+        totalCustomItemsCount,
+        totalCrediarioReceived: parseFloat(monthCrediarioReceived.toFixed(2)),
+        totalDiscounts: parseFloat(monthTotalDiscounts.toFixed(2))
+      };
+
+      res.json({
+        success: true,
+        monthSummary,
+        dailyBreakdown: dailyMap,
+        totalDays: Object.keys(dailyMap).length
+      });
+    } catch (err) {
+      console.error('[Sales Mix Provisions] Erro geral:', err);
+      res.status(500).json({ error: err.message });
+    }
+  };
+
+  router.get('/provisions/sales-mix', handleProvisionsSalesMix);
+  router.get('/sales-mix', handleProvisionsSalesMix);
 
   // Endpoint manual para sincronizar
   router.post('/sync-crediario', async (req, res) => {

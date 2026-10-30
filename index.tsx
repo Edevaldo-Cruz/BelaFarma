@@ -95,6 +95,52 @@ import App from './App';
 import { ToastProvider } from './components/ToastContext';
 import './index.css';
 
+// Interceptador Global de Segurança para chamadas /api/*
+if (typeof window !== 'undefined' && typeof window.fetch === 'function') {
+  const originalFetch = window.fetch.bind(window);
+  window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const urlStr = typeof input === 'string'
+      ? input
+      : input instanceof URL
+        ? input.toString()
+        : (input && typeof input === 'object' && 'url' in input ? input.url : '');
+
+    const isApiCall = urlStr.startsWith('/api/') || urlStr === '/api' || urlStr.includes('/api/');
+
+    if (isApiCall) {
+      const nextInit: RequestInit = { ...(init || {}) };
+      if (!nextInit.credentials) {
+        nextInit.credentials = 'same-origin';
+      }
+
+      const token = window.localStorage.getItem('belinha_auth_token');
+      if (token) {
+        const headers = new Headers(nextInit.headers || {});
+        if (!headers.has('Authorization')) {
+          headers.set('Authorization', `Bearer ${token}`);
+        }
+        nextInit.headers = headers;
+      }
+
+      const response = await originalFetch(input, nextInit);
+
+      if (
+        response.status === 401 &&
+        !urlStr.includes('/api/login') &&
+        !urlStr.includes('/api/logout') &&
+        !urlStr.includes('/api/auth/session') &&
+        !urlStr.includes('/api/liquidacao/public/')
+      ) {
+        window.dispatchEvent(new CustomEvent('belinha:unauthorized'));
+      }
+
+      return response;
+    }
+
+    return originalFetch(input, init);
+  };
+}
+
 const rootElement = document.getElementById('root');
 if (!rootElement) {
   throw new Error("Could not find root element to mount to");

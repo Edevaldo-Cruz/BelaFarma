@@ -37,7 +37,10 @@ import {
   LineChart as LineChartIcon,
   PieChart,
   Eye,
-  MessageSquare
+  MessageSquare,
+  Heart,
+  ShoppingBag,
+  ArrowRight
 } from 'lucide-react';
 import { useToast } from './ToastContext';
 import { 
@@ -135,11 +138,16 @@ export const Dashboard: React.FC<DashboardProps> = ({
     const daysInMonth = new Date(currentYear, currentMonthNumber, 0).getDate();
     const dailyLimit = monthData.limit / daysInMonth;
     const todayBoletos = boletos.filter(b => {
-      if (!b.due_date) return false;
-      const [by, bm, bd] = b.due_date.split('-').map(Number);
+      if (!b || !b.due_date) return false;
+      const cleanDate = String(b.due_date).split('T')[0];
+      const parts = cleanDate.split('-');
+      if (parts.length < 3) return false;
+      const by = Number(parts[0]);
+      const bm = Number(parts[1]);
+      const bd = Number(parts[2]);
       return by === agora.getFullYear() && bm === (agora.getMonth() + 1) && bd === agora.getDate();
     });
-    const spentToday = todayBoletos.reduce((sum, b) => sum + b.value, 0);
+    const spentToday = todayBoletos.reduce((sum, b) => sum + (b.value || 0), 0);
 
     let percentDaily = 0;
     if (dailyLimit > 0) percentDaily = (spentToday / dailyLimit) * 100;
@@ -216,6 +224,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   // Estado e busca do Contador de Visitantes
   const [visitorStats, setVisitorStats] = React.useState<{ todayVisits: number; totalVisits: number } | null>(null);
+  const [vitrineStats, setVitrineStats] = React.useState<{ pageviews: number; visitors: number; abandoned: number } | null>(null);
 
   React.useEffect(() => {
     const recordAndFetchVisitors = async () => {
@@ -240,6 +249,20 @@ export const Dashboard: React.FC<DashboardProps> = ({
       }
     };
     recordAndFetchVisitors();
+
+    // Busca estatísticas da vitrine pública de liquidação
+    fetch('/api/liquidacao/analytics/dashboard?period=hoje')
+      .then(r => r.json())
+      .then(d => {
+        if (d.success && d.kpis) {
+          setVitrineStats({
+            pageviews: d.kpis.totalPageviews || 0,
+            visitors: d.kpis.uniqueVisitors || 0,
+            abandoned: d.kpis.totalAbandoned || 0,
+          });
+        }
+      })
+      .catch(() => {});
   }, [user.name]);
 
   // Estado e busca de Revisões Pendentes de WhatsApp
@@ -261,6 +284,28 @@ export const Dashboard: React.FC<DashboardProps> = ({
     };
     fetchPendingReviews();
     const interval = setInterval(fetchPendingReviews, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Estado e busca de Entregas em Rota (Perguntas Ativas)
+  const [inTransitCount, setInTransitCount] = React.useState(0);
+
+  React.useEffect(() => {
+    const fetchInTransitCount = async () => {
+      try {
+        const res = await fetch('/api/deliveries/in-transit');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && typeof data.count === 'number') {
+            setInTransitCount(data.count);
+          }
+        }
+      } catch (e) {
+        console.error('Erro ao buscar pedidos em rota no Dashboard:', e);
+      }
+    };
+    fetchInTransitCount();
+    const interval = setInterval(fetchInTransitCount, 20000);
     return () => clearInterval(interval);
   }, []);
 
@@ -653,11 +698,34 @@ export const Dashboard: React.FC<DashboardProps> = ({
             className="h-12 md:h-16 w-auto object-contain"
           />
           <div>
-            <h1 className="text-xl md:text-2xl font-bold text-slate-900 dark:text-slate-100 uppercase tracking-tighter">Olá, {user.name.split(' ')[0]}!</h1>
+            <div className="flex items-center gap-2.5">
+              <h1 className="text-xl md:text-2xl font-bold text-slate-900 dark:text-slate-100 uppercase tracking-tighter">Olá, {user.name.split(' ')[0]}!</h1>
+              {inTransitCount > 0 && (
+                <button
+                  onClick={() => onNavigate('deliveries')}
+                  className="inline-flex items-center gap-1.5 px-3 py-1 bg-gradient-to-r from-rose-500/15 via-red-500/15 to-rose-500/15 hover:from-rose-500/25 hover:to-red-500/25 border border-rose-300 dark:border-rose-700/60 text-rose-700 dark:text-rose-300 rounded-full text-xs font-black shadow-sm transition-all hover:scale-105 active:scale-95 cursor-pointer animate-pulse"
+                  title={`${inTransitCount} entrega(s) em rota com perguntas ativas. Clique para responder no Delivery!`}
+                >
+                  <Heart className="w-3.5 h-3.5 fill-rose-500 text-rose-500 animate-bounce" />
+                  <span>{inTransitCount} {inTransitCount === 1 ? 'pergunta ativa' : 'perguntas ativas'}</span>
+                </button>
+              )}
+            </div>
             <p className="text-sm text-slate-500 dark:text-slate-400 font-medium">Resumo operacional belinha.</p>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {inTransitCount > 0 && (
+            <button
+              onClick={() => onNavigate('deliveries')}
+              className="flex items-center gap-1.5 text-xs md:text-sm font-bold text-white bg-rose-600 hover:bg-rose-700 px-3 py-1.5 rounded-full shadow-md transition-all min-h-[36px] animate-pulse cursor-pointer group"
+              title="Perguntas ativas de entregas em rota no Delivery. Clique para responder!"
+            >
+              <Heart className="w-4 h-4 fill-white group-hover:scale-110 transition-transform" />
+              <span className="hidden sm:inline">Perguntas Ativas:</span>
+              <span>{inTransitCount}</span>
+            </button>
+          )}
           {isAdmin && (
             <div className="flex flex-wrap gap-1.5">
               <button
@@ -697,6 +765,37 @@ export const Dashboard: React.FC<DashboardProps> = ({
           )}
         </div>
       </header>
+
+      {/* 🛒 BANNER EXECUTIVO BELAPED • CENTRAL DE COTAÇÕES & COMPRAS */}
+      {isAdmin && (
+        <div className="bg-gradient-to-r from-red-600 via-rose-600 to-amber-600 text-white p-4 rounded-3xl shadow-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 transition-all hover:shadow-lg animate-in fade-in duration-300">
+          <div className="flex items-center gap-3">
+            <div className="p-3 bg-white/20 backdrop-blur-md rounded-2xl shrink-0 shadow-inner">
+              <ShoppingBag className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="font-black text-sm md:text-base uppercase tracking-tight">
+                  BelaPed • Cotação & Carrinho Inteligente
+                </h3>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-white/30 text-white uppercase tracking-wider">
+                  1 Semana (Vendeu/Comprou)
+                </span>
+              </div>
+              <p className="text-xs text-rose-100 font-medium mt-0.5">
+                Prevenção de rupturas, cotação multi-portais, menor preço com pedido mínimo e proteção do orçamento.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => onNavigate('belaped')}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-white text-rose-700 hover:bg-rose-50 text-xs font-black shadow-md transition-all hover:scale-105 active:scale-95 cursor-pointer shrink-0 uppercase tracking-wider"
+          >
+            <span>Acessar BelaPed</span>
+            <ArrowRight className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {/* 🔔 BANNER DE ALERTA VISUAL - REVISÕES PENDENTES DE WHATSAPP */}
       {pendingReviewCount > 0 && (
@@ -745,6 +844,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             const stats = JSON.parse(localStorage.getItem('belinha_usage_stats') || '{}');
             
             const allShortcuts = [
+              { id: 'belaped', label: 'BelaPed', icon: ShoppingBag, color: 'red', adminOnly: true },
               { id: 'medication-search', label: 'Busca/Venda', icon: Pill, color: 'indigo' },
               { id: 'orders', label: 'Pedidos', icon: ShoppingCart, color: 'blue' },
               { id: 'shortages', label: 'Faltas', icon: ClipboardList, color: 'amber' },
@@ -1888,6 +1988,33 @@ export const Dashboard: React.FC<DashboardProps> = ({
               </span>
             </div>
           </div>
+
+          {/* Vitrine Liquida Hoje */}
+          <div className="flex-1 md:flex-initial bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-slate-800 dark:to-slate-800/80 border border-blue-200/80 dark:border-blue-900/50 rounded-xl px-4 py-2.5 flex items-center gap-3 shadow-2xs">
+            <div className="w-2.5 h-2.5 rounded-full bg-indigo-500 animate-pulse" />
+            <div className="flex flex-col">
+              <span className="text-[10px] font-black text-indigo-700 dark:text-indigo-300 uppercase tracking-widest flex items-center gap-1">
+                Vitrine Liquida Hoje
+              </span>
+              <span className="text-sm font-black text-slate-900 dark:text-white">
+                {vitrineStats !== null ? `${vitrineStats.pageviews} acessos (${vitrineStats.visitors} únicos)` : '0 acessos'}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Crédito do Desenvolvedor */}
+        <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 w-full md:w-auto justify-center pt-2 md:pt-0 border-t md:border-t-0 border-slate-100 dark:border-slate-800">
+          <span>Desenvolvido por <strong className="font-bold text-slate-700 dark:text-slate-200">Edevaldo Cruz</strong></span>
+          <a
+            href="https://wa.me/5532988634755?text=Ol%C3%A1%20Edevaldo%2C%20vi%20seu%20contato%20no%20site%20da%20BelaFarma!"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 font-bold transition-all border border-emerald-500/30 hover:scale-105 active:scale-95"
+            title="Conversar com o desenvolvedor no WhatsApp"
+          >
+            <span>💬 (32) 98863-4755</span>
+          </a>
         </div>
       </footer>
     </div>

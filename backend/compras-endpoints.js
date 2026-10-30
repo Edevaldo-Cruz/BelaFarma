@@ -22,6 +22,7 @@ const comprasCotacoesService = require('./services/compras-cotacoes.service');
 const comprasAprovacaoService = require('./services/compras-aprovacao.service');
 const comprasPedidosService = require('./services/compras-pedidos.service');
 const comprasEquivalentesService = require('./services/compras-equivalentes.service');
+const comprasComparadorService = require('./services/compras-comparador-cotacoes.service');
 
 // Serviço WhatsApp Baileys Compras
 let baileysComprasService = null;
@@ -426,23 +427,26 @@ module.exports = (db) => {
 
   router.get('/radar/oportunidades', async (req, res) => {
     try {
-      const { status, fornecedor_id, busca, limite, offset, apenas_com_desconto } = req.query;
+      const { status, fornecedor_id, busca, limite, offset, apenas_com_desconto, apenas_hoje } = req.query;
+      const apenasHojeBool = apenas_hoje === undefined ? true : (apenas_hoje === 'true' || apenas_hoje === '1');
       let oportunidades = comprasMineracaoService.listarOportunidades(db, {
         status: status || null,
         fornecedorId: fornecedor_id || null,
         busca: busca || null,
         apenasComDesconto: apenas_com_desconto === 'true' || apenas_com_desconto === '1',
+        apenasHoje: apenasHojeBool,
         limite: limite ? parseInt(limite, 10) : 50,
         offset: offset ? parseInt(offset, 10) : 0
       });
 
-      if (oportunidades.length === 0 && !busca && !fornecedor_id) {
-        await comprasMineracaoService.executarVarreduraRetroativa90Dias(db, { dias: 14 });
+      if (oportunidades.length === 0 && !busca && !fornecedor_id && req.query.auto_minerar === 'true') {
+        await comprasMineracaoService.executarVarreduraRetroativa90Dias(db, { dias: 1 });
         oportunidades = comprasMineracaoService.listarOportunidades(db, {
           status: status || null,
           fornecedorId: fornecedor_id || null,
           busca: busca || null,
           apenasComDesconto: apenas_com_desconto === 'true' || apenas_com_desconto === '1',
+          apenasHoje: apenasHojeBool,
           limite: limite ? parseInt(limite, 10) : 50,
           offset: offset ? parseInt(offset, 10) : 0
         });
@@ -450,12 +454,267 @@ module.exports = (db) => {
 
       res.json({ success: true, data: oportunidades });
     } catch (err) {
+      console.error('[Compras-Endpoints] Erro no GET /radar/oportunidades:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/oportunidades/ranking', async (req, res) => {
+    try {
+      const { status, fornecedor_id, busca, limite, apenas_hoje, apenas_com_desconto, apenas_bonificadas } = req.query;
+      const apenasHojeBool = apenas_hoje === 'true' || apenas_hoje === '1';
+      const ranking = comprasMineracaoService.obterRankingOportunidades(db, {
+        status: status || null,
+        fornecedorId: fornecedor_id || null,
+        busca: busca || null,
+        apenasHoje: apenasHojeBool,
+        apenasComDesconto: apenas_com_desconto !== 'false' && apenas_com_desconto !== '0',
+        apenasBonificadas: apenas_bonificadas === 'true' || apenas_bonificadas === '1',
+        limite: limite ? parseInt(limite, 10) : 20
+      });
+
+      res.json({ success: true, data: ranking });
+    } catch (err) {
+      console.error('[Compras-Endpoints] Erro no GET /oportunidades/ranking:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/oportunidades/bonificadas', async (req, res) => {
+    try {
+      const { status, fornecedor_id, busca, limite, offset, apenas_hoje } = req.query;
+      const apenasHojeBool = apenas_hoje === undefined ? false : (apenas_hoje === 'true' || apenas_hoje === '1');
+      const oportunidades = comprasMineracaoService.listarOportunidades(db, {
+        status: status || null,
+        fornecedorId: fornecedor_id || null,
+        busca: busca || null,
+        apenasBonificadas: true,
+        apenasHoje: apenasHojeBool,
+        limite: limite ? parseInt(limite, 10) : 50,
+        offset: offset ? parseInt(offset, 10) : 0
+      });
+
+      res.json({ success: true, data: oportunidades });
+    } catch (err) {
+      console.error('[Compras-Endpoints] Erro no GET /oportunidades/bonificadas:', err);
       res.status(500).json({ success: false, error: err.message });
     }
   });
 
   // ──────────────────────────────────────────────────────────
-  // 4. MOTOR DE COTAÇÕES, RANKING PONDERADO & PEDIDO MÍNIMO
+  // 3.1. PROMOÇÕES DO WHATSAPP (ENCARTES & TEXTO CRUZADOS COM ESTOQUE)
+  // ──────────────────────────────────────────────────────────
+
+  router.get('/promocoes-whatsapp', (req, res) => {
+    try {
+      const {
+        busca,
+        distribuidora,
+        curva_abc,
+        apenas_abaixo_ult_compra,
+        apenas_comprar,
+        midia_tipo,
+        ordenar = 'desconto_desc',
+        limite = 100,
+        offset = 0
+      } = req.query;
+
+      const lim = Math.max(1, Math.min(500, parseInt(limite, 10) || 100));
+      const off = Math.max(0, parseInt(offset, 10) || 0);
+
+      let whereConditions = ['m.preco_ofertado > 0'];
+      const params = [];
+
+      if (busca && busca.trim()) {
+        const b = `%${busca.trim()}%`;
+        whereConditions.push('(m.produto_nome LIKE ? OR m.distribuidora LIKE ? OR m.representante LIKE ? OR m.ean LIKE ? OR e.descricao LIKE ?)');
+        params.push(b, b, b, b, b);
+      }
+
+      if (distribuidora && distribuidora.trim()) {
+        whereConditions.push('m.distribuidora LIKE ?');
+        params.push(`%${distribuidora.trim()}%`);
+      }
+
+      if (curva_abc && ['A', 'B', 'C'].includes(curva_abc.toUpperCase())) {
+        whereConditions.push('COALESCE(e.curva_abc, "C") = ?');
+        params.push(curva_abc.toUpperCase());
+      }
+
+      if (midia_tipo && midia_tipo !== 'todos') {
+        whereConditions.push('m.midia_tipo = ?');
+        params.push(midia_tipo);
+      }
+
+      const precoUltCompraSql = `COALESCE(
+        NULLIF(e.preco_unitario_ult_compra, 0),
+        NULLIF(e.ultima_compra_valor, 0),
+        NULLIF(u.preco_unitario_ult_compra, 0),
+        NULLIF(m.preco_ult_compra_digifarma, 0),
+        NULLIF(e.custo_unitario, 0),
+        0
+      )`;
+
+      if (apenas_abaixo_ult_compra === 'true' || apenas_abaixo_ult_compra === '1') {
+        whereConditions.push(`m.preco_ofertado < ${precoUltCompraSql}`);
+      }
+
+      if (apenas_comprar === 'true' || apenas_comprar === '1') {
+        whereConditions.push(`ROUND(MAX(0, (COALESCE(e.vmd_ponderado, 0) * 7) - COALESCE(e.saldo, 0)), 1) > 0`);
+      }
+
+      const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
+
+      let orderSql = 'ORDER BY percentual_desconto DESC, data_oferta DESC';
+      if (ordenar === 'comprar_desc') {
+        orderSql = 'ORDER BY comprar_suprir_semana DESC, percentual_desconto DESC';
+      } else if (ordenar === 'preco_asc') {
+        orderSql = 'ORDER BY m.preco_ofertado ASC';
+      } else if (ordenar === 'data_desc') {
+        orderSql = 'ORDER BY COALESCE(m.data_oferta, m.created_at) DESC';
+      } else if (ordenar === 'saldo_asc') {
+        orderSql = 'ORDER BY saldo ASC';
+      }
+
+      const sqlData = `
+        SELECT 
+          m.id,
+          m.produto_nome,
+          m.distribuidora,
+          m.representante,
+          m.telefone,
+          m.preco_ofertado,
+          ${precoUltCompraSql} as preco_ult_compra,
+          m.data_oferta,
+          m.midia_tipo,
+          h.midia_path,
+          m.confianca_ocr,
+          COALESCE(m.trecho_original, m.linha_raw, m.mensagem_raw) as texto_original,
+          COALESCE(m.produto_id, e.produto_id) as produto_id,
+          COALESCE(m.ean, e.ean) as ean,
+          m.status,
+          COALESCE(u.fornecedor_nome, e.ultima_compra_fornecedor, m.ultimo_fornecedor) as ult_fornecedor,
+          m.tem_bonificacao,
+          m.bonificacao_detalhe,
+          COALESCE(e.saldo, 0) as saldo,
+          COALESCE(e.curva_abc, 'C') as curva_abc,
+          ROUND(COALESCE(e.vmd_ponderado, 0), 2) as vmd_ponderado,
+          ROUND(COALESCE(e.saldo, 0) * COALESCE(NULLIF(e.custo_unitario, 0), m.preco_ofertado, 0), 2) as valor_estoque,
+          ROUND(MAX(0, (COALESCE(e.vmd_ponderado, 0) * 7) - COALESCE(e.saldo, 0)), 1) as comprar_suprir_semana,
+          COALESCE(NULLIF(e.custo_unitario, 0), m.preco_ofertado) as custo_unitario,
+          CASE 
+            WHEN ${precoUltCompraSql} > 0 
+            THEN ROUND(((${precoUltCompraSql} - m.preco_ofertado) / ${precoUltCompraSql}) * 100, 2)
+            ELSE 0 
+          END as percentual_desconto,
+          CASE 
+            WHEN ${precoUltCompraSql} > 0 AND m.preco_ofertado < ${precoUltCompraSql} THEN 1 
+            ELSE 0 
+          END as abaixo_ult_compra
+        FROM compras_oportunidades_mineradas m
+        LEFT JOIN compras_estoque_cache e ON (m.produto_id IS NOT NULL AND m.produto_id = e.produto_id)
+                                          OR (m.ean IS NOT NULL AND m.ean != '' AND m.ean = e.ean)
+        LEFT JOIN digifarma_ultimas_compras_cache u ON (m.produto_id IS NOT NULL AND m.produto_id = u.produto_id)
+                                                    OR (m.ean IS NOT NULL AND m.ean != '' AND m.ean = u.ean)
+        LEFT JOIN compras_historico_mensagens h ON m.mensagem_id = h.message_id
+        ${whereClause}
+        ${orderSql}
+        LIMIT ? OFFSET ?
+      `;
+
+      const rows = db.prepare(sqlData).all(...params, lim, off);
+
+      // Total count with filters
+      const sqlCount = `
+        SELECT COUNT(*) as count
+        FROM compras_oportunidades_mineradas m
+        LEFT JOIN compras_estoque_cache e ON (m.produto_id IS NOT NULL AND m.produto_id = e.produto_id)
+                                          OR (m.ean IS NOT NULL AND m.ean != '' AND m.ean = e.ean)
+        LEFT JOIN digifarma_ultimas_compras_cache u ON (m.produto_id IS NOT NULL AND m.produto_id = u.produto_id)
+                                                    OR (m.ean IS NOT NULL AND m.ean != '' AND m.ean = u.ean)
+        ${whereClause}
+      `;
+      const totalCount = db.prepare(sqlCount).get(...params)?.count || 0;
+
+      // Resumo geral (métricas)
+      const resumo = db.prepare(`
+        SELECT
+          COUNT(*) as total_promocoes,
+          SUM(CASE WHEN m.preco_ofertado < ${precoUltCompraSql} THEN 1 ELSE 0 END) as abaixo_ult_compra,
+          SUM(CASE WHEN COALESCE(e.curva_abc, 'C') = 'A' AND ROUND(MAX(0, (COALESCE(e.vmd_ponderado, 0) * 7) - COALESCE(e.saldo, 0)), 1) > 0 THEN 1 ELSE 0 END) as curva_a_comprar,
+          COUNT(DISTINCT m.distribuidora) as total_distribuidoras,
+          SUM(CASE WHEN DATE(COALESCE(m.data_oferta, m.created_at)) >= DATE('now', '-1 day') THEN 1 ELSE 0 END) as novas_24h
+        FROM compras_oportunidades_mineradas m
+        LEFT JOIN compras_estoque_cache e ON (m.produto_id IS NOT NULL AND m.produto_id = e.produto_id)
+                                          OR (m.ean IS NOT NULL AND m.ean != '' AND m.ean = e.ean)
+        LEFT JOIN digifarma_ultimas_compras_cache u ON (m.produto_id IS NOT NULL AND m.produto_id = u.produto_id)
+                                                    OR (m.ean IS NOT NULL AND m.ean != '' AND m.ean = u.ean)
+        WHERE m.preco_ofertado > 0
+      `).get();
+
+      res.json({
+        success: true,
+        data: rows,
+        total: totalCount,
+        resumo: {
+          total_promocoes: resumo?.total_promocoes || 0,
+          abaixo_ult_compra: resumo?.abaixo_ult_compra || 0,
+          curva_a_comprar: resumo?.curva_a_comprar || 0,
+          total_distribuidoras: resumo?.total_distribuidoras || 0,
+          novas_24h: resumo?.novas_24h || 0
+        }
+      });
+    } catch (err) {
+      console.error('[Compras-Endpoints] Erro no GET /promocoes-whatsapp:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/promocoes-whatsapp/novas-count', (req, res) => {
+    try {
+      const { since } = req.query;
+      let sinceClause = "DATE(COALESCE(m.data_oferta, m.created_at)) >= DATE('now', '-1 day')";
+      const params = [];
+
+      if (since) {
+        const sinceDate = !isNaN(Number(since)) ? new Date(Number(since)).toISOString() : new Date(since).toISOString();
+        sinceClause = "COALESCE(m.data_oferta, m.created_at) > ?";
+        params.push(sinceDate);
+      }
+
+      const row = db.prepare(`
+        SELECT 
+          COUNT(*) as count,
+          MAX(COALESCE(m.data_oferta, m.created_at)) as ultima_oferta
+        FROM compras_oportunidades_mineradas m
+        WHERE m.preco_ofertado > 0 AND ${sinceClause}
+      `).get(...params);
+
+      const totais = db.prepare(`
+        SELECT 
+          COUNT(*) as total,
+          SUM(CASE WHEN DATE(COALESCE(m.data_oferta, m.created_at)) >= DATE('now', '-1 day') THEN 1 ELSE 0 END) as novas_24h
+        FROM compras_oportunidades_mineradas m
+        WHERE m.preco_ofertado > 0
+      `).get();
+
+      res.json({
+        success: true,
+        data: {
+          count: row?.count || 0,
+          ultima_oferta: row?.ultima_oferta || null,
+          total: totais?.total || 0,
+          novas_24h: totais?.novas_24h || 0
+        }
+      });
+    } catch (err) {
+      console.error('[Compras-Endpoints] Erro no GET /promocoes-whatsapp/novas-count:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // ──────────────────────────────────────────────────────────
+  // 4. MOTOR DE COTAÇÕES, RANKING PONDERADO & PEDIMO MÍNIMO
   // ──────────────────────────────────────────────────────────
 
   router.get('/cotacoes', (req, res) => {
@@ -640,6 +899,62 @@ module.exports = (db) => {
       const resultado = comprasCotacoesService.otimizarPedidoMinimo(cotacao);
       res.json({ success: true, data: resultado });
     } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/cotacoes/comparar-texto', async (req, res) => {
+    try {
+      const { texto, usarIA, quantidades } = req.body;
+      if (!texto || !String(texto).trim()) {
+        return res.status(400).json({ success: false, error: 'Texto da cotação é obrigatório.' });
+      }
+
+      console.log('──────────────────────────────────────────────────────────');
+      console.log('[Comparador-Texto] 📥 Novo texto recebido para comparação:');
+      console.log(texto);
+      console.log('──────────────────────────────────────────────────────────');
+
+      const resultado = await comprasComparadorService.compararCotacoesTexto(texto, {
+        usarIA: usarIA === true,
+        quantidades: quantidades || {},
+        db
+      });
+
+      console.log('[Comparador-Texto] 📤 Fornecedores detectados:', resultado.fornecedoresEncontrados);
+      console.log('[Comparador-Texto] 📤 Total produtos comparados:', resultado.itensComparados?.length);
+      console.log('[Comparador-Texto] 📤 Fornecedores vencedores resumo:', (resultado.fornecedoresResumo || []).map(f => `${f.fornecedor} (${f.totalItens} itens)`));
+
+      res.json(resultado);
+    } catch (err) {
+      console.error('[Compras-Endpoints] Erro no POST /cotacoes/comparar-texto:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * POST /api/central-compras/cotacoes/consultar-estoque-lote
+   * Permite consultar estoque, histórico de última compra e sugestão 30 dias para uma lista de produtos.
+   */
+  router.post('/cotacoes/consultar-estoque-lote', (req, res) => {
+    try {
+      const { produtos } = req.body;
+      if (!Array.isArray(produtos) || produtos.length === 0) {
+        return res.json({ success: true, data: {} });
+      }
+
+      const mapa = {};
+      for (const p of produtos) {
+        if (!p) continue;
+        const info = comprasComparadorService.buscarInfoEstoqueProduto(p, db);
+        if (info) {
+          mapa[p] = info;
+        }
+      }
+
+      res.json({ success: true, data: mapa });
+    } catch (err) {
+      console.error('[Compras-Endpoints] Erro no POST /cotacoes/consultar-estoque-lote:', err);
       res.status(500).json({ success: false, error: err.message });
     }
   });
