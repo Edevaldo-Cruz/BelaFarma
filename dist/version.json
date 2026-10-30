@@ -1,9 +1,14 @@
 {
   "version": "1.2.0",
-  "commitHash": "ea12cbf",
-  "commitMessage": "feat(erp): implantacao do Belinha ERP independente com PDV, Clean Schema e migracao",
-  "buildTime": "30/10/2026, 11:08:47",
+  "commitHash": "2b09dae",
+  "commitMessage": "feat(erp): tela de catalogo e estoque nativo do Belinha ERP com ajuste rapido de precos e saldo",
+  "buildTime": "30/10/2026, 11:28:02",
   "recentCommits": [
+    {
+      "hash": "2b09dae",
+      "date": "30/10/2026",
+      "message": "feat(erp): tela de catalogo e estoque nativo do Belinha ERP com ajuste rapido de precos e saldo"
+    },
     {
       "hash": "ea12cbf",
       "date": "30/10/2026",
@@ -58,11 +63,6 @@
       "hash": "d3a31ea",
       "date": "27/10/2026",
       "message": "perf(backend): otimizacao de recursos em baileys-compras, qr loop e fila sequencial belaped"
-    },
-    {
-      "hash": "73f95d5",
-      "date": "27/10/2026",
-      "message": "feat(digifarma): suporte a DIGIFARMA_HOST configuravel via env para migracao de maquina"
     }
   ]
 }

@@ -74,6 +74,7 @@ import { isPublicVitrineRoute } from "./components/vitrine/vitrineTypes";
 import { BelinhaPDV } from "./components/erp/BelinhaPDV";
 import { SalesHistory } from "./components/erp/SalesHistory";
 import { ProductsCatalog } from "./components/erp/ProductsCatalog";
+import { InboundInvoices } from "./components/erp/InboundInvoices";
 
 
 import {
@@ -1325,6 +1326,9 @@ const App: React.FC = () => {
               )}
               {currentView === "erp-produtos" && (
                 <ProductsCatalog />
+              )}
+              {currentView === "erp-nfe" && (
+                <InboundInvoices />
               )}
               {currentView === "central-compras" && user.role === UserRole.ADM && (
                 <CentralCompras

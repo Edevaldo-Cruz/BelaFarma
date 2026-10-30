@@ -49,6 +49,7 @@ import {
   Thermometer, // Added for Mapa de Temperatura
   TableProperties, // Added for Análise de Reposição / Importador Digifarma
   Flame, // Added for Liquidação & Aceleração de Caixa
+  FileSpreadsheet, // Added for Entrada de NF-e ERP
 } from 'lucide-react';
 import { View, User, UserRole, Task, Boleto, BoletoStatus } from '../types';
 import { NotificationPanel } from './NotificationPanel';
@@ -266,6 +267,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'belinha-pdv', label: 'Belinha PDV', icon: DollarSign },
     { id: 'erp-vendas', label: 'Vendas do Caixa', icon: Receipt },
     { id: 'erp-produtos', label: 'Estoque ERP', icon: Package },
+    { id: 'erp-nfe', label: 'Entrada NF-e', icon: FileSpreadsheet },
     { id: 'anvisa-alerts', label: 'Alertas ANVISA', icon: ShieldAlert },
     { id: 'logs', label: 'Auditoria', icon: History },
     { id: 'belaped', label: 'BelaPed Compras', icon: ShoppingBag },

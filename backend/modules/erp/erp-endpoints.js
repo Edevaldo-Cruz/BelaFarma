@@ -6,6 +6,9 @@
 const express = require('express');
 const router = express.Router();
 
+const multer = require('multer');
+const uploadXml = multer({ limits: { fileSize: 15 * 1024 * 1024 } }); // 15MB
+
 const {
   buscarProdutos,
   buscarProdutosPaginados,
@@ -30,6 +33,13 @@ const {
   executarMigracaoErp,
   getMigrationHistory
 } = require('./erp-migration.service');
+
+const {
+  processarPreviewNfe,
+  confirmarImportacaoNfe,
+  listarNotasEntrada,
+  obterNotaDetalhada
+} = require('./erp-nfe-inbound.service');
 
 // ==========================================
 // 1. ROTAS DE PRODUTOS & ESTOQUE
@@ -198,4 +208,65 @@ router.get('/migration/history', (req, res) => {
   }
 });
 
+// ==========================================
+// 5. ROTAS DE NOTAS FISCAIS (ENTRADA / XML)
+// ==========================================
+router.post('/invoices/preview-xml', uploadXml.single('xmlFile'), (req, res) => {
+  try {
+    let xmlContent = '';
+    if (req.file && req.file.buffer) {
+      xmlContent = req.file.buffer.toString('utf-8');
+    } else if (req.body && req.body.xmlString) {
+      xmlContent = req.body.xmlString;
+    } else {
+      return res.status(400).json({ success: false, error: 'Envie um arquivo .xml ou o texto da NF-e no campo xmlString.' });
+    }
+
+    const preview = processarPreviewNfe(xmlContent);
+    res.json(preview);
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+router.post('/invoices/confirm-import', (req, res) => {
+  try {
+    const userName = req.headers['x-user-name'] || req.body.created_by || 'Almoxarifado';
+    const result = confirmarImportacaoNfe({
+      ...req.body,
+      created_by: userName
+    });
+    res.status(201).json(result);
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+router.get('/invoices', (req, res) => {
+  try {
+    const { limit, offset, search } = req.query;
+    const notas = listarNotasEntrada({
+      limit: parseInt(limit, 10) || 50,
+      offset: parseInt(offset, 10) || 0,
+      search
+    });
+    res.json({ success: true, count: notas.length, data: notas });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+router.get('/invoices/:id', (req, res) => {
+  try {
+    const nota = obterNotaDetalhada(req.params.id);
+    if (!nota) {
+      return res.status(404).json({ success: false, error: 'Nota fiscal não encontrada.' });
+    }
+    res.json({ success: true, data: nota });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 module.exports = router;
+
