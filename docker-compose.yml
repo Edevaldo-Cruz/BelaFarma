@@ -43,7 +43,7 @@ services:
       # Sessão do Baileys Compras (persistente entre restarts e deploys)
       - ./data/baileys-session-compras:/usr/src/app/data/baileys-session-compras
       # Pasta de uploads (persistente para salvar as imagens do banco de ofertas)
-      - ./uploads:/usr/src/app/uploads
+      - ./backend/uploads:/usr/src/app/uploads
 
     restart: unless-stopped
     # A porta 3001 não precisa ser exposta ao host, 
