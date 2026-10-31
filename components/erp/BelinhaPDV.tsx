@@ -27,6 +27,7 @@ import { useToast } from '../ToastContext';
 import { DanfeNfceModal } from './DanfeNfceModal';
 import { FiscalSettingsModal } from './FiscalSettingsModal';
 import { imprimirCupomVenda } from '../../utils/thermalPrinter';
+import { ControlledRecipeModal, ControlledProductItem, ControlledRecipeData } from './ControlledRecipeModal';
 
 interface CartItem {
   code: string;
@@ -36,6 +37,9 @@ interface CartItem {
   unit_cost: number;
   quantity: number;
   total_price: number;
+  recipe_type?: 'AMARELA' | 'AZUL' | 'BRANCA' | 'CREME' | null;
+  recipe_label?: string | null;
+  is_controlado?: boolean;
 }
 
 interface PaymentOption {
@@ -55,6 +59,9 @@ interface ProductSearchResult {
   promo_price: number;
   cost_price: number;
   stock_qty: number;
+  recipe_type?: 'AMARELA' | 'AZUL' | 'BRANCA' | 'CREME' | null;
+  recipe_label?: string | null;
+  is_controlado?: boolean;
 }
 
 interface CustomerOption {
@@ -120,16 +127,93 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
   const [cancelReason, setCancelReason] = useState<string>('');
   const [isCancelling, setIsCancelling] = useState<boolean>(false);
 
+  // Controle Sanitário & Receitas Retidas
+  const [isControlledRecipeOpen, setIsControlledRecipeOpen] = useState<boolean>(false);
+  const [controlledRecipesData, setControlledRecipesData] = useState<ControlledRecipeData[] | null>(null);
+
+  // Itens controlados no carrinho
+  const controlledItemsInCart = useMemo<ControlledProductItem[]>(() => {
+    return cart
+      .filter(it => it.is_controlado || it.recipe_type)
+      .map(it => ({
+        code: it.code,
+        barcode: it.barcode,
+        name: it.name,
+        quantity: it.quantity,
+        unit_price: it.unit_price,
+        recipe_type: (it.recipe_type || 'BRANCA') as 'AMARELA' | 'AZUL' | 'BRANCA' | 'CREME',
+        recipe_label: it.recipe_label || 'Receita de Controle Especial'
+      }));
+  }, [cart]);
+
+  // Tema visual dominante no PDV baseado na receita mais restrita
+  const dominantRecipe = useMemo(() => {
+    if (controlledItemsInCart.length === 0) return null;
+    if (controlledItemsInCart.some(it => it.recipe_type === 'AMARELA')) {
+      return {
+        type: 'AMARELA' as const,
+        label: 'Receita Amarela (Notificação A)',
+        badge: 'bg-amber-400 text-amber-950 font-black border border-amber-500 shadow-sm',
+        banner: 'bg-amber-400 text-amber-950 border-amber-500 shadow-md',
+        border: 'border-amber-400 dark:border-amber-500 ring-2 ring-amber-400/40'
+      };
+    }
+    if (controlledItemsInCart.some(it => it.recipe_type === 'AZUL')) {
+      return {
+        type: 'AZUL' as const,
+        label: 'Receita Azul (Notificação B)',
+        badge: 'bg-blue-600 text-white font-black border border-blue-700 shadow-sm',
+        banner: 'bg-blue-600 text-white border-blue-700 shadow-md',
+        border: 'border-blue-500 dark:border-blue-600 ring-2 ring-blue-500/40'
+      };
+    }
+    if (controlledItemsInCart.some(it => it.recipe_type === 'CREME')) {
+      return {
+        type: 'CREME' as const,
+        label: 'Receita Antimicrobiano (Creme / RDC 20)',
+        badge: 'bg-amber-100 text-amber-950 font-black border border-amber-300 shadow-sm',
+        banner: 'bg-amber-100 text-amber-950 border-amber-300 shadow-md',
+        border: 'border-amber-300 dark:border-amber-500 ring-2 ring-amber-300/40'
+      };
+    }
+    return {
+      type: 'BRANCA' as const,
+      label: 'Receita Controle Especial (2 Vias)',
+      badge: 'bg-slate-700 text-white font-black border border-slate-800 shadow-sm',
+      banner: 'bg-slate-700 text-white border-slate-800 shadow-md',
+      border: 'border-slate-500 dark:border-slate-600 ring-2 ring-slate-500/40'
+    };
+  }, [controlledItemsInCart]);
+
+  // Iniciar finalização de venda (verifica exigência de receita retida)
+  const handleStartCheckout = () => {
+    if (cart.length === 0) {
+      addToast('Adicione pelo menos um produto ao carrinho antes de finalizar.', 'warning');
+      return;
+    }
+
+    // Se há itens controlados no carrinho e ainda não informou os dados da receita
+    if (controlledItemsInCart.length > 0 && !controlledRecipesData) {
+      setIsControlledRecipeOpen(true);
+      setIsPaymentOpen(false);
+      setIsSearchOpen(false);
+      return;
+    }
+
+    setIsPaymentOpen(true);
+    setIsSearchOpen(false);
+  };
+
   // Refs de Foco
   const barcodeInputRef = useRef<HTMLInputElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Foco automático no input de bipagem
   const focusBarcodeInput = useCallback(() => {
-    if (!isSearchOpen && !isPaymentOpen && !completedSale) {
+    if (!isSearchOpen && !isPaymentOpen && !isControlledRecipeOpen && !completedSale) {
       setTimeout(() => barcodeInputRef.current?.focus(), 50);
     }
-  }, [isSearchOpen, isPaymentOpen, completedSale]);
+  }, [isSearchOpen, isPaymentOpen, isControlledRecipeOpen, completedSale]);
 
   useEffect(() => {
     focusBarcodeInput();
@@ -159,21 +243,20 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
         e.preventDefault();
         setIsSearchOpen(true);
         setIsPaymentOpen(false);
+        setIsControlledRecipeOpen(false);
         setTimeout(() => searchInputRef.current?.focus(), 100);
       }
       // F10 -> Finalizar Venda
       else if (e.key === 'F10') {
         e.preventDefault();
-        if (cart.length > 0) {
-          setIsPaymentOpen(true);
-          setIsSearchOpen(false);
-        } else {
-          addToast('Adicione pelo menos um produto ao carrinho antes de finalizar.', 'warning');
-        }
+        handleStartCheckout();
       }
       // ESC -> Fechar modais ou limpar carrinho
       else if (e.key === 'Escape') {
-        if (isSearchOpen) {
+        if (isControlledRecipeOpen) {
+          setIsControlledRecipeOpen(false);
+          focusBarcodeInput();
+        } else if (isSearchOpen) {
           setIsSearchOpen(false);
           focusBarcodeInput();
         } else if (isPaymentOpen) {
@@ -188,7 +271,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [cart, isSearchOpen, isPaymentOpen, completedSale, addToast, focusBarcodeInput]);
+  }, [cart, isSearchOpen, isPaymentOpen, isControlledRecipeOpen, completedSale, addToast, focusBarcodeInput, controlledItemsInCart, controlledRecipesData]);
 
   // Totais calculados
   const subtotal = cart.reduce((acc, it) => acc + it.total_price, 0);
@@ -272,13 +355,20 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
             unit_price: effectivePrice,
             unit_cost: costPrice,
             quantity: qty,
-            total_price: Math.round(qty * effectivePrice * 100) / 100
+            total_price: Math.round(qty * effectivePrice * 100) / 100,
+            recipe_type: prod.recipe_type || null,
+            recipe_label: prod.recipe_label || null,
+            is_controlado: prod.is_controlado || Boolean(prod.recipe_type)
           }
         ];
       }
     });
 
-    addToast(`${qty}x ${prod.name.substring(0, 25)}... adicionado!`, 'success', 2000);
+    if (prod.is_controlado || prod.recipe_type) {
+      addToast(`⚠️ Medicamento Controlado (${prod.recipe_label || prod.recipe_type}) adicionado! Retenção de receita obrigatória no checkout.`, 'warning', 3500);
+    } else {
+      addToast(`${qty}x ${prod.name.substring(0, 25)}... adicionado!`, 'success', 2000);
+    }
   };
 
   // Remover item
@@ -365,7 +455,8 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
         customer_id: selectedCustomer ? selectedCustomer.id : null,
         customer_name: selectedCustomer ? selectedCustomer.name : null,
         discount_value: discount,
-        user_name: 'Balcão'
+        user_name: 'Balcão',
+        controlled_recipes: controlledRecipesData || undefined
       };
 
       const res = await fetch('/api/erp/pos/checkout', {
@@ -397,11 +488,12 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
           }, 150);
         }
 
-        // Limpar carrinho e fechar modal
+        // Limpar carrinho e dados de receita
         setCart([]);
         setDiscount(0);
         setCashReceived('');
         setSelectedCustomer(null);
+        setControlledRecipesData(null);
         setIsPaymentOpen(false);
 
         // Se solicitado, emite o Cupom Fiscal NFC-e imediatamente
@@ -567,10 +659,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
           </button>
 
           <button
-            onClick={() => {
-              if (cart.length > 0) setIsPaymentOpen(true);
-              else addToast('Carrinho vazio.', 'warning');
-            }}
+            onClick={handleStartCheckout}
             disabled={cart.length === 0}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold transition-all shadow-sm"
           >
@@ -581,11 +670,42 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
         </div>
       </div>
 
+      {/* BANNER TEMÁTICO DE RETENÇÃO DE RECEITA CONTROLADA (AMARELA / AZUL / BRANCA / CREME) */}
+      {dominantRecipe && (
+        <div className={`flex flex-wrap items-center justify-between gap-3 px-4 py-3 rounded-2xl border mb-4 font-black transition-all ${dominantRecipe.banner}`}>
+          <div className="flex items-center gap-2.5">
+            <span className="text-xl animate-pulse">⚠️</span>
+            <div>
+              <p className="text-xs uppercase tracking-wider opacity-90">Controle Sanitário & Retenção de Receita</p>
+              <h2 className="text-sm font-black tracking-tight">{dominantRecipe.label}</h2>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {controlledRecipesData ? (
+              <span className="bg-emerald-900/40 text-current px-3 py-1 rounded-xl text-xs font-black uppercase flex items-center gap-1.5 border border-current/20">
+                <CheckCircle2 className="w-4 h-4 text-emerald-300" />
+                Dados da Receita Vinculados ({controlledRecipesData.length} {controlledRecipesData.length === 1 ? 'item' : 'itens'})
+              </span>
+            ) : (
+              <span className="bg-black/20 text-current px-3 py-1 rounded-xl text-xs font-black uppercase">
+                Médico e Comprador exigidos ao finalizar (F10)
+              </span>
+            )}
+            <button
+              onClick={() => setIsControlledRecipeOpen(true)}
+              className="px-3 py-1.5 rounded-xl bg-white/20 hover:bg-white/30 text-current text-xs font-black transition-all border border-current/30 shadow-sm"
+            >
+              {controlledRecipesData ? 'Editar Receita' : 'Preencher Receita Agora'}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* 2. ÁREA CENTRAL: BIPAGEM + TABELA + PAINEL DE TOTAIS */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 flex-1 min-h-0">
         
         {/* COLUNA ESQUERDA: BIPAGEM E ITENS (8 COLUNAS) */}
-        <div className="lg:col-span-8 flex flex-col bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden">
+        <div className={`lg:col-span-8 flex flex-col bg-white dark:bg-slate-900 border ${dominantRecipe ? dominantRecipe.border : 'border-slate-200 dark:border-slate-800'} rounded-2xl shadow-sm overflow-hidden transition-all`}>
           
           {/* BARRA DE BIPAGEM RÁPIDA */}
           <div className="p-3 sm:p-4 bg-slate-100/70 dark:bg-slate-900/90 border-b border-slate-200 dark:border-slate-800">
@@ -635,7 +755,12 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
                   {cart.map((item, idx) => (
                     <tr 
                       key={`${item.code}-${idx}`} 
-                      className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group font-medium"
+                      className={`hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group font-medium ${
+                        item.recipe_type === 'AMARELA' ? 'bg-amber-100/70 dark:bg-amber-950/30 border-l-4 border-amber-500' :
+                        item.recipe_type === 'AZUL' ? 'bg-blue-100/70 dark:bg-blue-950/30 border-l-4 border-blue-500' :
+                        item.recipe_type === 'CREME' ? 'bg-amber-50/80 dark:bg-amber-950/20 border-l-4 border-amber-400' :
+                        item.recipe_type === 'BRANCA' ? 'bg-slate-100/80 dark:bg-slate-900/60 border-l-4 border-slate-600' : ''
+                      }`}
                     >
                       <td className="py-2.5 px-3 text-center text-xs text-slate-400 font-bold whitespace-nowrap">
                         {idx + 1}
@@ -644,7 +769,29 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
                         {item.barcode || item.code}
                       </td>
                       <td className="py-2.5 px-3 font-bold text-slate-900 dark:text-white whitespace-nowrap">
-                        {item.name}
+                        <div className="flex items-center gap-2">
+                          <span>{item.name}</span>
+                          {item.recipe_type === 'AMARELA' && (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-black uppercase bg-amber-400 text-amber-950 border border-amber-500 shadow-sm">
+                              🟡 Receita Amarela
+                            </span>
+                          )}
+                          {item.recipe_type === 'AZUL' && (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-black uppercase bg-blue-600 text-white border border-blue-700 shadow-sm">
+                              🔵 Receita Azul
+                            </span>
+                          )}
+                          {item.recipe_type === 'CREME' && (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-black uppercase bg-amber-200 text-amber-950 border border-amber-400 shadow-sm">
+                              🟠 Receita Creme
+                            </span>
+                          )}
+                          {item.recipe_type === 'BRANCA' && (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-black uppercase bg-slate-700 text-white border border-slate-800 shadow-sm">
+                              ⚪ Receita Branca
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="py-2.5 px-3 whitespace-nowrap">
                         <div className="flex items-center justify-center gap-1.5">
@@ -750,10 +897,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
             {/* BOTÃO FINALIZAR GIGANTE */}
             <div className="pt-6">
               <button
-                onClick={() => {
-                  if (cart.length > 0) setIsPaymentOpen(true);
-                  else addToast('Adicione produtos para finalizar.', 'warning');
-                }}
+                onClick={handleStartCheckout}
                 disabled={cart.length === 0}
                 className="w-full py-4 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 disabled:opacity-50 text-white font-black text-lg shadow-lg hover:shadow-xl transition-all flex items-center justify-center gap-3 tracking-wide"
               >
@@ -1345,16 +1489,21 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
         />
       )}
 
-      {/* 8. MODAL: CONFIGURAÇÕES FISCAIS & CERTIFICADO A1 */}
-      {isFiscalSettingsOpen && (
-        <FiscalSettingsModal
-          isOpen={isFiscalSettingsOpen}
-          onClose={() => {
-            setIsFiscalSettingsOpen(false);
-            focusBarcodeInput();
-          }}
-        />
-      )}
+      {/* 9. MODAL: RECEITAS RETIDAS & CONTROLE ESPECIAL */}
+      <ControlledRecipeModal
+        isOpen={isControlledRecipeOpen}
+        controlledItems={controlledItemsInCart}
+        onClose={() => {
+          setIsControlledRecipeOpen(false);
+          focusBarcodeInput();
+        }}
+        onConfirm={(recipesData) => {
+          setControlledRecipesData(recipesData);
+          setIsControlledRecipeOpen(false);
+          setIsPaymentOpen(true);
+          addToast(`Dados da receita retida vinculados com sucesso (${recipesData.length} ${recipesData.length === 1 ? 'item' : 'itens'})! Conclua o pagamento.`, 'success');
+        }}
+      />
     </div>
   );
 };

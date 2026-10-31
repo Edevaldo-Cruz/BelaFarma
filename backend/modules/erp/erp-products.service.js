@@ -4,6 +4,20 @@
  */
 
 const { db } = require('./erp-database');
+const { classifyProduct } = require('./controlled-medications.service');
+
+function enrichProduct(p) {
+  if (!p) return null;
+  const classification = classifyProduct(p);
+  return {
+    ...p,
+    is_controlado: classification.is_controlado,
+    recipe_type: classification.recipe_type,
+    recipe_label: classification.label,
+    recipe_color_theme: classification.color_theme,
+    substancia_classe: classification.substancia_classe
+  };
+}
 
 /**
  * Busca produtos por código de barras, código interno ou nome
@@ -15,7 +29,7 @@ function buscarProdutos({ query = '', limit = 30, onlyWithStock = false } = {}) 
     let sql = 'SELECT * FROM products WHERE is_active = 1';
     if (onlyWithStock) sql += ' AND stock_qty > 0';
     sql += ' ORDER BY name ASC LIMIT ?';
-    return db.prepare(sql).all(limit);
+    return db.prepare(sql).all(limit).map(enrichProduct);
   }
 
   // Se for código numérico (bipagem de EAN ou código interno)
@@ -28,7 +42,7 @@ function buscarProdutos({ query = '', limit = 30, onlyWithStock = false } = {}) 
     `).get(cleanQ, cleanQ);
 
     if (exact) {
-      return [exact];
+      return [enrichProduct(exact)];
     }
   }
 
@@ -44,7 +58,7 @@ function buscarProdutos({ query = '', limit = 30, onlyWithStock = false } = {}) 
   sql += ' ORDER BY name ASC LIMIT ?';
 
   const param = `%${cleanQ}%`;
-  return db.prepare(sql).all(param, param, param, limit);
+  return db.prepare(sql).all(param, param, param, limit).map(enrichProduct);
 }
 
 /**
@@ -54,11 +68,13 @@ function obterProdutoPorCodigo(codigoOuEan) {
   const clean = String(codigoOuEan || '').trim();
   if (!clean) return null;
 
-  return db.prepare(`
+  const found = db.prepare(`
     SELECT * FROM products 
     WHERE (barcode = ? OR code = ?) AND is_active = 1
     LIMIT 1
   `).get(clean, clean);
+
+  return enrichProduct(found);
 }
 
 /**

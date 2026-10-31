@@ -379,5 +379,11 @@ router.get('/fiscal/cupons', (req, res) => {
   }
 });
 
+// ==========================================
+// 6. ROTAS DE MEDICAMENTOS CONTROLADOS & SNGPC
+// ==========================================
+router.use('/controlled', require('./controlled-medications-endpoints'));
+
 module.exports = router;
+
 

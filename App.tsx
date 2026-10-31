@@ -75,6 +75,7 @@ import { BelinhaPDV } from "./components/erp/BelinhaPDV";
 import { SalesHistory } from "./components/erp/SalesHistory";
 import { ProductsCatalog } from "./components/erp/ProductsCatalog";
 import { InboundInvoices } from "./components/erp/InboundInvoices";
+import { ControlledMedicationsPortal } from "./components/erp/ControlledMedicationsPortal";
 
 
 import {
@@ -1321,6 +1322,9 @@ const App: React.FC = () => {
               )}
               {currentView === "erp-vendas" && (
                 <SalesHistory />
+              )}
+              {currentView === "controlled-medications" && (
+                <ControlledMedicationsPortal />
               )}
               {currentView === "erp-produtos" && (
                 <ProductsCatalog />

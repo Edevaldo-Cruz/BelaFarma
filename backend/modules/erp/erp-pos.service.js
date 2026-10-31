@@ -5,6 +5,7 @@
 
 const { db } = require('./erp-database');
 const { obterProdutoPorCodigo } = require('./erp-products.service');
+const { recordSaleRecipes } = require('./controlled-medications.service');
 
 /**
  * Registra uma nova venda de PDV com baixa atômica de estoque
@@ -220,6 +221,15 @@ function registrarVenda(payload) {
   });
 
   executeSaleTransaction();
+
+  // Grava receitas retidas vinculadas se houver medicamentos controlados
+  if (Array.isArray(payload.controlled_recipes) && payload.controlled_recipes.length > 0) {
+    try {
+      recordSaleRecipes(saleId, payload.controlled_recipes);
+    } catch (recipeErr) {
+      console.error(`[Belinha PDV] ⚠️ Erro ao registrar receitas controladas da venda #${saleId}:`, recipeErr.message);
+    }
+  }
 
   console.log(`[Belinha PDV] ✅ Venda #${saleId} finalizada com sucesso! Total: R$ ${totalFinal.toFixed(2)} (${processedItems.length} itens)`);
 

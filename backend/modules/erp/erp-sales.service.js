@@ -182,7 +182,9 @@ function listarVendas({ dataInicio, dataFim, status, paymentMethod, limit = 100,
       s.*,
       (SELECT COUNT(*) FROM sale_items WHERE sale_id = s.id) as total_items,
       (SELECT GROUP_CONCAT(payment_method, ', ') FROM sale_payments WHERE sale_id = s.id) as payment_methods,
-      (SELECT json_group_array(json_object('method', payment_method, 'amount', amount, 'card_brand', card_brand)) FROM sale_payments WHERE sale_id = s.id) as payments_json
+      (SELECT json_group_array(json_object('method', payment_method, 'amount', amount, 'card_brand', card_brand)) FROM sale_payments WHERE sale_id = s.id) as payments_json,
+      (SELECT recipe_type FROM controlled_sales_recipes WHERE sale_id = s.id LIMIT 1) as recipe_type,
+      (SELECT COUNT(*) FROM controlled_sales_recipes WHERE sale_id = s.id) as controlled_count
     FROM sales s
     WHERE ${where}
     ORDER BY s.sale_date DESC, s.sale_time DESC

@@ -50,6 +50,8 @@ interface SaleSummary {
   nfe_series?: number;
   access_key?: string;
   origin?: 'BELINHA' | 'DIGIFARMA';
+  recipe_type?: 'AMARELA' | 'AZUL' | 'BRANCA' | 'CREME' | null;
+  controlled_count?: number;
 }
 
 interface ResumoDia {
@@ -645,12 +647,49 @@ export const SalesHistory: React.FC = () => {
                     ? s.payments.map(p => p.method)
                     : (s.payment_methods ? s.payment_methods.split(',').map(m => m.trim()) : []);
 
+                  // Linha colorida conforme a receita (Amarela, Azul, Branca Especial, Creme)
+                  const getRowRecipeClass = () => {
+                    if (s.recipe_type === 'AMARELA') {
+                      return 'bg-amber-100/70 hover:bg-amber-100/90 dark:bg-amber-950/40 dark:hover:bg-amber-950/60 border-l-4 border-amber-500 font-medium';
+                    }
+                    if (s.recipe_type === 'AZUL') {
+                      return 'bg-blue-100/70 hover:bg-blue-100/90 dark:bg-blue-950/40 dark:hover:bg-blue-950/60 border-l-4 border-blue-500 font-medium';
+                    }
+                    if (s.recipe_type === 'CREME') {
+                      return 'bg-amber-50/80 hover:bg-amber-100/60 dark:bg-amber-950/20 dark:hover:bg-amber-950/40 border-l-4 border-amber-400 font-medium';
+                    }
+                    if (s.recipe_type === 'BRANCA') {
+                      return 'bg-slate-100/80 hover:bg-slate-200/80 dark:bg-slate-900/60 dark:hover:bg-slate-900/90 border-l-4 border-slate-600 font-medium';
+                    }
+                    return 'hover:bg-slate-50 dark:hover:bg-slate-800/60';
+                  };
+
                   return (
-                    <tr key={s.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors">
+                    <tr key={s.id} className={`${getRowRecipeClass()} transition-colors`}>
                       {/* Cupom ID & Origem */}
                       <td className="py-2.5 px-4 font-mono font-bold text-slate-900 dark:text-slate-100 whitespace-nowrap">
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1.5 flex-wrap">
                           <span>{s.id}</span>
+                          {s.recipe_type === 'AMARELA' && (
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase bg-amber-400 text-amber-950 border border-amber-500 shadow-xs" title="Receita Amarela (Notificação A)">
+                              🟡 Amarela
+                            </span>
+                          )}
+                          {s.recipe_type === 'AZUL' && (
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase bg-blue-600 text-white border border-blue-700 shadow-xs" title="Receita Azul (Notificação B)">
+                              🔵 Azul
+                            </span>
+                          )}
+                          {s.recipe_type === 'CREME' && (
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase bg-amber-200 text-amber-950 border border-amber-400 shadow-xs" title="Receita Antimicrobiano (Creme / RDC 20)">
+                              🟠 Creme
+                            </span>
+                          )}
+                          {s.recipe_type === 'BRANCA' && (
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase bg-slate-700 text-white border border-slate-800 shadow-xs" title="Receita Controle Especial (2 Vias)">
+                              ⚪ Branca
+                            </span>
+                          )}
                           {s.origin === 'DIGIFARMA' || s.id.startsWith('DIGI-') ? (
                             <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-500/15 text-blue-600 dark:text-blue-400 border border-blue-500/25" title="Venda originada no Digifarma">
                               Digifarma

@@ -1,9 +1,34 @@
 {
   "version": "1.2.0",
-  "commitHash": "71666a6",
-  "commitMessage": "fix(estabilidade): configurar PM2, loop watchdog, auto-inicializacao no Windows e corrigir erros SQL do Firebird",
-  "buildTime": "2026-10-31T12:36:56.379Z",
+  "commitHash": "8651978",
+  "commitMessage": "fix(estabilidade): eliminar loop infinito de reconexao do Baileys e adicionar proxy retry no Nginx",
+  "buildTime": "31/10/2026, 14:43:45",
   "recentCommits": [
+    {
+      "hash": "8651978",
+      "date": "31/10/2026",
+      "message": "fix(estabilidade): eliminar loop infinito de reconexao do Baileys e adicionar proxy retry no Nginx"
+    },
+    {
+      "hash": "96cf97c",
+      "date": "31/10/2026",
+      "message": "fix(uploads): alinhar volume de uploads do backend para ./backend/uploads"
+    },
+    {
+      "hash": "b4f302b",
+      "date": "31/10/2026",
+      "message": "fix(pdv): apontar atalhos dos terminais Bematech e Caixa para o Raspberry Pi 5 (192.168.1.70)"
+    },
+    {
+      "hash": "a8f789d",
+      "date": "31/10/2026",
+      "message": "fix(estabilidade): blindar watchdog 24/7, parametros sql do firebird e tunel cloudflare"
+    },
+    {
+      "hash": "1d1374e",
+      "date": "31/10/2026",
+      "message": "fix(ux): desativar abertura automatica do painel de orcamentos ao iniciar e recompilar dist"
+    },
     {
       "hash": "71666a6",
       "date": "31/10/2026",
@@ -38,32 +63,6 @@
       "hash": "6a03e57",
       "date": "30/10/2026",
       "message": "fix(pdv): tipografia encorpada sem falhas na Bematech e script dedicado para terminal Caixa"
-    },
-    {
-      "hash": "f547534",
-      "date": "30/10/2026",
-      "message": "feat(pdv): impressao termica isolada 80mm para Bematech MP-4200 TH com suporte a kiosk-printing"
-    },
-    {
-      "hash": "90494ec",
-      "date": "30/10/2026",
-      "message": "fix(pdv): campo emitir nota desativado por padrao, modal de cancelamento de vendas com estorno e formatacao de impressao termica 80mm"
-    },
-    {
-      "hash": "03ecb9b",
-      "date": "30/10/2026",
-      "message": "fix(sidebar): abrir modo de limpeza desativado por padrao e fixar Promocao WhatsApp no topo do menu com destaque"
-    },
-    {
-      "hash": "35b3d2b",
-      "date": "30/10/2026",
-      "message": "fix(pixbot): filtrar webhooks connection.update antes do log para evitar estouro de buffer"
-    },
-    {
-      "hash": "08d2da0",
-      "date": "30/10/2026",
-      "message": "fix(updater): sincronizar version.json em backend/public, adicionar rota sem cache e recompilar bundle de producao"
     }
-  ],
-  "timestamp": 1793450216384
+  ]
 }
