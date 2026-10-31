@@ -1,9 +1,14 @@
 {
   "version": "1.2.0",
-  "commitHash": "8651978",
-  "commitMessage": "fix(estabilidade): eliminar loop infinito de reconexao do Baileys e adicionar proxy retry no Nginx",
-  "buildTime": "31/10/2026, 14:43:45",
+  "commitHash": "574f96d",
+  "commitMessage": "feat(sanitario): controle de receitas retidas no PDV e modulo de baixas sanitarias VISA/SNGPC",
+  "buildTime": "31/10/2026, 15:50:52",
   "recentCommits": [
+    {
+      "hash": "574f96d",
+      "date": "31/10/2026",
+      "message": "feat(sanitario): controle de receitas retidas no PDV e modulo de baixas sanitarias VISA/SNGPC"
+    },
     {
       "hash": "8651978",
       "date": "31/10/2026",
@@ -58,11 +63,6 @@
       "hash": "b01d223",
       "date": "30/10/2026",
       "message": "fix(webhook): descarte imediato de eventos nao mensagens para manter backend estavel e leve"
-    },
-    {
-      "hash": "6a03e57",
-      "date": "30/10/2026",
-      "message": "fix(pdv): tipografia encorpada sem falhas na Bematech e script dedicado para terminal Caixa"
     }
   ]
 }

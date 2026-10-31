@@ -19,15 +19,15 @@ const CODIGOS_UF = {
   'SC': '42', 'RS': '43', 'MS': '50', 'MT': '51', 'GO': '52', 'DF': '53'
 };
 
-// URL padrão de consulta de QR Code da SEFAZ por UF
+// URL padrão oficial de consulta de QR Code da SEFAZ por UF (Portal SPED MG)
 const QRCODE_URLS_SEFAZ = {
   'MG': {
-    homologacao: 'http://nfce.fazenda.mg.gov.br/portalnfce/sistema/qrcode.xhtml',
-    producao: 'http://nfce.fazenda.mg.gov.br/portalnfce/sistema/qrcode.xhtml'
+    homologacao: 'https://portalsped.fazenda.mg.gov.br/portalnfce/sistema/qrcode.xhtml',
+    producao: 'https://portalsped.fazenda.mg.gov.br/portalnfce/sistema/qrcode.xhtml'
   },
   'DEFAULT': {
-    homologacao: 'http://nfce.fazenda.mg.gov.br/portalnfce/sistema/qrcode.xhtml',
-    producao: 'http://nfce.fazenda.mg.gov.br/portalnfce/sistema/qrcode.xhtml'
+    homologacao: 'https://portalsped.fazenda.mg.gov.br/portalnfce/sistema/qrcode.xhtml',
+    producao: 'https://portalsped.fazenda.mg.gov.br/portalnfce/sistema/qrcode.xhtml'
   }
 };
 
@@ -203,7 +203,7 @@ function gerarQrCodeUrl({
   vNF = 0,
   vICMS = 0,
   digVal = '',
-  idCsc = '000001',
+  idCsc = '1',
   csc = '',
   uf = 'MG'
 }) {
@@ -211,10 +211,12 @@ function gerarQrCodeUrl({
     tpAmb === '1' ? 'producao' : 'homologacao'
   ];
 
-  // Padrão NFC-e v2.0
-  // p = chNFe|2|tpAmb|cDest|dhEmi|vNF|vICMS|digVal|idCSC
-  // Emissão online simples SEFAZ v2: chNFe|2|tpAmb|idCSC
-  let paramsParaHash = `${chaveAcesso}|${versao}|${tpAmb}|${idCsc}`;
+  // Padrão NFC-e v2.0 (NT 2018.005 / SEFAZ MG):
+  // IdCSC deve ser número sem zeros à esquerda (ex: 1 e não 000001)
+  const idCscLimpo = String(idCsc || '1').replace(/^0+/, '') || '1';
+
+  // Emissão Normal Online v2: p = chNFe|2|tpAmb|idCSC
+  const paramsParaHash = `${chaveAcesso}|${versao}|${tpAmb}|${idCscLimpo}`;
   if (csc) {
     const hashSha1 = crypto.createHash('sha1').update(`${paramsParaHash}${csc}`).digest('hex').toUpperCase();
     return `${urlBase}?p=${paramsParaHash}|${hashSha1}`;
@@ -336,8 +338,8 @@ async function emitirCupomFiscal(saleId, options = {}) {
   if (temCertificado) {
     const certData = extrairDadosCertificadoA1(config.certificate_pfx_base64, config.certificate_password);
 
-    // Constrói XML oficial da NF-e (Modelo 65)
-    const xmlNfeCru = `<?xml version="1.0" encoding="UTF-8"?><NFe xmlns="http://www.portalfiscal.inf.br/nfe"><infNFe Id="NFe${chaveAcesso}" versao="4.00"><ide><cUF>${CODIGOS_UF[config.uf] || '31'}</cUF><cNF>${chaveAcesso.slice(35, 43)}</cNF><natOp>VENDA AO CONSUMIDOR</natOp><mod>65</mod><serie>${serie}</serie><nNF>${nNF}</nNF><dhEmi>${dhEmi}</dhEmi><tpNF>1</tpNF><idDest>1</idDest><cMunFG>${config.cod_municipio_ibge}</cMunFG><tpImp>4</tpImp><tpEmis>${tpEmis}</tpEmis><cDV>${chaveAcesso.slice(-1)}</cDV><tpAmb>${tpAmb}</tpAmb><finNFe>1</finNFe><indFinal>1</indFinal><indPres>1</indPres><procEmi>0</procEmi><verProc>Belinha_1.0</verProc>${tpEmis === '9' ? `<dhCont>${dhEmi}</dhCont><xJust>${finalContingencyReason || 'SEFAZ OFFLINE'}</xJust>` : ''}</ide><emit><CNPJ>${config.cnpj}</CNPJ><xNome>${config.razao_social}</xNome><xFant>${config.nome_fantasia}</xFant><enderEmit><xLgr>${config.logradouro}</xLgr><nro>${config.numero}</nro><xBairro>${config.bairro}</xBairro><cMun>${config.cod_municipio_ibge}</cMun><xMun>${config.municipio}</xMun><UF>${config.uf}</UF><CEP>${config.cep}</CEP></enderEmit><IE>${config.inscricao_estadual}</IE><CRT>${config.regime_tributario}</CRT></emit>${customer_cpf ? `<dest><CPF>${customer_cpf.replace(/\D/g, '')}</CPF><indIEDest>9</indIEDest></dest>` : ''}${itensFiscais.map(it => `
+    // Constrói XML oficial da NF-e (Modelo 65) - sem declaracao <?xml?> interna para nao conflitar com enviNFe
+    const xmlNfeCru = `<NFe xmlns="http://www.portalfiscal.inf.br/nfe"><infNFe Id="NFe${chaveAcesso}" versao="4.00"><ide><cUF>${CODIGOS_UF[config.uf] || '31'}</cUF><cNF>${chaveAcesso.slice(35, 43)}</cNF><natOp>VENDA AO CONSUMIDOR</natOp><mod>65</mod><serie>${serie}</serie><nNF>${nNF}</nNF><dhEmi>${dhEmi}</dhEmi><tpNF>1</tpNF><idDest>1</idDest><cMunFG>${config.cod_municipio_ibge}</cMunFG><tpImp>4</tpImp><tpEmis>${tpEmis}</tpEmis><cDV>${chaveAcesso.slice(-1)}</cDV><tpAmb>${tpAmb}</tpAmb><finNFe>1</finNFe><indFinal>1</indFinal><indPres>1</indPres><procEmi>0</procEmi><verProc>Belinha_1.0</verProc>${tpEmis === '9' ? `<dhCont>${dhEmi}</dhCont><xJust>${finalContingencyReason || 'SEFAZ OFFLINE'}</xJust>` : ''}</ide><emit><CNPJ>${config.cnpj}</CNPJ><xNome>${config.razao_social}</xNome><xFant>${config.nome_fantasia}</xFant><enderEmit><xLgr>${config.logradouro}</xLgr><nro>${config.numero}</nro><xBairro>${config.bairro}</xBairro><cMun>${config.cod_municipio_ibge}</cMun><xMun>${config.municipio}</xMun><UF>${config.uf}</UF><CEP>${config.cep}</CEP></enderEmit><IE>${config.inscricao_estadual}</IE><CRT>${config.regime_tributario}</CRT></emit>${customer_cpf ? `<dest><CPF>${customer_cpf.replace(/\D/g, '')}</CPF><indIEDest>9</indIEDest></dest>` : ''}${itensFiscais.map(it => `
 <det nItem="${it.nItem}">
   <prod>
     <cProd>${it.code}</cProd>
@@ -366,7 +368,7 @@ async function emitirCupomFiscal(saleId, options = {}) {
     <PIS><PISNT><CST>07</CST></PISNT></PIS>
     <COFINS><COFINSNT><CST>07</CST></COFINSNT></COFINS>
   </imposto>
-</det>`).join('')}<total><ICMSTot><vBC>0.00</vBC><vICMS>0.00</vICMS><vICMSDeson>0.00</vICMSDeson><vFCPUFDest>0.00</vFCPUFDest><vICMSUFDest>0.00</vICMSUFDest><vICMSUFRemet>0.00</vICMSUFRemet><vFCP>0.00</vFCP><vBCST>0.00</vBCST><vST>0.00</vST><vFCPST>0.00</vFCPST><vFCPSTRet>0.00</vFCPSTRet><vProd>${sale.total_items_value.toFixed(2)}</vProd><vFrete>0.00</vFrete><vSeg>0.00</vSeg><vDesc>${sale.discount_value.toFixed(2)}</vDesc><vII>0.00</vII><vIPI>0.00</vIPI><vIPIDevol>0.00</vIPIDevol><vPIS>0.00</vPIS><vCOFINS>0.00</vCOFINS><vOutro>0.00</vOutro><vNF>${sale.total_value.toFixed(2)}</vNF><vTotTrib>${totalTributosAprox.toFixed(2)}</vTotTrib></ICMSTot></total><transp><modFrete>9</modFrete></transp><pag>${payments.length > 0 ? payments.map(p => `<detPag><tPag>${mapearTipoPagamentoNfce(p.payment_method)}</tPag><vPag>${Number(p.amount).toFixed(2)}</vPag></detPag>`).join('') : `<detPag><tPag>01</tPag><vPag>${sale.total_value.toFixed(2)}</vPag></detPag>`}</pag><infAdic><infCpl>Trib aprox R$ ${totalTributosAprox.toFixed(2)} Fonte: IBPT. Venda PDV Belinha #${saleId}.</infCpl></infAdic></infNFe><infNFeSupl><qrCode><![CDATA[${qrCodeUrl}]]></qrCode><urlChave>http://nfce.fazenda.mg.gov.br/portalnfce/sistema/qrcode.xhtml</urlChave></infNFeSupl></NFe>`;
+</det>`).join('')}<total><ICMSTot><vBC>0.00</vBC><vICMS>0.00</vICMS><vICMSDeson>0.00</vICMSDeson><vFCPUFDest>0.00</vFCPUFDest><vICMSUFDest>0.00</vICMSUFDest><vICMSUFRemet>0.00</vICMSUFRemet><vFCP>0.00</vFCP><vBCST>0.00</vBCST><vST>0.00</vST><vFCPST>0.00</vFCPST><vFCPSTRet>0.00</vFCPSTRet><vProd>${sale.total_items_value.toFixed(2)}</vProd><vFrete>0.00</vFrete><vSeg>0.00</vSeg><vDesc>${sale.discount_value.toFixed(2)}</vDesc><vII>0.00</vII><vIPI>0.00</vIPI><vIPIDevol>0.00</vIPIDevol><vPIS>0.00</vPIS><vCOFINS>0.00</vCOFINS><vOutro>0.00</vOutro><vNF>${sale.total_value.toFixed(2)}</vNF><vTotTrib>${totalTributosAprox.toFixed(2)}</vTotTrib></ICMSTot></total><transp><modFrete>9</modFrete></transp><pag>${payments.length > 0 ? payments.map(p => `<detPag><tPag>${mapearTipoPagamentoNfce(p.payment_method)}</tPag><vPag>${Number(p.amount).toFixed(2)}</vPag></detPag>`).join('') : `<detPag><tPag>01</tPag><vPag>${sale.total_value.toFixed(2)}</vPag></detPag>`}<vTroco>0.00</vTroco></pag><infAdic><infCpl>Trib aprox R$ ${totalTributosAprox.toFixed(2)} Fonte: IBPT. Venda PDV Belinha #${saleId}.</infCpl></infAdic></infNFe><infNFeSupl><qrCode><![CDATA[${qrCodeUrl}]]></qrCode><urlChave>${config.ambiente === 'producao' ? 'https://portalsped.fazenda.mg.gov.br/portalnfce' : 'https://hportalsped.fazenda.mg.gov.br/portalnfce'}</urlChave></infNFeSupl></NFe>`;
 
     // Assina digitalmente o XML via XMLDSig (RSA-SHA1)
     const xmlAssinado = assinarXmlNfe(xmlNfeCru, chaveAcesso, certData.privateKeyPem, certData.certificateClean);

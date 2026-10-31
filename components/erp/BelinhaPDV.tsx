@@ -246,10 +246,14 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
         setIsControlledRecipeOpen(false);
         setTimeout(() => searchInputRef.current?.focus(), 100);
       }
-      // F10 -> Finalizar Venda
+      // F10 -> Finalizar Venda (ou confirmar pagamento se a modal já estiver aberta)
       else if (e.key === 'F10') {
         e.preventDefault();
-        handleStartCheckout();
+        if (isPaymentOpen) {
+          handleConfirmCheckout();
+        } else {
+          handleStartCheckout();
+        }
       }
       // ESC -> Fechar modais ou limpar carrinho
       else if (e.key === 'Escape') {
@@ -278,9 +282,11 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
   const totalFinal = Math.max(0, subtotal - discount);
   const totalQuantity = cart.reduce((acc, it) => acc + it.quantity, 0);
 
-  // Troco em dinheiro
-  const cashNum = parseFloat(cashReceived.replace(',', '.')) || 0;
-  const cashChange = selectedMethod === 'DINHEIRO' ? Math.max(0, cashNum - totalFinal) : 0;
+  // Troco em dinheiro:
+  // Se o valor não for informado (campo em branco), considera que não tem troco (pagamento exato)
+  const isCashValueEntered = cashReceived.trim() !== '';
+  const cashNum = isCashValueEntered ? (parseFloat(cashReceived.replace(',', '.')) || 0) : totalFinal;
+  const cashChange = selectedMethod === 'DINHEIRO' && isCashValueEntered ? Math.max(0, cashNum - totalFinal) : 0;
 
   // Bipagem de produto (Enter no input)
   const handleBarcodeSubmit = async (e: React.FormEvent) => {
@@ -413,8 +419,8 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
     if (cart.length === 0) return;
 
     if (selectedMethod === 'DINHEIRO') {
-      if (cashNum < totalFinal) {
-        addToast(`Valor em dinheiro (R$ ${cashNum.toFixed(2)}) é menor que o total da venda.`, 'warning');
+      if (isCashValueEntered && cashNum < totalFinal) {
+        addToast(`Valor em dinheiro informado (R$ ${cashNum.toFixed(2)}) é menor que o total da venda (R$ ${totalFinal.toFixed(2)}).`, 'warning');
         return;
       }
     }
@@ -1057,17 +1063,30 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
                     type="text"
                     value={cashReceived}
                     onChange={e => setCashReceived(e.target.value)}
-                    placeholder={`Ex: ${totalFinal.toFixed(2)}`}
+                    placeholder={`Ex: ${totalFinal.toFixed(2)} (Em branco = sem troco)`}
                     autoFocus
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleConfirmCheckout();
+                      }
+                    }}
                     className="w-full px-4 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 font-mono font-bold text-lg text-slate-900 dark:text-white"
                   />
-                  {cashChange > 0 && (
+                  {cashChange > 0 ? (
                     <div className="mt-3 p-3 bg-emerald-100 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-800 rounded-xl flex items-center justify-between">
                       <span className="text-xs font-bold text-emerald-800 dark:text-emerald-300">Troco a Devolver:</span>
                       <span className="text-xl font-black font-mono text-emerald-700 dark:text-emerald-400">
                         R$ {cashChange.toFixed(2)}
                       </span>
                     </div>
+                  ) : (
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-2 flex items-center gap-1.5 font-medium">
+                      <span className="text-emerald-600 font-bold">✓</span>
+                      {isCashValueEntered
+                        ? 'Valor exato informado (sem troco a devolver).'
+                        : `Valor não informado: considerando pagamento exato de R$ ${totalFinal.toFixed(2)} (sem troco).`}
+                    </p>
                   )}
                 </div>
               )}

@@ -26,7 +26,8 @@ const xmlParser = new XMLParser({
   ignoreAttributes: false,
   attributeNamePrefix: '@_',
   textNodeName: '#text',
-  trimValues: true
+  trimValues: true,
+  removeNSPrefix: true
 });
 
 /**
@@ -119,7 +120,10 @@ async function consultarStatusServicoSefaz(pfxBuffer, passphrase, ambiente = 'ho
   const tempoRespostaMs = Date.now() - t0;
 
   const parsed = xmlParser.parse(resp.body);
-  const retConsStatServ = parsed['soap12:Envelope']?.['soap12:Body']?.nfeResultMsg?.retConsStatServ || parsed.retConsStatServ;
+  const retConsStatServ = parsed.Envelope?.Body?.nfeResultMsg?.retConsStatServ 
+    || parsed['soap12:Envelope']?.['soap12:Body']?.nfeResultMsg?.retConsStatServ 
+    || parsed['S:Envelope']?.['S:Body']?.nfeResultMsg?.retConsStatServ 
+    || parsed.retConsStatServ;
 
   if (!retConsStatServ) {
     throw new Error(`Resposta inesperada da SEFAZ: ${resp.body.slice(0, 200)}`);
@@ -150,14 +154,20 @@ async function transmitirNfceSefaz(xmlNfeAssinado, pfxBuffer, passphrase, ambien
   const ws = (WEBSERVICES_SEFAZ_MG[ambiente] || WEBSERVICES_SEFAZ_MG.homologacao).autorizacao;
   const idLote = String(Date.now()).slice(-15);
 
+  // Limpa declaracao <?xml ...?> duplicada para nao invalidar o schema do lote enviNFe
+  const xmlSemDeclaracao = xmlNfeAssinado.replace(/<\?xml[^>]*\?>/g, '').trim();
+
   // Monta o lote síncrono (indSinc=1)
-  const xmlLote = `<enviNFe xmlns="http://www.portalfiscal.inf.br/nfe" versao="4.00"><idLote>${idLote}</idLote><indSinc>1</indSinc>${xmlNfeAssinado}</enviNFe>`;
+  const xmlLote = `<enviNFe xmlns="http://www.portalfiscal.inf.br/nfe" versao="4.00"><idLote>${idLote}</idLote><indSinc>1</indSinc>${xmlSemDeclaracao}</enviNFe>`;
   const soapAction = 'http://www.portalfiscal.inf.br/nfe/wsdl/NFeAutorizacao4';
 
   const resp = await enviarRequisicaoSoapSefaz(ws, soapAction, xmlLote, pfxBuffer, passphrase, 8000);
   const parsed = xmlParser.parse(resp.body);
 
-  const retEnviNFe = parsed['soap12:Envelope']?.['soap12:Body']?.nfeResultMsg?.retEnviNFe || parsed.retEnviNFe;
+  const retEnviNFe = parsed.Envelope?.Body?.nfeResultMsg?.retEnviNFe
+    || parsed['soap12:Envelope']?.['soap12:Body']?.nfeResultMsg?.retEnviNFe
+    || parsed['S:Envelope']?.['S:Body']?.nfeResultMsg?.retEnviNFe
+    || parsed.retEnviNFe;
   if (!retEnviNFe) {
     throw new Error(`Resposta inválida da SEFAZ ao transmitir lote: ${resp.body.slice(0, 300)}`);
   }
