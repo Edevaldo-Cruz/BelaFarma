@@ -292,11 +292,20 @@ async function emitirCupomFiscal(saleId, options = {}) {
     const cfop = (it.tributacao_monofasica === 'S' || it.aliquota_st > 0) ? '5405' : '5102';
     const ncm = it.ncm || '30049099'; // Medicamentos padrão se não informado
 
+    // Validação estrita de GTIN conforme regra do XSD da SEFAZ
+    const isGtinValido = it.barcode && /^\d{8}$|^\d{12,14}$/.test(String(it.barcode).trim());
+    const gtin = isGtinValido ? String(it.barcode).trim() : 'SEM GTIN';
+
+    // Em ambiente de Homologação, a SEFAZ exige que a descrição do 1º item seja essa frase literal
+    const itemName = (tpAmb === '2' && idx === 0) 
+      ? 'NOTA FISCAL EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL' 
+      : it.product_name;
+
     return {
       nItem: idx + 1,
       code: it.product_code,
-      barcode: it.barcode || 'SEM GTIN',
-      name: it.product_name,
+      barcode: gtin,
+      name: itemName,
       cfop,
       ncm,
       uCom: 'UN',
@@ -343,7 +352,7 @@ async function emitirCupomFiscal(saleId, options = {}) {
 <det nItem="${it.nItem}">
   <prod>
     <cProd>${it.code}</cProd>
-    <cEAN>${it.barcode && it.barcode.length >= 8 && it.barcode !== 'SEM GTIN' ? it.barcode : 'SEM GTIN'}</cEAN>
+    <cEAN>${it.barcode}</cEAN>
     <xProd>${it.name.slice(0, 120)}</xProd>
     <NCM>${it.ncm}</NCM>
     <CFOP>${it.cfop}</CFOP>
@@ -351,7 +360,7 @@ async function emitirCupomFiscal(saleId, options = {}) {
     <qCom>${Number(it.qCom).toFixed(4)}</qCom>
     <vUnCom>${Number(it.vUnCom).toFixed(4)}</vUnCom>
     <vProd>${Number(it.vProd).toFixed(2)}</vProd>
-    <cEANTrib>${it.barcode && it.barcode.length >= 8 && it.barcode !== 'SEM GTIN' ? it.barcode : 'SEM GTIN'}</cEANTrib>
+    <cEANTrib>${it.barcode}</cEANTrib>
     <uTrib>${it.uCom}</uTrib>
     <qTrib>${Number(it.qCom).toFixed(4)}</qTrib>
     <vUnTrib>${Number(it.vUnCom).toFixed(4)}</vUnTrib>
@@ -368,7 +377,7 @@ async function emitirCupomFiscal(saleId, options = {}) {
     <PIS><PISNT><CST>07</CST></PISNT></PIS>
     <COFINS><COFINSNT><CST>07</CST></COFINSNT></COFINS>
   </imposto>
-</det>`).join('')}<total><ICMSTot><vBC>0.00</vBC><vICMS>0.00</vICMS><vICMSDeson>0.00</vICMSDeson><vFCPUFDest>0.00</vFCPUFDest><vICMSUFDest>0.00</vICMSUFDest><vICMSUFRemet>0.00</vICMSUFRemet><vFCP>0.00</vFCP><vBCST>0.00</vBCST><vST>0.00</vST><vFCPST>0.00</vFCPST><vFCPSTRet>0.00</vFCPSTRet><vProd>${sale.total_items_value.toFixed(2)}</vProd><vFrete>0.00</vFrete><vSeg>0.00</vSeg><vDesc>${sale.discount_value.toFixed(2)}</vDesc><vII>0.00</vII><vIPI>0.00</vIPI><vIPIDevol>0.00</vIPIDevol><vPIS>0.00</vPIS><vCOFINS>0.00</vCOFINS><vOutro>0.00</vOutro><vNF>${sale.total_value.toFixed(2)}</vNF><vTotTrib>${totalTributosAprox.toFixed(2)}</vTotTrib></ICMSTot></total><transp><modFrete>9</modFrete></transp><pag>${payments.length > 0 ? payments.map(p => `<detPag><tPag>${mapearTipoPagamentoNfce(p.payment_method)}</tPag><vPag>${Number(p.amount).toFixed(2)}</vPag></detPag>`).join('') : `<detPag><tPag>01</tPag><vPag>${sale.total_value.toFixed(2)}</vPag></detPag>`}<vTroco>0.00</vTroco></pag><infAdic><infCpl>Trib aprox R$ ${totalTributosAprox.toFixed(2)} Fonte: IBPT. Venda PDV Belinha #${saleId}.</infCpl></infAdic></infNFe><infNFeSupl><qrCode><![CDATA[${qrCodeUrl}]]></qrCode><urlChave>${config.ambiente === 'producao' ? 'https://portalsped.fazenda.mg.gov.br/portalnfce' : 'https://hportalsped.fazenda.mg.gov.br/portalnfce'}</urlChave></infNFeSupl></NFe>`;
+</det>`).join('')}<total><ICMSTot><vBC>0.00</vBC><vICMS>0.00</vICMS><vICMSDeson>0.00</vICMSDeson><vFCP>0.00</vFCP><vBCST>0.00</vBCST><vST>0.00</vST><vFCPST>0.00</vFCPST><vFCPSTRet>0.00</vFCPSTRet><vProd>${sale.total_items_value.toFixed(2)}</vProd><vFrete>0.00</vFrete><vSeg>0.00</vSeg><vDesc>${sale.discount_value.toFixed(2)}</vDesc><vII>0.00</vII><vIPI>0.00</vIPI><vIPIDevol>0.00</vIPIDevol><vPIS>0.00</vPIS><vCOFINS>0.00</vCOFINS><vOutro>0.00</vOutro><vNF>${sale.total_value.toFixed(2)}</vNF><vTotTrib>${totalTributosAprox.toFixed(2)}</vTotTrib></ICMSTot></total><transp><modFrete>9</modFrete></transp><pag>${payments.length > 0 ? payments.map(p => `<detPag><tPag>${mapearTipoPagamentoNfce(p.payment_method)}</tPag><vPag>${Number(p.amount).toFixed(2)}</vPag></detPag>`).join('') : `<detPag><tPag>01</tPag><vPag>${sale.total_value.toFixed(2)}</vPag></detPag>`}<vTroco>0.00</vTroco></pag><infAdic><infCpl>Trib aprox R$ ${totalTributosAprox.toFixed(2)} Fonte: IBPT. Venda PDV Belinha #${saleId}.</infCpl></infAdic></infNFe><infNFeSupl><qrCode><![CDATA[${qrCodeUrl}]]></qrCode><urlChave>${config.ambiente === 'producao' ? 'https://portalsped.fazenda.mg.gov.br/portalnfce' : 'https://hportalsped.fazenda.mg.gov.br/portalnfce'}</urlChave></infNFeSupl></NFe>`;
 
     // Assina digitalmente o XML via XMLDSig (RSA-SHA1)
     const xmlAssinado = assinarXmlNfe(xmlNfeCru, chaveAcesso, certData.privateKeyPem, certData.certificateClean);

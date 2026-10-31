@@ -1,9 +1,14 @@
 {
   "version": "1.2.0",
-  "commitHash": "574f96d",
-  "commitMessage": "feat(sanitario): controle de receitas retidas no PDV e modulo de baixas sanitarias VISA/SNGPC",
-  "buildTime": "31/10/2026, 15:50:52",
+  "commitHash": "3fd10a1",
+  "commitMessage": "fix(fiscal): corrige URL oficial do QR Code para Portal SPED MG e ajuste de namespace SOAP SEFAZ",
+  "buildTime": "31/10/2026, 16:15:51",
   "recentCommits": [
+    {
+      "hash": "3fd10a1",
+      "date": "31/10/2026",
+      "message": "fix(fiscal): corrige URL oficial do QR Code para Portal SPED MG e ajuste de namespace SOAP SEFAZ"
+    },
     {
       "hash": "574f96d",
       "date": "31/10/2026",
@@ -58,11 +63,6 @@
       "hash": "20b75c2",
       "date": "30/10/2026",
       "message": "feat(vendas): implementar guia de Vendas do Dia com filtros por data e por todas as formas de pagamento"
-    },
-    {
-      "hash": "b01d223",
-      "date": "30/10/2026",
-      "message": "fix(webhook): descarte imediato de eventos nao mensagens para manter backend estavel e leve"
     }
   ]
 }
