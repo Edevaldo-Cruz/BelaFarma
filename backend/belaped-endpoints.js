@@ -348,10 +348,10 @@ function belapedEndpoints(db) {
     }
   };
 
-  // Disparo automático a cada 15 minutos (900.000 ms) para refletir correções de saldo, vendas e compras grandes
-  const INTERVALO_SYNC_PRODUTOS_MS = 15 * 60 * 1000;
+  // Disparo automático a cada 2 horas (7.200.000 ms) para não sobrecarregar o Firebird/SQLite durante o atendimento
+  const INTERVALO_SYNC_PRODUTOS_MS = 2 * 60 * 60 * 1000;
   setInterval(() => {
-    sincronizarListaProdutosERP('auto-15m').catch(() => {});
+    sincronizarListaProdutosERP('auto-2h').catch(() => {});
   }, INTERVALO_SYNC_PRODUTOS_MS);
 
   // Na subida do serviço, verifica se o cache tem mais de 15 min e sincroniza em background
