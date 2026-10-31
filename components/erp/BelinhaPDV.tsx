@@ -101,7 +101,21 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
   // Cupom Concluído e Fiscal
   const [completedSale, setCompletedSale] = useState<any | null>(null);
   const [customerCpf, setCustomerCpf] = useState<string>('');
-  const [emitNfce, setEmitNfce] = useState<boolean>(false); // Padrão DESATIVADO conforme solicitado
+  const [emitNfce, setEmitNfce] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('belaped_emit_nfce_default');
+      return saved !== null ? saved === 'true' : true; // Padrão ATIVADO para sempre emitir o cupom com QR Code
+    } catch {
+      return true;
+    }
+  });
+
+  const toggleEmitNfce = (checked: boolean) => {
+    setEmitNfce(checked);
+    try {
+      localStorage.setItem('belaped_emit_nfce_default', checked ? 'true' : 'false');
+    } catch {}
+  };
   const [activeDanfeModal, setActiveDanfeModal] = useState<any | null>(null);
   const [isFiscalSettingsOpen, setIsFiscalSettingsOpen] = useState<boolean>(false);
   const [autoPrintCupom, setAutoPrintCupom] = useState<boolean>(() => {
@@ -486,14 +500,6 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
           change: cashChange
         };
 
-        setCompletedSale(saleData);
-
-        if (autoPrintCupom && !emitNfce) {
-          setTimeout(() => {
-            imprimirCupomVenda(saleData);
-          }, 150);
-        }
-
         // Limpar carrinho e dados de receita
         setCart([]);
         setDiscount(0);
@@ -512,16 +518,25 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
             });
             const fiscalData = await fiscalRes.json();
             if (fiscalRes.ok && fiscalData.success) {
+              setCompletedSale(null); // Garante que a tela do QR Code seja a principal
               setActiveDanfeModal(fiscalData);
               addToast(`NFC-e #${fiscalData.nfe_number} emitida com sucesso!`, 'success');
             } else {
+              setCompletedSale(saleData);
               addToast(`Venda salva, mas a emissão fiscal retornou: ${fiscalData.error || 'Erro'}`, 'warning');
             }
           } catch (fiscalErr) {
             console.error('Erro ao emitir NFC-e automática:', fiscalErr);
+            setCompletedSale(saleData);
             addToast('Venda salva! Emissão fiscal pode ser feita no Histórico.', 'info');
           }
         } else {
+          setCompletedSale(saleData);
+          if (autoPrintCupom) {
+            setTimeout(() => {
+              imprimirCupomVenda(saleData);
+            }, 150);
+          }
           addToast('Venda finalizada com sucesso!', 'success');
         }
 
@@ -585,6 +600,34 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
       setIsCancelling(false);
     }
   };
+
+  const [isEmittingFiscal, setIsEmittingFiscal] = useState<boolean>(false);
+
+
+  const handleEmitFiscalForSale = async (saleId: number | string) => {
+    setIsEmittingFiscal(true);
+    try {
+      const fiscalRes = await fetch(`/api/erp/fiscal/emit/${encodeURIComponent(saleId)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ customer_cpf: customerCpf || null })
+      });
+      const fiscalData = await fiscalRes.json();
+      if (fiscalRes.ok && fiscalData.success) {
+        setCompletedSale(null); // Fecha a modal do cupom comum para abrir o cupom fiscal com QR code
+        setActiveDanfeModal(fiscalData);
+        addToast(`NFC-e #${fiscalData.nfe_number} emitida com sucesso!`, 'success');
+      } else {
+        addToast(`Falha na emissão fiscal: ${fiscalData.error || 'Erro desconhecido'}`, 'error');
+      }
+    } catch (err: any) {
+      console.error('Erro ao emitir NFC-e:', err);
+      addToast('Erro de comunicação com o servidor ao emitir NFC-e.', 'error');
+    } finally {
+      setIsEmittingFiscal(false);
+    }
+  };
+
 
   return (
     <div className="flex flex-col h-[calc(100vh-5rem)] bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 p-3 sm:p-5">
@@ -1358,6 +1401,21 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
                   Nova Venda (ESC)
                 </button>
               </div>
+
+              {/* Botão de Emissão de Cupom Fiscal com QR Code */}
+              <button
+                onClick={() => handleEmitFiscalForSale(completedSale.sale_id)}
+                disabled={isEmittingFiscal}
+                className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-black rounded-xl text-xs flex items-center justify-center gap-2 shadow-md cursor-pointer transition-all"
+              >
+                {isEmittingFiscal ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : (
+                  <QrCode className="w-4 h-4" />
+                )}
+                {isEmittingFiscal ? 'Emitindo NFC-e na SEFAZ...' : 'Emitir Cupom Fiscal NFC-e (com QR Code)'}
+              </button>
+
 
               <button
                 onClick={() => {

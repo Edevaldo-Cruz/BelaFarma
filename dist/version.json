@@ -1,9 +1,14 @@
 {
-  "version": "1.2.3",
-  "commitHash": "22316f6",
-  "commitMessage": "fix(mural): declarar anvisaAlertCount no App.tsx e recompilar dist v1.2.2",
-  "buildTime": "31/10/2026, 17:57:04",
+  "version": "1.2.4",
+  "commitHash": "1c7ac5f",
+  "commitMessage": "fix(pdv): importar useMemo em BelinhaPDV.tsx e recompilar dist v1.2.3",
+  "buildTime": "31/10/2026, 18:18:15",
   "recentCommits": [
+    {
+      "hash": "1c7ac5f",
+      "date": "31/10/2026",
+      "message": "fix(pdv): importar useMemo em BelinhaPDV.tsx e recompilar dist v1.2.3"
+    },
     {
       "hash": "22316f6",
       "date": "31/10/2026",
@@ -58,11 +63,6 @@
       "hash": "1d1374e",
       "date": "31/10/2026",
       "message": "fix(ux): desativar abertura automatica do painel de orcamentos ao iniciar e recompilar dist"
-    },
-    {
-      "hash": "71666a6",
-      "date": "31/10/2026",
-      "message": "fix(estabilidade): configurar PM2, loop watchdog, auto-inicializacao no Windows e corrigir erros SQL do Firebird"
     }
   ]
 }
