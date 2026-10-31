@@ -1,9 +1,14 @@
 {
   "version": "1.2.0",
-  "commitHash": "1fcc52f",
-  "commitMessage": "fix(server): adicionar tratadores globais de erro para evitar que timeouts do Digifarma derrubem o processo",
-  "buildTime": "30/10/2026, 21:06:36",
+  "commitHash": "1e04e9c",
+  "commitMessage": "build(dist): recompilar bundle e sincronizar version.json com ultimo commit",
+  "buildTime": "31/10/2026, 09:22:56",
   "recentCommits": [
+    {
+      "hash": "1e04e9c",
+      "date": "30/10/2026",
+      "message": "build(dist): recompilar bundle e sincronizar version.json com ultimo commit"
+    },
     {
       "hash": "1fcc52f",
       "date": "30/10/2026",
@@ -58,11 +63,6 @@
       "hash": "515e7a5",
       "date": "30/10/2026",
       "message": "feat(fiscal): implementar emissao direta de NFC-e na SEFAZ-MG com assinatura XMLDSig e contingencia automatica"
-    },
-    {
-      "hash": "4341e45",
-      "date": "30/10/2026",
-      "message": "fix(erp): corrigir comunicacao xml nf-e e consolidar vendas do belinha pdv no fechamento de caixa"
     }
   ]
 }

@@ -27,7 +27,8 @@ async function syncShortages() {
         FROM PRODUTOS p
         WHERE ${whereClause}
       `;
-      const statusResults = await queryDigifarma(sqlStatus, batch.map(n => n + '%'));
+      const cleanParams = batch.map(n => (String(n || '').trim().slice(0, 49)) + '%');
+      const statusResults = await queryDigifarma(sqlStatus, cleanParams);
       if (statusResults && Array.isArray(statusResults)) {
         statusResults.forEach(r => {
           const key = r.PRODUTO ? r.PRODUTO.trim().toUpperCase() : '';
@@ -55,7 +56,7 @@ async function syncShortages() {
         WHERE (${whereClause}) AND C.ENTRADA_SAIDA = 'E' AND C.CANCELAMENTO = 'N'
         ORDER BY C.DATA_EMISSAO DESC
       `;
-      const historyResults = await queryDigifarma(sqlHistory, batch.map(n => n + '%'));
+      const historyResults = await queryDigifarma(sqlHistory, cleanParams);
       if (historyResults && Array.isArray(historyResults)) {
         historyResults.forEach(h => {
           const key = h.productName ? h.productName.trim().toUpperCase() : '';

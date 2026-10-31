@@ -327,10 +327,10 @@ async function syncEstoqueResumo(db) {
     const paradosResult = await queryDigifarma(`
       SELECT 
         COUNT(*) as QTD_PARADA,
-        COALESCE(SUM(p.ESTOQUE * COALESCE(p.PROD_PRCOMPRA, 0)), 0) as VALOR_PARADO
+        COALESCE(SUM(p.PROD_SALDO * COALESCE(p.PROD_PRCOMPRA, 0)), 0) as VALOR_PARADO
       FROM PRODUTOS p
       WHERE p.PROD_ATIVO = 'S'
-        AND p.ESTOQUE > 0
+        AND p.PROD_SALDO > 0
         AND NOT EXISTS (
           SELECT FIRST 1 1 
           FROM ITEM_VENDAS iv
