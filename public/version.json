@@ -1,9 +1,14 @@
 {
   "version": "1.2.0",
-  "commitHash": "1e04e9c",
-  "commitMessage": "build(dist): recompilar bundle e sincronizar version.json com ultimo commit",
-  "buildTime": "31/10/2026, 09:22:56",
+  "commitHash": "71666a6",
+  "commitMessage": "fix(estabilidade): configurar PM2, loop watchdog, auto-inicializacao no Windows e corrigir erros SQL do Firebird",
+  "buildTime": "2026-10-31T12:36:56.379Z",
   "recentCommits": [
+    {
+      "hash": "71666a6",
+      "date": "31/10/2026",
+      "message": "fix(estabilidade): configurar PM2, loop watchdog, auto-inicializacao no Windows e corrigir erros SQL do Firebird"
+    },
     {
       "hash": "1e04e9c",
       "date": "30/10/2026",
@@ -58,11 +63,7 @@
       "hash": "08d2da0",
       "date": "30/10/2026",
       "message": "fix(updater): sincronizar version.json em backend/public, adicionar rota sem cache e recompilar bundle de producao"
-    },
-    {
-      "hash": "515e7a5",
-      "date": "30/10/2026",
-      "message": "feat(fiscal): implementar emissao direta de NFC-e na SEFAZ-MG com assinatura XMLDSig e contingencia automatica"
     }
-  ]
+  ],
+  "timestamp": 1793450216381
 }

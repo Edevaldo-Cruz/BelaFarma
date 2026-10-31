@@ -179,9 +179,7 @@ const App: React.FC = () => {
   };
   const [muralPendingCount, setMuralPendingCount] = useState(0);
   const [pendingReviewCount, setPendingReviewCount] = useState(0);
-  const [anvisaAlertCount, setAnvisaAlertCount] = useState(0);
-  const { addToast } = useToast();
-  const [isBudgetSummaryOpen, setIsBudgetSummaryOpen] = useState(true);
+  const [isBudgetSummaryOpen, setIsBudgetSummaryOpen] = useState(false);
   const [showMobileFloatingButton, setShowMobileFloatingButton] = useState(true);
   const [selectedPendingReview, setSelectedPendingReview] = useState<Delivery | null>(null);
   const [pendingReviewMode, setPendingReviewMode] = useState<'pedido' | 'cotacao'>('pedido');
