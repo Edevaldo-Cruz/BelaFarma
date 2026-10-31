@@ -14,6 +14,15 @@ module.exports = {
         NODE_ENV: 'production',
         PORT: 3001
       }
+    },
+    {
+      name: 'cloudflare-bridge',
+      script: 'cloudflare-bridge.cjs',
+      cwd: __dirname,
+      max_memory_restart: '200M',
+      restart_delay: 3000,
+      autorestart: true,
+      watch: false
     }
   ]
 };

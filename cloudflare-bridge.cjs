@@ -23,11 +23,12 @@ const TARGET_PORT = 3001;
 
 // 1. Servidor DNS Local (Resolve nginx-proxy-manager -> 127.0.0.1)
 const dnsServer = dgram.createSocket('udp4');
-const upstreamClient = dgram.createSocket('udp4');
 
 dnsServer.on('message', (msg, rinfo) => {
   const queryStr = msg.toString('binary');
+  console.log(`[Bridge DNS] Consulta recebida (${msg.length} bytes) de ${rinfo.address}:${rinfo.port}`);
   if (queryStr.includes('nginx-proxy-manager')) {
+    console.log('[Bridge DNS] -> Respondendo 127.0.0.1 para nginx-proxy-manager');
     // Monta resposta A para 127.0.0.1
     const tid = msg.subarray(0, 2);
     const flags = Buffer.from([0x81, 0x80]);
@@ -44,22 +45,38 @@ dnsServer.on('message', (msg, rinfo) => {
     const response = Buffer.concat([tid, flags, counts, question, answer]);
     dnsServer.send(response, rinfo.port, rinfo.address);
   } else {
-    // Encaminha para 1.1.1.1
-    upstreamClient.send(msg, 53, '1.1.1.1', (err) => {
-      if (err) return;
-      const onResp = (upMsg) => {
-        if (upMsg.subarray(0, 2).equals(msg.subarray(0, 2))) {
-          upstreamClient.removeListener('message', onResp);
-          dnsServer.send(upMsg, rinfo.port, rinfo.address);
-        }
-      };
-      upstreamClient.on('message', onResp);
-      setTimeout(() => upstreamClient.removeListener('message', onResp), 2000);
+    // Encaminha de forma resiliente para 1.1.1.1 com fallback para 8.8.8.8 usando socket isolado
+    const client = dgram.createSocket('udp4');
+    let closed = false;
+    const safeClose = () => {
+      if (!closed) {
+        closed = true;
+        try { client.close(); } catch (_) {}
+      }
+    };
+    client.on('message', (upMsg) => {
+      try {
+        dnsServer.send(upMsg, rinfo.port, rinfo.address);
+      } catch (_) {}
+      safeClose();
     });
+    client.on('error', safeClose);
+    client.send(msg, 53, '1.1.1.1', (err) => {
+      if (err) {
+        client.send(msg, 53, '8.8.8.8', (err2) => {
+          if (err2) safeClose();
+        });
+      }
+    });
+    setTimeout(safeClose, 3000);
   }
 });
 
 dnsServer.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.log('[Cloudflare Bridge] Outra instância já está ativa na porta DNS ' + DNS_PORT + '. Encerrando duplicata.');
+    process.exit(0);
+  }
   console.warn('[Bridge DNS Warning]:', err.message);
 });
 
@@ -125,13 +142,14 @@ function startCloudflared() {
   }
 
   const args = [
+    '--edge-ip-version', '4',
     'tunnel',
     'run',
     '--token', TUNNEL_TOKEN,
     '--dns-resolver-addrs', '127.0.0.1:1053'
   ];
 
-  console.log('[Cloudflare Bridge] Iniciando túnel Cloudflare com DNS local...');
+  console.log('[Cloudflare Bridge] Iniciando túnel Cloudflare com DNS local e IPv4...');
   const env = Object.assign({}, process.env, {
     GODEBUG: 'netdns=go'
   });
@@ -139,19 +157,12 @@ function startCloudflared() {
 
   cloudflaredProc.stdout.on('data', d => {
     const s = d.toString();
-    if (s.includes('Registered tunnel connection')) {
-      console.log('[Cloudflare Bridge] Conectado à rede Cloudflare com sucesso!');
-    }
+    console.log('[Cloudflared STDOUT]:', s.trim());
   });
 
   cloudflaredProc.stderr.on('data', d => {
     const s = d.toString();
-    if (s.includes('Registered tunnel connection')) {
-      console.log('[Cloudflare Bridge] Conectado à rede Cloudflare com sucesso!');
-    }
-    if (s.includes('ERR')) {
-      console.error('[Cloudflare Bridge Warning]:', s.trim());
-    }
+    console.log('[Cloudflared STDERR]:', s.trim());
   });
 
   cloudflaredProc.on('exit', (code) => {
@@ -166,7 +177,6 @@ startCloudflared();
 function shutdown() {
   isShuttingDown = true;
   try { dnsServer.close(); } catch (_) {}
-  try { upstreamClient.close(); } catch (_) {}
   try { proxy.close(); } catch (_) {}
   if (cloudflaredProc) {
     try { cloudflaredProc.kill(); } catch (_) {}

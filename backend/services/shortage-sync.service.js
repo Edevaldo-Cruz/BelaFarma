@@ -27,7 +27,7 @@ async function syncShortages() {
         FROM PRODUTOS p
         WHERE ${whereClause}
       `;
-      const cleanParams = batch.map(n => (String(n || '').trim().slice(0, 49)) + '%');
+      const cleanParams = batch.map(n => (String(n || '').trim().slice(0, 45)) + '%');
       const statusResults = await queryDigifarma(sqlStatus, cleanParams);
       if (statusResults && Array.isArray(statusResults)) {
         statusResults.forEach(r => {
