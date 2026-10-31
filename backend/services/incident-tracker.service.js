@@ -4,7 +4,7 @@ const os = require('os');
 
 let dbInstance = null;
 let heartbeatInterval = null;
-let lastWhatsappIncidentId = null;
+let lastWhatsappIncidents = {};
 
 // Determina o diretório de logs
 const LOG_DIR = process.platform === 'win32' 
@@ -243,19 +243,19 @@ function registerGlobalHandlers() {
  * Notifica e registra desconexão do WhatsApp Baileys.
  */
 function notifyWhatsappDisconnect(instanceName, statusCode, reason, isFullReset = false) {
-  // Evita duplicar incidentes se o WhatsApp já estiver com status de desconectado aberto
-  if (instanceName === 'principal' && lastWhatsappIncidentId) {
-    return lastWhatsappIncidentId;
+  const key = instanceName || 'principal';
+  // Evita duplicar incidentes se a instância já estiver com status de desconectado aberto
+  if (lastWhatsappIncidents[key]) {
+    return lastWhatsappIncidents[key];
   }
 
-  const title = `WhatsApp ${instanceName === 'secundario' ? 'Secundário' : 'Principal'} Desconectado (Código: ${statusCode || 'N/A'})`;
+  const instLabel = key === 'secundario' ? 'Secundário' : (key === 'compras' ? 'Compras' : 'Principal');
+  const title = `WhatsApp ${instLabel} Desconectado (Código: ${statusCode || 'N/A'})`;
   const details = `Motivo: ${reason}\nNecessitou reset completo de sessão: ${isFullReset ? 'Sim (novo QR Code exigido)' : 'Não (tentando reconectar automaticamente)'}`;
   const severity = (statusCode === 401 || isFullReset) ? 'CRITICAL' : 'WARNING';
 
   const incidentId = recordIncident('WHATSAPP_DISCONNECT', severity, title, details);
-  if (instanceName === 'principal') {
-    lastWhatsappIncidentId = incidentId;
-  }
+  lastWhatsappIncidents[key] = incidentId;
   return incidentId;
 }
 
@@ -263,9 +263,10 @@ function notifyWhatsappDisconnect(instanceName, statusCode, reason, isFullReset 
  * Notifica e registra reconexão bem-sucedida do WhatsApp Baileys.
  */
 function notifyWhatsappConnect(instanceName) {
-  if (instanceName === 'principal' && lastWhatsappIncidentId) {
-    resolveIncident(lastWhatsappIncidentId, null, 'Conexão restabelecida com sucesso.');
-    lastWhatsappIncidentId = null;
+  const key = instanceName || 'principal';
+  if (lastWhatsappIncidents[key]) {
+    resolveIncident(lastWhatsappIncidents[key], null, 'Conexão restabelecida com sucesso.');
+    lastWhatsappIncidents[key] = null;
   }
 }
 

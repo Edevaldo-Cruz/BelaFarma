@@ -207,12 +207,12 @@ async function connect(db) {
         } catch (e) {}
 
         if (isLoggedOut) {
-          console.warn('[Baileys] 🧹 Sessão desvinculada pelo usuário (loggedOut). Apagando pasta de sessão para gerar novo QR...');
+          console.warn('[Baileys] 🧹 Sessão desvinculada pelo usuário (loggedOut). Apagando pasta de sessão. Aguardando novo pareamento manual.');
           try { fs.rmSync(SESSION_DIR, { recursive: true, force: true }); } catch(e) {}
-          lastError = `Desconectado (loggedOut)`;
+          lastError = 'Desconectado (loggedOut). Gere novo QR Code na tela para conectar.';
           lastQR = null;
+          isConnecting = false;
           if (reconnectTimer) clearTimeout(reconnectTimer);
-          reconnectTimer = setTimeout(() => connect(savedDb), 3000);
           return;
         }
 
