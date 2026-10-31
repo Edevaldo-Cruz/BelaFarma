@@ -11,7 +11,7 @@ echo.
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$p = Get-Printer | Where-Object { $_.Name -like '*MP-4200*' -or $_.Name -like '*Bematech*' -or $_.Name -like '*4200*' } | Select-Object -First 1; if ($p) { (Get-CimInstance Win32_Printer -Filter \"Name='$($p.Name)'\").SetDefaultPrinter(); Write-Host '[OK] Bematech definida como impressora padrao do Caixa:' $p.Name -ForegroundColor Green } else { Write-Host '[AVISO] Bematech nao detectada automaticamente. Defina como impressora padrao no Windows.' -ForegroundColor Yellow }"
 
 :: 2. IP do Servidor BelaFarma na rede local
-set SERVER_IP=192.168.1.4:3001
+set SERVER_IP=192.168.1.70:3001
 set URL=http://%SERVER_IP%
 
 :: Parametros para Impressao Silenciosa 100%% Direta (sem janela de confirmacao)
