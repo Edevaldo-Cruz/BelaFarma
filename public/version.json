@@ -1,9 +1,19 @@
 {
-  "version": "1.2.1",
-  "commitHash": "dd350fe",
-  "commitMessage": "fix(fiscal): ajusta infNFeSupl fora de infNFe, ordenacao ICMSTot e validacao GTIN",
-  "buildTime": "31/10/2026, 16:49:18",
+  "version": "1.2.2",
+  "commitHash": "1a312c7",
+  "commitMessage": "fix(docker): expor porta 3001 no frontend para atender atalhos dos terminais de caixa",
+  "buildTime": "31/10/2026, 17:45:12",
   "recentCommits": [
+    {
+      "hash": "1a312c7",
+      "date": "31/10/2026",
+      "message": "fix(docker): expor porta 3001 no frontend para atender atalhos dos terminais de caixa"
+    },
+    {
+      "hash": "1ec0c1b",
+      "date": "31/10/2026",
+      "message": "fix(pdv): adicionar atalho de valor exato e recompilar bundle dist v1.2.1"
+    },
     {
       "hash": "dd350fe",
       "date": "31/10/2026",
@@ -53,16 +63,6 @@
       "hash": "1e04e9c",
       "date": "30/10/2026",
       "message": "build(dist): recompilar bundle e sincronizar version.json com ultimo commit"
-    },
-    {
-      "hash": "1fcc52f",
-      "date": "30/10/2026",
-      "message": "fix(server): adicionar tratadores globais de erro para evitar que timeouts do Digifarma derrubem o processo"
-    },
-    {
-      "hash": "bcdba77",
-      "date": "30/10/2026",
-      "message": "fix(vendas): unificar vendas do Digifarma e Belinha PDV e corrigir fuso horario local na listagem"
     }
   ]
 }

@@ -180,6 +180,25 @@ const App: React.FC = () => {
   };
   const [muralPendingCount, setMuralPendingCount] = useState(0);
   const [pendingReviewCount, setPendingReviewCount] = useState(0);
+  const [anvisaAlertCount, setAnvisaAlertCount] = useState(0);
+
+  // Consulta periodicamente o total de produtos proibidos pela ANVISA em estoque
+  useEffect(() => {
+    const fetchAnvisaAlertCount = async () => {
+      try {
+        const res = await fetch('/api/anvisa/summary');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && typeof data.totalEmEstoque === 'number') {
+            setAnvisaAlertCount(data.totalEmEstoque);
+          }
+        }
+      } catch (e) {}
+    };
+    fetchAnvisaAlertCount();
+    const interval = setInterval(fetchAnvisaAlertCount, 120000);
+    return () => clearInterval(interval);
+  }, []);
   const [isBudgetSummaryOpen, setIsBudgetSummaryOpen] = useState(false);
   const [showMobileFloatingButton, setShowMobileFloatingButton] = useState(true);
   const [selectedPendingReview, setSelectedPendingReview] = useState<Delivery | null>(null);
