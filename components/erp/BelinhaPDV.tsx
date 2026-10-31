@@ -1056,14 +1056,23 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
             <div className="bg-slate-50 dark:bg-slate-800/60 p-4 rounded-2xl border border-slate-200 dark:border-slate-700/80 mb-5 space-y-3">
               {selectedMethod === 'DINHEIRO' && (
                 <div>
-                  <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1">
-                    Valor Recebido em Dinheiro (R$):
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-bold text-slate-600 dark:text-slate-400">
+                      Valor Recebido em Dinheiro (R$):
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setCashReceived(totalFinal.toFixed(2))}
+                      className="text-[11px] font-bold text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 underline cursor-pointer"
+                    >
+                      Preencher Valor Exato (Sem Troco)
+                    </button>
+                  </div>
                   <input
                     type="text"
                     value={cashReceived}
                     onChange={e => setCashReceived(e.target.value)}
-                    placeholder={`Ex: ${totalFinal.toFixed(2)} (Em branco = sem troco)`}
+                    placeholder={`Ex: ${totalFinal.toFixed(2)} (Opcional: Deixe em branco se for valor exato)`}
                     autoFocus
                     onKeyDown={e => {
                       if (e.key === 'Enter') {
@@ -1085,7 +1094,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
                       <span className="text-emerald-600 font-bold">✓</span>
                       {isCashValueEntered
                         ? 'Valor exato informado (sem troco a devolver).'
-                        : `Valor não informado: considerando pagamento exato de R$ ${totalFinal.toFixed(2)} (sem troco).`}
+                        : `Valor não informado: considerando pagamento exato de R$ ${totalFinal.toFixed(2)} (sem troco). Clique em Confirmar ou aperte Enter.`}
                     </p>
                   )}
                 </div>

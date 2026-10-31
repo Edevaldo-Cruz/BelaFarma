@@ -1,9 +1,14 @@
 {
-  "version": "1.2.0",
-  "commitHash": "3fd10a1",
-  "commitMessage": "fix(fiscal): corrige URL oficial do QR Code para Portal SPED MG e ajuste de namespace SOAP SEFAZ",
-  "buildTime": "31/10/2026, 16:15:51",
+  "version": "1.2.1",
+  "commitHash": "dd350fe",
+  "commitMessage": "fix(fiscal): ajusta infNFeSupl fora de infNFe, ordenacao ICMSTot e validacao GTIN",
+  "buildTime": "31/10/2026, 16:49:18",
   "recentCommits": [
+    {
+      "hash": "dd350fe",
+      "date": "31/10/2026",
+      "message": "fix(fiscal): ajusta infNFeSupl fora de infNFe, ordenacao ICMSTot e validacao GTIN"
+    },
     {
       "hash": "3fd10a1",
       "date": "31/10/2026",
@@ -58,11 +63,6 @@
       "hash": "bcdba77",
       "date": "30/10/2026",
       "message": "fix(vendas): unificar vendas do Digifarma e Belinha PDV e corrigir fuso horario local na listagem"
-    },
-    {
-      "hash": "20b75c2",
-      "date": "30/10/2026",
-      "message": "feat(vendas): implementar guia de Vendas do Dia com filtros por data e por todas as formas de pagamento"
     }
   ]
 }
