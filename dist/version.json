@@ -1,9 +1,19 @@
 {
   "version": "1.2.0",
-  "commitHash": "20b75c2",
-  "commitMessage": "feat(vendas): implementar guia de Vendas do Dia com filtros por data e por todas as formas de pagamento",
-  "buildTime": "30/10/2026, 20:26:53",
+  "commitHash": "1fcc52f",
+  "commitMessage": "fix(server): adicionar tratadores globais de erro para evitar que timeouts do Digifarma derrubem o processo",
+  "buildTime": "30/10/2026, 21:06:36",
   "recentCommits": [
+    {
+      "hash": "1fcc52f",
+      "date": "30/10/2026",
+      "message": "fix(server): adicionar tratadores globais de erro para evitar que timeouts do Digifarma derrubem o processo"
+    },
+    {
+      "hash": "bcdba77",
+      "date": "30/10/2026",
+      "message": "fix(vendas): unificar vendas do Digifarma e Belinha PDV e corrigir fuso horario local na listagem"
+    },
     {
       "hash": "20b75c2",
       "date": "30/10/2026",
@@ -53,16 +63,6 @@
       "hash": "4341e45",
       "date": "30/10/2026",
       "message": "fix(erp): corrigir comunicacao xml nf-e e consolidar vendas do belinha pdv no fechamento de caixa"
-    },
-    {
-      "hash": "d61fd4a",
-      "date": "30/10/2026",
-      "message": "feat(erp): implementar modulo completo de emissao de cupom fiscal NFC-e Modelo 65 e DANFE termico com QR Code"
-    },
-    {
-      "hash": "73f4a34",
-      "date": "30/10/2026",
-      "message": "feat(erp): implementar modulo completo de entrada de notas fiscais (NF-e XML)"
     }
   ]
 }
