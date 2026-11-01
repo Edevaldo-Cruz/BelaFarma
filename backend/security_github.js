@@ -461,6 +461,12 @@ function isPublicApiRoute(req) {
     return true;
   }
 
+  // Rede de Impressão Térmica da Farmácia (Permite que terminais locais e o quiosque do Caixa imprimam livremente)
+  if (reqPath.startsWith('/printer/')) {
+    return true;
+  }
+
+
   return false;
 }
 
