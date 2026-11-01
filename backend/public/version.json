@@ -1,9 +1,24 @@
 {
   "version": "1.2.4",
-  "commitHash": "bead777",
-  "commitMessage": "feat(pdv): sincronizacao transacional com Digifarma e controle fiscal SEFAZ com fallback pendente",
-  "buildTime": "01/11/2026, 10:13:20",
+  "commitHash": "32d820d",
+  "commitMessage": "fix(security): permitir rotas /api/printer na rede local sem bloqueio de sessao",
+  "buildTime": "01/11/2026, 11:26:36",
   "recentCommits": [
+    {
+      "hash": "32d820d",
+      "date": "01/11/2026",
+      "message": "fix(security): permitir rotas /api/printer na rede local sem bloqueio de sessao"
+    },
+    {
+      "hash": "636bba2",
+      "date": "01/11/2026",
+      "message": "fix(script): correcao de sintaxe batch para inicializacao sem falhas do PDV"
+    },
+    {
+      "hash": "a2d2f6a",
+      "date": "01/11/2026",
+      "message": "feat(printer): impressao termica em rede para Bematech MP-4200 TH a partir de qualquer terminal"
+    },
     {
       "hash": "bead777",
       "date": "01/11/2026",
@@ -48,21 +63,6 @@
       "hash": "3fd10a1",
       "date": "31/10/2026",
       "message": "fix(fiscal): corrige URL oficial do QR Code para Portal SPED MG e ajuste de namespace SOAP SEFAZ"
-    },
-    {
-      "hash": "574f96d",
-      "date": "31/10/2026",
-      "message": "feat(sanitario): controle de receitas retidas no PDV e modulo de baixas sanitarias VISA/SNGPC"
-    },
-    {
-      "hash": "8651978",
-      "date": "31/10/2026",
-      "message": "fix(estabilidade): eliminar loop infinito de reconexao do Baileys e adicionar proxy retry no Nginx"
-    },
-    {
-      "hash": "96cf97c",
-      "date": "31/10/2026",
-      "message": "fix(uploads): alinhar volume de uploads do backend para ./backend/uploads"
     }
   ]
 }

@@ -29,6 +29,7 @@ import { IFoodControl } from "./components/iFoodControl";
 import { NotificationsPage } from "./components/NotificationsPage";
 import { MessagingCenter } from "./components/MessagingCenter";
 import AIPortal from "./components/AIPortal";
+import { BelaFarmaIAChat } from "./components/BelaFarmaIAChat";
 import { FinancialHealthAdvisor } from "./components/FinancialHealthAdvisor";
 import { CaixaProvisoes } from "./components/CaixaProvisoes";
 import { RadioManager } from "./components/RadioManager";
@@ -141,7 +142,17 @@ const App: React.FC = () => {
     return () => window.removeEventListener('resize', checkIfMobile);
   }, []);
 
-  const [currentView, setCurrentView] = useState<View>('dashboard');
+  const [currentView, setCurrentView] = useState<View>(() => {
+    if (typeof window !== 'undefined') {
+      const host = window.location.hostname.toLowerCase();
+      const hash = window.location.hash.toLowerCase();
+      const search = window.location.search.toLowerCase();
+      if (host.startsWith('ia.') || hash.includes('ia') || search.includes('view=ia') || search.includes('view=belafarma-ia')) {
+        return 'belafarma-ia';
+      }
+    }
+    return 'dashboard';
+  });
   const [orders, setOrders] = useState<Order[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [shortages, setShortages] = useState<ProductShortage[]>([]);
@@ -1517,6 +1528,9 @@ const App: React.FC = () => {
               )}
               {currentView === 'ai-portal' && user.role === UserRole.ADM && (
                 <AIPortal />
+              )}
+              {currentView === 'belafarma-ia' && (
+                <BelaFarmaIAChat />
               )}
               {currentView === 'financial-health' && user.role === UserRole.ADM && (
                 <FinancialHealthAdvisor />

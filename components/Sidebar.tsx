@@ -298,6 +298,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'consignados', label: 'Consignados', icon: Package },
     { id: 'invoices', label: 'Notas Fiscais', icon: FileText },
     { id: 'messaging-center', label: 'Mensagens WA', icon: MessageSquare },
+    { id: 'belafarma-ia', label: 'BelaFarma IA (Consultor)', icon: Sparkles },
     { id: 'ai-portal', label: 'Central de IAs', icon: BrainCircuit },
     { id: 'radio-manager', label: 'Rádio Bela Farma', icon: Radio },
     { id: 'whatsapp-crm', label: 'CRM WhatsApp', icon: ContactRound },
@@ -398,7 +399,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     const auditItem = auditMap[item.id];
     if (auditItem && auditItem.status === 'UNINSTALLED') return false;
 
-    const adminOnly = ['logs', 'belaped', 'central-compras', 'checking-account', 'cash-closing', 'financial', 'contas-a-pagar', 'users', 'safe', 'debtors-report', 'backups', 'consignados', 'invoices', 'ifood-control', 'messaging-center', 'ai-portal', 'radio-manager', 'whatsapp-crm', 'stock', 'financial-health', 'caixa-provisoes', 'sales-report', 'critical-stock', 'system-watcher', 'purchase-calendar', 'price-manager', 'card-machines', 'liquidacao-caixa']; 
+    const adminOnly = ['logs', 'belaped', 'central-compras', 'checking-account', 'cash-closing', 'financial', 'contas-a-pagar', 'users', 'safe', 'debtors-report', 'backups', 'consignados', 'invoices', 'ifood-control', 'messaging-center', 'belafarma-ia', 'ai-portal', 'radio-manager', 'whatsapp-crm', 'stock', 'financial-health', 'caixa-provisoes', 'sales-report', 'critical-stock', 'system-watcher', 'purchase-calendar', 'price-manager', 'card-machines', 'liquidacao-caixa']; 
 
     if (adminOnly.includes(item.id) && !isAdmin) return false;
     return true;

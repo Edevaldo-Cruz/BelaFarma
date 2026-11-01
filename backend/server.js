@@ -4515,6 +4515,10 @@ console.log('🗑️ Módulo de Perdas, Vencidos e Avarias inicializado.');
 require('./financial-health-endpoints.js')(app, db);
 console.log('💊 Módulo Saúde Financeira inicializado.');
 
+// Módulo Consultor Estratégico IA (ia.drogariabelafarma.com.br / Ollama Local)
+require('./ia-consultor-service.js')(app, db);
+console.log('🧠 Módulo Consultor Estratégico IA inicializado.');
+
 require('./radio-endpoints.js')(app, db);
 console.log('📻 Módulo Rádio Bela Farma inicializado.');
 
