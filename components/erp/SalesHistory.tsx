@@ -49,6 +49,9 @@ interface SaleSummary {
   nfe_number?: number;
   nfe_series?: number;
   access_key?: string;
+  contingency_reason?: string;
+  fiscal_error_message?: string;
+  customer_cpf?: string;
   origin?: 'BELINHA' | 'DIGIFARMA';
   recipe_type?: 'AMARELA' | 'AZUL' | 'BRANCA' | 'CREME' | null;
   controlled_count?: number;

@@ -541,6 +541,7 @@ export function imprimirDanfeNfce(danfe: DanfeNfceData) {
 
       <div class="text-center" style="font-size: 10px;">
         <span class="bold">CONSUMIDOR:</span> ${escapeHtml(danfe.consumidor.cpf)}
+        ${danfe.consumidor.nome && danfe.consumidor.nome !== 'Consumidor Final' ? `<br><span style="font-size: 9.5px; font-weight: 800;">${escapeHtml(danfe.consumidor.nome)}</span>` : ''}
       </div>
 
       <div class="divider"></div>

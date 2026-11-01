@@ -26,7 +26,7 @@ import {
 import { useToast } from '../ToastContext';
 import { DanfeNfceModal } from './DanfeNfceModal';
 import { FiscalSettingsModal } from './FiscalSettingsModal';
-import { imprimirCupomVenda } from '../../utils/thermalPrinter';
+import { imprimirCupomVenda, imprimirDanfeNfce } from '../../utils/thermalPrinter';
 import { ControlledRecipeModal, ControlledProductItem, ControlledRecipeData } from './ControlledRecipeModal';
 import { useThermalPrintSpooler } from './useThermalPrintSpooler';
 
@@ -106,6 +106,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
   // Cupom Concluído e Fiscal
   const [completedSale, setCompletedSale] = useState<any | null>(null);
   const [customerCpf, setCustomerCpf] = useState<string>('');
+  const [customerNameInput, setCustomerNameInput] = useState<string>('');
   const [emitNfce, setEmitNfce] = useState<boolean>(() => {
     try {
       const saved = localStorage.getItem('belaped_emit_nfce_default');
@@ -478,7 +479,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
           }
         ],
         customer_id: selectedCustomer ? selectedCustomer.id : null,
-        customer_name: selectedCustomer ? selectedCustomer.name : null,
+        customer_name: (selectedCustomer ? selectedCustomer.name : customerNameInput.trim()) || null,
         discount_value: discount,
         user_name: 'Balcão',
         controlled_recipes: controlledRecipesData || undefined,
@@ -494,6 +495,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
 
       const json = await res.json();
       if (res.ok && json.success) {
+        const finalCustomerName = selectedCustomer?.name || customerNameInput.trim() || undefined;
         const saleData = {
           sale_id: json.sale_id,
           date: json.sale_date,
@@ -503,26 +505,31 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
           discount_value: discount,
           total_final: totalFinal,
           payment: paymentPayload,
-          customer_name: selectedCustomer?.name,
+          customer_name: finalCustomerName,
           change: cashChange,
           digifarma: json.digifarma
         };
 
-        // Limpar carrinho e dados de receita
+        // Limpar carrinho e dados para o próximo atendimento rápido
         setCart([]);
         setDiscount(0);
         setCashReceived('');
         setSelectedCustomer(null);
         setControlledRecipesData(null);
+        setCustomerCpf('');
+        setCustomerNameInput('');
         setIsPaymentOpen(false);
 
         const caixaIdInfo = json.digifarma?.caixa_id ? ` (Caixa Digifarma #${json.digifarma.caixa_id})` : '';
 
-        // Cenário 1: NFC-e solicitada e autorizada com sucesso na SEFAZ
+        // Cenário 1: NFC-e solicitada e autorizada com sucesso na SEFAZ -> IMPRESSÃO DIRETA IMEDIATA!
         if (emitNfce && json.fiscal && json.fiscal.success && json.danfe) {
           setCompletedSale(null);
-          setActiveDanfeModal(json.danfe);
-          addToast(`NFC-e #${json.fiscal.nfe_number} autorizada pela SEFAZ e sincronizada${caixaIdInfo}!`, 'success', 4000);
+          setActiveDanfeModal(null); // Não bloqueia tela com modal!
+          // Dispara impressão térmica direta na Bematech (local ou spooler de rede)
+          imprimirDanfeNfce(json.danfe);
+          addToast(`✅ NFC-e #${json.fiscal.nfe_number} emitida e enviada para a impressora${caixaIdInfo}!`, 'success', 4000);
+          focusBarcodeInput();
         }
         // Cenário 2: NFC-e solicitada mas a SEFAZ falhou/offline
         else if (emitNfce && json.fiscal && !json.fiscal.success) {
@@ -530,11 +537,11 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
           if (autoPrintCupom) {
             setTimeout(() => {
               imprimirCupomVenda(saleData);
-            }, 150);
+            }, 100);
           }
           // Notificação explícita ao operador
           addToast(
-            `⚠️ Não foi possível transmitir à SEFAZ: ${json.fiscal.error || 'Indisponível'}. Venda salva como PENDENTE no Digifarma${caixaIdInfo}!`,
+            `⚠️ Não foi possível transmitir à SEFAZ: ${json.fiscal.error || 'Indisponível'}. Cupom impresso e salvo como PENDENTE no Digifarma${caixaIdInfo}!`,
             'warning',
             7000
           );
@@ -545,7 +552,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
           if (autoPrintCupom) {
             setTimeout(() => {
               imprimirCupomVenda(saleData);
-            }, 150);
+            }, 100);
           }
           addToast(`Venda finalizada com sucesso e sincronizada${caixaIdInfo}!`, 'success', 3000);
         }
@@ -1287,14 +1294,27 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
               </div>
 
               {emitNfce && (
-                <div>
-                  <input
-                    type="text"
-                    value={customerCpf}
-                    onChange={(e) => setCustomerCpf(e.target.value)}
-                    placeholder="CPF do Consumidor (Opcional - Ex: 123.456.789-00)"
-                    className="w-full px-3 py-1.5 text-xs font-mono rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:border-emerald-500"
-                  />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 mb-0.5">CPF ou CNPJ na Nota:</label>
+                    <input
+                      type="text"
+                      value={customerCpf}
+                      onChange={(e) => setCustomerCpf(e.target.value)}
+                      placeholder="Ex: 123.456.789-00"
+                      className="w-full px-2.5 py-1.5 text-xs font-mono rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 mb-0.5">Nome / Razão Social:</label>
+                    <input
+                      type="text"
+                      value={customerNameInput}
+                      onChange={(e) => setCustomerNameInput(e.target.value)}
+                      placeholder="Nome do Cliente (Opcional)"
+                      className="w-full px-2.5 py-1.5 text-xs font-medium rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
                 </div>
               )}
             </div>

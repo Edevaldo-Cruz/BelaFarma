@@ -198,27 +198,17 @@ module.exports = function (app, db) {
 
       // Obtém o panorama mais recente da farmácia
       const farmaciaContext = await buildFarmaciaContext(db);
+      // Prompt enxuto e direto para inferência veloz na CPU ARM do Pi 5
+      const fat = farmaciaContext.faturamento || {};
+      const resumoTexto = `Vendido 30d: R$ ${fat.totalVendido30d || '0'} | Média diária: R$ ${fat.mediaDiaria || '0'} | Pix: ${fat.percentualPix || '0%'} | Cartão: ${fat.percentualCartao || '0%'}`;
 
-      const systemPrompt = `Você é o Consultor Estratégico e Financeiro Inteligente da Drogaria Bela Farma Sul.
-Sua missão é dar sugestões criativas, práticas e comprovadas para melhorar a saúde financeira, aumentar o faturamento, elevar as margens e evitar desperdícios na farmácia.
-
-DADOS REAIS E ATUAIS DA BELA FARMA SUL:
-${JSON.stringify(farmaciaContext, null, 2)}
-
-DIRETRIZES DE RESPOSTA:
-1. Seja consultivo, direto, prático e motivador.
-2. Sempre use os números e dados reais da drogaria (mencione os valores, ticket médio, fornecedores ou produtos citados no contexto quando relevante).
-3. Sugira estratégias como:
-   - Formação de combos e vendas cruzadas no balcão e no WhatsApp (ex: perfumaria com similares, hidratantes com protetor solar).
-   - Oportunidades de negociação com distribuidores usando as cotações do BelaPed.
-   - Campanhas focadas em clientes locais para itens de alta margem.
-   - Ações de liquidação ou desova para produtos com validade próxima ou estoque parado.
-4. Use formatação limpa com tópicos claros, negrito e emojis pertinentes.
-5. Fale sempre em português (Brasil).`;
+      const systemPrompt = `Você é o Consultor Estratégico e Financeiro da Bela Farma Sul.
+Panorama atual: ${resumoTexto}.
+Seja objetivo, prático, motivador e dê respostas curtas com tópicos, negrito e emojis. Foque em ações de aumento de vendas e rentabilidade. Fale em português.`;
 
       // Converte o histórico de mensagens
       const historyText = (history || [])
-        .slice(-6)
+        .slice(-4)
         .map(msg => `${msg.role === 'user' ? 'Gestor' : 'Consultor IA'}: ${msg.content}`)
         .join('\n');
 
@@ -226,11 +216,11 @@ DIRETRIZES DE RESPOSTA:
         ? `${historyText}\nGestor: ${message}`
         : message;
 
-      // Chama o Ollama local no Raspberry Pi 5 com timeout estendido e contexto compacto
+      // Chama o Ollama local no Raspberry Pi 5 com limite de tokens ágil (350 tokens)
       const reply = await callAI(fullPrompt, systemPrompt, {
         provider: 'ollama',
-        temperature: 0.6,
-        maxTokens: 1024,
+        temperature: 0.5,
+        maxTokens: 350,
         isPriority: true // Chat do gestor não pode ser bloqueado
       });
 
