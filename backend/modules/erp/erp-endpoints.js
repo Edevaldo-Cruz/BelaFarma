@@ -140,13 +140,13 @@ router.post('/pos/checkout', async (req, res) => {
       user_name: userName
     });
 
-    const { emit_nfce, customer_cpf } = req.body;
+    const { emit_nfce, customer_cpf, customer_name } = req.body;
     let fiscalResult = null;
     let danfe = null;
 
     if (emit_nfce) {
       try {
-        danfe = await emitirCupomFiscal(resultado.sale_id, { customer_cpf });
+        danfe = await emitirCupomFiscal(resultado.sale_id, { customer_cpf, customer_name });
         fiscalResult = {
           success: true,
           chave: danfe.chave_acesso || danfe.chNFe,
@@ -162,6 +162,18 @@ router.post('/pos/checkout', async (req, res) => {
           error: fiscalErr.message,
           error_message: fiscalErr.message
         };
+        // Grava status ERRO e motivo no banco para rastreio e reenvio na tela de vendas
+        try {
+          const { db } = require('./erp-database');
+          db.prepare(`
+            UPDATE sales 
+            SET fiscal_status = 'ERRO',
+                contingency_reason = ?,
+                customer_cpf = COALESCE(?, customer_cpf),
+                customer_name = COALESCE(?, customer_name)
+            WHERE id = ?
+          `).run(fiscalErr.message.substring(0, 255), customer_cpf || null, customer_name || null, resultado.sale_id);
+        } catch (dbErr) {}
       }
     }
 
@@ -374,18 +386,125 @@ router.get('/fiscal/status-sefaz', async (req, res) => {
   }
 });
 
-// Emite cupom fiscal (NFC-e Modelo 65) para uma venda
+// Emite ou retransmite cupom fiscal (NFC-e Modelo 65) para uma venda
 router.post('/fiscal/emit/:saleId', async (req, res) => {
   try {
-    const { customer_cpf, contingency, contingency_reason } = req.body;
+    const { customer_cpf, customer_name, contingency, contingency_reason, force_retransmit } = req.body;
     const danfe = await emitirCupomFiscal(req.params.saleId, {
       customer_cpf,
+      customer_name,
       contingency,
-      contingency_reason
+      contingency_reason,
+      force_retransmit: Boolean(force_retransmit)
     });
+
+    // Se autorizou e a venda foi originada com Digifarma, atualiza Digifarma para evitar reenvio duplicado
+    try {
+      const { atualizarNfceAutorizadaDigifarma } = require('./erp-digifarma-sales-sync.service');
+      const { db } = require('./erp-database');
+      const saleRow = db.prepare('SELECT digifarma_venda_nota_id FROM sales WHERE id = ?').get(req.params.saleId);
+      if (saleRow && saleRow.digifarma_venda_nota_id) {
+        await atualizarNfceAutorizadaDigifarma(saleRow.digifarma_venda_nota_id, {
+          chave: danfe.access_key || danfe.chave_acesso,
+          nfe_number: danfe.nfe_number,
+          serie: danfe.nfe_series,
+          protocolo: danfe.protocol_number
+        });
+      }
+    } catch (syncErr) {
+      console.warn('[Belinha Fiscal] ⚠️ Aviso ao atualizar status fiscal no Digifarma após reenvio:', syncErr.message);
+    }
+
     res.json(danfe);
   } catch (err) {
+    // Registra o erro na venda para exibição e tentativas futuras
+    try {
+      const { db } = require('./erp-database');
+      db.prepare(`
+        UPDATE sales
+        SET fiscal_status = 'ERRO',
+            contingency_reason = ?
+        WHERE id = ?
+      `).run(err.message.substring(0, 255), req.params.saleId);
+    } catch (dbErr) {}
+
     res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// Reenvio em lote de notas fiscais pendentes ou com erro no período
+router.post('/fiscal/retransmit-batch', async (req, res) => {
+  try {
+    const { sale_ids = [], dataInicio, dataFim } = req.body;
+    const { db } = require('./erp-database');
+
+    let idsToProcess = [];
+    if (Array.isArray(sale_ids) && sale_ids.length > 0) {
+      idsToProcess = sale_ids;
+    } else if (dataInicio) {
+      const end = dataFim || dataInicio;
+      const rows = db.prepare(`
+        SELECT id FROM sales 
+        WHERE sale_date BETWEEN ? AND ? 
+          AND status = 'CONCLUIDA'
+          AND (fiscal_status IS NULL OR fiscal_status IN ('NAO_EMITIDO', 'ERRO', 'CONTINGENCIA'))
+        ORDER BY sale_date ASC, sale_time ASC
+      `).all(dataInicio, end);
+      idsToProcess = rows.map(r => r.id);
+    }
+
+    if (idsToProcess.length === 0) {
+      return res.json({ success: true, count: 0, processed: 0, sucessos: 0, falhas: 0, resultados: [] });
+    }
+
+    const resultados = [];
+    let sucessos = 0;
+    let falhas = 0;
+
+    for (const sId of idsToProcess) {
+      try {
+        const sale = db.prepare('SELECT * FROM sales WHERE id = ?').get(sId);
+        if (!sale || sale.status === 'CANCELADA') continue;
+
+        const danfe = await emitirCupomFiscal(sId, {
+          customer_cpf: sale.customer_cpf,
+          customer_name: sale.customer_name,
+          force_retransmit: true
+        });
+
+        // Atualiza Digifarma se necessário
+        if (sale.digifarma_venda_nota_id) {
+          try {
+            const { atualizarNfceAutorizadaDigifarma } = require('./erp-digifarma-sales-sync.service');
+            await atualizarNfceAutorizadaDigifarma(sale.digifarma_venda_nota_id, {
+              chave: danfe.access_key || danfe.chave_acesso,
+              nfe_number: danfe.nfe_number,
+              serie: danfe.nfe_series,
+              protocolo: danfe.protocol_number
+            });
+          } catch (e) {}
+        }
+
+        sucessos++;
+        resultados.push({ sale_id: sId, success: true, nfe_number: danfe.nfe_number });
+      } catch (err) {
+        falhas++;
+        try {
+          db.prepare(`UPDATE sales SET fiscal_status = 'ERRO', contingency_reason = ? WHERE id = ?`).run(err.message.substring(0, 255), sId);
+        } catch (e) {}
+        resultados.push({ sale_id: sId, success: false, error: err.message });
+      }
+    }
+
+    res.json({
+      success: true,
+      total: idsToProcess.length,
+      sucessos,
+      falhas,
+      resultados
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 

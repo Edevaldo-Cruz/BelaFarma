@@ -226,10 +226,11 @@ DIRETRIZES DE RESPOSTA:
         ? `${historyText}\nGestor: ${message}`
         : message;
 
-      // Chama a IA (Ollama local qwen2.5-coder:3b ou provider configurado)
-      // Se AI_PROVIDER for ollama, bate direto na API local do Pi
+      // Chama o Ollama local no Raspberry Pi 5 com timeout estendido e contexto compacto
       const reply = await callAI(fullPrompt, systemPrompt, {
+        provider: 'ollama',
         temperature: 0.6,
+        maxTokens: 1024,
         isPriority: true // Chat do gestor não pode ser bloqueado
       });
 

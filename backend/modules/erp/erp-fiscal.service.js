@@ -233,7 +233,7 @@ function gerarQrCodeUrl({
 async function emitirCupomFiscal(saleId, options = {}) {
   initErpDatabase();
 
-  const { customer_cpf = null, contingency = false, contingency_reason = '' } = options;
+  const { customer_cpf = null, customer_name = null, contingency = false, contingency_reason = '', force_retransmit = false } = options;
 
   // 1. Busca a venda e seus itens
   const sale = db.prepare('SELECT * FROM sales WHERE id = ?').get(saleId);
@@ -245,7 +245,7 @@ async function emitirCupomFiscal(saleId, options = {}) {
     throw new Error('Não é possível emitir cupom fiscal para uma venda cancelada.');
   }
 
-  if (sale.fiscal_status === 'EMITIDO') {
+  if (sale.fiscal_status === 'EMITIDO' && !force_retransmit) {
     return obterDanfeNfce(saleId);
   }
 
@@ -347,8 +347,16 @@ async function emitirCupomFiscal(saleId, options = {}) {
   if (temCertificado) {
     const certData = extrairDadosCertificadoA1(config.certificate_pfx_base64, config.certificate_password);
 
+    // Montagem da tag <dest> com CPF ou CNPJ e xNome (se informados)
+    const rawDoc = String(customer_cpf || sale.customer_cpf || '').replace(/\D/g, '');
+    const docTag = rawDoc.length === 14 ? `<CNPJ>${rawDoc}</CNPJ>` : rawDoc.length === 11 ? `<CPF>${rawDoc}</CPF>` : '';
+    const nomeConsumidor = String(customer_name || sale.customer_name || '').trim();
+    const destTag = (docTag || nomeConsumidor) 
+      ? `<dest>${docTag}${nomeConsumidor ? `<xNome>${nomeConsumidor.slice(0, 60)}</xNome>` : ''}<indIEDest>9</indIEDest></dest>` 
+      : '';
+
     // Constrói XML oficial da NF-e (Modelo 65) - sem declaracao <?xml?> interna para nao conflitar com enviNFe
-    const xmlNfeCru = `<NFe xmlns="http://www.portalfiscal.inf.br/nfe"><infNFe Id="NFe${chaveAcesso}" versao="4.00"><ide><cUF>${CODIGOS_UF[config.uf] || '31'}</cUF><cNF>${chaveAcesso.slice(35, 43)}</cNF><natOp>VENDA AO CONSUMIDOR</natOp><mod>65</mod><serie>${serie}</serie><nNF>${nNF}</nNF><dhEmi>${dhEmi}</dhEmi><tpNF>1</tpNF><idDest>1</idDest><cMunFG>${config.cod_municipio_ibge}</cMunFG><tpImp>4</tpImp><tpEmis>${tpEmis}</tpEmis><cDV>${chaveAcesso.slice(-1)}</cDV><tpAmb>${tpAmb}</tpAmb><finNFe>1</finNFe><indFinal>1</indFinal><indPres>1</indPres><procEmi>0</procEmi><verProc>Belinha_1.0</verProc>${tpEmis === '9' ? `<dhCont>${dhEmi}</dhCont><xJust>${finalContingencyReason || 'SEFAZ OFFLINE'}</xJust>` : ''}</ide><emit><CNPJ>${config.cnpj}</CNPJ><xNome>${config.razao_social}</xNome><xFant>${config.nome_fantasia}</xFant><enderEmit><xLgr>${config.logradouro}</xLgr><nro>${config.numero}</nro><xBairro>${config.bairro}</xBairro><cMun>${config.cod_municipio_ibge}</cMun><xMun>${config.municipio}</xMun><UF>${config.uf}</UF><CEP>${config.cep}</CEP></enderEmit><IE>${config.inscricao_estadual}</IE><CRT>${config.regime_tributario}</CRT></emit>${customer_cpf ? `<dest><CPF>${customer_cpf.replace(/\D/g, '')}</CPF><indIEDest>9</indIEDest></dest>` : ''}${itensFiscais.map(it => `
+    const xmlNfeCru = `<NFe xmlns="http://www.portalfiscal.inf.br/nfe"><infNFe Id="NFe${chaveAcesso}" versao="4.00"><ide><cUF>${CODIGOS_UF[config.uf] || '31'}</cUF><cNF>${chaveAcesso.slice(35, 43)}</cNF><natOp>VENDA AO CONSUMIDOR</natOp><mod>65</mod><serie>${serie}</serie><nNF>${nNF}</nNF><dhEmi>${dhEmi}</dhEmi><tpNF>1</tpNF><idDest>1</idDest><cMunFG>${config.cod_municipio_ibge}</cMunFG><tpImp>4</tpImp><tpEmis>${tpEmis}</tpEmis><cDV>${chaveAcesso.slice(-1)}</cDV><tpAmb>${tpAmb}</tpAmb><finNFe>1</finNFe><indFinal>1</indFinal><indPres>1</indPres><procEmi>0</procEmi><verProc>Belinha_1.0</verProc>${tpEmis === '9' ? `<dhCont>${dhEmi}</dhCont><xJust>${finalContingencyReason || 'SEFAZ OFFLINE'}</xJust>` : ''}</ide><emit><CNPJ>${config.cnpj}</CNPJ><xNome>${config.razao_social}</xNome><xFant>${config.nome_fantasia}</xFant><enderEmit><xLgr>${config.logradouro}</xLgr><nro>${config.numero}</nro><xBairro>${config.bairro}</xBairro><cMun>${config.cod_municipio_ibge}</cMun><xMun>${config.municipio}</xMun><UF>${config.uf}</UF><CEP>${config.cep}</CEP></enderEmit><IE>${config.inscricao_estadual}</IE><CRT>${config.regime_tributario}</CRT></emit>${destTag}${itensFiscais.map(it => `
 <det nItem="${it.nItem}">
   <prod>
     <cProd>${it.code}</cProd>
@@ -432,6 +440,7 @@ async function emitirCupomFiscal(saleId, options = {}) {
           protocol_number = ?,
           qr_code_url = ?,
           customer_cpf = ?,
+          customer_name = COALESCE(?, customer_name),
           issued_at = datetime('now', 'localtime'),
           xml_content = ?,
           contingency_reason = ?
@@ -444,6 +453,7 @@ async function emitirCupomFiscal(saleId, options = {}) {
       finalProtocolNumber,
       qrCodeUrl,
       customer_cpf || sale.customer_cpf || null,
+      customer_name || null,
       xmlParaSalvar,
       finalContingencyReason,
       saleId

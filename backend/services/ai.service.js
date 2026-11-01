@@ -98,7 +98,7 @@ async function callAI(prompt, systemPrompt = '', options = {}) {
   // Trava de segurança: impede gasto descontrolado de tokens se houver loop
   checkAndIncrementDailyUsage(options);
 
-  const primaryProvider = process.env.AI_PROVIDER || 'openai';
+  const primaryProvider = options.provider || process.env.AI_PROVIDER || 'openai';
   const temperature = options.temperature !== undefined ? options.temperature : 0.7;
   const maxTokens = options.maxTokens || 8192;
   const imageData = options.imageData; // Base64 da imagem se houver
@@ -280,7 +280,7 @@ async function callAI(prompt, systemPrompt = '', options = {}) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
-        timeout: 60000
+        timeout: 120000
       });
 
       if (!response.ok) {
