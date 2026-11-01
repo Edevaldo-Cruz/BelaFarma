@@ -95,6 +95,7 @@ export const SalesHistory: React.FC = () => {
   const [searchFilter, setSearchFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState<'TODOS' | 'CONCLUIDA' | 'CANCELADA'>('TODOS');
   const [paymentFilter, setPaymentFilter] = useState<string>('TODOS');
+  const [fiscalFilter, setFiscalFilter] = useState<'TODOS' | 'EMITIDO' | 'CONTINGENCIA' | 'PENDENTE_ERRO'>('TODOS');
 
   // Detalhes da Venda
   const [activeSaleDetail, setActiveSaleDetail] = useState<any | null>(null);
@@ -103,6 +104,7 @@ export const SalesHistory: React.FC = () => {
   // Fiscal
   const [activeDanfeModal, setActiveDanfeModal] = useState<any | null>(null);
   const [isEmittingFiscal, setIsEmittingFiscal] = useState<string | null>(null);
+  const [isRetransmittingBatch, setIsRetransmittingBatch] = useState(false);
 
   // Modal de Cancelamento
   const [saleToCancel, setSaleToCancel] = useState<SaleSummary | null>(null);
@@ -204,41 +206,89 @@ export const SalesHistory: React.FC = () => {
     }
   };
 
-  // Emitir Cupom Fiscal para venda que não foi emitida
-  const handleEmitirNfce = async (saleId: string) => {
+  // Emitir ou Reenviar Cupom Fiscal individual para a SEFAZ
+  const handleEmitirNfce = async (saleId: string, forceRetransmit: boolean = false) => {
     setIsEmittingFiscal(saleId);
     try {
       const res = await fetch(`/api/erp/fiscal/emit/${encodeURIComponent(saleId)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({})
+        body: JSON.stringify({ force_retransmit: forceRetransmit })
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        addToast(`NFC-e #${data.nfe_number} emitida com sucesso!`, 'success');
+        addToast(`NFC-e #${data.nfe_number} autorizada pela SEFAZ com sucesso!`, 'success', 4000);
         setActiveDanfeModal(data);
         fetchSales();
       } else {
-        addToast(data.error || 'Erro ao emitir NFC-e.', 'error');
+        addToast(`Falha no envio à SEFAZ: ${data.error || 'Erro desconhecido'}`, 'error', 6000);
+        fetchSales();
       }
-    } catch (err) {
-      addToast('Erro ao comunicar com o emissor fiscal.', 'error');
+    } catch (err: any) {
+      addToast(`Erro de comunicação com o emissor fiscal: ${err.message}`, 'error');
     } finally {
       setIsEmittingFiscal(null);
     }
   };
 
-  // Filtragem textual local
+  // Reenviar Todas as Notas Pendentes / Com Erro do Período Filtrado
+  const handleRetransmitAllFiscal = async (pendentes: SaleSummary[]) => {
+    if (pendentes.length === 0) {
+      addToast('Nenhuma venda pendente ou com erro fiscal para reenviar.', 'info');
+      return;
+    }
+
+    setIsRetransmittingBatch(true);
+    addToast(`🚀 Iniciando reenvio de ${pendentes.length} notas para a SEFAZ...`, 'info', 3000);
+
+    try {
+      const res = await fetch('/api/erp/fiscal/retransmit-batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sale_ids: pendentes.map(s => s.id) })
+      });
+      const json = await res.json();
+
+      if (res.ok && json.success) {
+        if (json.falhas === 0) {
+          addToast(`🎉 Todas as ${json.sucessos} notas foram autorizadas com sucesso na SEFAZ!`, 'success', 6000);
+        } else {
+          addToast(`⚠️ Reenvio concluído: ${json.sucessos} autorizadas, ${json.falhas} falharam. Verifique os erros.`, 'warning', 7000);
+        }
+        fetchSales();
+      } else {
+        addToast(`Erro no processamento em lote: ${json.error || 'Falha'}`, 'error');
+      }
+    } catch (err: any) {
+      addToast(`Erro de comunicação no reenvio em lote: ${err.message}`, 'error');
+    } finally {
+      setIsRetransmittingBatch(false);
+    }
+  };
+
+  // Filtragem local combinada (Texto + Status + Fiscal)
   const filteredSales = sales.filter(s => {
+    // Filtro Fiscal
+    if (fiscalFilter === 'EMITIDO' && s.fiscal_status !== 'EMITIDO') return false;
+    if (fiscalFilter === 'CONTINGENCIA' && s.fiscal_status !== 'CONTINGENCIA') return false;
+    if (fiscalFilter === 'PENDENTE_ERRO' && (s.fiscal_status === 'EMITIDO' || s.fiscal_status === 'CANCELADO')) return false;
+
+    // Filtro Textual
     if (!searchFilter.trim()) return true;
     const q = searchFilter.toLowerCase();
     return (
       s.id.toLowerCase().includes(q) ||
       (s.customer_name && s.customer_name.toLowerCase().includes(q)) ||
       (s.user_name && s.user_name.toLowerCase().includes(q)) ||
-      (s.payment_methods && s.payment_methods.toLowerCase().includes(q))
+      (s.payment_methods && s.payment_methods.toLowerCase().includes(q)) ||
+      (s.contingency_reason && s.contingency_reason.toLowerCase().includes(q))
     );
   });
+
+  // Lista de vendas concluídas que ainda não foram autorizadas na SEFAZ (passíveis de reenvio)
+  const pendentesFiscaisLista = filteredSales.filter(
+    s => s.status === 'CONCLUIDA' && (!s.fiscal_status || s.fiscal_status === 'NAO_EMITIDO' || s.fiscal_status === 'ERRO' || s.fiscal_status === 'CONTINGENCIA')
+  );
 
   // Métricas da lista filtrada
   const totalFaturadoLista = filteredSales
@@ -575,7 +625,7 @@ export const SalesHistory: React.FC = () => {
             <option value="CREDIARIO">📑 Apenas Crediário / Convênio</option>
           </select>
 
-          {/* Filtro Status */}
+          {/* Filtro Status Geral */}
           <select
             value={statusFilter}
             onChange={e => setStatusFilter(e.target.value as any)}
@@ -585,6 +635,36 @@ export const SalesHistory: React.FC = () => {
             <option value="CONCLUIDA">Apenas Concluídas</option>
             <option value="CANCELADA">Apenas Canceladas</option>
           </select>
+
+          {/* Filtro SEFAZ Fiscal */}
+          <select
+            value={fiscalFilter}
+            onChange={e => setFiscalFilter(e.target.value as any)}
+            className="px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-300 focus:outline-none"
+          >
+            <option value="TODOS">SEFAZ: Todos os Cupons</option>
+            <option value="EMITIDO">✅ Apenas Autorizadas (SEFAZ)</option>
+            <option value="CONTINGENCIA">⚠️ Apenas Contingência</option>
+            <option value="PENDENTE_ERRO">❌ Com Erro / Não Enviadas</option>
+          </select>
+
+          {/* Botão de Ação em Lote: Reenviar todas do período */}
+          {pendentesFiscaisLista.length > 0 && (
+            <button
+              type="button"
+              onClick={() => handleRetransmitAllFiscal(pendentesFiscaisLista)}
+              disabled={isRetransmittingBatch}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-bold shadow-md transition-all cursor-pointer"
+              title="Reenviar todas as notas deste período com erro ou pendentes para a SEFAZ"
+            >
+              {isRetransmittingBatch ? (
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <ShieldCheck className="w-3.5 h-3.5" />
+              )}
+              <span>{isRetransmittingBatch ? 'Transmitindo...' : `Reenviar SEFAZ (${pendentesFiscaisLista.length})`}</span>
+            </button>
+          )}
         </div>
 
         {/* Resumo Rápido da Busca Atual */}
@@ -763,22 +843,27 @@ export const SalesHistory: React.FC = () => {
                       {/* Cupom Fiscal */}
                       <td className="py-2.5 px-3 text-center whitespace-nowrap">
                         {s.fiscal_status === 'EMITIDO' ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-500 border border-emerald-500/30">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-500 border border-emerald-500/30" title={`Chave: ${s.access_key || 'Autorizada'}`}>
                             <ShieldCheck className="w-3 h-3" />
                             NFC-e #{s.nfe_number}
                           </span>
                         ) : s.fiscal_status === 'CONTINGENCIA' ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-500 border border-amber-500/30" title={s.contingency_reason || 'Emitido em contingência offline'}>
                             <ShieldCheck className="w-3 h-3" />
                             Contingência #{s.nfe_number}
                           </span>
+                        ) : s.fiscal_status === 'ERRO' ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/15 text-rose-500 border border-rose-500/30" title={s.contingency_reason || s.fiscal_error_message || 'Falha ao transmitir para a SEFAZ'}>
+                            <XCircle className="w-3 h-3" />
+                            Erro Envio SEFAZ
+                          </span>
                         ) : s.fiscal_status === 'CANCELADO' ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/15 text-rose-400 border border-rose-500/30">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-500/15 text-slate-400 border border-slate-500/30">
                             Cancelada
                           </span>
                         ) : (
-                          <span className="text-[10px] text-slate-400 font-medium">
-                            Não Emitido
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700">
+                            Não Enviado
                           </span>
                         )}
                       </td>
@@ -806,13 +891,17 @@ export const SalesHistory: React.FC = () => {
                             </button>
                           )}
 
-                          {isConcluida && (!s.fiscal_status || s.fiscal_status === 'NAO_EMITIDO') && (
+                          {isConcluida && (!s.fiscal_status || s.fiscal_status === 'NAO_EMITIDO' || s.fiscal_status === 'ERRO' || s.fiscal_status === 'CONTINGENCIA') && (
                             <button
                               type="button"
-                              onClick={() => handleEmitirNfce(s.id)}
+                              onClick={() => handleEmitirNfce(s.id, s.fiscal_status === 'CONTINGENCIA' || s.fiscal_status === 'ERRO')}
                               disabled={isEmittingFiscal === s.id}
-                              className="p-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 text-emerald-600 dark:text-emerald-400 transition-colors"
-                              title="Emitir Cupom Fiscal (NFC-e Oficial SEFAZ)"
+                              className={`p-1.5 rounded-lg transition-colors ${
+                                s.fiscal_status === 'ERRO'
+                                  ? 'bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 text-rose-600 dark:text-rose-400'
+                                  : 'bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 text-blue-600 dark:text-blue-400'
+                              }`}
+                              title={s.fiscal_status === 'ERRO' || s.fiscal_status === 'CONTINGENCIA' ? 'Reenviar Nota para SEFAZ' : 'Emitir Cupom Fiscal NFC-e'}
                             >
                               {isEmittingFiscal === s.id ? (
                                 <RefreshCw className="w-3.5 h-3.5 animate-spin" />

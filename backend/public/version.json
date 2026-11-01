@@ -1,9 +1,24 @@
 {
   "version": "1.2.4",
-  "commitHash": "32d820d",
-  "commitMessage": "fix(security): permitir rotas /api/printer na rede local sem bloqueio de sessao",
-  "buildTime": "01/11/2026, 11:26:36",
+  "commitHash": "f96ae26",
+  "commitMessage": "fix(ia): otimizar prompt para resposta ultra-rapida do consultor ia",
+  "buildTime": "01/11/2026, 12:35:33",
   "recentCommits": [
+    {
+      "hash": "f96ae26",
+      "date": "01/11/2026",
+      "message": "fix(ia): otimizar prompt para resposta ultra-rapida do consultor ia"
+    },
+    {
+      "hash": "5411290",
+      "date": "01/11/2026",
+      "message": "fix(ia): configurar timeout e provedor local ollama para o Consultor IA"
+    },
+    {
+      "hash": "e51a743",
+      "date": "01/11/2026",
+      "message": "feat(ia): adicionar modulo Consultor Estrategico BelaFarma IA com suporte a Ollama local e dados do negocio"
+    },
     {
       "hash": "32d820d",
       "date": "01/11/2026",
@@ -48,21 +63,6 @@
       "hash": "1a312c7",
       "date": "31/10/2026",
       "message": "fix(docker): expor porta 3001 no frontend para atender atalhos dos terminais de caixa"
-    },
-    {
-      "hash": "1ec0c1b",
-      "date": "31/10/2026",
-      "message": "fix(pdv): adicionar atalho de valor exato e recompilar bundle dist v1.2.1"
-    },
-    {
-      "hash": "dd350fe",
-      "date": "31/10/2026",
-      "message": "fix(fiscal): ajusta infNFeSupl fora de infNFe, ordenacao ICMSTot e validacao GTIN"
-    },
-    {
-      "hash": "3fd10a1",
-      "date": "31/10/2026",
-      "message": "fix(fiscal): corrige URL oficial do QR Code para Portal SPED MG e ajuste de namespace SOAP SEFAZ"
     }
   ]
 }
