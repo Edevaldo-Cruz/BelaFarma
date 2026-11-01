@@ -28,6 +28,7 @@ import { DanfeNfceModal } from './DanfeNfceModal';
 import { FiscalSettingsModal } from './FiscalSettingsModal';
 import { imprimirCupomVenda } from '../../utils/thermalPrinter';
 import { ControlledRecipeModal, ControlledProductItem, ControlledRecipeData } from './ControlledRecipeModal';
+import { useThermalPrintSpooler } from './useThermalPrintSpooler';
 
 interface CartItem {
   code: string;
@@ -77,8 +78,12 @@ interface BelinhaPDVProps {
 export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
   const { addToast } = useToast();
 
+  // Spooler de Impressão Térmica em Rede (qualquer computador da farmácia imprime na Bematech do Caixa)
+  const { isPrinterStation, togglePrinterStation, testNetworkPrint } = useThermalPrintSpooler();
+
   // Estados do Carrinho
   const [cart, setCart] = useState<CartItem[]>([]);
+
   const [barcodeInput, setBarcodeInput] = useState('');
   const [discount, setDiscount] = useState<number>(0);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -682,6 +687,37 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
             <Printer className={`w-3.5 h-3.5 ${autoPrintCupom ? 'text-emerald-600' : 'text-slate-400'}`} />
             <span>MP-4200: {autoPrintCupom ? 'Auto ON' : 'Manual'}</span>
           </button>
+
+          {/* Status da Impressora Térmica em Rede */}
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => togglePrinterStation(!isPrinterStation)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm border ${
+                isPrinterStation
+                  ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-800'
+                  : 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-800'
+              }`}
+              title={
+                isPrinterStation
+                  ? 'Este computador é a Estação Física da Bematech (recebe e imprime cupons de toda a rede automaticamente). Clique para alterar.'
+                  : 'Este computador imprime na Bematech do Caixa via Rede. Clique para torná-lo a estação física.'
+              }
+            >
+              <span className={`w-2 h-2 rounded-full ${isPrinterStation ? 'bg-blue-600 animate-pulse' : 'bg-amber-500'}`} />
+              <span>{isPrinterStation ? 'Estação Caixa (Bematech)' : 'Imprimir via Rede (Caixa)'}</span>
+            </button>
+
+            {!isPrinterStation && (
+              <button
+                onClick={testNetworkPrint}
+                className="px-2 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-bold transition-all shadow-sm border border-slate-200 dark:border-slate-700"
+                title="Disparar cupom de teste para a Bematech conectada no Caixa"
+              >
+                Testar Rede
+              </button>
+            )}
+          </div>
+
 
           {onNavigate && (
             <button

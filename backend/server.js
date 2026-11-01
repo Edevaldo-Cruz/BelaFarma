@@ -4653,6 +4653,12 @@ const erpEndpoints = require('./modules/erp/erp-endpoints.js');
 app.use('/api/erp', erpEndpoints);
 console.log('🏪 Belinha ERP Nativo inicializado em /api/erp (PDV, Estoque e Vendas).');
 
+// Rede de Impressão Térmica (Bematech MP-4200 TH em rede de qualquer terminal)
+const printerEndpoints = require('./printer-endpoints.js');
+app.use('/api/printer', printerEndpoints);
+console.log('🖨️ Rede de Impressão Térmica BelaFarma inicializada em /api/printer.');
+
+
 // Rotina matinal diária para gerar lista de produtos parados nos dias úteis (roda a cada 1 hora para checar)
 setInterval(async () => {
   try {

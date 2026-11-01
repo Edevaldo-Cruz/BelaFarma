@@ -1,9 +1,14 @@
 {
   "version": "1.2.4",
-  "commitHash": "f2d00f7",
-  "commitMessage": "perf(belaped): ajustar intervalo de recalculo automatico de estoque de 15m para 2h",
-  "buildTime": "01/11/2026, 09:59:13",
+  "commitHash": "bead777",
+  "commitMessage": "feat(pdv): sincronizacao transacional com Digifarma e controle fiscal SEFAZ com fallback pendente",
+  "buildTime": "01/11/2026, 10:13:20",
   "recentCommits": [
+    {
+      "hash": "bead777",
+      "date": "01/11/2026",
+      "message": "feat(pdv): sincronizacao transacional com Digifarma e controle fiscal SEFAZ com fallback pendente"
+    },
     {
       "hash": "f2d00f7",
       "date": "31/10/2026",
@@ -58,11 +63,6 @@
       "hash": "96cf97c",
       "date": "31/10/2026",
       "message": "fix(uploads): alinhar volume de uploads do backend para ./backend/uploads"
-    },
-    {
-      "hash": "b4f302b",
-      "date": "31/10/2026",
-      "message": "fix(pdv): apontar atalhos dos terminais Bematech e Caixa para o Raspberry Pi 5 (192.168.1.70)"
     }
   ]
 }

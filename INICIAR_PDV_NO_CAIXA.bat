@@ -12,7 +12,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "$p = Get-Printer | Where
 
 :: 2. IP do Servidor BelaFarma na rede local
 set SERVER_IP=192.168.1.70:3001
-set URL=http://%SERVER_IP%
+set URL=http://%SERVER_IP%?isPrinterStation=true
 
 :: Parametros para Impressao Silenciosa 100%% Direta (sem janela de confirmacao)
 set USER_DATA="%LOCALAPPDATA%\BelaFarmaPDV"

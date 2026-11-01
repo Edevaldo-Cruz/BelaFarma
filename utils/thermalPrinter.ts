@@ -109,7 +109,70 @@ export function imprimirHtmlIsolado(htmlContent: string) {
 }
 
 /**
+ * Verifica se este computador é a Estação com a impressora térmica física conectada
+ */
+export function isEstacaoImpressoraLocal(): boolean {
+  if (typeof window === 'undefined') return false;
+  // 1. Checa query param na URL (ex: ?isPrinterStation=true dos scripts do Caixa)
+  const urlParams = new URLSearchParams(window.location.search);
+  if (urlParams.get('isPrinterStation') === 'true') {
+    localStorage.setItem('belafarma_is_printer_station', 'true');
+    return true;
+  }
+  // 2. Checa configuração persistida no navegador deste computador
+  return localStorage.getItem('belafarma_is_printer_station') === 'true';
+}
+
+/**
+ * Ativa ou desativa esta máquina como a estação da impressora térmica
+ */
+export function setEstacaoImpressoraLocal(ativo: boolean) {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem('belafarma_is_printer_station', ativo ? 'true' : 'false');
+}
+
+/**
+ * Despacha uma impressão térmica inteligente:
+ * - Se ESTA MÁQUINA for a estação do Caixa (com a Bematech conectada):
+ *     Imprime diretamente no iframe silencioso (sai na Bematech local).
+ * - Se ESTA MÁQUINA for QUALQUER OUTRO COMPUTADOR na rede (Balcão, Escritório, celular):
+ *     Envia para a API /api/printer/print. A estação do Caixa captura e imprime imediatamente na Bematech!
+ */
+export async function despacharImpressaoTermica(htmlContent: string, title: string = 'Cupom BelaFarma', metadata: any = {}) {
+  const isCaixaPrinter = isEstacaoImpressoraLocal();
+
+  if (isCaixaPrinter) {
+    // Imprime direto na Bematech conectada neste computador
+    imprimirHtmlIsolado(htmlContent);
+    return { direct: true, message: 'Impresso diretamente na Bematech deste terminal.' };
+  } else {
+    // Envia para a fila central de rede
+    try {
+      const res = await fetch('/api/printer/print', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title,
+          html_content: htmlContent,
+          print_type: metadata.print_type || 'CUPOM_VENDA',
+          sale_id: metadata.sale_id || null,
+          origin_user: localStorage.getItem('user_name') || 'Terminal Balcão'
+        })
+      });
+      const data = await res.json();
+      return { direct: false, network_job: data, message: 'Enviado para a Bematech no Caixa!' };
+    } catch (err: any) {
+      console.error('Erro ao enviar impressão via rede:', err);
+      // Fallback: se não conseguiu conectar na rede, tenta imprimir local
+      imprimirHtmlIsolado(htmlContent);
+      return { direct: true, fallback: true, error: err.message };
+    }
+  }
+}
+
+/**
  * Imprime Comprovante Não Fiscal de Venda de Balcão (PDV)
+
  * Tipografia espessa em preto absoluto (100% #000) para evitar o efeito pontilhado/falhado
  */
 export function imprimirCupomVenda(venda: CupomVendaData) {
@@ -307,8 +370,9 @@ export function imprimirCupomVenda(venda: CupomVendaData) {
     </html>
   `;
 
-  imprimirHtmlIsolado(html);
+  despacharImpressaoTermica(html, `Cupom #${venda.sale_id}`, { print_type: 'CUPOM_VENDA', sale_id: venda.sale_id });
 }
+
 
 /**
  * Imprime DANFE NFC-e com QR Code oficial da SEFAZ
@@ -506,8 +570,9 @@ export function imprimirDanfeNfce(danfe: DanfeNfceData) {
     </html>
   `;
 
-  imprimirHtmlIsolado(html);
+  despacharImpressaoTermica(html, `NFC-e #${danfe.nfe_number}`, { print_type: 'DANFE_NFCE', sale_id: danfe.nfe_number });
 }
+
 
 function escapeHtml(text: string | null | undefined): string {
   if (!text) return '';

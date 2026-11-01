@@ -12,7 +12,7 @@ echo.
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$p = Get-Printer | Where-Object { $_.Name -like '*MP-4200*' -or $_.Name -like '*Bematech*' -or $_.Name -like '*4200*' } | Select-Object -First 1; if ($p) { (Get-CimInstance Win32_Printer -Filter \"Name='$($p.Name)'\").SetDefaultPrinter(); Write-Host '[OK] Impressora Bematech padronizada no Windows:' $p.Name -ForegroundColor Green } else { Write-Host '[INFO] Verifique se a Bematech esta definida como padrao no Painel de Controle.' -ForegroundColor Yellow }"
 
 :: 2. Parametros do Navegador PDV
-set URL=http://192.168.1.70:3001
+set URL=http://192.168.1.70:3001?isPrinterStation=true
 set USER_DATA="%LOCALAPPDATA%\BelaFarmaPDV"
 set KIOSK_FLAGS=--kiosk-printing --disable-print-preview --user-data-dir=%USER_DATA% --app=%URL%
 
