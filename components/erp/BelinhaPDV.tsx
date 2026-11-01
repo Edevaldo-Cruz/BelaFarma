@@ -476,7 +476,9 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
         customer_name: selectedCustomer ? selectedCustomer.name : null,
         discount_value: discount,
         user_name: 'Balcão',
-        controlled_recipes: controlledRecipesData || undefined
+        controlled_recipes: controlledRecipesData || undefined,
+        emit_nfce: emitNfce,
+        customer_cpf: customerCpf || null
       };
 
       const res = await fetch('/api/erp/pos/checkout', {
@@ -497,7 +499,8 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
           total_final: totalFinal,
           payment: paymentPayload,
           customer_name: selectedCustomer?.name,
-          change: cashChange
+          change: cashChange,
+          digifarma: json.digifarma
         };
 
         // Limpar carrinho e dados de receita
@@ -508,42 +511,45 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
         setControlledRecipesData(null);
         setIsPaymentOpen(false);
 
-        // Se solicitado, emite o Cupom Fiscal NFC-e imediatamente
-        if (emitNfce) {
-          try {
-            const fiscalRes = await fetch(`/api/erp/fiscal/emit/${encodeURIComponent(json.sale_id)}`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ customer_cpf: customerCpf || null })
-            });
-            const fiscalData = await fiscalRes.json();
-            if (fiscalRes.ok && fiscalData.success) {
-              setCompletedSale(null); // Garante que a tela do QR Code seja a principal
-              setActiveDanfeModal(fiscalData);
-              addToast(`NFC-e #${fiscalData.nfe_number} emitida com sucesso!`, 'success');
-            } else {
-              setCompletedSale(saleData);
-              addToast(`Venda salva, mas a emissão fiscal retornou: ${fiscalData.error || 'Erro'}`, 'warning');
-            }
-          } catch (fiscalErr) {
-            console.error('Erro ao emitir NFC-e automática:', fiscalErr);
-            setCompletedSale(saleData);
-            addToast('Venda salva! Emissão fiscal pode ser feita no Histórico.', 'info');
-          }
-        } else {
+        const caixaIdInfo = json.digifarma?.caixa_id ? ` (Caixa Digifarma #${json.digifarma.caixa_id})` : '';
+
+        // Cenário 1: NFC-e solicitada e autorizada com sucesso na SEFAZ
+        if (emitNfce && json.fiscal && json.fiscal.success && json.danfe) {
+          setCompletedSale(null);
+          setActiveDanfeModal(json.danfe);
+          addToast(`NFC-e #${json.fiscal.nfe_number} autorizada pela SEFAZ e sincronizada${caixaIdInfo}!`, 'success', 4000);
+        }
+        // Cenário 2: NFC-e solicitada mas a SEFAZ falhou/offline
+        else if (emitNfce && json.fiscal && !json.fiscal.success) {
           setCompletedSale(saleData);
           if (autoPrintCupom) {
             setTimeout(() => {
               imprimirCupomVenda(saleData);
             }, 150);
           }
-          addToast('Venda finalizada com sucesso!', 'success');
+          // Notificação explícita ao operador
+          addToast(
+            `⚠️ Não foi possível transmitir à SEFAZ: ${json.fiscal.error || 'Indisponível'}. Venda salva como PENDENTE no Digifarma${caixaIdInfo}!`,
+            'warning',
+            7000
+          );
+        }
+        // Cenário 3: Venda não-fiscal normal
+        else {
+          setCompletedSale(saleData);
+          if (autoPrintCupom) {
+            setTimeout(() => {
+              imprimirCupomVenda(saleData);
+            }, 150);
+          }
+          addToast(`Venda finalizada com sucesso e sincronizada${caixaIdInfo}!`, 'success', 3000);
         }
 
         setCustomerCpf('');
       } else {
         addToast(json.error || 'Erro ao registrar venda.', 'error');
       }
+
     } catch (err: any) {
       addToast('Erro na comunicação com o servidor.', 'error');
     } finally {

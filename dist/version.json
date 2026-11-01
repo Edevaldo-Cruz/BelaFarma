@@ -1,9 +1,19 @@
 {
   "version": "1.2.4",
-  "commitHash": "1c7ac5f",
-  "commitMessage": "fix(pdv): importar useMemo em BelinhaPDV.tsx e recompilar dist v1.2.3",
-  "buildTime": "31/10/2026, 18:18:15",
+  "commitHash": "f2d00f7",
+  "commitMessage": "perf(belaped): ajustar intervalo de recalculo automatico de estoque de 15m para 2h",
+  "buildTime": "01/11/2026, 09:59:13",
   "recentCommits": [
+    {
+      "hash": "f2d00f7",
+      "date": "31/10/2026",
+      "message": "perf(belaped): ajustar intervalo de recalculo automatico de estoque de 15m para 2h"
+    },
+    {
+      "hash": "4042215",
+      "date": "31/10/2026",
+      "message": "fix(fiscal): habilitar QR code SEFAZ na tela, timeout 25s e botao de emissao no PDV v1.2.4"
+    },
     {
       "hash": "1c7ac5f",
       "date": "31/10/2026",
@@ -53,16 +63,6 @@
       "hash": "b4f302b",
       "date": "31/10/2026",
       "message": "fix(pdv): apontar atalhos dos terminais Bematech e Caixa para o Raspberry Pi 5 (192.168.1.70)"
-    },
-    {
-      "hash": "a8f789d",
-      "date": "31/10/2026",
-      "message": "fix(estabilidade): blindar watchdog 24/7, parametros sql do firebird e tunel cloudflare"
-    },
-    {
-      "hash": "1d1374e",
-      "date": "31/10/2026",
-      "message": "fix(ux): desativar abertura automatica do painel de orcamentos ao iniciar e recompilar dist"
     }
   ]
 }

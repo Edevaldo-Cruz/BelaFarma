@@ -51,7 +51,13 @@ const {
   consultarStatusSefaz
 } = require('./erp-fiscal.service');
 
+const {
+  sincronizarVendaDigifarma,
+  atualizarNfceAutorizadaDigifarma
+} = require('./erp-digifarma-sales-sync.service');
+
 // ==========================================
+
 // 1. ROTAS DE PRODUTOS & ESTOQUE
 // ==========================================
 router.get('/products/stats', (req, res) => {
@@ -126,18 +132,59 @@ router.patch('/products/:code', (req, res) => {
 // ==========================================
 // 2. ROTAS DE FRENTE DE CAIXA (PDV)
 // ==========================================
-router.post('/pos/checkout', (req, res) => {
+router.post('/pos/checkout', async (req, res) => {
   try {
     const userName = req.headers['x-user-name'] || req.body.user_name || 'Caixa';
     const resultado = registrarVenda({
       ...req.body,
       user_name: userName
     });
-    res.status(201).json(resultado);
+
+    const { emit_nfce, customer_cpf } = req.body;
+    let fiscalResult = null;
+    let danfe = null;
+
+    if (emit_nfce) {
+      try {
+        danfe = await emitirCupomFiscal(resultado.sale_id, { customer_cpf });
+        fiscalResult = {
+          success: true,
+          chave: danfe.chave_acesso || danfe.chNFe,
+          nfe_number: danfe.nfe_number || danfe.nNF,
+          serie: danfe.serie,
+          protocolo: danfe.protocol_number || danfe.nProt,
+          url_qrcode: danfe.qr_code_url
+        };
+      } catch (fiscalErr) {
+        console.warn(`[Belinha PDV] ⚠️ Falha ao emitir NFC-e via SEFAZ para venda ${resultado.sale_id}:`, fiscalErr.message);
+        fiscalResult = {
+          success: false,
+          error: fiscalErr.message,
+          error_message: fiscalErr.message
+        };
+      }
+    }
+
+    // Sincroniza atomicamente com o Digifarma (baixa de estoque, caixa aberto, bloqueio fiscal)
+    let digifarmaResult = null;
+    try {
+      digifarmaResult = await sincronizarVendaDigifarma(resultado, fiscalResult);
+    } catch (syncErr) {
+      console.error('[Belinha PDV] ❌ Erro ao invocar sincronização com Digifarma:', syncErr.message);
+      digifarmaResult = { success: false, error: syncErr.message };
+    }
+
+    res.status(201).json({
+      ...resultado,
+      fiscal: fiscalResult,
+      danfe,
+      digifarma: digifarmaResult
+    });
   } catch (err) {
     res.status(400).json({ success: false, error: err.message });
   }
 });
+
 
 router.post('/pos/cancel/:id', (req, res) => {
   try {
