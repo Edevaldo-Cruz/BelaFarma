@@ -548,7 +548,16 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
     }
 
     const sorted = [...internalClosings].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    const latestClosing = sorted[0];
+    const now = new Date();
+    const todayKey = getLocalDateKey(now.toISOString());
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = getLocalDateKey(yesterday.toISOString());
+    
+    // Prioriza o fechamento de ontem ou o anterior mais recente antes de hoje (fechamento completo do Belinha)
+    const yesterdayClosing = sorted.find((c: any) => c.date && getLocalDateKey(c.date) === yesterdayStr);
+    const previousClosing = sorted.find((c: any) => c.date && getLocalDateKey(c.date) < todayKey);
+    const latestClosing = yesterdayClosing || previousClosing || sorted[0];
 
     if (!latestClosing || !latestClosing.date) {
       return {
@@ -661,30 +670,14 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
     };
   }, [provisionRateMode, dayMixRecord, pricingAverages]);
 
-  // Base de cálculo das provisões: Faturamento líquido do Fechamento (sem crediário) ou repasses caso não haja fechamento
+  // Base de cálculo das provisões: Faturamento líquido do Fechamento do Belinha (sem crediário)
   const provisionBaseValue = useMemo(() => {
-    if (provisionRateMode === 'mix' && dayMixRecord && dayMixRecord.sales > 0) {
-      return dayMixRecord.sales;
-    }
-    return referenceClosingSales > 0 ? referenceClosingSales : totalsSummary.totalGross;
-  }, [provisionRateMode, dayMixRecord, referenceClosingSales, totalsSummary.totalGross]);
+    return referenceClosingSales > 0 ? referenceClosingSales : 0;
+  }, [referenceClosingSales]);
 
-  // Provisões calculadas sobre o fechamento do dia anterior (s/ crediário)
+  // Provisões calculadas exclusivamente sobre o fechamento do Belinha (s/ crediário)
   const provisions = useMemo(() => {
     const base = provisionBaseValue;
-    if (provisionRateMode === 'mix' && dayMixRecord) {
-      return {
-        base,
-        prolabore: dayMixRecord.prolabore,
-        socio1: dayMixRecord.socio1,
-        socio2: dayMixRecord.socio2,
-        impostos: dayMixRecord.impostos,
-        reserva: dayMixRecord.lucro,
-        total: Number((dayMixRecord.prolabore + dayMixRecord.impostos + dayMixRecord.lucro).toFixed(2)),
-        liquidoAposProvisoes: Number((totalsSummary.totalGross - dayMixRecord.prolabore - dayMixRecord.impostos - dayMixRecord.lucro).toFixed(2))
-      };
-    }
-
     const prolabore = base * activeRates.prolabore;
     const socio1 = base * activeRates.socio1;
     const socio2 = base * activeRates.socio2;
@@ -700,7 +693,7 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
       total: Number((prolabore + impostos + reserva).toFixed(2)),
       liquidoAposProvisoes: Number((totalsSummary.totalGross - prolabore - impostos - reserva).toFixed(2))
     };
-  }, [provisionBaseValue, provisionRateMode, dayMixRecord, totalsSummary.totalGross, activeRates]);
+  }, [provisionBaseValue, totalsSummary.totalGross, activeRates]);
 
   // Sincroniza os botões do modal com os registros persistidos de provisão
   useEffect(() => {
@@ -1113,7 +1106,7 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
                           </span>
                         </div>
                         <p className="text-xs text-slate-400 mt-0.5">
-                          Calculadas sobre o faturamento à vista do <strong>último fechamento {referenceClosingDatesFormatted ? `(${referenceClosingDatesFormatted})` : ''}: {formatCurrency(provisionBaseValue)}</strong>
+                          Calculadas sobre o faturamento à vista do <strong>fechamento do Belinha {referenceClosingDatesFormatted ? `(${referenceClosingDatesFormatted})` : ''}: {formatCurrency(provisionBaseValue)}</strong>
                           {referenceClosingCrediario > 0 ? ` (crediário vendido de ${formatCurrency(referenceClosingCrediario)} desconsiderado)` : ''}
                           {dayMixRecord && (dayMixRecord.crediarioReceived || 0) > 0 ? ` (+ ${formatCurrency(dayMixRecord.crediarioReceived)} de crediário recebido no dia)` : ''}.
                         </p>
@@ -1126,8 +1119,8 @@ export const CardMachineReconcileModal: React.FC<CardMachineReconcileModalProps>
                       <div className="bg-indigo-950/70 border-2 border-indigo-500/50 rounded-2xl px-4 py-3 flex sm:flex-col justify-between sm:items-end min-w-[190px] shadow-lg shadow-indigo-950/50">
                         <span className="text-[10px] font-black uppercase tracking-widest text-indigo-300">
                           {referenceClosingDatesFormatted 
-                            ? `Último Fechamento (${referenceClosingDatesFormatted})` 
-                            : 'Último Fechamento'}
+                            ? `Fechamento Belinha (${referenceClosingDatesFormatted})` 
+                            : 'Fechamento Belinha'}
                         </span>
                         <span className="text-2xl sm:text-3xl font-black text-indigo-200 tracking-tight mt-0.5">
                           {formatCurrency(provisionBaseValue)}

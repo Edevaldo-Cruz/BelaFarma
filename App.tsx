@@ -551,7 +551,7 @@ const App: React.FC = () => {
                   const todayKey = getLocalDateKey(now.toISOString());
                   const referenceClosing = yesterdayClosing || sortedClosings.find((c: any) => c.date && getLocalDateKey(c.date) < todayKey) || sortedClosings[0];
 
-                  const refSales = Number(referenceClosing?.totalSales) || 0;
+                  const refSales = Math.max(0, (Number(referenceClosing?.totalSales) || 0) - (Number(referenceClosing?.totalCrediario) || 0));
                   const refClosingDate = referenceClosing?.date ? getLocalDateKey(referenceClosing.date) : yesterdayStr;
 
                   const isDatePastSecondDay = (dateStr: string): boolean => {
@@ -603,7 +603,7 @@ const App: React.FC = () => {
                     const valTotal = valProlabore + valTax + valReserve;
 
                     addToast(
-                      `💳 ${pending.length} repasse(s) a conferir. Lembre-se de reservar ${formatBRL(valTotal)} para as provisões sobre o fechamento anterior (${formatBRL(refSales)}): Pró-labore ${formatBRL(valProlabore)}, Impostos ${formatBRL(valTax)}, Reserva ${formatBRL(valReserve)}!`,
+                      `💳 ${pending.length} repasse(s) a conferir. Lembre-se de reservar ${formatBRL(valTotal)} para as provisões sobre o fechamento do Belinha anterior (${formatBRL(refSales)}): Pró-labore ${formatBRL(valProlabore)}, Impostos ${formatBRL(valTax)}, Reserva ${formatBRL(valReserve)}!`,
                       "info"
                     );
                   } else {

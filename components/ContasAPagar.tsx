@@ -251,7 +251,8 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({
 
         if (yDue === selectedYear && mDue === selectedMonth) {
           const dateBr = `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}/${y}`;
-          const salesVal = Number(c.totalSales) || 0;
+          const cred = Number(c.totalCrediario) || 0;
+          const salesVal = Math.max(0, (Number(c.totalSales) || 0) - cred);
           
           const valProlabore = salesVal * 0.12;
           const valTax = salesVal * 0.04;
@@ -267,7 +268,7 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({
           list.push({
             id: `provision-prolabore-${c.date}`,
             type: 'provision',
-            supplierName: `Provisão Pró-labore (12%) - Fechamento: ${dateBr}`,
+            supplierName: `Provisão Pró-labore (12%) - Fechamento Belinha: ${dateBr}`,
             dueDate: dueDateStr,
             value: valProlabore,
             status: isProlaborePaid ? 'Pago' : 'Pendente',

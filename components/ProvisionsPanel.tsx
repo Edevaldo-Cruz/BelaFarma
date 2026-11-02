@@ -320,13 +320,10 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
     return monthClosings.reduce((sum, c) => sum + (Number(c.totalCrediario) || 0), 0);
   }, [monthClosings]);
 
-  // Faturamento base para provisões do mês (no mix real, usa o total sem crediário retornado pelo Digifarma)
+  // Faturamento base para provisões do mês: sempre a soma dos fechamentos de caixa do Belinha (líquido sem crediário)
   const totalMonthSales = useMemo(() => {
-    if (provisionRateMode === 'mix' && salesMixData?.monthSummary && salesMixData.monthSummary.totalSales > 0) {
-      return salesMixData.monthSummary.totalSales;
-    }
     return totalMonthNetSales;
-  }, [provisionRateMode, salesMixData, totalMonthNetSales]);
+  }, [totalMonthNetSales]);
 
   // Taxas ativas (dinâmicas conforme Mix de Vendas, Gestão de Preço ou Padrão)
   const activeRates = useMemo(() => {
@@ -402,41 +399,26 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
     };
   }, [provisionRateMode, salesMixData, pricingAverages]);
 
-  // Cálculos das Caixinhas do Mês
+  // Cálculos das Caixinhas do Mês (calculadas sobre a soma dos fechamentos do Belinha)
   const prolaboreTotal = useMemo(() => {
-    if (provisionRateMode === 'mix' && salesMixData?.monthSummary) {
-      return salesMixData.monthSummary.totalProlabore;
-    }
     return totalMonthSales * activeRates.prolabore;
-  }, [provisionRateMode, salesMixData, totalMonthSales, activeRates]);
+  }, [totalMonthSales, activeRates]);
 
   const socio1Total = useMemo(() => {
-    if (provisionRateMode === 'mix' && salesMixData?.monthSummary) {
-      return salesMixData.monthSummary.totalSocio1;
-    }
-    return prolaboreTotal * (activeRates.socio1 / activeRates.prolabore);
-  }, [provisionRateMode, salesMixData, prolaboreTotal, activeRates]);
+    return totalMonthSales * activeRates.socio1;
+  }, [totalMonthSales, activeRates]);
 
   const socio2Total = useMemo(() => {
-    if (provisionRateMode === 'mix' && salesMixData?.monthSummary) {
-      return salesMixData.monthSummary.totalSocio2;
-    }
-    return prolaboreTotal * (activeRates.socio2 / activeRates.prolabore);
-  }, [provisionRateMode, salesMixData, prolaboreTotal, activeRates]);
+    return totalMonthSales * activeRates.socio2;
+  }, [totalMonthSales, activeRates]);
 
   const taxTotal = useMemo(() => {
-    if (provisionRateMode === 'mix' && salesMixData?.monthSummary) {
-      return salesMixData.monthSummary.totalImpostos;
-    }
     return totalMonthSales * activeRates.tax;
-  }, [provisionRateMode, salesMixData, totalMonthSales, activeRates]);
+  }, [totalMonthSales, activeRates]);
 
   const reserveTotal = useMemo(() => {
-    if (provisionRateMode === 'mix' && salesMixData?.monthSummary) {
-      return salesMixData.monthSummary.totalLucro;
-    }
     return totalMonthSales * activeRates.reserve;
-  }, [provisionRateMode, salesMixData, totalMonthSales, activeRates]);
+  }, [totalMonthSales, activeRates]);
 
   const grandTotalProvisions = prolaboreTotal + taxTotal + reserveTotal;
 
@@ -497,9 +479,9 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
 
       if (provisionRateMode === 'mix' && salesMixData?.dailyBreakdown?.[key]) {
         const d = salesMixData.dailyBreakdown[key];
-        valP = d.prolabore;
-        valT = d.impostos;
-        valR = d.lucro;
+        valP = netSales * ((d.effectiveProlaborePct || 12) / 100);
+        valT = netSales * ((d.effectiveImpostosPct || 4) / 100);
+        valR = netSales * ((d.effectiveLucroPct || 1) / 100);
       }
 
       const pPaid = paidProvisionsDates.includes(`prolabore-${key}`) || paidProvisionsDates.includes(`prolabore-${c.date}`);
@@ -1215,15 +1197,15 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
                   const dateKey = getDateKey(c.date);
                   const dayMix = provisionRateMode === 'mix' ? salesMixData?.dailyBreakdown?.[dateKey] : null;
 
-                  const sales = dayMix ? dayMix.sales : netSales;
-                  const valProlabore = dayMix ? dayMix.prolabore : sales * activeRates.prolabore;
-                  const valTax = dayMix ? dayMix.impostos : sales * activeRates.tax;
-                  const valReserve = dayMix ? dayMix.lucro : sales * activeRates.reserve;
-                  const valDayTotal = valProlabore + valTax + valReserve;
-
+                  const sales = netSales;
                   const dayProlaborePct = dayMix ? dayMix.effectiveProlaborePct : activeRates.prolaborePctDisplay;
                   const dayTaxPct = dayMix ? dayMix.effectiveImpostosPct : activeRates.taxPctDisplay;
                   const dayReservePct = dayMix ? dayMix.effectiveLucroPct : activeRates.reservePctDisplay;
+
+                  const valProlabore = sales * (dayProlaborePct / 100);
+                  const valTax = sales * (dayTaxPct / 100);
+                  const valReserve = sales * (dayReservePct / 100);
+                  const valDayTotal = valProlabore + valTax + valReserve;
 
                   const { dateFormatted, weekday } = formatClosingDate(c.date);
 

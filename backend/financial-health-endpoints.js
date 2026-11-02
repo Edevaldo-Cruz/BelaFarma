@@ -22,7 +22,7 @@ function getPaidProvisions(db, startDate, endDate) {
       return { total: 0, prolabore: 0, tax: 0, reserve: 0, items: [] };
     }
 
-    let query = "SELECT date, totalSales FROM cash_closings";
+    let query = "SELECT date, totalSales, totalCrediario FROM cash_closings";
     const params = [];
     if (startDate && endDate) {
       query += " WHERE date >= ? AND date <= ?";
@@ -35,7 +35,8 @@ function getPaidProvisions(db, startDate, endDate) {
     const items = [];
 
     closings.forEach(c => {
-      const salesVal = Number(c.totalSales) || 0;
+      const cred = Number(c.totalCrediario) || 0;
+      const salesVal = Math.max(0, (Number(c.totalSales) || 0) - cred);
       if (salesVal <= 0) return;
       const dateKey = c.date ? c.date.split('T')[0] : '';
 

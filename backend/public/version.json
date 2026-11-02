@@ -1,9 +1,14 @@
 {
   "version": "1.2.4",
-  "commitHash": "3067dff",
-  "commitMessage": "feat(pdv): identificacao obrigatoria de vendedor, produtos nao cadastrados com criacao de tarefas, atalho *123/F3 e exclusao fiscal SEFAZ",
-  "buildTime": "02/11/2026, 07:42:10",
+  "commitHash": "4d60a1c",
+  "commitMessage": "feat(finances): computar provisoes pagas como despesa em DRE, caixa minimo e contas a pagar",
+  "buildTime": "02/11/2026, 08:54:15",
   "recentCommits": [
+    {
+      "hash": "4d60a1c",
+      "date": "02/11/2026",
+      "message": "feat(finances): computar provisoes pagas como despesa em DRE, caixa minimo e contas a pagar"
+    },
     {
       "hash": "3067dff",
       "date": "02/11/2026",
@@ -58,11 +63,6 @@
       "hash": "1d53f1d",
       "date": "01/11/2026",
       "message": "feat(fiscal): impressao direta sem modal, nome/documento na nota e reenvio sefaz unitario e em lote"
-    },
-    {
-      "hash": "f96ae26",
-      "date": "01/11/2026",
-      "message": "fix(ia): otimizar prompt para resposta ultra-rapida do consultor ia"
     }
   ]
 }
