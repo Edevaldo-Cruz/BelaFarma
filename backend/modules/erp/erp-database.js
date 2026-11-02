@@ -40,6 +40,9 @@ function initErpDatabase() {
     const pCols = db.pragma('table_info(products)').map(c => c.name);
     if (!pCols.includes('vendas_30d')) db.prepare(`ALTER TABLE products ADD COLUMN vendas_30d REAL DEFAULT 0`).run();
     if (!pCols.includes('vendas_10m')) db.prepare(`ALTER TABLE products ADD COLUMN vendas_10m REAL DEFAULT 0`).run();
+    if (!pCols.includes('psicotropico')) db.prepare(`ALTER TABLE products ADD COLUMN psicotropico TEXT DEFAULT 'N'`).run();
+    if (!pCols.includes('antimicrobiano')) db.prepare(`ALTER TABLE products ADD COLUMN antimicrobiano TEXT DEFAULT 'N'`).run();
+    if (!pCols.includes('recipe_type')) db.prepare(`ALTER TABLE products ADD COLUMN recipe_type TEXT DEFAULT NULL`).run();
   } catch (err) {
     console.warn('[Belinha ERP DB] Aviso ao verificar colunas products:', err.message);
   }

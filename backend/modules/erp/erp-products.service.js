@@ -143,7 +143,10 @@ function cadastrarProduto(dados) {
     cost_price = 0,
     stock_qty = 0,
     ncm = null,
-    cest = null
+    cest = null,
+    psicotropico = 'N',
+    antimicrobiano = 'N',
+    recipe_type = null
   } = dados;
 
   if (!name) {
@@ -157,11 +160,13 @@ function cadastrarProduto(dados) {
     INSERT INTO products (
       code, barcode, name, presentation, category_id,
       sale_price, promo_price, cost_price, stock_qty,
-      ncm, cest, is_active, created_at, updated_at
+      ncm, cest, psicotropico, antimicrobiano, recipe_type,
+      is_active, created_at, updated_at
     ) VALUES (
       ?, ?, ?, ?, ?,
       ?, ?, ?, ?,
-      ?, ?, 1, datetime('now', 'localtime'), datetime('now', 'localtime')
+      ?, ?, ?, ?, ?,
+      1, datetime('now', 'localtime'), datetime('now', 'localtime')
     )
   `).run(
     finalCode,
@@ -174,19 +179,26 @@ function cadastrarProduto(dados) {
     parseFloat(cost_price) || 0,
     parseFloat(stock_qty) || 0,
     ncm,
-    cest
+    cest,
+    psicotropico === 'S' || psicotropico === true || psicotropico === '1' ? 'S' : 'N',
+    antimicrobiano === 'S' || antimicrobiano === true || antimicrobiano === '1' ? 'S' : 'N',
+    recipe_type || null
   );
 
   return obterProdutoPorCodigo(finalCode);
 }
 
 /**
- * Ajusta preço de venda e/ou saldo de estoque de um produto
+ * Ajusta preço de venda, saldo de estoque ou classificação sanitária de um produto
  */
-function atualizarPrecoEEstoque(code, { sale_price, promo_price, stock_qty, cost_price }) {
+function atualizarPrecoEEstoque(code, { sale_price, promo_price, stock_qty, cost_price, name, psicotropico, antimicrobiano, recipe_type }) {
   const updates = [];
   const params = [];
 
+  if (typeof name === 'string' && name.trim()) {
+    updates.push('name = ?');
+    params.push(name.trim().toUpperCase());
+  }
   if (typeof sale_price === 'number') {
     updates.push('sale_price = ?');
     params.push(sale_price);
@@ -202,6 +214,18 @@ function atualizarPrecoEEstoque(code, { sale_price, promo_price, stock_qty, cost
   if (typeof cost_price === 'number') {
     updates.push('cost_price = ?');
     params.push(cost_price);
+  }
+  if (psicotropico !== undefined) {
+    updates.push('psicotropico = ?');
+    params.push(psicotropico === 'S' || psicotropico === true || psicotropico === '1' ? 'S' : 'N');
+  }
+  if (antimicrobiano !== undefined) {
+    updates.push('antimicrobiano = ?');
+    params.push(antimicrobiano === 'S' || antimicrobiano === true || antimicrobiano === '1' ? 'S' : 'N');
+  }
+  if (recipe_type !== undefined) {
+    updates.push('recipe_type = ?');
+    params.push(recipe_type || null);
   }
 
   if (updates.length === 0) {
@@ -278,7 +302,8 @@ function buscarProdutosPaginados({
     SELECT 
       p.code, p.barcode, p.name, p.presentation, p.category_id,
       p.sale_price, p.promo_price, p.cost_price, p.stock_qty, p.curve,
-      p.tributacao_monofasica, p.ncm, p.cest, p.is_active, p.updated_at,
+      p.tributacao_monofasica, p.ncm, p.cest, p.psicotropico, p.antimicrobiano, p.recipe_type,
+      p.is_active, p.updated_at,
       COALESCE(c.vendas_30d, p.vendas_30d, 0) as vendas_30d,
       COALESCE(c.vendas_10m, p.vendas_10m, 0) as vendas_10m
     FROM products p 

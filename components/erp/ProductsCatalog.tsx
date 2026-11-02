@@ -32,6 +32,12 @@ interface ProductItem {
   tributacao_monofasica: string | null;
   ncm: string | null;
   cest: string | null;
+  psicotropico?: string;
+  antimicrobiano?: string;
+  recipe_type?: string | null;
+  is_controlado?: boolean;
+  recipe_label?: string | null;
+  recipe_color_theme?: any;
   updated_at: string;
 }
 
@@ -64,6 +70,9 @@ export const ProductsCatalog: React.FC = () => {
   const [editPromoPrice, setEditPromoPrice] = useState<number>(0);
   const [editCostPrice, setEditCostPrice] = useState<number>(0);
   const [editStockQty, setEditStockQty] = useState<number>(0);
+  const [editPsicotropico, setEditPsicotropico] = useState<boolean>(false);
+  const [editAntimicrobiano, setEditAntimicrobiano] = useState<boolean>(false);
+  const [editRecipeType, setEditRecipeType] = useState<string>('BRANCA');
   const [isSavingEdit, setIsSavingEdit] = useState(false);
 
   // Modal de Cadastro
@@ -74,6 +83,9 @@ export const ProductsCatalog: React.FC = () => {
   const [newCostPrice, setNewCostPrice] = useState<string>('');
   const [newStockQty, setNewStockQty] = useState<string>('0');
   const [newNcm, setNewNcm] = useState('');
+  const [newPsicotropico, setNewPsicotropico] = useState<boolean>(false);
+  const [newAntimicrobiano, setNewAntimicrobiano] = useState<boolean>(false);
+  const [newRecipeType, setNewRecipeType] = useState<string>('BRANCA');
   const [isSavingNew, setIsSavingNew] = useState(false);
 
   // Modal de Migração / Sincronização
@@ -133,6 +145,9 @@ export const ProductsCatalog: React.FC = () => {
     setEditPromoPrice(p.promo_price);
     setEditCostPrice(p.cost_price);
     setEditStockQty(p.stock_qty);
+    setEditPsicotropico(p.psicotropico === 'S');
+    setEditAntimicrobiano(p.antimicrobiano === 'S');
+    setEditRecipeType(p.recipe_type || 'BRANCA');
   };
 
   // Salvar Edição
@@ -147,7 +162,10 @@ export const ProductsCatalog: React.FC = () => {
           sale_price: parseFloat(String(editSalePrice)) || 0,
           promo_price: parseFloat(String(editPromoPrice)) || 0,
           cost_price: parseFloat(String(editCostPrice)) || 0,
-          stock_qty: parseFloat(String(editStockQty)) || 0
+          stock_qty: parseFloat(String(editStockQty)) || 0,
+          psicotropico: editPsicotropico ? 'S' : 'N',
+          antimicrobiano: editAntimicrobiano ? 'S' : 'N',
+          recipe_type: editAntimicrobiano ? 'CREME' : (editPsicotropico ? editRecipeType : null)
         })
       });
 
@@ -185,7 +203,10 @@ export const ProductsCatalog: React.FC = () => {
           sale_price: parseFloat(newSalePrice.replace(',', '.')) || 0,
           cost_price: parseFloat(newCostPrice.replace(',', '.')) || 0,
           stock_qty: parseFloat(newStockQty.replace(',', '.')) || 0,
-          ncm: newNcm.trim() || null
+          ncm: newNcm.trim() || null,
+          psicotropico: newPsicotropico ? 'S' : 'N',
+          antimicrobiano: newAntimicrobiano ? 'S' : 'N',
+          recipe_type: newAntimicrobiano ? 'CREME' : (newPsicotropico ? newRecipeType : null)
         })
       });
 
@@ -199,6 +220,9 @@ export const ProductsCatalog: React.FC = () => {
         setNewCostPrice('');
         setNewStockQty('0');
         setNewNcm('');
+        setNewPsicotropico(false);
+        setNewAntimicrobiano(false);
+        setNewRecipeType('BRANCA');
         fetchProducts(1);
         fetchStats();
       } else {
@@ -395,6 +419,19 @@ export const ProductsCatalog: React.FC = () => {
                             {p.barcode}
                           </span>
                         )}
+                        {p.is_controlado && (
+                          <span className={`text-[9px] font-black tracking-wider uppercase px-1.5 py-0.5 rounded ${
+                            p.recipe_type === 'CREME' || p.antimicrobiano === 'S'
+                              ? 'bg-amber-100 text-amber-950 border border-amber-300'
+                              : p.recipe_type === 'AZUL'
+                              ? 'bg-blue-100 text-blue-950 border border-blue-300'
+                              : p.recipe_type === 'AMARELA'
+                              ? 'bg-yellow-200 text-yellow-950 border border-yellow-400'
+                              : 'bg-slate-200 text-slate-900 border border-slate-300'
+                          }`}>
+                            {p.recipe_type === 'CREME' || p.antimicrobiano === 'S' ? 'ANTIBIÓTICO' : 'RECEITA RETIDA'}
+                          </span>
+                        )}
                       </div>
                     </td>
                     <td className="py-2 px-3 text-center whitespace-nowrap">
@@ -549,6 +586,53 @@ export const ProductsCatalog: React.FC = () => {
                   />
                 </div>
               </div>
+
+              {/* Classificação Sanitária & Receita Retida */}
+              <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/60 space-y-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                  Controle Sanitário (Retenção de Receita)
+                </span>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <label className="flex items-center gap-2 cursor-pointer p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={editAntimicrobiano}
+                      onChange={e => {
+                        setEditAntimicrobiano(e.target.checked);
+                        if (e.target.checked) setEditPsicotropico(false);
+                      }}
+                      className="w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500"
+                    />
+                    <span className="font-semibold text-slate-800 dark:text-slate-200">Antibiótico (RDC 20)</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={editPsicotropico}
+                      onChange={e => {
+                        setEditPsicotropico(e.target.checked);
+                        if (e.target.checked) setEditAntimicrobiano(false);
+                      }}
+                      className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
+                    />
+                    <span className="font-semibold text-slate-800 dark:text-slate-200">Psicotrópico (P344)</span>
+                  </label>
+                </div>
+                {editPsicotropico && (
+                  <div className="pt-1">
+                    <label className="block text-[10px] font-bold text-slate-500 mb-1">Tipo de Receita Controlada:</label>
+                    <select
+                      value={editRecipeType}
+                      onChange={e => setEditRecipeType(e.target.value)}
+                      className="w-full px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs font-bold"
+                    >
+                      <option value="BRANCA">Controle Especial 2 Vias (Branca - C1/C5)</option>
+                      <option value="AZUL">Notificação de Receita B (Azul - B1/B2)</option>
+                      <option value="AMARELA">Notificação de Receita A (Amarela - A1/A2/A3)</option>
+                    </select>
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="flex gap-2">
@@ -665,6 +749,53 @@ export const ProductsCatalog: React.FC = () => {
                     className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 font-mono text-xs font-bold"
                   />
                 </div>
+              </div>
+
+              {/* Classificação Sanitária & Receita Retida */}
+              <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/60 space-y-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                  Controle Sanitário (Retenção de Receita)
+                </span>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <label className="flex items-center gap-2 cursor-pointer p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={newAntimicrobiano}
+                      onChange={e => {
+                        setNewAntimicrobiano(e.target.checked);
+                        if (e.target.checked) setNewPsicotropico(false);
+                      }}
+                      className="w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500"
+                    />
+                    <span className="font-semibold text-slate-800 dark:text-slate-200">Antibiótico (RDC 20)</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={newPsicotropico}
+                      onChange={e => {
+                        setNewPsicotropico(e.target.checked);
+                        if (e.target.checked) setNewAntimicrobiano(false);
+                      }}
+                      className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
+                    />
+                    <span className="font-semibold text-slate-800 dark:text-slate-200">Psicotrópico (P344)</span>
+                  </label>
+                </div>
+                {newPsicotropico && (
+                  <div className="pt-1">
+                    <label className="block text-[10px] font-bold text-slate-500 mb-1">Tipo de Receita Controlada:</label>
+                    <select
+                      value={newRecipeType}
+                      onChange={e => setNewRecipeType(e.target.value)}
+                      className="w-full px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs font-bold"
+                    >
+                      <option value="BRANCA">Controle Especial 2 Vias (Branca - C1/C5)</option>
+                      <option value="AZUL">Notificação de Receita B (Azul - B1/B2)</option>
+                      <option value="AMARELA">Notificação de Receita A (Amarela - A1/A2/A3)</option>
+                    </select>
+                  </div>
+                )}
               </div>
             </div>
 

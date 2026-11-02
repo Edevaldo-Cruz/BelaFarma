@@ -1,9 +1,19 @@
 {
   "version": "1.2.4",
-  "commitHash": "c7b01b4",
-  "commitMessage": "feat(pdv): priorizar produtos mais vendidos nas buscas e abrir formulario oficial de receita retida conforme legislacao Anvisa/SNGPC",
-  "buildTime": "01/11/2026, 23:10:25",
+  "commitHash": "b01140d",
+  "commitMessage": "feat(ui): implementar menu superior padrao windows com 6 categorias e alternador radio",
+  "buildTime": "01/11/2026, 23:28:20",
   "recentCommits": [
+    {
+      "hash": "b01140d",
+      "date": "01/11/2026",
+      "message": "feat(ui): implementar menu superior padrao windows com 6 categorias e alternador radio"
+    },
+    {
+      "hash": "6bf966a",
+      "date": "01/11/2026",
+      "message": "fix(pdv): garantir abertura imediata do receituario retido ao adicionar remedio controlado e ampliar regex de antimicrobianos/psicotropicos"
+    },
     {
       "hash": "c7b01b4",
       "date": "01/11/2026",
@@ -53,16 +63,6 @@
       "hash": "a2d2f6a",
       "date": "01/11/2026",
       "message": "feat(printer): impressao termica em rede para Bematech MP-4200 TH a partir de qualquer terminal"
-    },
-    {
-      "hash": "bead777",
-      "date": "01/11/2026",
-      "message": "feat(pdv): sincronizacao transacional com Digifarma e controle fiscal SEFAZ com fallback pendente"
-    },
-    {
-      "hash": "f2d00f7",
-      "date": "31/10/2026",
-      "message": "perf(belaped): ajustar intervalo de recalculo automatico de estoque de 15m para 2h"
     }
   ]
 }

@@ -95,7 +95,8 @@ router.get('/products/catalog', (req, res) => {
 
 router.get('/products', (req, res) => {
   try {
-    const { q, limit, onlyWithStock } = req.query;
+    const { limit, onlyWithStock } = req.query;
+    const q = req.query.q || req.query.query || '';
     const prods = buscarProdutos({
       query: q,
       limit: parseInt(limit, 10) || 40,
@@ -149,56 +150,59 @@ router.post('/pos/checkout', async (req, res) => {
     });
 
     const { emit_nfce, customer_cpf, customer_name } = req.body;
-    let fiscalResult = null;
-    let danfe = null;
 
-    if (emit_nfce) {
-      try {
-        danfe = await emitirCupomFiscal(resultado.sale_id, { customer_cpf, customer_name });
-        fiscalResult = {
-          success: true,
-          chave: danfe.chave_acesso || danfe.chNFe,
-          nfe_number: danfe.nfe_number || danfe.nNF,
-          serie: danfe.serie,
-          protocolo: danfe.protocol_number || danfe.nProt,
-          url_qrcode: danfe.qr_code_url
-        };
-      } catch (fiscalErr) {
-        console.warn(`[Belinha PDV] ⚠️ Falha ao emitir NFC-e via SEFAZ para venda ${resultado.sale_id}:`, fiscalErr.message);
-        fiscalResult = {
-          success: false,
-          error: fiscalErr.message,
-          error_message: fiscalErr.message
-        };
-        // Grava status ERRO e motivo no banco para rastreio e reenvio na tela de vendas
-        try {
-          const { db } = require('./erp-database');
-          db.prepare(`
-            UPDATE sales 
-            SET fiscal_status = 'ERRO',
-                contingency_reason = ?,
-                customer_cpf = COALESCE(?, customer_cpf),
-                customer_name = COALESCE(?, customer_name)
-            WHERE id = ?
-          `).run(fiscalErr.message.substring(0, 255), customer_cpf || null, customer_name || null, resultado.sale_id);
-        } catch (dbErr) {}
-      }
-    }
-
-    // Sincroniza atomicamente com o Digifarma (baixa de estoque, caixa aberto, bloqueio fiscal)
-    let digifarmaResult = null;
-    try {
-      digifarmaResult = await sincronizarVendaDigifarma(resultado, fiscalResult);
-    } catch (syncErr) {
-      console.error('[Belinha PDV] ❌ Erro ao invocar sincronização com Digifarma:', syncErr.message);
-      digifarmaResult = { success: false, error: syncErr.message };
-    }
-
+    // Resposta imediata (< 15ms) para não travar o caixa
     res.status(201).json({
       ...resultado,
-      fiscal: fiscalResult,
-      danfe,
-      digifarma: digifarmaResult
+      fiscal: emit_nfce ? { status: 'EM_PROCESSAMENTO' } : null,
+      danfe: null
+    });
+
+    // Processamento de emissão fiscal (SEFAZ) e sincronização externa em segundo plano
+    setImmediate(async () => {
+      let fiscalResult = null;
+      let danfe = null;
+
+      if (emit_nfce) {
+        try {
+          danfe = await emitirCupomFiscal(resultado.sale_id, { customer_cpf, customer_name });
+          fiscalResult = {
+            success: true,
+            chave: danfe.chave_acesso || danfe.chNFe,
+            nfe_number: danfe.nfe_number || danfe.nNF,
+            serie: danfe.serie,
+            protocolo: danfe.protocol_number || danfe.nProt,
+            url_qrcode: danfe.qr_code_url
+          };
+          console.log(`[Belinha PDV] ✅ NFC-e #${fiscalResult.nfe_number} emitida com sucesso em 2º plano para venda ${resultado.sale_id}`);
+        } catch (fiscalErr) {
+          console.warn(`[Belinha PDV] ⚠️ Falha ao emitir NFC-e via SEFAZ em 2º plano para venda ${resultado.sale_id}:`, fiscalErr.message);
+          fiscalResult = {
+            success: false,
+            error: fiscalErr.message,
+            error_message: fiscalErr.message
+          };
+          // Grava status ERRO e motivo no banco para rastreio e reenvio na tela de vendas
+          try {
+            const { db } = require('./erp-database');
+            db.prepare(`
+              UPDATE sales 
+              SET fiscal_status = 'ERRO',
+                  contingency_reason = ?,
+                  customer_cpf = COALESCE(?, customer_cpf),
+                  customer_name = COALESCE(?, customer_name)
+              WHERE id = ?
+            `).run(fiscalErr.message.substring(0, 255), customer_cpf || null, customer_name || null, resultado.sale_id);
+          } catch (dbErr) {}
+        }
+      }
+
+      // Sincronização em segundo plano com o Digifarma
+      try {
+        await sincronizarVendaDigifarma(resultado, fiscalResult);
+      } catch (syncErr) {
+        console.log(`[Belinha PDV] ℹ️ Digifarma background sync: ${syncErr.message}`);
+      }
     });
   } catch (err) {
     res.status(400).json({ success: false, error: err.message });

@@ -116,8 +116,71 @@ function classifyProduct(p) {
 
   const psico = String(p.psicotropico || p.PSICOTROPICO || '').toUpperCase().trim();
   const anti = String(p.antimicrobiano || p.ANTIMICROBIANO || '').toUpperCase().trim();
+  const customRecipeType = String(p.recipe_type || '').toUpperCase().trim();
   const desc = String(p.name || p.PRODUTO || p.descricao || '').toUpperCase();
   const cat = String(p.category || p.categoria || '').toUpperCase();
+
+  // Se o tipo de receita foi explicitamente definido no cadastro
+  if (customRecipeType === 'AMARELA') {
+    return {
+      is_controlado: true,
+      recipe_type: 'AMARELA',
+      label: 'Notificação de Receita A (Amarela)',
+      substancia_classe: 'Entorpecente / Psicotrópico (Lista A)',
+      color_theme: {
+        bg: 'bg-amber-100',
+        text: 'text-amber-900',
+        border: 'border-amber-400',
+        badge: 'bg-amber-400 text-amber-950 font-bold',
+        row_bg: 'bg-amber-50/70 hover:bg-amber-100/70'
+      }
+    };
+  }
+  if (customRecipeType === 'AZUL') {
+    return {
+      is_controlado: true,
+      recipe_type: 'AZUL',
+      label: 'Notificação de Receita B (Azul)',
+      substancia_classe: 'Psicotrópico / Ansiolítico (Lista B)',
+      color_theme: {
+        bg: 'bg-blue-100',
+        text: 'text-blue-900',
+        border: 'border-blue-400',
+        badge: 'bg-blue-500 text-white font-bold',
+        row_bg: 'bg-blue-50/70 hover:bg-blue-100/70'
+      }
+    };
+  }
+  if (customRecipeType === 'CREME' || anti === 'S' || anti === '1' || anti === 'TRUE') {
+    return {
+      is_controlado: true,
+      recipe_type: 'CREME',
+      label: 'Receita Antimicrobiano (Creme)',
+      substancia_classe: 'Antimicrobiano (RDC 20/2011)',
+      color_theme: {
+        bg: 'bg-amber-50',
+        text: 'text-amber-950',
+        border: 'border-amber-300',
+        badge: 'bg-amber-200 text-amber-950 font-semibold border border-amber-300',
+        row_bg: 'bg-amber-50/40 hover:bg-amber-100/40'
+      }
+    };
+  }
+  if (customRecipeType === 'BRANCA') {
+    return {
+      is_controlado: true,
+      recipe_type: 'BRANCA',
+      label: 'Controle Especial 2 Vias (Branca)',
+      substancia_classe: 'Controle Especial (Lista C1/C5)',
+      color_theme: {
+        bg: 'bg-slate-100',
+        text: 'text-slate-800',
+        border: 'border-slate-300',
+        badge: 'bg-slate-600 text-white font-semibold',
+        row_bg: 'bg-slate-50/70 hover:bg-slate-100/70'
+      }
+    };
+  }
 
   // 1. Notificação de Receita A (Amarela - Entorpecentes / Psicotrópicos A)
   // Listas A1, A2, A3 (ex: Morfina, Metilfenidato, Fentanil, Oxicodona, Codeína)

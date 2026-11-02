@@ -625,18 +625,23 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
     }
   };
 
-  // Iniciar finalização de venda (verifica exigência de receita retida SNGPC)
+  // Iniciar finalização de venda (verifica exigência de receita retida SNGPC e Lote)
   const handleStartCheckout = () => {
     if (cart.length === 0) {
       addToast('Adicione pelo menos um produto ao carrinho antes de finalizar.', 'warning');
       return;
     }
 
-    // Se há itens controlados no carrinho e ainda não informou os dados da receita
-    if (controlledItemsInCart.length > 0 && !controlledRecipesData) {
+    // Se há itens controlados no carrinho: verificar se todos têm lote e receita preenchidos
+    const hasMissingLot = controlledItemsInCart.some(it => {
+      const rec = controlledRecipesData?.find(r => r.product_code === it.code);
+      return !rec || !rec.batch_lot;
+    });
+
+    if (controlledItemsInCart.length > 0 && (!controlledRecipesData || hasMissingLot)) {
       setIsFinishingSale(true);
       setIsControlledRecipeOpen(true);
-      addToast('⚠️ Preencha os dados da receita retida conforme a lei para concluir a venda.', 'warning', 3500);
+      addToast('⚠️ Informe o Lote e os dados da receita retida conforme a lei.', 'warning', 3500);
       return;
     }
 
@@ -720,7 +725,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
           digifarma: json.digifarma
         };
 
-        // Limpar carrinho e dados para o próximo atendimento rápido
+        // Limpar carrinho e dados para o próximo atendimento rápido (< 100ms)
         setCart([]);
         setDiscount(0);
         setDiscountPercent(0);
@@ -730,41 +735,17 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
         setCustomerCpf('');
         setCustomerNameInput('');
 
-        const caixaIdInfo = json.digifarma?.caixa_id ? ` (Caixa Digifarma #${json.digifarma.caixa_id})` : '';
+        // Venda finalizada com sucesso imediato no balcão
+        setCompletedSale(saleData);
+        if (autoPrintCupom) {
+          setTimeout(() => {
+            imprimirCupomVenda(saleData);
+          }, 50);
+        }
 
-        // Cenário 1: NFC-e solicitada e autorizada com sucesso na SEFAZ -> IMPRESSÃO DIRETA IMEDIATA!
-        if (emitNfce && json.fiscal && json.fiscal.success && json.danfe) {
-          setCompletedSale(null);
-          setActiveDanfeModal(null);
-          // Dispara impressão térmica direta na Bematech MP-4200 TH
-          imprimirDanfeNfce(json.danfe);
-          addToast(`✅ NFC-e #${json.fiscal.nfe_number} autorizada e enviada para a impressora${caixaIdInfo}!`, 'success', 4000);
-          focusBarcodeInput();
-        }
-        // Cenário 2: NFC-e solicitada mas a SEFAZ falhou/offline
-        else if (emitNfce && json.fiscal && !json.fiscal.success) {
-          setCompletedSale(saleData);
-          if (autoPrintCupom) {
-            setTimeout(() => {
-              imprimirCupomVenda(saleData);
-            }, 100);
-          }
-          addToast(
-            `⚠️ Não foi possível transmitir à SEFAZ: ${json.fiscal.error || 'Indisponível'}. Cupom impresso e salvo como PENDENTE no Digifarma${caixaIdInfo}!`,
-            'warning',
-            7000
-          );
-        }
-        // Cenário 3: Venda não-fiscal normal
-        else {
-          setCompletedSale(saleData);
-          if (autoPrintCupom) {
-            setTimeout(() => {
-              imprimirCupomVenda(saleData);
-            }, 100);
-          }
-          addToast(`Venda finalizada com sucesso e sincronizada${caixaIdInfo}!`, 'success', 3000);
-        }
+        const msgFiscal = emitNfce ? ' (NFC-e processando em 2º plano)' : '';
+        addToast(`✅ Venda finalizada com sucesso! (R$ ${totalFinal.toFixed(2)})${msgFiscal}`, 'success', 3000);
+        focusBarcodeInput();
 
       } else {
         addToast(json.error || 'Erro ao registrar venda.', 'error');
@@ -1176,33 +1157,83 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
                               <span className="text-[9px] bg-amber-950 text-amber-300 font-bold px-1 rounded border border-amber-800">GEN</span>
                             )}
                           </div>
-                          <div className="flex items-center space-x-2 mt-0.5">
-                            {item.recipe_type && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setActiveControlledItem({
-                                    code: item.code,
-                                    barcode: item.barcode,
-                                    name: item.name,
-                                    quantity: item.quantity,
-                                    unit_price: item.unit_price,
-                                    recipe_type: (item.recipe_type || 'BRANCA') as any,
-                                    recipe_label: item.recipe_label || 'Receita de Controle Especial'
-                                  });
-                                  setIsControlledRecipeOpen(true);
-                                }}
-                                className={`text-[9px] font-bold px-1.5 py-0.5 rounded cursor-pointer hover:opacity-80 transition-opacity flex items-center gap-1 ${
-                                  item.recipe_type === 'AMARELA' ? 'bg-amber-400 text-amber-950 font-black' :
-                                  item.recipe_type === 'AZUL' ? 'bg-blue-600 text-white font-black' :
-                                  item.recipe_type === 'CREME' ? 'bg-amber-200 text-amber-950 font-black' : 'bg-slate-700 text-white font-bold'
-                                }`}
-                                title="Clique para abrir ou editar o formulário da receita retida"
-                              >
-                                <span>📋</span>
-                                <span>{item.recipe_label || 'Receita Retida (SNGPC)'}</span>
-                              </button>
-                            )}
+                          <div className="flex items-center space-x-2 mt-0.5 flex-wrap">
+                            {item.recipe_type && (() => {
+                              const recipeData = controlledRecipesData?.find(r => r.product_code === item.code);
+                              const hasLot = Boolean(recipeData?.batch_lot);
+                              return (
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setActiveControlledItem({
+                                        code: item.code,
+                                        barcode: item.barcode,
+                                        name: item.name,
+                                        quantity: item.quantity,
+                                        unit_price: item.unit_price,
+                                        recipe_type: (item.recipe_type || 'BRANCA') as any,
+                                        recipe_label: item.recipe_label || 'Receita de Controle Especial'
+                                      });
+                                      setIsControlledRecipeOpen(true);
+                                    }}
+                                    className={`text-[9px] font-bold px-1.5 py-0.5 rounded cursor-pointer hover:opacity-80 transition-opacity flex items-center gap-1 ${
+                                      item.recipe_type === 'AMARELA' ? 'bg-amber-400 text-amber-950 font-black' :
+                                      item.recipe_type === 'AZUL' ? 'bg-blue-600 text-white font-black' :
+                                      item.recipe_type === 'CREME' ? 'bg-amber-200 text-amber-950 font-black' : 'bg-slate-700 text-white font-bold'
+                                    }`}
+                                    title="Clique para abrir ou editar o formulário da receita retida"
+                                  >
+                                    <span>📋</span>
+                                    <span>{item.recipe_label || 'Receita Retida (SNGPC)'}</span>
+                                  </button>
+
+                                  {hasLot ? (
+                                    <span 
+                                      onClick={() => {
+                                        setActiveControlledItem({
+                                          code: item.code,
+                                          barcode: item.barcode,
+                                          name: item.name,
+                                          quantity: item.quantity,
+                                          unit_price: item.unit_price,
+                                          recipe_type: (item.recipe_type || 'BRANCA') as any,
+                                          recipe_label: item.recipe_label || 'Receita de Controle Especial'
+                                        });
+                                        setIsControlledRecipeOpen(true);
+                                      }}
+                                      className="text-[9px] font-mono font-bold bg-emerald-950/80 text-emerald-300 border border-emerald-700 px-1.5 py-0.5 rounded flex items-center gap-1 cursor-pointer hover:bg-emerald-900"
+                                      title="Lote registrado no formulário. Clique para alterar."
+                                    >
+                                      <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                                      <span>Lote: {recipeData?.batch_lot}</span>
+                                      {recipeData?.expiry_date && <span className="text-slate-400 font-normal">({recipeData.expiry_date})</span>}
+                                    </span>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setActiveControlledItem({
+                                          code: item.code,
+                                          barcode: item.barcode,
+                                          name: item.name,
+                                          quantity: item.quantity,
+                                          unit_price: item.unit_price,
+                                          recipe_type: (item.recipe_type || 'BRANCA') as any,
+                                          recipe_label: item.recipe_label || 'Receita de Controle Especial'
+                                        });
+                                        setIsControlledRecipeOpen(true);
+                                      }}
+                                      className="text-[9px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/60 hover:bg-amber-500/30 px-1.5 py-0.5 rounded flex items-center gap-1 animate-pulse"
+                                      title="Obrigatório informar o lote do medicamento"
+                                    >
+                                      <AlertTriangle className="w-3 h-3 text-amber-400" />
+                                      <span>Lote Obrigatório</span>
+                                    </button>
+                                  )}
+                                </div>
+                              );
+                            })()}
                             {item.discount > 0 && (
                               <span className="text-[9px] text-emerald-400 bg-emerald-950/80 px-1 rounded border border-emerald-800">
                                 Desconto Fidelidade
