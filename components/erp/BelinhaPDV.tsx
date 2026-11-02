@@ -310,6 +310,13 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
   const barcodeInputRef = useRef<HTMLInputElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
+  // Abertura rápida do modal de identificação de vendedor
+  const handleOpenSellerModal = useCallback(() => {
+    setSellerKeyInput('');
+    setIsSellerModalOpen(true);
+    setTimeout(() => sellerKeyInputRef.current?.focus(), 80);
+  }, []);
+
   // Foco automático no input de bipagem
   const focusBarcodeInput = useCallback(() => {
     if (!isSearchOpen && !isSellerModalOpen && !isUnregisteredModalOpen && !isControlledRecipeOpen && !isDiscountModalOpen && !isCustomerModalOpen && !isRecentSalesOpen && !isClearCartModalOpen && !completedSale) {
@@ -317,20 +324,16 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
     }
   }, [isSearchOpen, isSellerModalOpen, isUnregisteredModalOpen, isControlledRecipeOpen, isDiscountModalOpen, isCustomerModalOpen, isRecentSalesOpen, isClearCartModalOpen, completedSale]);
 
+  // Foco inicial ao abrir o PDV (ou solicitação única do vendedor se não definido)
+  const hasPromptedInitialSellerRef = useRef(false);
   useEffect(() => {
-    if (!currentSeller) {
+    if (!currentSeller && !hasPromptedInitialSellerRef.current) {
+      hasPromptedInitialSellerRef.current = true;
       handleOpenSellerModal();
-    } else {
+    } else if (currentSeller) {
       focusBarcodeInput();
     }
   }, [currentSeller, handleOpenSellerModal, focusBarcodeInput]);
-
-  // Abertura rápida do modal de identificação de vendedor
-  const handleOpenSellerModal = useCallback(() => {
-    setSellerKeyInput('');
-    setIsSellerModalOpen(true);
-    setTimeout(() => sellerKeyInputRef.current?.focus(), 80);
-  }, []);
 
   // Abertura da modal de produto não cadastrado / sem código de barras (*123)
   const handleOpenUnregisteredModal = useCallback((barcode: string, qty: number = 1) => {

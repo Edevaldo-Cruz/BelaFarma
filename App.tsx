@@ -1363,8 +1363,8 @@ const App: React.FC = () => {
         budgetStatus={currentMonthBudgetStatus}
       />
       <main className="flex-1 overflow-y-auto overflow-x-hidden flex flex-col">
-        <div className="flex-1 p-4 md:p-8 w-full">
-          <div className="max-w-7xl mx-auto pb-10 w-full">
+        <div className={`flex-1 ${currentView === 'belinha-pdv' ? 'p-1 sm:p-2 w-full' : 'p-4 md:p-8 w-full'}`}>
+          <div className={`${currentView === 'belinha-pdv' ? 'w-full h-full' : 'max-w-7xl mx-auto pb-10 w-full'}`}>
           {isLoading ? (
             <div className="h-[60vh] flex flex-col items-center justify-center gap-4">
               <Loader2 className="w-10 h-10 text-red-600 animate-spin" />

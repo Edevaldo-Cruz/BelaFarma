@@ -1,9 +1,14 @@
 {
   "version": "1.2.4",
-  "commitHash": "825e721",
-  "commitMessage": "feat(charts): incluir despesa de provisoes e despesas de caixa nos graficos de evolucao e despesas",
-  "buildTime": "02/11/2026, 10:03:37",
+  "commitHash": "1f074f7",
+  "commitMessage": "feat(budget): permitir definicao de orcamento para o proximo ano com preenchimento rapido e salvamento em lote",
+  "buildTime": "02/11/2026, 10:11:47",
   "recentCommits": [
+    {
+      "hash": "1f074f7",
+      "date": "02/11/2026",
+      "message": "feat(budget): permitir definicao de orcamento para o proximo ano com preenchimento rapido e salvamento em lote"
+    },
     {
       "hash": "825e721",
       "date": "02/11/2026",
@@ -58,11 +63,6 @@
       "hash": "6bf966a",
       "date": "01/11/2026",
       "message": "fix(pdv): garantir abertura imediata do receituario retido ao adicionar remedio controlado e ampliar regex de antimicrobianos/psicotropicos"
-    },
-    {
-      "hash": "c7b01b4",
-      "date": "01/11/2026",
-      "message": "feat(pdv): priorizar produtos mais vendidos nas buscas e abrir formulario oficial de receita retida conforme legislacao Anvisa/SNGPC"
     }
   ]
 }
