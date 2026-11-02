@@ -281,11 +281,38 @@ async function emitirCupomFiscal(saleId, options = {}) {
     tpEmis
   });
 
-  // 4. Mapeia itens com regras tributárias de farmácia
+  // 4. Identifica itens com cadastro fiscal válido (exclui itens não cadastrados e avulsos)
+  const itensFiscaisValidos = items.filter(it => 
+    !it.is_unregistered && 
+    !String(it.product_code).startsWith('AVULSO') && 
+    !String(it.barcode || '').startsWith('*')
+  );
+
+  // Se a venda tiver ZERO itens fiscais válidos (apenas produtos avulsos / sem cadastro)
+  if (itensFiscaisValidos.length === 0) {
+    db.prepare(`
+      UPDATE sales 
+      SET fiscal_status = 'NAO_FISCAL',
+          contingency_reason = 'Venda gerencial sem itens fiscais cadastrados'
+      WHERE id = ?
+    `).run(saleId);
+
+    return {
+      success: true,
+      non_fiscal: true,
+      message: 'Venda registrada como Cupom Não Fiscal (itens sem cadastro fiscal).'
+    };
+  }
+
+  // Mapeia itens fiscais e calcula somatórios para a SEFAZ
   let totalTributosAprox = 0;
-  const itensFiscais = items.map((it, idx) => {
+  let totalFiscalItens = 0;
+  const itensFiscais = itensFiscaisValidos.map((it, idx) => {
+    const itemSubtotal = Number(it.total_price);
+    totalFiscalItens += itemSubtotal;
+
     // Alíquota média de tributos aprox. (Lei 12.741/2012 IBPT): ~31.4%
-    const tributoItem = Math.round((it.total_price * 0.314) * 100) / 100;
+    const tributoItem = Math.round((itemSubtotal * 0.314) * 100) / 100;
     totalTributosAprox += tributoItem;
 
     // CFOP de Farmácia: 5405 para itens de ST / monofásicos; 5102 para tributados
@@ -311,19 +338,24 @@ async function emitirCupomFiscal(saleId, options = {}) {
       uCom: 'UN',
       qCom: it.quantity,
       vUnCom: it.unit_price,
-      vProd: it.total_price,
+      vProd: itemSubtotal,
       tributo_aprox: tributoItem
     };
   });
 
-  // 5. Gera a URL do QR Code da SEFAZ
+  totalFiscalItens = Math.round(totalFiscalItens * 100) / 100;
+  const proporcaoFiscal = sale.total_items_value > 0 ? (totalFiscalItens / sale.total_items_value) : 1;
+  const descontoFiscal = Math.min(totalFiscalItens, Math.round((sale.discount_value * proporcaoFiscal) * 100) / 100);
+  const totalFiscalFinal = Math.max(0, Math.round((totalFiscalItens - descontoFiscal) * 100) / 100);
+
+  // 5. Gera a URL do QR Code da SEFAZ com base no valor dos produtos fiscais
   const qrCodeUrl = gerarQrCodeUrl({
     chaveAcesso,
     versao: '2',
     tpAmb,
     cDest: (customer_cpf || sale.customer_cpf || '').replace(/\D/g, ''),
     dhEmi,
-    vNF: sale.total_value,
+    vNF: totalFiscalFinal,
     idCsc: config.id_csc || '000001',
     csc: config.csc || '',
     uf: config.uf || 'MG'
@@ -385,7 +417,7 @@ async function emitirCupomFiscal(saleId, options = {}) {
     <PIS><PISNT><CST>07</CST></PISNT></PIS>
     <COFINS><COFINSNT><CST>07</CST></COFINSNT></COFINS>
   </imposto>
-</det>`).join('')}<total><ICMSTot><vBC>0.00</vBC><vICMS>0.00</vICMS><vICMSDeson>0.00</vICMSDeson><vFCP>0.00</vFCP><vBCST>0.00</vBCST><vST>0.00</vST><vFCPST>0.00</vFCPST><vFCPSTRet>0.00</vFCPSTRet><vProd>${sale.total_items_value.toFixed(2)}</vProd><vFrete>0.00</vFrete><vSeg>0.00</vSeg><vDesc>${sale.discount_value.toFixed(2)}</vDesc><vII>0.00</vII><vIPI>0.00</vIPI><vIPIDevol>0.00</vIPIDevol><vPIS>0.00</vPIS><vCOFINS>0.00</vCOFINS><vOutro>0.00</vOutro><vNF>${sale.total_value.toFixed(2)}</vNF><vTotTrib>${totalTributosAprox.toFixed(2)}</vTotTrib></ICMSTot></total><transp><modFrete>9</modFrete></transp><pag>${payments.length > 0 ? payments.map(p => `<detPag><tPag>${mapearTipoPagamentoNfce(p.payment_method)}</tPag><vPag>${Number(p.amount).toFixed(2)}</vPag></detPag>`).join('') : `<detPag><tPag>01</tPag><vPag>${sale.total_value.toFixed(2)}</vPag></detPag>`}<vTroco>0.00</vTroco></pag><infAdic><infCpl>Trib aprox R$ ${totalTributosAprox.toFixed(2)} Fonte: IBPT. Venda PDV Belinha #${saleId}.</infCpl></infAdic></infNFe><infNFeSupl><qrCode><![CDATA[${qrCodeUrl}]]></qrCode><urlChave>${config.ambiente === 'producao' ? 'https://portalsped.fazenda.mg.gov.br/portalnfce' : 'https://hportalsped.fazenda.mg.gov.br/portalnfce'}</urlChave></infNFeSupl></NFe>`;
+</det>`).join('')}<total><ICMSTot><vBC>0.00</vBC><vICMS>0.00</vICMS><vICMSDeson>0.00</vICMSDeson><vFCP>0.00</vFCP><vBCST>0.00</vBCST><vST>0.00</vST><vFCPST>0.00</vFCPST><vFCPSTRet>0.00</vFCPSTRet><vProd>${totalFiscalItens.toFixed(2)}</vProd><vFrete>0.00</vFrete><vSeg>0.00</vSeg><vDesc>${descontoFiscal.toFixed(2)}</vDesc><vII>0.00</vII><vIPI>0.00</vIPI><vIPIDevol>0.00</vIPIDevol><vPIS>0.00</vPIS><vCOFINS>0.00</vCOFINS><vOutro>0.00</vOutro><vNF>${totalFiscalFinal.toFixed(2)}</vNF><vTotTrib>${totalTributosAprox.toFixed(2)}</vTotTrib></ICMSTot></total><transp><modFrete>9</modFrete></transp><pag><detPag><tPag>${payments.length > 0 ? mapearTipoPagamentoNfce(payments[0].payment_method) : '01'}</tPag><vPag>${totalFiscalFinal.toFixed(2)}</vPag></detPag><vTroco>0.00</vTroco></pag><infAdic><infCpl>Trib aprox R$ ${totalTributosAprox.toFixed(2)} Fonte: IBPT. Venda PDV Belinha #${saleId}.</infCpl></infAdic></infNFe><infNFeSupl><qrCode><![CDATA[${qrCodeUrl}]]></qrCode><urlChave>${config.ambiente === 'producao' ? 'https://portalsped.fazenda.mg.gov.br/portalnfce' : 'https://hportalsped.fazenda.mg.gov.br/portalnfce'}</urlChave></infNFeSupl></NFe>`;
 
     // Assina digitalmente o XML via XMLDSig (RSA-SHA1)
     const xmlAssinado = assinarXmlNfe(xmlNfeCru, chaveAcesso, certData.privateKeyPem, certData.certificateClean);

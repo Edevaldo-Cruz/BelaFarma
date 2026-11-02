@@ -219,15 +219,20 @@ router.post('/pos/checkout', async (req, res) => {
       if (emit_nfce) {
         try {
           danfe = await emitirCupomFiscal(resultado.sale_id, { customer_cpf, customer_name });
-          fiscalResult = {
-            success: true,
-            chave: danfe.chave_acesso || danfe.chNFe,
-            nfe_number: danfe.nfe_number || danfe.nNF,
-            serie: danfe.serie,
-            protocolo: danfe.protocol_number || danfe.nProt,
-            url_qrcode: danfe.qr_code_url
-          };
-          console.log(`[Belinha PDV] ✅ NFC-e #${fiscalResult.nfe_number} emitida com sucesso em 2º plano para venda ${resultado.sale_id}`);
+          if (danfe && danfe.non_fiscal) {
+            fiscalResult = { success: true, non_fiscal: true };
+            console.log(`[Belinha PDV] ℹ️ Venda ${resultado.sale_id} concluída como Cupom Não Fiscal (itens sem cadastro fiscal)`);
+          } else {
+            fiscalResult = {
+              success: true,
+              chave: danfe.chave_acesso || danfe.chNFe,
+              nfe_number: danfe.nfe_number || danfe.nNF,
+              serie: danfe.serie,
+              protocolo: danfe.protocol_number || danfe.nProt,
+              url_qrcode: danfe.qr_code_url
+            };
+            console.log(`[Belinha PDV] ✅ NFC-e #${fiscalResult.nfe_number} emitida com sucesso em 2º plano para venda ${resultado.sale_id}`);
+          }
         } catch (fiscalErr) {
           console.warn(`[Belinha PDV] ⚠️ Falha ao emitir NFC-e via SEFAZ em 2º plano para venda ${resultado.sale_id}:`, fiscalErr.message);
           fiscalResult = {

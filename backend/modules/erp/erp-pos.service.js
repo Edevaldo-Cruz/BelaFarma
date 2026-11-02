@@ -27,6 +27,7 @@ function registrarVenda(payload) {
   if (!finalSellerName || finalSellerName === 'Caixa' || finalSellerName === 'Balcão / Caixa') {
     throw new Error('A venda não pode ser feita sem a identificação do vendedor.');
   }
+  const finalSellerId = seller_id || payload.user_id || user_name || 'caixa';
 
   if (!Array.isArray(items) || items.length === 0) {
     throw new Error('A venda deve conter pelo menos 1 produto.');
@@ -46,7 +47,7 @@ function registrarVenda(payload) {
       throw new Error(`Quantidade inválida para o item ${it.product_name || it.code}`);
     }
 
-    const prod = obterProdutoPorCodigo(it.code || it.barcode);
+    const prod = obterProdutoPorCodigo(it.code || it.product_code || it.barcode);
     const precoUnit = parseFloat(it.unit_price) || (prod ? (prod.promo_price > 0 ? prod.promo_price : prod.sale_price) : 0);
     const custoUnit = parseFloat(it.unit_cost) || (prod ? prod.cost_price : 0);
     const subtotal = Math.round((qtd * precoUnit) * 100) / 100;
@@ -54,8 +55,10 @@ function registrarVenda(payload) {
 
     totalItemsValue += subtotal;
 
+    const isUnregistered = it.is_unregistered || (!prod && (String(it.code || it.product_code || '').startsWith('AVULSO') || String(it.barcode || '').startsWith('*'))) ? 1 : 0;
+
     processedItems.push({
-      product_code: prod ? prod.code : String(it.code),
+      product_code: prod ? prod.code : String(it.code || it.product_code || ''),
       barcode: prod ? prod.barcode : (it.barcode || ''),
       product_name: prod ? prod.name : (it.product_name || 'PRODUTO NÃO IDENTIFICADO'),
       quantity: qtd,
@@ -63,7 +66,8 @@ function registrarVenda(payload) {
       total_price: subtotal,
       unit_cost: custoUnit,
       total_cost: totalCusto,
-      profit: Math.round((subtotal - totalCusto) * 100) / 100
+      profit: Math.round((subtotal - totalCusto) * 100) / 100,
+      is_unregistered: isUnregistered
     });
   }
 
@@ -145,10 +149,10 @@ function registrarVenda(payload) {
     const insertItemStmt = db.prepare(`
       INSERT INTO sale_items (
         id, sale_id, product_code, barcode, product_name,
-        quantity, unit_price, total_price, unit_cost, total_cost, profit
+        quantity, unit_price, total_price, unit_cost, total_cost, profit, is_unregistered
       ) VALUES (
         ?, ?, ?, ?, ?,
-        ?, ?, ?, ?, ?, ?
+        ?, ?, ?, ?, ?, ?, ?
       )
     `);
 
@@ -173,7 +177,8 @@ function registrarVenda(payload) {
         it.total_price,
         it.unit_cost,
         it.total_cost,
-        it.profit
+        it.profit,
+        it.is_unregistered || 0
       );
 
       // Baixa no estoque físico
@@ -252,7 +257,7 @@ function registrarVenda(payload) {
     total_items_value: totalItemsValue,
     discount_value: desconto,
     total_value: totalFinal,
-    seller_id: seller_id || userIdVal,
+    seller_id: finalSellerId,
     seller_name: finalSellerName,
     items: processedItems,
     payments

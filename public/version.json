@@ -1,9 +1,14 @@
 {
   "version": "1.2.4",
-  "commitHash": "712128a",
-  "commitMessage": "feat(pdv): identificacao rapida e obrigatoria do vendedor por chave de acesso no PDV",
-  "buildTime": "02/11/2026, 00:08:21",
+  "commitHash": "a9a13ff",
+  "commitMessage": "fix(pdv): importar icone Key de lucide-react para modal de identificacao do vendedor",
+  "buildTime": "02/11/2026, 00:54:16",
   "recentCommits": [
+    {
+      "hash": "a9a13ff",
+      "date": "02/11/2026",
+      "message": "fix(pdv): importar icone Key de lucide-react para modal de identificacao do vendedor"
+    },
     {
       "hash": "712128a",
       "date": "01/11/2026",
@@ -58,11 +63,6 @@
       "hash": "5411290",
       "date": "01/11/2026",
       "message": "fix(ia): configurar timeout e provedor local ollama para o Consultor IA"
-    },
-    {
-      "hash": "e51a743",
-      "date": "01/11/2026",
-      "message": "feat(ia): adicionar modulo Consultor Estrategico BelaFarma IA com suporte a Ollama local e dados do negocio"
     }
   ]
 }

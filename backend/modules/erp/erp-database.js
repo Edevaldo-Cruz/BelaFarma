@@ -135,6 +135,7 @@ function initErpDatabase() {
     if (!siCols.includes('unit_cost')) db.prepare(`ALTER TABLE sale_items ADD COLUMN unit_cost REAL DEFAULT 0`).run();
     if (!siCols.includes('total_cost')) db.prepare(`ALTER TABLE sale_items ADD COLUMN total_cost REAL DEFAULT 0`).run();
     if (!siCols.includes('profit')) db.prepare(`ALTER TABLE sale_items ADD COLUMN profit REAL DEFAULT 0`).run();
+    if (!siCols.includes('is_unregistered')) db.prepare(`ALTER TABLE sale_items ADD COLUMN is_unregistered INTEGER DEFAULT 0`).run();
   } catch (err) {
     console.warn('[Belinha ERP DB] Aviso ao verificar colunas sale_items:', err.message);
   }
