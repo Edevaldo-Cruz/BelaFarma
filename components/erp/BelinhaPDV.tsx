@@ -29,7 +29,8 @@ import {
   ArrowRight,
   AlertTriangle,
   FileText,
-  Percent
+  Percent,
+  Key
 } from 'lucide-react';
 import { useToast } from '../ToastContext';
 import { BelaFarmaLogo } from '../BelaFarmaLogo';

@@ -1,9 +1,14 @@
 {
   "version": "1.2.4",
-  "commitHash": "9ca1a7a",
-  "commitMessage": "fix(layout): fixar rodape no final da pagina com flex column e sticky footer",
-  "buildTime": "01/11/2026, 23:47:35",
+  "commitHash": "712128a",
+  "commitMessage": "feat(pdv): identificacao rapida e obrigatoria do vendedor por chave de acesso no PDV",
+  "buildTime": "02/11/2026, 00:08:21",
   "recentCommits": [
+    {
+      "hash": "712128a",
+      "date": "01/11/2026",
+      "message": "feat(pdv): identificacao rapida e obrigatoria do vendedor por chave de acesso no PDV"
+    },
     {
       "hash": "9ca1a7a",
       "date": "01/11/2026",
@@ -58,11 +63,6 @@
       "hash": "e51a743",
       "date": "01/11/2026",
       "message": "feat(ia): adicionar modulo Consultor Estrategico BelaFarma IA com suporte a Ollama local e dados do negocio"
-    },
-    {
-      "hash": "32d820d",
-      "date": "01/11/2026",
-      "message": "fix(security): permitir rotas /api/printer na rede local sem bloqueio de sessao"
     }
   ]
 }
