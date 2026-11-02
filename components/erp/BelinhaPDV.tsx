@@ -90,10 +90,11 @@ interface CustomerOption {
 }
 
 interface BelinhaPDVProps {
+  currentUser?: any;
   onNavigate?: (view: any) => void;
 }
 
-export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
+export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate }) => {
   const { addToast } = useToast();
 
   // Spooler de Impressão Térmica em Rede (qualquer computador da farmácia imprime na Bematech do Caixa)
@@ -105,6 +106,24 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
+
+  // Identificação do Vendedor por Chave de Acesso do Login
+  const [currentSeller, setCurrentSeller] = useState<{ id: string; name: string; role?: string; jobRole?: string } | null>(() => {
+    if (currentUser && currentUser.name && currentUser.name !== 'Caixa') {
+      return {
+        id: currentUser.id,
+        name: currentUser.name,
+        role: currentUser.role,
+        jobRole: currentUser.jobRole || 'Vendedor'
+      };
+    }
+    return null;
+  });
+  const [isSellerModalOpen, setIsSellerModalOpen] = useState(false);
+  const [sellerKeyInput, setSellerKeyInput] = useState('');
+  const [isIdentifyingSeller, setIsIdentifyingSeller] = useState(false);
+  const [isPendingCheckout, setIsPendingCheckout] = useState(false);
+  const sellerKeyInputRef = useRef<HTMLInputElement>(null);
 
   // Estados do Carrinho
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -129,7 +148,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
   const [discountInputVal, setDiscountInputVal] = useState('');
   const [discountInputType, setDiscountInputType] = useState<'PERCENT' | 'VALUE'>('PERCENT');
 
-  // Modal de Cliente / CPF Fidelidade [F3]
+  // Modal de Cliente / CPF Fidelidade [F6]
   const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
 
   // Modal de Confirmação para Limpar Cupom [F9]
@@ -282,14 +301,64 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
 
   // Foco automático no input de bipagem
   const focusBarcodeInput = useCallback(() => {
-    if (!isSearchOpen && !isControlledRecipeOpen && !isDiscountModalOpen && !isCustomerModalOpen && !isRecentSalesOpen && !isClearCartModalOpen && !completedSale) {
+    if (!isSearchOpen && !isSellerModalOpen && !isControlledRecipeOpen && !isDiscountModalOpen && !isCustomerModalOpen && !isRecentSalesOpen && !isClearCartModalOpen && !completedSale) {
       setTimeout(() => barcodeInputRef.current?.focus(), 50);
     }
-  }, [isSearchOpen, isControlledRecipeOpen, isDiscountModalOpen, isCustomerModalOpen, isRecentSalesOpen, isClearCartModalOpen, completedSale]);
+  }, [isSearchOpen, isSellerModalOpen, isControlledRecipeOpen, isDiscountModalOpen, isCustomerModalOpen, isRecentSalesOpen, isClearCartModalOpen, completedSale]);
 
   useEffect(() => {
     focusBarcodeInput();
   }, [focusBarcodeInput]);
+
+  // Abertura rápida do modal de identificação de vendedor
+  const handleOpenSellerModal = useCallback(() => {
+    setSellerKeyInput('');
+    setIsSellerModalOpen(true);
+    setTimeout(() => sellerKeyInputRef.current?.focus(), 80);
+  }, []);
+
+  // Identificação do vendedor por chave de acesso/login
+  const handleIdentifySeller = async (keyToVerify?: string) => {
+    const key = (keyToVerify || sellerKeyInput).trim();
+    if (!key) {
+      addToast('Digite a chave de acesso do vendedor.', 'warning');
+      sellerKeyInputRef.current?.focus();
+      return;
+    }
+
+    setIsIdentifyingSeller(true);
+    try {
+      const res = await fetch('/api/erp/pos/identify-seller', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accessKey: key })
+      });
+
+      const json = await res.json();
+      if (res.ok && json.success && json.seller) {
+        setCurrentSeller(json.seller);
+        setIsSellerModalOpen(false);
+        setSellerKeyInput('');
+        addToast(`👤 Vendedor: ${json.seller.name} identificado com sucesso!`, 'success', 2500);
+
+        // Se o checkout estava aguardando a identificação do vendedor, prossegue imediatamente
+        if (isPendingCheckout) {
+          setIsPendingCheckout(false);
+          setTimeout(() => handleStartCheckoutWithSeller(json.seller), 100);
+        } else {
+          focusBarcodeInput();
+        }
+      } else {
+        addToast(json.error || 'Chave de acesso não encontrada ou incorreta.', 'error');
+        setSellerKeyInput('');
+        sellerKeyInputRef.current?.focus();
+      }
+    } catch (err: any) {
+      addToast('Erro na validação da chave de acesso.', 'error');
+    } finally {
+      setIsIdentifyingSeller(false);
+    }
+  };
 
   // Carregar lista de clientes para crediário e fidelidade
   useEffect(() => {
@@ -326,8 +395,13 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
         e.preventDefault();
         setIsDiscountModalOpen(true);
       }
-      // F3 -> Cliente / CPF Fidelidade
+      // F3 -> Identificar / Trocar Vendedor Rápido
       else if (e.key === 'F3') {
+        e.preventDefault();
+        handleOpenSellerModal();
+      }
+      // F6 -> Cliente / CPF Fidelidade
+      else if (e.key === 'F6') {
         e.preventDefault();
         setIsCustomerModalOpen(true);
       }
@@ -350,7 +424,11 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
       }
       // ESC -> Fechar qualquer modal aberta
       else if (e.key === 'Escape') {
-        if (isControlledRecipeOpen) setIsControlledRecipeOpen(false);
+        if (isSellerModalOpen) {
+          setIsSellerModalOpen(false);
+          setIsPendingCheckout(false);
+        }
+        else if (isControlledRecipeOpen) setIsControlledRecipeOpen(false);
         else if (isSearchOpen) setIsSearchOpen(false);
         else if (isDiscountModalOpen) setIsDiscountModalOpen(false);
         else if (isCustomerModalOpen) setIsCustomerModalOpen(false);
@@ -370,6 +448,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
   }, [
     cart, 
     isSearchOpen, 
+    isSellerModalOpen,
     isControlledRecipeOpen, 
     isDiscountModalOpen, 
     isCustomerModalOpen, 
@@ -377,7 +456,8 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
     isClearCartModalOpen, 
     completedSale, 
     autocompleteResults, 
-    focusBarcodeInput
+    focusBarcodeInput,
+    handleOpenSellerModal
   ]);
 
   // Autocomplete ao vivo ao digitar na barra de produto
@@ -625,10 +705,18 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
     }
   };
 
-  // Iniciar finalização de venda (verifica exigência de receita retida SNGPC e Lote)
-  const handleStartCheckout = () => {
+  // Iniciar finalização de venda (exige identificação do vendedor e controle sanitário)
+  const handleStartCheckout = (sellerOverride?: { id: string; name: string }) => {
     if (cart.length === 0) {
       addToast('Adicione pelo menos um produto ao carrinho antes de finalizar.', 'warning');
+      return;
+    }
+
+    const seller = sellerOverride || currentSeller;
+    if (!seller) {
+      setIsPendingCheckout(true);
+      handleOpenSellerModal();
+      addToast('⚠️ Identifique o vendedor com a chave de acesso para concluir a venda.', 'warning', 3500);
       return;
     }
 
@@ -645,12 +733,24 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
       return;
     }
 
-    handleConfirmCheckout();
+    handleConfirmCheckout(seller);
+  };
+
+  const handleStartCheckoutWithSeller = (seller: { id: string; name: string }) => {
+    handleStartCheckout(seller);
   };
 
   // Finalizar a venda e transmitir para SEFAZ / Bematech
-  const handleConfirmCheckout = async () => {
+  const handleConfirmCheckout = async (sellerOverride?: { id: string; name: string }) => {
     if (cart.length === 0) return;
+
+    const seller = sellerOverride || currentSeller;
+    if (!seller) {
+      setIsPendingCheckout(true);
+      handleOpenSellerModal();
+      addToast('⚠️ Identifique o vendedor com a chave de acesso para concluir a venda.', 'warning', 3500);
+      return;
+    }
 
     if (selectedMethod === 'DINHEIRO') {
       if (isCashValueEntered && cashNum < totalFinal) {
@@ -696,7 +796,9 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
         customer_id: selectedCustomer ? selectedCustomer.id : null,
         customer_name: (selectedCustomer ? selectedCustomer.name : customerNameInput.trim()) || null,
         discount_value: totalDiscount,
-        user_name: 'Balcão / Caixa',
+        user_name: seller.name,
+        seller_id: seller.id,
+        seller_name: seller.name,
         controlled_recipes: controlledRecipesData || undefined,
         emit_nfce: emitNfce,
         customer_cpf: customerCpf.trim() || null
@@ -721,6 +823,8 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
           total_final: totalFinal,
           payment: paymentPayload,
           customer_name: finalCustomerName,
+          seller_id: seller.id,
+          seller_name: seller.name,
           change: cashChange,
           digifarma: json.digifarma
         };
@@ -744,7 +848,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
         }
 
         const msgFiscal = emitNfce ? ' (NFC-e processando em 2º plano)' : '';
-        addToast(`✅ Venda finalizada com sucesso! (R$ ${totalFinal.toFixed(2)})${msgFiscal}`, 'success', 3000);
+        addToast(`✅ Venda finalizada por ${seller.name}! (R$ ${totalFinal.toFixed(2)})${msgFiscal}`, 'success', 3000);
         focusBarcodeInput();
 
       } else {
@@ -848,9 +952,21 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
             <span className="tracking-wide">CAIXA 01 - OPERANDO</span>
           </div>
 
-          <div className="hidden lg:flex items-center space-x-2 text-slate-300">
+          <div className="flex items-center space-x-2 text-slate-300">
             <span className="text-slate-600">|</span>
-            <span className="text-slate-400">Operador: <strong className="text-slate-200">Balcão / Caixa</strong></span>
+            <button
+              onClick={handleOpenSellerModal}
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-lg border text-xs font-bold transition-all shadow-sm ${
+                currentSeller
+                  ? 'bg-emerald-950/70 border-emerald-600 text-emerald-300 hover:bg-emerald-900/80 ring-1 ring-emerald-500/30'
+                  : 'bg-amber-950/80 border-amber-500 text-amber-300 hover:bg-amber-900 ring-1 ring-amber-500/40 animate-pulse'
+              }`}
+              title="Clique para identificar ou trocar o vendedor (F3)"
+            >
+              <UserCheck className="w-4 h-4 text-emerald-400" />
+              <span>{currentSeller ? `Vendedor: ${currentSeller.name}` : 'Identificar Vendedor'}</span>
+              <span className="text-[10px] bg-slate-900 px-1 py-0.5 rounded text-slate-300 font-mono">F3</span>
+            </button>
           </div>
         </div>
 
@@ -935,10 +1051,23 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
           </button>
           
           <button 
+            onClick={handleOpenSellerModal} 
+            className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-lg transition border ${
+              currentSeller
+                ? 'bg-emerald-950/60 hover:bg-emerald-900 text-emerald-300 border-emerald-700/60'
+                : 'bg-amber-950/70 hover:bg-amber-900 text-amber-300 border-amber-600 animate-pulse'
+            }`}
+            title="Identificar ou trocar vendedor por chave de acesso de login"
+          >
+            <span className="bg-amber-500/20 text-amber-300 font-bold px-1.5 py-0.5 rounded text-[10px]">F3</span>
+            <span>{currentSeller ? currentSeller.name.split(' ')[0] : 'Vendedor'}</span>
+          </button>
+          
+          <button 
             onClick={() => setIsCustomerModalOpen(true)} 
             className="flex items-center space-x-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 px-2.5 py-1 rounded-lg transition border border-slate-700"
           >
-            <span className="bg-amber-500/20 text-amber-300 font-bold px-1.5 py-0.5 rounded text-[10px]">F3</span>
+            <span className="bg-amber-500/20 text-amber-300 font-bold px-1.5 py-0.5 rounded text-[10px]">F6</span>
             <span>Cliente / CPF</span>
           </button>
           
@@ -2326,6 +2455,82 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
           }
         }}
       />
+
+      {/* ========================================================================= */}
+      {/* MODAL 10: IDENTIFICAÇÃO RÁPIDA DO VENDEDOR (CHAVE DE ACESSO DO LOGIN)     */}
+      {/* ========================================================================= */}
+      {isSellerModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border-2 border-emerald-500/70 rounded-3xl shadow-2xl max-w-sm w-full p-6 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
+              <h3 className="font-black text-sm text-white flex items-center gap-2">
+                <Key className="w-4 h-4 text-emerald-400" />
+                Identificação do Vendedor
+              </h3>
+              <button 
+                onClick={() => {
+                  setIsSellerModalOpen(false);
+                  setIsPendingCheckout(false);
+                  focusBarcodeInput();
+                }} 
+                className="text-slate-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-300 mb-3 leading-relaxed">
+              Digite a <strong className="text-emerald-400">chave de acesso de login</strong> do vendedor ou bipe o crachá:
+            </p>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleIdentifySeller();
+              }}
+            >
+              <div className="relative mb-4">
+                <input
+                  ref={sellerKeyInputRef}
+                  type="password"
+                  autoFocus
+                  value={sellerKeyInput}
+                  onChange={(e) => setSellerKeyInput(e.target.value)}
+                  placeholder="Chave de acesso / PIN"
+                  className="w-full pl-4 pr-10 py-3 rounded-2xl bg-slate-950 border-2 border-emerald-500/60 text-emerald-300 font-mono text-center text-lg tracking-widest font-black focus:outline-none focus:border-emerald-400 shadow-inner"
+                />
+                {isIdentifyingSeller && (
+                  <div className="absolute right-3 top-3.5">
+                    <RefreshCw className="w-5 h-5 text-emerald-400 animate-spin" />
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsSellerModalOpen(false);
+                    setIsPendingCheckout(false);
+                    focusBarcodeInput();
+                  }}
+                  className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-all"
+                >
+                  Cancelar [ESC]
+                </button>
+                <button
+                  type="submit"
+                  disabled={isIdentifyingSeller || !sellerKeyInput.trim()}
+                  className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-black transition-all shadow-md flex items-center justify-center gap-1.5"
+                >
+                  {isIdentifyingSeller ? <RefreshCw className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                  Confirmar [ENTER]
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

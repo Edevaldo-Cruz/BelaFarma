@@ -18,8 +18,15 @@ function registrarVenda(payload) {
     customer_name = null,
     discount_value = 0,
     user_name = 'Caixa',
+    seller_id = null,
+    seller_name = null,
     notes = ''
   } = payload;
+
+  const finalSellerName = String(seller_name || user_name || '').trim();
+  if (!finalSellerName || finalSellerName === 'Caixa' || finalSellerName === 'Balcão / Caixa') {
+    throw new Error('A venda não pode ser feita sem a identificação do vendedor.');
+  }
 
   if (!Array.isArray(items) || items.length === 0) {
     throw new Error('A venda deve conter pelo menos 1 produto.');
@@ -110,10 +117,12 @@ function registrarVenda(payload) {
     db.prepare(`
       INSERT INTO sales (
         id, sale_date, sale_time, total_items_value, discount_value, total_value,
-        payment_method, customer_id, customer_name, user_id, user_name, status, notes, created_at
+        payment_method, customer_id, customer_name, user_id, user_name,
+        seller_id, seller_name, status, notes, created_at
       ) VALUES (
         ?, ?, ?, ?, ?, ?,
-        ?, ?, ?, ?, ?, 'CONCLUIDA', ?, datetime('now', 'localtime')
+        ?, ?, ?, ?, ?,
+        ?, ?, 'CONCLUIDA', ?, datetime('now', 'localtime')
       )
     `).run(
       saleId,
@@ -126,7 +135,9 @@ function registrarVenda(payload) {
       validCustomerId,
       customer_name,
       userIdVal,
-      user_name,
+      finalSellerName,
+      seller_id || userIdVal,
+      finalSellerName,
       notes
     );
 
@@ -241,6 +252,8 @@ function registrarVenda(payload) {
     total_items_value: totalItemsValue,
     discount_value: desconto,
     total_value: totalFinal,
+    seller_id: seller_id || userIdVal,
+    seller_name: finalSellerName,
     items: processedItems,
     payments
   };

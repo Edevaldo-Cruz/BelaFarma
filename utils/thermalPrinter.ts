@@ -11,6 +11,7 @@ export interface CupomVendaData {
   date: string;
   time: string;
   customer_name?: string;
+  seller_name?: string;
   items: Array<{
     name: string;
     quantity: number;
@@ -314,6 +315,7 @@ export function imprimirCupomVenda(venda: CupomVendaData) {
         <div class="sale-badge">CUPOM #${venda.sale_id}</div>
         <div class="subtitle">${venda.date} às ${venda.time}</div>
         ${venda.customer_name ? `<div style="font-size:11px; font-weight:900; margin-top:3px;">CLIENTE: ${escapeHtml(venda.customer_name)}</div>` : ''}
+        ${venda.seller_name ? `<div style="font-size:10px; font-weight:800; margin-top:2px; text-transform:uppercase;">VENDEDOR: ${escapeHtml(venda.seller_name)}</div>` : ''}
       </div>
 
       <div class="divider"></div>

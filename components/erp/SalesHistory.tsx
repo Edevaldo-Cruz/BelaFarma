@@ -40,6 +40,8 @@ interface SaleSummary {
   total_value: number;
   customer_name: string | null;
   user_name: string;
+  seller_id?: string;
+  seller_name?: string;
   status: 'CONCLUIDA' | 'CANCELADA';
   total_items: number;
   payment_methods: string;
@@ -280,6 +282,7 @@ export const SalesHistory: React.FC = () => {
       s.id.toLowerCase().includes(q) ||
       (s.customer_name && s.customer_name.toLowerCase().includes(q)) ||
       (s.user_name && s.user_name.toLowerCase().includes(q)) ||
+      (s.seller_name && s.seller_name.toLowerCase().includes(q)) ||
       (s.payment_methods && s.payment_methods.toLowerCase().includes(q)) ||
       (s.contingency_reason && s.contingency_reason.toLowerCase().includes(q))
     );
@@ -683,7 +686,7 @@ export const SalesHistory: React.FC = () => {
                 <th className="py-2.5 px-4 whitespace-nowrap">Cupom #</th>
                 <th className="py-2.5 px-3 whitespace-nowrap">Horário</th>
                 <th className="py-2.5 px-4 whitespace-nowrap">Cliente</th>
-                <th className="py-2.5 px-3 whitespace-nowrap">Operador</th>
+                <th className="py-2.5 px-3 whitespace-nowrap">Operador / Vendedor</th>
                 <th className="py-2.5 px-3 whitespace-nowrap text-center">Itens</th>
                 <th className="py-2.5 px-4 whitespace-nowrap">Formas de Pagamento</th>
                 <th className="py-2.5 px-4 text-right whitespace-nowrap">Valor Total</th>
@@ -798,9 +801,18 @@ export const SalesHistory: React.FC = () => {
                         {s.customer_name || 'Balcão / Consumidor'}
                       </td>
 
-                      {/* Operador */}
-                      <td className="py-2.5 px-3 text-slate-500 whitespace-nowrap max-w-[120px] truncate" title={s.user_name}>
-                        {s.user_name}
+                      {/* Operador / Vendedor */}
+                      <td className="py-2.5 px-3 text-slate-500 whitespace-nowrap max-w-[140px] truncate" title={`Operador: ${s.user_name}${s.seller_name ? ` | Vendedor: ${s.seller_name}` : ''}`}>
+                        <div className="flex flex-col leading-tight">
+                          <span className="font-semibold text-slate-800 dark:text-slate-200 truncate">
+                            {s.seller_name || s.user_name}
+                          </span>
+                          {s.seller_name && s.seller_name !== s.user_name && (
+                            <span className="text-[10px] text-slate-400 truncate">
+                              Cx: {s.user_name}
+                            </span>
+                          )}
+                        </div>
                       </td>
 
                       {/* Itens */}
@@ -944,6 +956,7 @@ export const SalesHistory: React.FC = () => {
                 </h3>
                 <p className="text-xs text-slate-400">
                   {activeSaleDetail.sale_date} às {activeSaleDetail.sale_time} • Operador: {activeSaleDetail.user_name}
+                  {activeSaleDetail.seller_name && ` • Vendedor: ${activeSaleDetail.seller_name}`}
                 </p>
               </div>
               <button 

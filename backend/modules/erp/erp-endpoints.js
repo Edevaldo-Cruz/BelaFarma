@@ -141,9 +141,62 @@ router.patch('/products/:code', (req, res) => {
 // ==========================================
 // 2. ROTAS DE FRENTE DE CAIXA (PDV)
 // ==========================================
+
+/**
+ * Identificação Rápida de Vendedor por Chave de Acesso (< 2ms)
+ * Permite identificar o vendedor sem travar o caixa.
+ */
+router.post('/pos/identify-seller', (req, res) => {
+  try {
+    const security = require('../../security');
+    const { db } = require('./erp-database');
+
+    const { accessKey } = req.body || {};
+    if (!accessKey) {
+      return res.status(400).json({ success: false, error: 'Chave de acesso não informada.' });
+    }
+
+    const keyStr = String(accessKey).trim();
+    const MASTER_KEY = process.env.MASTER_ACCESS_KEY || 'belafarma2024';
+
+    // 1. Testa Chave Master
+    if (security.verifyAccessKey(keyStr, MASTER_KEY)) {
+      return res.json({
+        success: true,
+        seller: {
+          id: 'master-admin',
+          name: 'Administrador Bela',
+          role: 'Administrador',
+          jobRole: 'Gerente'
+        }
+      });
+    }
+
+    // 2. Procura nos usuários cadastrados no banco
+    const allUsers = db.prepare('SELECT id, name, role, jobRole, accessKey, accessKeyHash FROM users').all();
+    const matchedUser = allUsers.find(u => security.verifyAccessKey(keyStr, u.accessKey, u.accessKeyHash));
+
+    if (matchedUser) {
+      return res.json({
+        success: true,
+        seller: {
+          id: matchedUser.id,
+          name: matchedUser.name,
+          role: matchedUser.role,
+          jobRole: matchedUser.jobRole || 'Vendedor'
+        }
+      });
+    }
+
+    return res.status(401).json({ success: false, error: 'Chave de acesso não encontrada ou incorreta.' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 router.post('/pos/checkout', async (req, res) => {
   try {
-    const userName = req.headers['x-user-name'] || req.body.user_name || 'Caixa';
+    const userName = req.headers['x-user-name'] || req.body.user_name || req.body.seller_name || 'Caixa';
     const resultado = registrarVenda({
       ...req.body,
       user_name: userName

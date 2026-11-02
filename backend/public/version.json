@@ -1,9 +1,14 @@
 {
   "version": "1.2.4",
-  "commitHash": "b5ed44b",
-  "commitMessage": "feat(pdv): checkout ultrarrapido assincrono, checkboxes antibiotico/psicotropico no cadastro e registro obrigatorio de lote",
-  "buildTime": "01/11/2026, 23:32:06",
+  "commitHash": "9ca1a7a",
+  "commitMessage": "fix(layout): fixar rodape no final da pagina com flex column e sticky footer",
+  "buildTime": "01/11/2026, 23:47:35",
   "recentCommits": [
+    {
+      "hash": "9ca1a7a",
+      "date": "01/11/2026",
+      "message": "fix(layout): fixar rodape no final da pagina com flex column e sticky footer"
+    },
     {
       "hash": "b5ed44b",
       "date": "01/11/2026",
@@ -58,11 +63,6 @@
       "hash": "32d820d",
       "date": "01/11/2026",
       "message": "fix(security): permitir rotas /api/printer na rede local sem bloqueio de sessao"
-    },
-    {
-      "hash": "636bba2",
-      "date": "01/11/2026",
-      "message": "fix(script): correcao de sintaxe batch para inicializacao sem falhas do PDV"
     }
   ]
 }

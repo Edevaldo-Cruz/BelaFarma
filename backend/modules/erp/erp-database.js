@@ -96,6 +96,10 @@ function initErpDatabase() {
     if (!sCols.includes('issued_at')) db.prepare(`ALTER TABLE sales ADD COLUMN issued_at TEXT`).run();
     if (!sCols.includes('xml_content')) db.prepare(`ALTER TABLE sales ADD COLUMN xml_content TEXT`).run();
     if (!sCols.includes('contingency_reason')) db.prepare(`ALTER TABLE sales ADD COLUMN contingency_reason TEXT`).run();
+
+    // Identificação do Vendedor / Atendente
+    if (!sCols.includes('seller_id')) db.prepare(`ALTER TABLE sales ADD COLUMN seller_id TEXT`).run();
+    if (!sCols.includes('seller_name')) db.prepare(`ALTER TABLE sales ADD COLUMN seller_name TEXT`).run();
   } catch (err) {
     console.warn('[Belinha ERP DB] Aviso ao verificar colunas sales:', err.message);
   }
@@ -104,6 +108,7 @@ function initErpDatabase() {
   db.prepare(`CREATE INDEX IF NOT EXISTS idx_sales_status ON sales (status)`).run();
   db.prepare(`CREATE INDEX IF NOT EXISTS idx_sales_fiscal ON sales (fiscal_status)`).run();
   db.prepare(`CREATE INDEX IF NOT EXISTS idx_sales_customer ON sales (customer_id)`).run();
+  db.prepare(`CREATE INDEX IF NOT EXISTS idx_sales_seller ON sales (seller_id)`).run();
 
   // 3. Itens da Venda
   db.prepare(`
@@ -290,6 +295,13 @@ function initErpDatabase() {
 
   console.log('[Belinha ERP DB] ✅ Schema limpo do ERP verificado e pronto!');
   return true;
+}
+
+// Auto-inicializa o schema na carga do módulo
+try {
+  initErpDatabase();
+} catch (err) {
+  console.warn('[Belinha ERP DB] Aviso ao inicializar banco ERP:', err.message);
 }
 
 module.exports = {
