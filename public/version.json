@@ -1,9 +1,19 @@
 {
   "version": "1.2.4",
-  "commitHash": "f96ae26",
-  "commitMessage": "fix(ia): otimizar prompt para resposta ultra-rapida do consultor ia",
-  "buildTime": "01/11/2026, 12:35:33",
+  "commitHash": "7bb930d",
+  "commitMessage": "feat(fiscal): modulo contabil e fiscal com segregacao simples nacional e sped",
+  "buildTime": "01/11/2026, 22:11:38",
   "recentCommits": [
+    {
+      "hash": "7bb930d",
+      "date": "01/11/2026",
+      "message": "feat(fiscal): modulo contabil e fiscal com segregacao simples nacional e sped"
+    },
+    {
+      "hash": "1d53f1d",
+      "date": "01/11/2026",
+      "message": "feat(fiscal): impressao direta sem modal, nome/documento na nota e reenvio sefaz unitario e em lote"
+    },
     {
       "hash": "f96ae26",
       "date": "01/11/2026",
@@ -53,16 +63,6 @@
       "hash": "1c7ac5f",
       "date": "31/10/2026",
       "message": "fix(pdv): importar useMemo em BelinhaPDV.tsx e recompilar dist v1.2.3"
-    },
-    {
-      "hash": "22316f6",
-      "date": "31/10/2026",
-      "message": "fix(mural): declarar anvisaAlertCount no App.tsx e recompilar dist v1.2.2"
-    },
-    {
-      "hash": "1a312c7",
-      "date": "31/10/2026",
-      "message": "fix(docker): expor porta 3001 no frontend para atender atalhos dos terminais de caixa"
     }
   ]
 }
