@@ -1,9 +1,14 @@
 {
   "version": "1.2.4",
-  "commitHash": "b01140d",
-  "commitMessage": "feat(ui): implementar menu superior padrao windows com 6 categorias e alternador radio",
-  "buildTime": "01/11/2026, 23:28:20",
+  "commitHash": "b5ed44b",
+  "commitMessage": "feat(pdv): checkout ultrarrapido assincrono, checkboxes antibiotico/psicotropico no cadastro e registro obrigatorio de lote",
+  "buildTime": "01/11/2026, 23:32:06",
   "recentCommits": [
+    {
+      "hash": "b5ed44b",
+      "date": "01/11/2026",
+      "message": "feat(pdv): checkout ultrarrapido assincrono, checkboxes antibiotico/psicotropico no cadastro e registro obrigatorio de lote"
+    },
     {
       "hash": "b01140d",
       "date": "01/11/2026",
@@ -58,11 +63,6 @@
       "hash": "636bba2",
       "date": "01/11/2026",
       "message": "fix(script): correcao de sintaxe batch para inicializacao sem falhas do PDV"
-    },
-    {
-      "hash": "a2d2f6a",
-      "date": "01/11/2026",
-      "message": "feat(printer): impressao termica em rede para Bematech MP-4200 TH a partir de qualquer terminal"
     }
   ]
 }

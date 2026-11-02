@@ -1362,8 +1362,9 @@ const App: React.FC = () => {
         onSearch={() => handleNavigate("medication-search")} 
         budgetStatus={currentMonthBudgetStatus}
       />
-      <main className="flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-8">
-        <div className="max-w-7xl mx-auto pb-10">
+      <main className="flex-1 overflow-y-auto overflow-x-hidden flex flex-col">
+        <div className="flex-1 p-4 md:p-8 w-full">
+          <div className="max-w-7xl mx-auto pb-10 w-full">
           {isLoading ? (
             <div className="h-[60vh] flex flex-col items-center justify-center gap-4">
               <Loader2 className="w-10 h-10 text-red-600 animate-spin" />
@@ -1627,7 +1628,8 @@ const App: React.FC = () => {
             </>
           )}
         </div>
-        <footer className="w-full text-center py-3 text-xs text-slate-500 dark:text-slate-400 font-medium bg-slate-100 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex items-center justify-center gap-2 flex-wrap">
+        </div>
+        <footer className="w-full shrink-0 mt-auto text-center py-3 text-xs text-slate-500 dark:text-slate-400 font-medium bg-slate-100 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex items-center justify-center gap-2 flex-wrap">
           <span>Desenvolvido por <strong className="font-bold text-slate-700 dark:text-slate-200">Edevaldo Cruz</strong></span>
           <span>•</span>
           <a
