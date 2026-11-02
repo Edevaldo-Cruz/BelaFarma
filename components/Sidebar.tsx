@@ -269,6 +269,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'controlled-medications', label: 'Controle Especial & SNGPC', icon: ShieldCheck },
     { id: 'erp-produtos', label: 'Estoque ERP', icon: Package },
     { id: 'erp-nfe', label: 'Entrada NF-e', icon: FileSpreadsheet },
+    { id: 'fiscal-contabil', label: 'Fiscal & Simples', icon: Receipt },
     { id: 'anvisa-alerts', label: 'Alertas ANVISA', icon: ShieldAlert },
     { id: 'logs', label: 'Auditoria', icon: History },
     { id: 'belaped', label: 'BelaPed Compras', icon: ShoppingBag },
@@ -399,7 +400,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     const auditItem = auditMap[item.id];
     if (auditItem && auditItem.status === 'UNINSTALLED') return false;
 
-    const adminOnly = ['logs', 'belaped', 'central-compras', 'checking-account', 'cash-closing', 'financial', 'contas-a-pagar', 'users', 'safe', 'debtors-report', 'backups', 'consignados', 'invoices', 'ifood-control', 'messaging-center', 'belafarma-ia', 'ai-portal', 'radio-manager', 'whatsapp-crm', 'stock', 'financial-health', 'caixa-provisoes', 'sales-report', 'critical-stock', 'system-watcher', 'purchase-calendar', 'price-manager', 'card-machines', 'liquidacao-caixa']; 
+    const adminOnly = ['fiscal-contabil', 'logs', 'belaped', 'central-compras', 'checking-account', 'cash-closing', 'financial', 'contas-a-pagar', 'users', 'safe', 'debtors-report', 'backups', 'consignados', 'invoices', 'ifood-control', 'messaging-center', 'belafarma-ia', 'ai-portal', 'radio-manager', 'whatsapp-crm', 'stock', 'financial-health', 'caixa-provisoes', 'sales-report', 'critical-stock', 'system-watcher', 'purchase-calendar', 'price-manager', 'card-machines', 'liquidacao-caixa']; 
 
     if (adminOnly.includes(item.id) && !isAdmin) return false;
     return true;

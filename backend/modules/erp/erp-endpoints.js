@@ -56,6 +56,14 @@ const {
   atualizarNfceAutorizadaDigifarma
 } = require('./erp-digifarma-sales-sync.service');
 
+const {
+  calcularRbt12EAliquotas,
+  processarApuracaoFiscal,
+  quickFixProdutoFiscal,
+  gerarSpedFiscalEfd,
+  exportarRelatorioContabilCsv
+} = require('./fiscal-accounting.service');
+
 // ==========================================
 
 // 1. ROTAS DE PRODUTOS & ESTOQUE
@@ -541,6 +549,116 @@ router.get('/fiscal/cupons', (req, res) => {
     });
     res.json({ success: true, count: cupons.length, data: cupons });
   } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ==========================================
+// 5.1. ROTAS CONTÁBEIS, APURAÇÃO DO SIMPLES (PGDAS-D) & SPED FISCAL
+// ==========================================
+
+// Consulta ou processa a apuração fiscal do Simples Nacional para uma competência/período
+router.get('/fiscal/apuracao', async (req, res) => {
+  try {
+    const { competencia, aliquotaManual, dataInicial, dataFinal } = req.query;
+    const now = new Date();
+    const comp = competencia || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    
+    const aliq = aliquotaManual ? parseFloat(aliquotaManual) : null;
+    const resultado = await processarApuracaoFiscal(comp, {
+      aliquotaManual: aliq,
+      dataInicial,
+      dataFinal
+    });
+
+    res.json({ success: true, ...resultado });
+  } catch (err) {
+    console.error('[Fiscal API] Erro na apuração fiscal:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Força o reprocessamento da apuração fiscal
+router.post('/fiscal/apuracao/processar', async (req, res) => {
+  try {
+    const { competencia, aliquotaManual, dataInicial, dataFinal } = req.body;
+    const now = new Date();
+    const comp = competencia || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+    const aliq = aliquotaManual ? parseFloat(aliquotaManual) : null;
+    const resultado = await processarApuracaoFiscal(comp, {
+      aliquotaManual: aliq,
+      dataInicial,
+      dataFinal
+    });
+
+    res.json({ success: true, ...resultado });
+  } catch (err) {
+    console.error('[Fiscal API] Erro ao processar apuração fiscal:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Download do arquivo oficial SPED Fiscal EFD ICMS/IPI (.TXT)
+router.get('/fiscal/sped-txt', (req, res) => {
+  try {
+    const { competencia } = req.query;
+    if (!competencia) {
+      return res.status(400).json({ success: false, error: 'Parâmetro competencia (YYYY-MM) obrigatório.' });
+    }
+
+    const conteudoSped = gerarSpedFiscalEfd(competencia);
+    const filename = `SPED_EFD_${competencia.replace('-', '_')}.txt`;
+
+    res.setHeader('Content-Type', 'text/plain; charset=iso-8859-1');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(conteudoSped);
+  } catch (err) {
+    console.error('[Fiscal API] Erro ao gerar SPED Fiscal:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Download do Relatório Analítico Consolidado em CSV para a Contabilidade
+router.get('/fiscal/relatorio-csv', (req, res) => {
+  try {
+    const { competencia } = req.query;
+    if (!competencia) {
+      return res.status(400).json({ success: false, error: 'Parâmetro competencia (YYYY-MM) obrigatório.' });
+    }
+
+    const conteudoCsv = exportarRelatorioContabilCsv(competencia);
+    const filename = `RELATORIO_SIMPLES_${competencia.replace('-', '_')}.csv`;
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(conteudoCsv);
+  } catch (err) {
+    console.error('[Fiscal API] Erro ao exportar CSV contábil:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Quick-Fix: Correção rápida de dados fiscais (NCM, CEST, CST) de produto com pendência
+router.post('/fiscal/quick-fix', (req, res) => {
+  try {
+    const { productCode, ncm, cest, tributacao_monofasica, cst_pis, cst_cofins, aliquota_st } = req.body;
+    if (!productCode) {
+      return res.status(400).json({ success: false, error: 'Código do produto obrigatório.' });
+    }
+
+    const resultado = quickFixProdutoFiscal(productCode, {
+      ncm,
+      cest,
+      tributacao_monofasica,
+      cst_pis,
+      cst_cofins,
+      aliquota_st
+    });
+
+    res.json(resultado);
+  } catch (err) {
+    console.error('[Fiscal API] Erro no Quick-Fix de produto:', err);
     res.status(500).json({ success: false, error: err.message });
   }
 });

@@ -77,6 +77,7 @@ import { SalesHistory } from "./components/erp/SalesHistory";
 import { ProductsCatalog } from "./components/erp/ProductsCatalog";
 import { InboundInvoices } from "./components/erp/InboundInvoices";
 import { ControlledMedicationsPortal } from "./components/erp/ControlledMedicationsPortal";
+import { FiscalAccountingView } from "./components/FiscalAccountingView";
 
 
 import {
@@ -1361,6 +1362,9 @@ const App: React.FC = () => {
               )}
               {currentView === "erp-nfe" && (
                 <InboundInvoices />
+              )}
+              {currentView === "fiscal-contabil" && user.role === UserRole.ADM && (
+                <FiscalAccountingView />
               )}
               {currentView === "central-compras" && user.role === UserRole.ADM && (
                 <CentralCompras

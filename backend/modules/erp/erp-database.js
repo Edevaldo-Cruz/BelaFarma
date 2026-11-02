@@ -210,6 +210,70 @@ function initErpDatabase() {
     `).run();
   }
 
+  // 8. Tabela de Matriz Fiscal por NCM
+  db.prepare(`
+    CREATE TABLE IF NOT EXISTS fiscal_ncm_rules (
+      ncm TEXT PRIMARY KEY,
+      descricao TEXT NOT NULL,
+      cest_padrao TEXT,
+      is_monofasico_pis_cofins INTEGER NOT NULL DEFAULT 1,
+      is_icms_st INTEGER NOT NULL DEFAULT 1,
+      cst_pis TEXT DEFAULT '04',
+      cst_cofins TEXT DEFAULT '04',
+      csosn_icms TEXT DEFAULT '500',
+      cfop_saida TEXT DEFAULT '5405',
+      fundamentacao_legal TEXT DEFAULT 'Lei 10.147/2000 / Conv. ICMS 142/2018',
+      updated_at TEXT DEFAULT (datetime('now', 'localtime'))
+    )
+  `).run();
+  db.prepare(`CREATE INDEX IF NOT EXISTS idx_ncm_rules_monofasico ON fiscal_ncm_rules (is_monofasico_pis_cofins)`).run();
+  db.prepare(`CREATE INDEX IF NOT EXISTS idx_ncm_rules_icms_st ON fiscal_ncm_rules (is_icms_st)`).run();
+
+  // 9. Tabela de Fechamentos e Apurações do Simples Nacional (PGDAS-D)
+  db.prepare(`
+    CREATE TABLE IF NOT EXISTS tax_closings (
+      id TEXT PRIMARY KEY,
+      competencia TEXT NOT NULL,
+      data_fechamento TEXT NOT NULL,
+      faturamento_bruto REAL NOT NULL DEFAULT 0,
+      total_cancelamentos REAL NOT NULL DEFAULT 0,
+      faturamento_liquido REAL NOT NULL DEFAULT 0,
+      rec_monofasico_st REAL NOT NULL DEFAULT 0,
+      rec_apenas_st REAL NOT NULL DEFAULT 0,
+      rec_apenas_monofasico REAL NOT NULL DEFAULT 0,
+      rec_tributada_integral REAL NOT NULL DEFAULT 0,
+      rec_indeterminada REAL NOT NULL DEFAULT 0,
+      aliquota_efetiva_estimada REAL DEFAULT 0.08,
+      das_estimado_sem_segregacao REAL NOT NULL DEFAULT 0,
+      das_estimado_com_segregacao REAL NOT NULL DEFAULT 0,
+      economia_tributaria_estimada REAL NOT NULL DEFAULT 0,
+      total_documentos INTEGER NOT NULL DEFAULT 0,
+      total_itens INTEGER NOT NULL DEFAULT 0,
+      inconsistencias_count INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'CONCLUIDO',
+      gerado_por TEXT NOT NULL DEFAULT 'Sistema',
+      created_at TEXT DEFAULT (datetime('now', 'localtime'))
+    )
+  `).run();
+  db.prepare(`CREATE INDEX IF NOT EXISTS idx_tax_closings_comp ON tax_closings (competencia)`).run();
+
+  // 10. Tabela de Inconsistências e Pendências Cadastrais de Auditoria Fiscal
+  db.prepare(`
+    CREATE TABLE IF NOT EXISTS fiscal_audit_issues (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      closing_id TEXT NOT NULL,
+      product_code TEXT,
+      barcode TEXT,
+      product_name TEXT,
+      issue_type TEXT NOT NULL,
+      detalhe TEXT NOT NULL,
+      impacto_valor REAL NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'PENDENTE',
+      FOREIGN KEY (closing_id) REFERENCES tax_closings (id) ON DELETE CASCADE
+    )
+  `).run();
+  db.prepare(`CREATE INDEX IF NOT EXISTS idx_audit_issues_closing ON fiscal_audit_issues (closing_id)`).run();
+
   console.log('[Belinha ERP DB] ✅ Schema limpo do ERP verificado e pronto!');
   return true;
 }

@@ -534,7 +534,61 @@ export interface iFoodNotification {
   daysLate?: number;
 }
 
-export type View = 'dashboard' | 'belinha-pdv' | 'erp-vendas' | 'controlled-medications' | 'erp-produtos' | 'erp-nfe' | 'belaped' | 'promocoes-whatsapp' | 'central-compras' | 'deliveries' | 'orders' | 'financial' | 'settings' | 'users' | 'shortages' | 'medication-search' | 'cash-closing' | 'safe' | 'daily-records' | 'logs' | 'checking-account' | 'contas-a-pagar' | 'days-in-debt' | 'crediario-report' | 'task-management' | 'fixed-accounts' | 'customers' | 'debtors-report' | 'backups' | 'invoices' | 'foguete-amarelo' | 'sales' | 'consignados' | 'ifood-control' | 'notifications' | 'messaging-center' | 'ai-portal' | 'financial-health' | 'caixa-provisoes' | 'radio-manager' | 'whatsapp-crm' | 'labels' | 'compras-live' | 'suppliers' | 'whatsapp-vendas' | 'sales-report' | 'critical-stock' | 'system-watcher' | 'purchase-calendar' | 'inventario' | 'price-manager' | 'pricing-simulator' | 'agenda' | 'anvisa-alerts' | 'notes' | 'card-machines' | 'perdas-avarias' | 'temperature-map' | 'reposicao-tabela' | 'liquidacao-caixa' | 'belafarma-ia';
+export type View = 'dashboard' | 'belinha-pdv' | 'erp-vendas' | 'controlled-medications' | 'erp-produtos' | 'erp-nfe' | 'fiscal-contabil' | 'belaped' | 'promocoes-whatsapp' | 'central-compras' | 'deliveries' | 'orders' | 'financial' | 'settings' | 'users' | 'shortages' | 'medication-search' | 'cash-closing' | 'safe' | 'daily-records' | 'logs' | 'checking-account' | 'contas-a-pagar' | 'days-in-debt' | 'crediario-report' | 'task-management' | 'fixed-accounts' | 'customers' | 'debtors-report' | 'backups' | 'invoices' | 'foguete-amarelo' | 'sales' | 'consignados' | 'ifood-control' | 'notifications' | 'messaging-center' | 'ai-portal' | 'financial-health' | 'caixa-provisoes' | 'radio-manager' | 'whatsapp-crm' | 'labels' | 'compras-live' | 'suppliers' | 'whatsapp-vendas' | 'sales-report' | 'critical-stock' | 'system-watcher' | 'purchase-calendar' | 'inventario' | 'price-manager' | 'pricing-simulator' | 'agenda' | 'anvisa-alerts' | 'notes' | 'card-machines' | 'perdas-avarias' | 'temperature-map' | 'reposicao-tabela' | 'liquidacao-caixa' | 'belafarma-ia';
+
+export interface FiscalAuditIssue {
+  id?: number;
+  closing_id: string;
+  product_code: string;
+  barcode: string;
+  product_name: string;
+  issue_type: string;
+  detalhe: string;
+  impacto_valor: number;
+  vendas_count?: number;
+  status?: 'PENDENTE' | 'CORRIGIDO' | 'IGNORADO';
+}
+
+export interface PgdasBucketItem {
+  campo: string;
+  deducoes: string;
+  valor: number;
+  percentual: number;
+}
+
+export interface TaxClosingReport {
+  closingId: string;
+  competencia: string;
+  faturamentoBruto: number;
+  totalCancelamentos: number;
+  faturamentoLiquido: number;
+  rbt12: number;
+  faixaSimples: number;
+  aliquotaEfetiva: number;
+  aliquotaManualInformada: boolean;
+  segregacao: {
+    monofasicoComSt: number;
+    apenasSt: number;
+    apenasMonofasico: number;
+    tributadaIntegral: number;
+    indeterminadaPendente: number;
+    percentualMonofasicoSt: number;
+  };
+  das: {
+    valorSemSegregacao: number;
+    valorComSegregacao: number;
+    economiaTributariaMes: number;
+    percentualEconomia: number;
+  };
+  guiaPgdas: PgdasBucketItem[];
+  estatisticas: {
+    totalVendas: number;
+    totalItens: number;
+    totalCanceladas: number;
+    totalInconsistencias: number;
+  };
+  inconsistenciasCadastrais: FiscalAuditIssue[];
+}
 
 export interface TemperatureRecord {
   id: string;

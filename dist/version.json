@@ -1,9 +1,14 @@
 {
   "version": "1.2.4",
-  "commitHash": "f96ae26",
-  "commitMessage": "fix(ia): otimizar prompt para resposta ultra-rapida do consultor ia",
-  "buildTime": "01/11/2026, 12:35:33",
+  "commitHash": "1d53f1d",
+  "commitMessage": "feat(fiscal): impressao direta sem modal, nome/documento na nota e reenvio sefaz unitario e em lote",
+  "buildTime": "01/11/2026, 21:23:17",
   "recentCommits": [
+    {
+      "hash": "1d53f1d",
+      "date": "01/11/2026",
+      "message": "feat(fiscal): impressao direta sem modal, nome/documento na nota e reenvio sefaz unitario e em lote"
+    },
     {
       "hash": "f96ae26",
       "date": "01/11/2026",
@@ -58,11 +63,6 @@
       "hash": "22316f6",
       "date": "31/10/2026",
       "message": "fix(mural): declarar anvisaAlertCount no App.tsx e recompilar dist v1.2.2"
-    },
-    {
-      "hash": "1a312c7",
-      "date": "31/10/2026",
-      "message": "fix(docker): expor porta 3001 no frontend para atender atalhos dos terminais de caixa"
     }
   ]
 }
