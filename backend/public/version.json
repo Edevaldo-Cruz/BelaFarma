@@ -1,9 +1,14 @@
 {
   "version": "1.2.4",
-  "commitHash": "1f074f7",
-  "commitMessage": "feat(budget): permitir definicao de orcamento para o proximo ano com preenchimento rapido e salvamento em lote",
-  "buildTime": "02/11/2026, 10:11:47",
+  "commitHash": "e1d6473",
+  "commitMessage": "fix(pdv): corrigir inicializacao do BelinhaPDV evitando crash por TDZ e loop infinito no foco/modal do vendedor",
+  "buildTime": "02/11/2026, 10:44:08",
   "recentCommits": [
+    {
+      "hash": "e1d6473",
+      "date": "02/11/2026",
+      "message": "fix(pdv): corrigir inicializacao do BelinhaPDV evitando crash por TDZ e loop infinito no foco/modal do vendedor"
+    },
     {
       "hash": "1f074f7",
       "date": "02/11/2026",
@@ -58,11 +63,6 @@
       "hash": "b01140d",
       "date": "01/11/2026",
       "message": "feat(ui): implementar menu superior padrao windows com 6 categorias e alternador radio"
-    },
-    {
-      "hash": "6bf966a",
-      "date": "01/11/2026",
-      "message": "fix(pdv): garantir abertura imediata do receituario retido ao adicionar remedio controlado e ampliar regex de antimicrobianos/psicotropicos"
     }
   ]
 }

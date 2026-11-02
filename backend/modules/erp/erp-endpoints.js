@@ -263,6 +263,7 @@ router.post('/pos/checkout', async (req, res) => {
       }
     });
   } catch (err) {
+    console.error('[Belinha PDV /pos/checkout ERROR]:', err.message);
     res.status(400).json({ success: false, error: err.message });
   }
 });

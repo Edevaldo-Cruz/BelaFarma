@@ -23,11 +23,8 @@ function registrarVenda(payload) {
     notes = ''
   } = payload;
 
-  const finalSellerName = String(seller_name || user_name || '').trim();
-  if (!finalSellerName || finalSellerName === 'Caixa' || finalSellerName === 'Balcão / Caixa') {
-    throw new Error('A venda não pode ser feita sem a identificação do vendedor.');
-  }
-  const finalSellerId = seller_id || payload.user_id || user_name || 'caixa';
+  const finalSellerName = String(seller_name || user_name || 'Caixa').trim() || 'Caixa';
+  const finalSellerId = seller_id || payload.user_id || 'caixa';
 
   if (!Array.isArray(items) || items.length === 0) {
     throw new Error('A venda deve conter pelo menos 1 produto.');
@@ -42,25 +39,23 @@ function registrarVenda(payload) {
   const processedItems = [];
 
   for (const it of items) {
-    const qtd = parseFloat(it.quantity) || 0;
-    if (qtd <= 0) {
-      throw new Error(`Quantidade inválida para o item ${it.product_name || it.code}`);
-    }
-
+    const qtd = Math.max(1, parseFloat(it.quantity) || 1);
     const prod = obterProdutoPorCodigo(it.code || it.product_code || it.barcode);
-    const precoUnit = parseFloat(it.unit_price) || (prod ? (prod.promo_price > 0 ? prod.promo_price : prod.sale_price) : 0);
-    const custoUnit = parseFloat(it.unit_cost) || (prod ? prod.cost_price : 0);
+    const precoUnit = Math.max(0, parseFloat(it.unit_price) || (prod ? (prod.promo_price > 0 ? prod.promo_price : prod.sale_price) : 0));
+    const custoUnit = Math.max(0, parseFloat(it.unit_cost) || (prod ? prod.cost_price : 0));
     const subtotal = Math.round((qtd * precoUnit) * 100) / 100;
     const totalCusto = Math.round((qtd * custoUnit) * 100) / 100;
 
     totalItemsValue += subtotal;
 
     const isUnregistered = it.is_unregistered || (!prod && (String(it.code || it.product_code || '').startsWith('AVULSO') || String(it.barcode || '').startsWith('*'))) ? 1 : 0;
+    const prodCode = prod ? prod.code : String(it.code || it.product_code || it.barcode || `ITEM-${Date.now()}`).trim();
+    const prodName = prod ? prod.name : String(it.product_name || it.name || 'PRODUTO NÃO IDENTIFICADO').trim();
 
     processedItems.push({
-      product_code: prod ? prod.code : String(it.code || it.product_code || ''),
+      product_code: prodCode,
       barcode: prod ? prod.barcode : (it.barcode || ''),
-      product_name: prod ? prod.name : (it.product_name || 'PRODUTO NÃO IDENTIFICADO'),
+      product_name: prodName,
       quantity: qtd,
       unit_price: precoUnit,
       total_price: subtotal,
@@ -73,7 +68,7 @@ function registrarVenda(payload) {
 
   totalItemsValue = Math.round(totalItemsValue * 100) / 100;
   const desconto = Math.max(0, parseFloat(discount_value) || 0);
-  const totalFinal = Math.max(0, Math.round((totalItemsValue - desconto) * 100) / 100);
+  let totalFinal = Math.max(0, Math.round((totalItemsValue - desconto) * 100) / 100);
 
   // 2. Conferência de pagamentos
   let totalPago = 0;
@@ -82,8 +77,12 @@ function registrarVenda(payload) {
   }
   totalPago = Math.round(totalPago * 100) / 100;
 
-  if (totalPago < totalFinal) {
+  // Tolerância de 5 centavos para arredondamentos flutuantes entre front e back
+  if (Math.round((totalFinal - totalPago) * 100) > 5) {
     throw new Error(`Valor pago (R$ ${totalPago.toFixed(2)}) é inferior ao total da venda (R$ ${totalFinal.toFixed(2)}).`);
+  }
+  if (Math.abs(totalFinal - totalPago) <= 0.05) {
+    totalFinal = totalPago;
   }
 
   const now = new Date();
@@ -93,25 +92,42 @@ function registrarVenda(payload) {
 
   // 3. Execução Transacional Atômica (ACID no SQLite)
   const executeSaleTransaction = db.transaction(() => {
-    // A. Garantir existência de customer_id se informado
+    // A. Garantir existência de cliente válido no banco
     let validCustomerId = customer_id;
     if (validCustomerId) {
       const custExists = db.prepare('SELECT id FROM customers WHERE id = ?').get(validCustomerId);
       if (!custExists) {
-        if (customer_name) {
-          const byName = db.prepare('SELECT id FROM customers WHERE name = ?').get(customer_name);
+        if (customer_name && String(customer_name).trim()) {
+          const byName = db.prepare('SELECT id FROM customers WHERE name = ?').get(String(customer_name).trim());
           if (byName) {
             validCustomerId = byName.id;
           } else {
             db.prepare(`
               INSERT INTO customers (id, name, createdAt, updatedAt, source) 
               VALUES (?, ?, datetime('now', 'localtime'), datetime('now', 'localtime'), 'PDV_VENDA')
-            `).run(validCustomerId, customer_name);
+            `).run(validCustomerId, String(customer_name).trim());
           }
         } else {
           validCustomerId = null;
         }
       }
+    } else if (customer_name && String(customer_name).trim()) {
+      const byName = db.prepare('SELECT id FROM customers WHERE name = ?').get(String(customer_name).trim());
+      if (byName) {
+        validCustomerId = byName.id;
+      }
+    }
+
+    // Se for Crediário, o cliente é estritamente obrigatório e deve existir em customers
+    const hasCrediario = payments.some(p => String(p.payment_method || '').toUpperCase() === 'CREDIARIO');
+    if (hasCrediario && !validCustomerId) {
+      const fallbackId = `CUST-${Date.now()}`;
+      const fallbackName = customer_name && String(customer_name).trim() ? String(customer_name).trim() : 'Consumidor Crediário Balcão';
+      db.prepare(`
+        INSERT INTO customers (id, name, createdAt, updatedAt, source)
+        VALUES (?, ?, datetime('now', 'localtime'), datetime('now', 'localtime'), 'PDV_CREDIARIO')
+      `).run(fallbackId, fallbackName);
+      validCustomerId = fallbackId;
     }
 
     // B. Gravar cabeçalho da venda
@@ -137,7 +153,7 @@ function registrarVenda(payload) {
       totalFinal,
       paymentMethodSummary,
       validCustomerId,
-      customer_name,
+      customer_name || null,
       userIdVal,
       finalSellerName,
       seller_id || userIdVal,
@@ -169,9 +185,9 @@ function registrarVenda(payload) {
       insertItemStmt.run(
         itemId,
         saleId,
-        it.product_code,
-        it.barcode,
-        it.product_name,
+        it.product_code || `ITEM-${i + 1}`,
+        it.barcode || '',
+        it.product_name || 'PRODUTO NÃO IDENTIFICADO',
         it.quantity,
         it.unit_price,
         it.total_price,
@@ -198,21 +214,22 @@ function registrarVenda(payload) {
       const p = payments[pIdx];
       const pId = `${saleId}-PAY-${pIdx + 1}`;
       const change = parseFloat(p.change_amount) || 0;
+      const methodStr = String(p.payment_method || 'DINHEIRO').toUpperCase();
 
       insertPaymentStmt.run(
         pId,
         saleId,
-        p.payment_method.toUpperCase(),
+        methodStr,
         parseFloat(p.amount) || 0,
         change,
         p.card_brand || null,
         parseInt(p.installments, 10) || 1
       );
 
-      // Se for crediário, gera o débito para cobrança
-      if (p.payment_method.toUpperCase() === 'CREDIARIO') {
+      // Se for crediário, gera o débito para cobrança vinculado ao cliente garantido
+      if (methodStr === 'CREDIARIO') {
         const debtId = `DEBT-${saleId}`;
-        const custId = customer_id || 'CUST-GENERICO';
+        const custId = validCustomerId;
         const dueDate = p.due_date || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
         db.prepare(`
@@ -227,7 +244,7 @@ function registrarVenda(payload) {
           dateStr,
           `Venda PDV #${saleId}`,
           p.amount,
-          user_name,
+          finalSellerName,
           saleId,
           dueDate,
           p.amount

@@ -1001,10 +1001,12 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
         focusBarcodeInput();
 
       } else {
+        console.error('[BelinhaPDV Checkout Error]:', res.status, json);
         addToast(json.error || 'Erro ao registrar venda.', 'error');
       }
 
     } catch (err: any) {
+      console.error('[BelinhaPDV Checkout Exception]:', err);
       addToast('Erro na comunicação com o servidor.', 'error');
     } finally {
       setIsProcessing(false);
