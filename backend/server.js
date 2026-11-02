@@ -484,12 +484,23 @@ app.get('/api/all-data', async (req, res) => {
 // --- Monthly Limits CUD ---
 app.post('/api/monthly-limits', security.requireAdmin, (req, res) => {
   try {
-    const { month, year, limit } = req.body;
     const stmt = db.prepare(`
       INSERT INTO monthly_limits (month, year, "limit")
       VALUES (@month, @year, @limit)
       ON CONFLICT(month, year) DO UPDATE SET "limit" = excluded."limit";
     `);
+
+    if (Array.isArray(req.body)) {
+      const insertMany = db.transaction((items) => {
+        for (const item of items) {
+          stmt.run({ month: item.month, year: item.year, limit: item.limit });
+        }
+      });
+      insertMany(req.body);
+      return res.status(201).json({ message: 'Monthly limits saved successfully.' });
+    }
+
+    const { month, year, limit } = req.body;
     stmt.run({ month, year, limit });
     res.status(201).json({ message: 'Monthly limit saved successfully.' });
   } catch (err) {

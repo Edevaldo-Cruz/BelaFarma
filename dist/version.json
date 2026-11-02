@@ -1,9 +1,14 @@
 {
   "version": "1.2.4",
-  "commitHash": "c9c3715",
-  "commitMessage": "feat(liquidacao): prorrogar promocoes da liquidacao por mais um mes ate 30/11/2026",
-  "buildTime": "02/11/2026, 09:47:35",
+  "commitHash": "825e721",
+  "commitMessage": "feat(charts): incluir despesa de provisoes e despesas de caixa nos graficos de evolucao e despesas",
+  "buildTime": "02/11/2026, 10:03:37",
   "recentCommits": [
+    {
+      "hash": "825e721",
+      "date": "02/11/2026",
+      "message": "feat(charts): incluir despesa de provisoes e despesas de caixa nos graficos de evolucao e despesas"
+    },
     {
       "hash": "c9c3715",
       "date": "02/11/2026",
@@ -58,11 +63,6 @@
       "hash": "c7b01b4",
       "date": "01/11/2026",
       "message": "feat(pdv): priorizar produtos mais vendidos nas buscas e abrir formulario oficial de receita retida conforme legislacao Anvisa/SNGPC"
-    },
-    {
-      "hash": "3e29aae",
-      "date": "01/11/2026",
-      "message": "feat(pdv): novo layout escuro de alta densidade com logo Bela Farma Sul e barra F1-F10"
     }
   ]
 }

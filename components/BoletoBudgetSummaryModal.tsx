@@ -154,6 +154,22 @@ export const BoletoBudgetSummaryModal: React.FC<BoletoBudgetSummaryModalProps> =
 }) => {
   const [currentYear, setCurrentYear] = useState<number>(new Date().getFullYear());
 
+  const availableYears = useMemo(() => {
+    const thisYear = new Date().getFullYear();
+    const yearsInLimits = monthlyLimits.map(l => l.year);
+    const yearsInBoletos = boletos.map(b => {
+      const d = b.dueDate || b.emissionDate;
+      return d ? new Date(d).getFullYear() : thisYear;
+    }).filter(y => !isNaN(y));
+    const maxYear = Math.max(thisYear + 2, ...yearsInLimits, ...yearsInBoletos, 2027);
+    const minYear = Math.min(2023, ...yearsInLimits, ...yearsInBoletos);
+    const years: number[] = [];
+    for (let y = minYear; y <= maxYear; y++) {
+      years.push(y);
+    }
+    return years;
+  }, [monthlyLimits, boletos]);
+
   // Calcula os orçamentos semanais em cascata para o ano selecionado
   const { monthlyStats, yearTotal, yearBudget } = useMemo(() => {
     interface MonthStat {
@@ -252,7 +268,7 @@ export const BoletoBudgetSummaryModal: React.FC<BoletoBudgetSummaryModalProps> =
                 onChange={e => setCurrentYear(Number(e.target.value))}
                 className="bg-transparent text-white font-bold text-sm focus:outline-none cursor-pointer"
               >
-                {[2023, 2024, 2025, 2026].map(y => (
+                {availableYears.map(y => (
                   <option key={y} value={y} className="bg-slate-900 text-white font-semibold">
                     {y}
                   </option>

@@ -957,7 +957,7 @@ const App: React.FC = () => {
     }
   };
 
-  const handleSaveLimit = async (limit: MonthlyLimit) => {
+  const handleSaveLimit = async (limit: MonthlyLimit | MonthlyLimit[]) => {
     try {
       const response = await fetch('/api/monthly-limits', {
         method: 'POST',

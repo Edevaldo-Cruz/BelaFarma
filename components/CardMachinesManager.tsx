@@ -436,7 +436,7 @@ export const CardMachinesManager: React.FC<CardMachinesManagerProps> = ({ user }
                   onChange={(e) => setFilterYear(Number(e.target.value))}
                   className="bg-transparent text-xs font-bold text-slate-700 dark:text-slate-200 outline-none cursor-pointer border-l border-slate-200 dark:border-slate-700 pl-2"
                 >
-                  {[2025, 2026, 2027].map(y => (
+                  {[2024, 2025, 2026, 2027, 2028].map(y => (
                     <option key={y} value={y} className="dark:bg-slate-800">{y}</option>
                   ))}
                 </select>

@@ -60,6 +60,23 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({
   const [statusFilter, setStatusFilter] = useState('all');
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+
+  const availableYears = useMemo(() => {
+    const thisYear = new Date().getFullYear();
+    const yearsInLimits = monthlyLimits.map(l => l.year);
+    const yearsInBoletos = boletos.map(b => {
+      const d = b.dueDate || b.emissionDate;
+      return d ? new Date(d).getFullYear() : thisYear;
+    }).filter(y => !isNaN(y));
+    const maxYear = Math.max(thisYear + 2, ...yearsInLimits, ...yearsInBoletos, 2027);
+    const minYear = Math.min(2023, ...yearsInLimits, ...yearsInBoletos);
+    const years: number[] = [];
+    for (let y = minYear; y <= maxYear; y++) {
+      years.push(y);
+    }
+    return years;
+  }, [monthlyLimits, boletos]);
+
   const [isBoletoFormOpen, setIsBoletoFormOpen] = useState(false);
   const [boletoToEdit, setBoletoToEdit] = useState<Boleto | null>(null);
   const [fixedPayments, setFixedPayments] = useState<FixedAccountPayment[]>([]);
@@ -546,7 +563,7 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({
               value={selectedYear}
               onChange={(e) => setSelectedYear(Number(e.target.value))}
             >
-              {[2023, 2024, 2025, 2026].map(y => <option key={y} value={y}>{y}</option>)}
+              {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
             </select>
           </div>
           <div className="relative w-full md:w-56">

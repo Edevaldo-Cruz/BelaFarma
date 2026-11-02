@@ -36,7 +36,7 @@ import { useToast } from './ToastContext';
 interface SettingsProps { 
   user: User;
   limits: MonthlyLimit[];
-  onSaveLimit: (limit: MonthlyLimit) => void;
+  onSaveLimit: (limit: MonthlyLimit | MonthlyLimit[]) => void;
 }
 
 export const Settings: React.FC<SettingsProps> = ({ user, limits, onSaveLimit }) => {
