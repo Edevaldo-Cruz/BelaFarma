@@ -22,6 +22,7 @@ interface CaixaMinimoData {
     despesasFixasMensais: number;
     boletosAVencer30dias: number;
     mediaComprasMensais: number;
+    provisoesMensais?: number;
     totalBaseMensal: number;
   };
   detalhes: {
@@ -40,6 +41,7 @@ interface DREData {
     margemBruta: number;
     despesasFixas: number;
     despesasOperacionais: number;
+    provisoesPagas?: number;
     boletosPagos: number;
     despesasTotal: number;
     lucroLiquido: number;
@@ -47,6 +49,12 @@ interface DREData {
   };
   breakdown: { credito: number; debito: number; pix: number; dinheiro: number; crediario: number };
   usouCMVReal: boolean;
+  detalhes?: {
+    contasFixas?: { nome: string; valor: number; status: string }[];
+    boletos?: { fornecedor: string; valor: number }[];
+    provisoes?: { tipo: string; data: string; valor: number }[];
+    provisoesPorTipo?: { prolabore: number; tax: number; reserve: number };
+  };
 }
 
 interface IndicadoresData {
@@ -358,11 +366,12 @@ export const CaixaProvisoes: React.FC = () => {
                   </h3>
                 </div>
                 <div className="p-8">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
                     {[
                       { label: 'Despesas Fixas/mês', val: caixaData.composicao.despesasFixasMensais, icon: Landmark, color: 'blue' },
                       { label: 'Boletos (próx. 30d)', val: caixaData.composicao.boletosAVencer30dias, icon: Receipt, color: 'red' },
                       { label: 'Média Compras/mês', val: caixaData.composicao.mediaComprasMensais, icon: ShoppingBasket, color: 'violet' },
+                      { label: 'Provisões Pagas/mês', val: caixaData.composicao.provisoesMensais || 0, icon: Wallet, color: 'emerald' },
                     ].map((item, i) => (
                       <div key={i} className="bg-slate-50 rounded-2xl p-4">
                         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">{item.label}</p>
@@ -561,6 +570,24 @@ export const CaixaProvisoes: React.FC = () => {
                     </div>
                     <span className="font-bold text-red-500 text-sm">{fmt(dreData.dre.despesasOperacionais)}</span>
                   </div>
+
+                  {/* Provisões Pagas (Pró-labore / Impostos / Reserva) */}
+                  {(dreData.dre.provisoesPagas || 0) > 0 && (
+                    <div className="flex items-center justify-between px-8 py-3 bg-red-50/40">
+                      <div className="flex items-center gap-3 pl-4">
+                        <ArrowDownRight className="w-4 h-4 text-red-400" />
+                        <div>
+                          <span className="font-bold text-slate-700 text-sm">(-) Provisões Pagas (Pró-labore / Impostos / Reserva)</span>
+                          {dreData.detalhes?.provisoesPorTipo && (
+                            <p className="text-[10px] text-slate-500 font-bold">
+                              Pró-labore: {fmt(dreData.detalhes.provisoesPorTipo.prolabore)} · Impostos: {fmt(dreData.detalhes.provisoesPorTipo.tax)} · Reserva: {fmt(dreData.detalhes.provisoesPorTipo.reserve)}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      <span className="font-black text-red-600 text-sm">{fmt(dreData.dre.provisoesPagas || 0)}</span>
+                    </div>
+                  )}
 
                   {/* Resultado Líquido de Caixa */}
                   <div className={`flex items-center justify-between px-8 py-5 ${dreData.dre.lucroLiquido >= 0 ? 'bg-emerald-50' : 'bg-red-50'}`}>

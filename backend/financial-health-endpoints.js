@@ -10,6 +10,71 @@ const { queryDigifarma } = require('./services/digifarma.service');
 
 const LAST_ANALYSIS_FILE = path.join(__dirname, 'last_financial_analysis.json');
 
+/**
+ * Helper para buscar provisões pagas (Pró-labore, Impostos, Reserva)
+ * cadastradas em system_settings cruzando com cash_closings
+ */
+function getPaidProvisions(db, startDate, endDate) {
+  try {
+    const sysRow = db.prepare("SELECT value FROM system_settings WHERE key = 'paid_provisions_dates'").get();
+    const paidArr = sysRow && sysRow.value ? JSON.parse(sysRow.value) : [];
+    if (!Array.isArray(paidArr) || paidArr.length === 0) {
+      return { total: 0, prolabore: 0, tax: 0, reserve: 0, items: [] };
+    }
+
+    let query = "SELECT date, totalSales FROM cash_closings";
+    const params = [];
+    if (startDate && endDate) {
+      query += " WHERE date >= ? AND date <= ?";
+      params.push(startDate, endDate);
+    }
+    query += " ORDER BY date DESC";
+    const closings = db.prepare(query).all(...params);
+
+    let total = 0, prolabore = 0, tax = 0, reserve = 0;
+    const items = [];
+
+    closings.forEach(c => {
+      const salesVal = Number(c.totalSales) || 0;
+      if (salesVal <= 0) return;
+      const dateKey = c.date ? c.date.split('T')[0] : '';
+
+      // Pró-labore (12%)
+      if (paidArr.includes(`prolabore-${dateKey}`) || paidArr.includes(`prolabore-${c.date}`)) {
+        const val = salesVal * 0.12;
+        prolabore += val;
+        total += val;
+        items.push({ tipo: 'Pró-labore (12%)', data: dateKey, valor: Math.round(val * 100) / 100 });
+      }
+      // Impostos (4%)
+      if (paidArr.includes(`tax-${dateKey}`) || paidArr.includes(`tax-${c.date}`)) {
+        const val = salesVal * 0.04;
+        tax += val;
+        total += val;
+        items.push({ tipo: 'Impostos (4%)', data: dateKey, valor: Math.round(val * 100) / 100 });
+      }
+      // Reserva de Lucro (1%)
+      if (paidArr.includes(`reserve-${dateKey}`) || paidArr.includes(`reserve-${c.date}`)) {
+        const val = salesVal * 0.01;
+        reserve += val;
+        total += val;
+        items.push({ tipo: 'Reserva de Lucro (1%)', data: dateKey, valor: Math.round(val * 100) / 100 });
+      }
+    });
+
+    return {
+      total: Math.round(total * 100) / 100,
+      prolabore: Math.round(prolabore * 100) / 100,
+      tax: Math.round(tax * 100) / 100,
+      reserve: Math.round(reserve * 100) / 100,
+      items
+    };
+  } catch (err) {
+    console.warn('[FinancialHealth] Erro ao buscar provisões pagas:', err.message);
+    return { total: 0, prolabore: 0, tax: 0, reserve: 0, items: [] };
+  }
+}
+
 module.exports = function (app, db) {
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -140,6 +205,13 @@ module.exports = function (app, db) {
         mediaComprasMensais = totalCompras90 / 3;
       } catch (e) { console.warn('[CaixaMinimo] orders:', e.message); }
 
+      // 4. Provisões pagas do mês (Pró-labore, Impostos, Reserva)
+      let provisoesMensais = 0;
+      try {
+        const provs = getPaidProvisions(db, `${currentMonth}-01`, `${currentMonth}-31T23:59:59`);
+        provisoesMensais = provs.total || 0;
+      } catch (e) { console.warn('[CaixaMinimo] provisões:', e.message); }
+
       // 5. Saldo atual do cofre (safe_entries)
       let saldoCaixaAtual = 0;
       try {
@@ -149,7 +221,7 @@ module.exports = function (app, db) {
       } catch (e) { console.warn('[CaixaMinimo] safe_entries:', e.message); }
 
       // Cálculo
-      const totalBaseMensal = despesasFixasMensais + boletosAVencer30 + mediaComprasMensais;
+      const totalBaseMensal = despesasFixasMensais + boletosAVencer30 + mediaComprasMensais + provisoesMensais;
       const caixaMinimo = (totalBaseMensal / 30) * DIAS_COBERTURA;
       const diferenca = saldoCaixaAtual - caixaMinimo;
 
@@ -167,6 +239,7 @@ module.exports = function (app, db) {
           despesasFixasMensais: Math.round(despesasFixasMensais * 100) / 100,
           boletosAVencer30dias: Math.round(boletosAVencer30 * 100) / 100,
           mediaComprasMensais: Math.round(mediaComprasMensais * 100) / 100,
+          provisoesMensais: Math.round(provisoesMensais * 100) / 100,
           totalBaseMensal: Math.round(totalBaseMensal * 100) / 100,
         },
         detalhes: {
@@ -265,15 +338,30 @@ module.exports = function (app, db) {
         listaBoletos = boletos.map(b => ({ fornecedor: b.supplierName, valor: b.value }));
       } catch (e) { console.warn('[DRE] boletos pagos:', e.message); }
 
+      // 6. Provisões pagas no mês (Pró-labore, Impostos, Reserva)
+      let provisoesPagas = 0;
+      let listaProvisoes = [];
+      let provDetalhesPorTipo = { prolabore: 0, tax: 0, reserve: 0 };
+      try {
+        const provs = getPaidProvisions(db, startDate, endDate);
+        provisoesPagas = provs.total || 0;
+        listaProvisoes = provs.items || [];
+        provDetalhesPorTipo = {
+          prolabore: provs.prolabore || 0,
+          tax: provs.tax || 0,
+          reserve: provs.reserve || 0
+        };
+      } catch (e) { console.warn('[DRE] provisões pagas:', e.message); }
+
       // Cálculos DRE (Regime de Caixa)
       const receitaTotal = receitaBruta; // Vendas totais registradas no caixa
       const lucroBruto = receitaTotal - boletosPagos; // Sobra bruta após pagar fornecedores
       const margemBruta = receitaTotal > 0 ? (lucroBruto / receitaTotal) * 100 : 0;
       
-      const despesasOperacionaisEFixas = despesasFixas + despesasOperacionais;
-      const lucroLiquido = lucroBruto - despesasOperacionaisEFixas; // Resultado líquido do caixa
+      const despesasOperacionaisEFixas = despesasFixas + despesasOperacionais + provisoesPagas;
+      const lucroLiquido = lucroBruto - despesasOperacionaisEFixas; // Resultado líquido do caixa considerando provisões pagas
       const margemLiquida = receitaTotal > 0 ? (lucroLiquido / receitaTotal) * 100 : 0;
-      const despesasTotal = despesasFixas + despesasOperacionais + boletosPagos;
+      const despesasTotal = despesasFixas + despesasOperacionais + boletosPagos + provisoesPagas;
 
       res.json({
         mes: month,
@@ -285,6 +373,7 @@ module.exports = function (app, db) {
           margemBruta: Math.round(margemBruta * 10) / 10,
           despesasFixas: Math.round(despesasFixas * 100) / 100,
           despesasOperacionais: Math.round(despesasOperacionais * 100) / 100,
+          provisoesPagas: Math.round(provisoesPagas * 100) / 100,
           boletosPagos: Math.round(boletosPagos * 100) / 100,
           despesasTotal: Math.round(despesasTotal * 100) / 100,
           lucroLiquido: Math.round(lucroLiquido * 100) / 100,
@@ -295,6 +384,8 @@ module.exports = function (app, db) {
         detalhes: {
           contasFixas: listaFixas,
           boletos: listaBoletos,
+          provisoes: listaProvisoes,
+          provisoesPorTipo: provDetalhesPorTipo,
         },
       });
     } catch (err) {
@@ -837,6 +928,15 @@ async function buildSnapshot(db, days) {
     console.warn('[FinancialHealth] Erro ao buscar CMV do Digifarma (usando fallback de margem estimada):', err.message);
   }
 
+  // 5.8. Provisões pagas no período (Pró-labore, Impostos, Reserva)
+  let paidProvisionsPeriodo = { total: 0, prolabore: 0, tax: 0, reserve: 0, items: [] };
+  try {
+    paidProvisionsPeriodo = getPaidProvisions(db, cutoffStr, today + 'T23:59:59');
+  } catch (e) {
+    console.warn('[FinancialHealth] getPaidProvisions failed in buildSnapshot:', e.message);
+  }
+  const totalProvisoesPagas = paidProvisionsPeriodo.total || 0;
+
   // KPIs
   let margemBruta = 0;
   if (usouCMVReal && totalVendaDigifarma > 0) {
@@ -848,11 +948,11 @@ async function buildSnapshot(db, days) {
   if (margemBruta < 0) margemBruta = 0;
   if (margemBruta > 100) margemBruta = 100;
 
-  const totalDespesasTotal = totalContasFixas + totalBoletosVencidos + totalBoletosAVencer;
-  const pontoEquilibrio = margemBruta > 0 ? totalContasFixas / (margemBruta / 100) : 0;
+  const totalDespesasTotal = totalContasFixas + totalBoletosVencidos + totalBoletosAVencer + totalProvisoesPagas;
+  const pontoEquilibrio = margemBruta > 0 ? (totalContasFixas + totalProvisoesPagas) / (margemBruta / 100) : 0;
   
   const cmvProporcional = totalFaturamento * (1 - (margemBruta / 100));
-  const saldoEstimado = totalFaturamento - cmvProporcional - totalContasFixas - totalExpenses;
+  const saldoEstimado = totalFaturamento - cmvProporcional - totalContasFixas - totalExpenses - totalProvisoesPagas;
 
   // 6. Foguete Amarelo
   let fogueteAmarelo = { total: 0, vencido: 0, qtd: 0 };
@@ -885,6 +985,13 @@ async function buildSnapshot(db, days) {
     contasFixas: {
       total: totalContasFixas, pagas: contasFixasPagas, pendentes: contasFixasPendentes,
       lista: fixedPayments.map(p => ({ nome: p.fixedAccountName, valor: p.value, status: p.status })),
+    },
+    provisoes: {
+      totalPagas: totalProvisoesPagas,
+      prolabore: paidProvisionsPeriodo.prolabore,
+      impostos: paidProvisionsPeriodo.tax,
+      reserva: paidProvisionsPeriodo.reserve,
+      qtd: paidProvisionsPeriodo.items.length
     },
     boletos: {
       totalVencidos: totalBoletosVencidos, totalAVencer: totalBoletosAVencer,
@@ -937,6 +1044,9 @@ Total: ${fmt(s.faturamento.total)}
 Média diária: ${fmt(s.faturamento.mediaDiaria)} (${s.faturamento.diasComFechamento} dias com fechamento)
 Cartão crédito: ${fmt(s.faturamento.credito)} | Débito: ${fmt(s.faturamento.debito)} | PIX: ${fmt(s.faturamento.pix)}
 Despesas operacionais do caixa: ${fmt(s.faturamento.despesasOperacionais)}
+
+=== PROVISÕES PAGAS (PRÓ-LABORE / IMPOSTOS / RESERVA) ===
+Total pago no período: ${fmt(s.provisoes?.totalPagas || 0)} (Pró-labore: ${fmt(s.provisoes?.prolabore || 0)}, Impostos: ${fmt(s.provisoes?.impostos || 0)}, Reserva: ${fmt(s.provisoes?.reserva || 0)})
 
 === CONTAS FIXAS (MÊS ATUAL) ===
 Total: ${fmt(s.contasFixas.total)} | Pagas: ${fmt(s.contasFixas.pagas)} | Pendentes: ${fmt(s.contasFixas.pendentes)}

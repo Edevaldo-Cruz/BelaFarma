@@ -339,6 +339,18 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({
       .reduce((acc, item) => acc + item.value, 0);
   }, [unifiedList]);
 
+  const totalProvisionsPaidThisMonth = useMemo(() => {
+    return unifiedList
+      .filter(item => item.type === 'provision' && ((item.status as string) === 'Pago' || (item.status as string) === BoletoStatus.PAGO))
+      .reduce((acc, item) => acc + item.value, 0);
+  }, [unifiedList]);
+
+  const totalPaidThisMonth = useMemo(() => {
+    return unifiedList
+      .filter(item => (item.status as string) === 'Pago' || (item.status as string) === BoletoStatus.PAGO)
+      .reduce((acc, item) => acc + item.value, 0);
+  }, [unifiedList]);
+
   const currentMonthLimit = useMemo(() => {
     const limit = monthlyLimits.find(l => l.month === selectedMonth + 1 && l.year === selectedYear);
     return limit ? limit.limit : 0;
@@ -482,19 +494,34 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({
       </header>
 
       <div className="flex flex-col gap-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className="p-4 bg-slate-50 border-2 border-slate-200 rounded-2xl text-right w-full">
               <div className="flex justify-between items-center">
                 <p className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Previsão de Saída do Mês</p>
-                <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Teto Compras: {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(currentMonthLimit)}</p>
+                <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Teto: {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(currentMonthLimit)}</p>
               </div>
               <p className="text-2xl font-black text-slate-800 tracking-tighter mt-1">
                   {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalOfMonth)}
               </p>
           </div>
+          <div className="p-4 bg-blue-50 border-2 border-blue-200 rounded-2xl text-right w-full">
+              <div className="flex justify-between items-center">
+                <p className="text-[10px] font-black text-blue-700 uppercase tracking-widest">Total Pago no Mês</p>
+                <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest">Boletos + Fixas + Provisões</p>
+              </div>
+              <p className="text-2xl font-black text-blue-800 tracking-tighter mt-1">
+                  {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalPaidThisMonth)}
+              </p>
+              {totalProvisionsPaidThisMonth > 0 && (
+                <p className="text-[10px] text-blue-600 font-bold mt-0.5">
+                  (Inclui {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalProvisionsPaidThisMonth)} em provisões pagas)
+                </p>
+              )}
+          </div>
           <div className="p-4 bg-emerald-50 border-2 border-emerald-200 rounded-2xl text-right w-full">
-              <div className="flex justify-end items-center">
+              <div className="flex justify-between items-center">
                 <p className="text-[10px] font-black text-emerald-700 uppercase tracking-widest">Total Provisionado (Mês)</p>
+                <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalProvisionsPaidThisMonth)} pago</p>
               </div>
               <p className="text-2xl font-black text-emerald-800 tracking-tighter mt-1">
                   {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalProvisionedThisMonth)}

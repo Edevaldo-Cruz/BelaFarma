@@ -1,9 +1,14 @@
 {
   "version": "1.2.4",
-  "commitHash": "a9a13ff",
-  "commitMessage": "fix(pdv): importar icone Key de lucide-react para modal de identificacao do vendedor",
-  "buildTime": "02/11/2026, 00:54:16",
+  "commitHash": "3067dff",
+  "commitMessage": "feat(pdv): identificacao obrigatoria de vendedor, produtos nao cadastrados com criacao de tarefas, atalho *123/F3 e exclusao fiscal SEFAZ",
+  "buildTime": "02/11/2026, 07:42:10",
   "recentCommits": [
+    {
+      "hash": "3067dff",
+      "date": "02/11/2026",
+      "message": "feat(pdv): identificacao obrigatoria de vendedor, produtos nao cadastrados com criacao de tarefas, atalho *123/F3 e exclusao fiscal SEFAZ"
+    },
     {
       "hash": "a9a13ff",
       "date": "02/11/2026",
@@ -58,11 +63,6 @@
       "hash": "f96ae26",
       "date": "01/11/2026",
       "message": "fix(ia): otimizar prompt para resposta ultra-rapida do consultor ia"
-    },
-    {
-      "hash": "5411290",
-      "date": "01/11/2026",
-      "message": "fix(ia): configurar timeout e provedor local ollama para o Consultor IA"
     }
   ]
 }
