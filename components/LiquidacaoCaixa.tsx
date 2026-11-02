@@ -213,7 +213,7 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
   const [avulsoDescontoPct, setAvulsoDescontoPct] = useState<number>(30);
   const [avulsoPrecoPromo, setAvulsoPrecoPromo] = useState<string>('');
   const [avulsoDataInicio, setAvulsoDataInicio] = useState<string>('2026-10-05');
-  const [avulsoDataTermino, setAvulsoDataTermino] = useState<string>('2026-10-31');
+  const [avulsoDataTermino, setAvulsoDataTermino] = useState<string>('2026-11-30');
   const [avulsoSincronizarDigifarma, setAvulsoSincronizarDigifarma] = useState<boolean>(true);
   const [salvandoAvulso, setSalvandoAvulso] = useState<boolean>(false);
 
@@ -266,7 +266,7 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
     setAvulsoDescontoPct(descReal);
     setAvulsoPrecoPromo(precoFinal.toFixed(2));
     setAvulsoDataInicio(resumo?.campanha?.dataInicio || '2026-10-05');
-    setAvulsoDataTermino(resumo?.campanha?.dataFim || '2026-10-31');
+    setAvulsoDataTermino(resumo?.campanha?.dataFim || '2026-11-30');
   };
 
   const handleMudarDescontoAvulso = (novoPct: number) => {
@@ -316,7 +316,7 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
           preco_promocional: precoVal,
           desconto_percentual: avulsoDescontoPct,
           data_inicio: avulsoDataInicio || '2026-10-05',
-          data_termino: avulsoDataTermino || '2026-10-31',
+          data_termino: avulsoDataTermino || '2026-11-30',
           sincronizar_digifarma: avulsoSincronizarDigifarma
         })
       });
@@ -1756,7 +1756,7 @@ export const LiquidacaoCaixa: React.FC<LiquidacaoCaixaProps> = ({ user }) => {
           itens={itensAtivos}
           onAtualizarItens={fetchItensAtivos}
           dataInicioCampanha={resumo?.campanha?.dataInicio || '2026-10-05'}
-          dataTerminoCampanha={resumo?.campanha?.dataFim || '2026-10-31'}
+          dataTerminoCampanha={resumo?.campanha?.dataFim || '2026-11-30'}
         />
       ) : (
         <>

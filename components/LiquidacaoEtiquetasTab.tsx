@@ -60,7 +60,7 @@ interface LiquidacaoEtiquetasTabProps {
 
 export const LiquidacaoEtiquetasTab: React.FC<LiquidacaoEtiquetasTabProps> = ({
   itens,
-  dataTerminoCampanha = '2026-10-31',
+  dataTerminoCampanha = '2026-11-30',
   onAtualizarItens,
   abrirModalImagem,
   painelEditorAberto,

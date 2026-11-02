@@ -83,7 +83,7 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
   itens,
   onAtualizarItens,
   dataInicioCampanha = '2026-10-05',
-  dataTerminoCampanha = '2026-10-31'
+  dataTerminoCampanha = '2026-11-30'
 }) => {
   const { addToast } = useToast();
 

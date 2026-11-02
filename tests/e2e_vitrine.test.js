@@ -229,11 +229,11 @@ describe('Suíte E2E: Vitrine de Liquidação & Aniversário BelaFarma', () => {
         const allPositive = data.produtos.every((p) => p.estoque > 0);
         assert.strictEqual(allPositive, true, 'Todo produto na vitrine pública deve ter estoque > 0');
 
-        // Confirma que os 3 itens com estoque 0 no banco foram excluídos
+        // Confirma que itens com estoque 0 no banco foram excluídos
         const pIds = data.produtos.map((p) => Number(p.produto_id));
         assert.strictEqual(pIds.includes(32292), false, 'Item 32292 (estoque 0) não pode estar no catálogo');
         assert.strictEqual(pIds.includes(187358), false, 'Item 187358 (estoque 0) não pode estar no catálogo');
-        assert.strictEqual(pIds.includes(46923), false, 'Item 46923 (estoque 0) não pode estar no catálogo');
+        assert.strictEqual(pIds.includes(187500), false, 'Item 187500 (estoque 0) não pode estar no catálogo');
       });
 
       it('TC-F1-03: Retorna metadados da campanha ativa camp_oficial_out_2026', () => {
@@ -242,7 +242,7 @@ describe('Suíte E2E: Vitrine de Liquidação & Aniversário BelaFarma', () => {
         assert.strictEqual(data.campanha.id, 'camp_oficial_out_2026');
         assert.ok(data.campanha.titulo.includes('Aniversário'));
         assert.strictEqual(data.campanha.data_inicio, '2026-10-05');
-        assert.strictEqual(data.campanha.data_fim, '2026-10-31');
+        assert.strictEqual(data.campanha.data_fim, '2026-11-30');
       });
 
       it('TC-F1-04: Hierarquia de preços De/Por e desconto percentual calculados com precisão', () => {

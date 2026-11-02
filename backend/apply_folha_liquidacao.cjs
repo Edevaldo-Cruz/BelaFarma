@@ -58,7 +58,7 @@ const ITENS_FOLHA = [
 async function run() {
   console.log('🚀 Iniciando aplicação da Folha Oficial de Liquidação BelaFarma...');
   const inicioStr = '2026-10-05';
-  const terminoStr = '2026-10-31';
+  const terminoStr = '2026-11-30';
   const fbInicio = `${inicioStr} 00:00:00`;
   const fbTermino = `${terminoStr} 23:59:59`;
 
@@ -174,11 +174,11 @@ async function run() {
             data_resolucao = datetime('now'),
             resolvido_por = ?
         WHERE produto_id = ?
-      `).run(`Preço promocional R$ ${prPromo.toFixed(2)} até 31/10/2026`, 'Edevaldo Cruz', pId);
+      `).run(`Preço promocional R$ ${prPromo.toFixed(2)} até 30/11/2026`, 'Edevaldo Cruz', pId);
     } catch (e) {}
 
     sucessos++;
-    console.log(`[${sucessos}/${ITENS_FOLHA.length}] ✅ ${pId} - ${pLocal.descricao || it.desc} -> R$ ${prPromo.toFixed(2)} (Validade: 31/10/2026) [Digifarma: ${firebirdOk ? 'OK' : 'Cache'}]`);
+    console.log(`[${sucessos}/${ITENS_FOLHA.length}] ✅ ${pId} - ${pLocal.descricao || it.desc} -> R$ ${prPromo.toFixed(2)} (Validade: 30/11/2026) [Digifarma: ${firebirdOk ? 'OK' : 'Cache'}]`);
   }
 
   console.log(`\n🎉 Concluído com sucesso! ${sucessos} produtos inseridos na liquidação.`);

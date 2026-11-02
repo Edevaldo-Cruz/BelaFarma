@@ -137,7 +137,7 @@ module.exports = function (db) {
     `).all(campanhaId);
 
     const dtIni = dataInicio || '2026-10-05';
-    const dtFim = dataFim || '2026-10-31';
+    const dtFim = dataFim || '2026-11-30';
 
     let vendasDetalhadas = [];
     const vendasPorProduto = {};
@@ -1461,7 +1461,7 @@ module.exports = function (db) {
         : 0;
 
       const dtInicio = req.body.data_inicio || campanha.data_inicio || '2026-10-05';
-      const dtFim = data_termino || campanha.data_fim || '2026-10-31';
+      const dtFim = data_termino || campanha.data_fim || '2026-11-30';
 
       // Sincroniza com o Digifarma se solicitado (padrão true se não especificado)
       let fbOk = false;
@@ -1759,6 +1759,83 @@ module.exports = function (db) {
       });
     } catch (err) {
       console.error('[Liquidação API] Erro em /gravar-lote:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 5.1 POST /api/liquidacao/prorrogar
+  // Prorroga o término da campanha e de todos os itens ativos na liquidação
+  router.post('/prorrogar', async (req, res) => {
+    try {
+      const { nova_data_termino } = req.body;
+      let dataTerminoAlvo = nova_data_termino;
+      if (!dataTerminoAlvo || !/^\d{4}-\d{2}-\d{2}$/.test(dataTerminoAlvo.trim())) {
+        dataTerminoAlvo = '2026-11-30';
+      } else {
+        dataTerminoAlvo = dataTerminoAlvo.trim();
+      }
+
+      // 1. Atualiza a campanha ativa
+      db.prepare(`
+        UPDATE liquidacao_campanhas 
+        SET data_fim = ?, semana_ano = '2026-NOVEMBRO'
+        WHERE status = 'ativa' OR id = 'camp_oficial_out_2026'
+      `).run(dataTerminoAlvo);
+
+      // 2. Atualiza todos os itens ativos da liquidação
+      const itensRes = db.prepare(`
+        UPDATE liquidacao_campanhas_itens 
+        SET data_termino = ?
+        WHERE status = 'ativo'
+      `).run(dataTerminoAlvo);
+
+      // 3. Atualiza cache de compras e estoque
+      db.prepare(`
+        UPDATE compras_estoque_cache 
+        SET termino_promocao = ?
+        WHERE produto_id IN (
+          SELECT produto_id FROM liquidacao_campanhas_itens WHERE status = 'ativo'
+        )
+      `).run(dataTerminoAlvo);
+
+      // 4. Atualiza mural de produtos parados
+      db.prepare(`
+        UPDATE mural_produtos_parados 
+        SET acao_detalhe = REPLACE(acao_detalhe, '31/10/2026', '30/11/2026')
+        WHERE acao_detalhe LIKE '%31/10/2026%'
+      `).run();
+
+      // 5. Tenta sincronizar com o Digifarma Firebird
+      const itensAtivos = db.prepare(`
+        SELECT produto_id FROM liquidacao_campanhas_itens WHERE status = 'ativo'
+      `).all();
+
+      const fbTermino = `${dataTerminoAlvo} 23:59:59`;
+      let sucessosFb = 0;
+      for (const it of itensAtivos) {
+        try {
+          await queryDigifarma(
+            `UPDATE PRODUTOS SET TERMINO_PROMOCAO = ? WHERE PRODUTO_ID = ? AND (PROD_PRPROMOCAO > 0 OR PROD_PRPROMOCAO IS NOT NULL)`,
+            [fbTermino, Number(it.produto_id)],
+            3000
+          );
+          sucessosFb++;
+          db.prepare('UPDATE liquidacao_campanhas_itens SET sincronizado_digifarma = 1 WHERE produto_id = ?').run(Number(it.produto_id));
+        } catch (e) {}
+      }
+
+      const [ano, mes, dia] = dataTerminoAlvo.split('-');
+      const dataBr = `${dia}/${mes}/${ano}`;
+
+      res.json({
+        success: true,
+        message: `Liquidação prorrogada com sucesso até ${dataBr}! (${itensRes.changes} produtos ativos).`,
+        data_termino: dataTerminoAlvo,
+        produtos_atualizados: itensRes.changes,
+        sincronizados_digifarma: sucessosFb
+      });
+    } catch (err) {
+      console.error('[Liquidação API] Erro em /prorrogar:', err);
       res.status(500).json({ error: err.message });
     }
   });
