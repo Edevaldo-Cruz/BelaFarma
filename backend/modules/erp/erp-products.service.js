@@ -21,14 +21,30 @@ function enrichProduct(p) {
 
 /**
  * Busca produtos por código de barras, código interno ou nome
- * Otimizado para latência < 5ms no leitor do PDV
+ * Otimizado para latência < 20ms no leitor e autocomplete do PDV,
+ * priorizando produtos mais vendidos (curva A/volume de vendas) e com estoque.
  */
 function buscarProdutos({ query = '', limit = 30, onlyWithStock = false } = {}) {
   const cleanQ = (query || '').trim();
   if (!cleanQ) {
-    let sql = 'SELECT * FROM products WHERE is_active = 1';
-    if (onlyWithStock) sql += ' AND stock_qty > 0';
-    sql += ' ORDER BY name ASC LIMIT ?';
+    let sql = `
+      SELECT p.*,
+             COALESCE(c.vendas_30d, p.vendas_30d, 0) as vendas_30d,
+             COALESCE(c.vendas_10m, p.vendas_10m, 0) as vendas_10m
+      FROM products p
+      LEFT JOIN compras_estoque_cache c ON (c.ean = p.barcode AND c.ean IS NOT NULL AND c.ean != '')
+      WHERE p.is_active = 1
+    `;
+    if (onlyWithStock) sql += ' AND p.stock_qty > 0';
+    sql += `
+      ORDER BY 
+        (p.stock_qty > 0) DESC,
+        COALESCE(c.vendas_30d, p.vendas_30d, 0) DESC,
+        COALESCE(c.vendas_10m, p.vendas_10m, 0) DESC,
+        CASE p.curve WHEN 'A' THEN 1 WHEN 'B' THEN 2 WHEN 'C' THEN 3 ELSE 4 END ASC,
+        p.name ASC
+      LIMIT ?
+    `;
     return db.prepare(sql).all(limit).map(enrichProduct);
   }
 
@@ -36,8 +52,12 @@ function buscarProdutos({ query = '', limit = 30, onlyWithStock = false } = {}) 
   if (/^\d+$/.test(cleanQ)) {
     // 1. Tenta correspondência exata de EAN ou Código
     const exact = db.prepare(`
-      SELECT * FROM products 
-      WHERE (barcode = ? OR code = ?) AND is_active = 1
+      SELECT p.*,
+             COALESCE(c.vendas_30d, p.vendas_30d, 0) as vendas_30d,
+             COALESCE(c.vendas_10m, p.vendas_10m, 0) as vendas_10m
+      FROM products p
+      LEFT JOIN compras_estoque_cache c ON (c.ean = p.barcode AND c.ean IS NOT NULL AND c.ean != '')
+      WHERE (p.barcode = ? OR p.code = ?) AND p.is_active = 1
       LIMIT 1
     `).get(cleanQ, cleanQ);
 
@@ -47,18 +67,45 @@ function buscarProdutos({ query = '', limit = 30, onlyWithStock = false } = {}) 
   }
 
   // 2. Busca por termo ou início de código
-  let sql = `
-    SELECT * FROM products 
-    WHERE (barcode LIKE ? OR code LIKE ? OR name LIKE ?) 
-      AND is_active = 1
-  `;
-  if (onlyWithStock) {
-    sql += ' AND stock_qty > 0';
-  }
-  sql += ' ORDER BY name ASC LIMIT ?';
+  const words = cleanQ.split(/\s+/).filter(Boolean);
+  let whereClauses = ['p.is_active = 1'];
+  let params = [];
 
-  const param = `%${cleanQ}%`;
-  return db.prepare(sql).all(param, param, param, limit).map(enrichProduct);
+  if (words.length <= 1) {
+    whereClauses.push('(p.barcode LIKE ? OR p.code LIKE ? OR p.name LIKE ?)');
+    const pStr = `%${cleanQ}%`;
+    params.push(pStr, pStr, pStr);
+  } else {
+    // Suporte inteligente a múltiplos termos (ex: "amox 500" ou "dipirona gotas")
+    const wordClauses = words.map(() => 'p.name LIKE ?').join(' AND ');
+    whereClauses.push(`(p.barcode LIKE ? OR p.code LIKE ? OR (${wordClauses}))`);
+    params.push(`%${cleanQ}%`, `%${cleanQ}%`);
+    words.forEach(w => params.push(`%${w}%`));
+  }
+
+  if (onlyWithStock) {
+    whereClauses.push('p.stock_qty > 0');
+  }
+
+  let sql = `
+    SELECT p.*,
+           COALESCE(c.vendas_30d, p.vendas_30d, 0) as vendas_30d,
+           COALESCE(c.vendas_10m, p.vendas_10m, 0) as vendas_10m
+    FROM products p
+    LEFT JOIN compras_estoque_cache c ON (c.ean = p.barcode AND c.ean IS NOT NULL AND c.ean != '')
+    WHERE ${whereClauses.join(' AND ')}
+    ORDER BY 
+      CASE WHEN p.barcode = ? OR p.code = ? THEN 0 ELSE 1 END ASC,
+      (p.stock_qty > 0) DESC,
+      COALESCE(c.vendas_30d, p.vendas_30d, 0) DESC,
+      COALESCE(c.vendas_10m, p.vendas_10m, 0) DESC,
+      CASE p.curve WHEN 'A' THEN 1 WHEN 'B' THEN 2 WHEN 'C' THEN 3 ELSE 4 END ASC,
+      p.name ASC
+    LIMIT ?
+  `;
+
+  params.push(cleanQ, cleanQ, limit);
+  return db.prepare(sql).all(...params).map(enrichProduct);
 }
 
 /**
@@ -69,8 +116,12 @@ function obterProdutoPorCodigo(codigoOuEan) {
   if (!clean) return null;
 
   const found = db.prepare(`
-    SELECT * FROM products 
-    WHERE (barcode = ? OR code = ?) AND is_active = 1
+    SELECT p.*,
+           COALESCE(c.vendas_30d, p.vendas_30d, 0) as vendas_30d,
+           COALESCE(c.vendas_10m, p.vendas_10m, 0) as vendas_10m
+    FROM products p 
+    LEFT JOIN compras_estoque_cache c ON (c.ean = p.barcode AND c.ean IS NOT NULL AND c.ean != '')
+    WHERE (p.barcode = ? OR p.code = ?) AND p.is_active = 1
     LIMIT 1
   `).get(clean, clean);
 
@@ -181,46 +232,64 @@ function buscarProdutosPaginados({
   const lim = Math.max(1, Math.min(200, parseInt(limit, 10) || 50));
   const offset = (p - 1) * lim;
 
-  let where = 'is_active = 1';
+  let whereClauses = ['p.is_active = 1'];
   const params = [];
 
   const cleanQ = (query || '').trim();
   if (cleanQ) {
     if (/^\d+$/.test(cleanQ)) {
-      where += ' AND (barcode LIKE ? OR code = ?)';
+      whereClauses.push('(p.barcode LIKE ? OR p.code = ?)');
       params.push(`%${cleanQ}%`, cleanQ);
     } else {
-      where += ' AND (barcode LIKE ? OR code LIKE ? OR name LIKE ?)';
-      const term = `%${cleanQ}%`;
-      params.push(term, term, term);
+      const words = cleanQ.split(/\s+/).filter(Boolean);
+      if (words.length <= 1) {
+        whereClauses.push('(p.barcode LIKE ? OR p.code LIKE ? OR p.name LIKE ?)');
+        const term = `%${cleanQ}%`;
+        params.push(term, term, term);
+      } else {
+        const wordClauses = words.map(() => 'p.name LIKE ?').join(' AND ');
+        whereClauses.push(`(p.barcode LIKE ? OR p.code LIKE ? OR (${wordClauses}))`);
+        params.push(`%${cleanQ}%`, `%${cleanQ}%`);
+        words.forEach(w => params.push(`%${w}%`));
+      }
     }
   }
 
   if (stockFilter === 'with_stock') {
-    where += ' AND stock_qty > 0';
+    whereClauses.push('p.stock_qty > 0');
   } else if (stockFilter === 'zero_stock') {
-    where += ' AND stock_qty <= 0';
+    whereClauses.push('p.stock_qty <= 0');
   }
 
   if (curve && curve !== 'all') {
-    where += ' AND curve = ?';
+    whereClauses.push('p.curve = ?');
     params.push(curve.toUpperCase());
   }
 
+  const whereSql = whereClauses.join(' AND ');
+
   // Contagem Total
-  const countRow = db.prepare(`SELECT COUNT(*) as total FROM products WHERE ${where}`).get(...params);
+  const countRow = db.prepare(`SELECT COUNT(*) as total FROM products p WHERE ${whereSql}`).get(...params);
   const total = countRow ? countRow.total : 0;
   const totalPages = Math.ceil(total / lim);
 
-  // Consulta paginada
+  // Consulta paginada priorizando mais vendidos e estoque
   const sql = `
     SELECT 
-      code, barcode, name, presentation, category_id,
-      sale_price, promo_price, cost_price, stock_qty, curve,
-      tributacao_monofasica, ncm, cest, is_active, updated_at
-    FROM products 
-    WHERE ${where}
-    ORDER BY stock_qty DESC, name ASC
+      p.code, p.barcode, p.name, p.presentation, p.category_id,
+      p.sale_price, p.promo_price, p.cost_price, p.stock_qty, p.curve,
+      p.tributacao_monofasica, p.ncm, p.cest, p.is_active, p.updated_at,
+      COALESCE(c.vendas_30d, p.vendas_30d, 0) as vendas_30d,
+      COALESCE(c.vendas_10m, p.vendas_10m, 0) as vendas_10m
+    FROM products p 
+    LEFT JOIN compras_estoque_cache c ON (c.ean = p.barcode AND c.ean IS NOT NULL AND c.ean != '')
+    WHERE ${whereSql}
+    ORDER BY 
+      (p.stock_qty > 0) DESC,
+      COALESCE(c.vendas_30d, p.vendas_30d, 0) DESC,
+      COALESCE(c.vendas_10m, p.vendas_10m, 0) DESC,
+      CASE p.curve WHEN 'A' THEN 1 WHEN 'B' THEN 2 WHEN 'C' THEN 3 ELSE 4 END ASC,
+      p.name ASC
     LIMIT ? OFFSET ?
   `;
 

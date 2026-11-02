@@ -72,6 +72,9 @@ interface ProductSearchResult {
   promo_price: number;
   cost_price: number;
   stock_qty: number;
+  curve?: string;
+  vendas_30d?: number;
+  vendas_10m?: number;
   category?: string;
   generic?: boolean;
   recipe_type?: 'AMARELA' | 'AZUL' | 'BRANCA' | 'CREME' | null;
@@ -197,6 +200,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
   // Controle Sanitário & Receitas Retidas (SNGPC)
   const [isControlledRecipeOpen, setIsControlledRecipeOpen] = useState<boolean>(false);
   const [controlledRecipesData, setControlledRecipesData] = useState<ControlledRecipeData[] | null>(null);
+  const [isFinishingSale, setIsFinishingSale] = useState<boolean>(false);
 
   // Itens controlados no carrinho
   const controlledItemsInCart = useMemo<ControlledProductItem[]>(() => {
@@ -504,7 +508,8 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
     });
 
     if (prod.is_controlado || prod.recipe_type) {
-      addToast(`⚠️ Medicamento Controlado (${prod.recipe_label || prod.recipe_type}) adicionado! Retenção de receita obrigatória.`, 'warning', 3500);
+      setIsControlledRecipeOpen(true);
+      addToast(`⚠️ Medicamento Controlado (${prod.recipe_label || prod.recipe_type}): Preencha os dados da receita retida conforme a legislação.`, 'warning', 4000);
     } else {
       addToast(`${qty}x ${prod.name.substring(0, 24)}... adicionado!`, 'success', 1800);
     }
@@ -617,7 +622,9 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
 
     // Se há itens controlados no carrinho e ainda não informou os dados da receita
     if (controlledItemsInCart.length > 0 && !controlledRecipesData) {
+      setIsFinishingSale(true);
       setIsControlledRecipeOpen(true);
+      addToast('⚠️ Preencha os dados da receita retida conforme a lei para concluir a venda.', 'warning', 3500);
       return;
     }
 
@@ -1085,15 +1092,19 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
                     <div>
                       <div className="flex items-center space-x-2">
                         <span className="font-bold text-slate-100 text-xs sm:text-sm group-hover:text-emerald-300">{prod.name}</span>
+                        {prod.curve === 'A' && (
+                          <span className="bg-emerald-950 text-emerald-300 text-[9px] font-bold px-1.5 py-0.5 rounded border border-emerald-700/60 shrink-0">★ TOP VENDA</span>
+                        )}
                         {prod.generic && (
-                          <span className="bg-amber-950 text-amber-300 text-[9px] font-bold px-1.5 py-0.5 rounded border border-amber-800">GENÉRICO</span>
+                          <span className="bg-amber-950 text-amber-300 text-[9px] font-bold px-1.5 py-0.5 rounded border border-amber-800 shrink-0">GENÉRICO</span>
                         )}
                         {(prod.is_controlado || prod.recipe_type) && (
-                          <span className="bg-rose-950 text-rose-300 text-[9px] font-bold px-1.5 py-0.5 rounded border border-rose-800">RECEITA</span>
+                          <span className="bg-rose-950 text-rose-300 text-[9px] font-bold px-1.5 py-0.5 rounded border border-rose-800 shrink-0">RECEITA</span>
                         )}
                       </div>
                       <div className="text-[11px] text-slate-400 font-mono mt-0.5">
                         Cód: {prod.code} | EAN: {prod.barcode || 'S/N'} | Est: <span className={prod.stock_qty > 0 ? 'text-emerald-400 font-bold' : 'text-rose-400'}>{prod.stock_qty} un</span>
+                        {prod.vendas_30d ? <span className="text-amber-400/90 ml-1.5">| {prod.vendas_30d} vend./mês</span> : null}
                       </div>
                     </div>
                     <div className="text-right pl-3">
@@ -1645,12 +1656,20 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
                           <td className="py-2.5 px-3 text-slate-400">{prod.barcode || prod.code}</td>
                           <td className="py-2.5 px-3 font-sans">
                             <div className="font-semibold text-slate-200">{prod.name}</div>
-                            {prod.generic && (
-                              <span className="text-[9px] bg-amber-950 text-amber-300 font-bold px-1 rounded border border-amber-800">Genérico</span>
-                            )}
-                            {(prod.is_controlado || prod.recipe_type) && (
-                              <span className="text-[9px] bg-rose-950 text-rose-300 font-bold px-1 rounded border border-rose-800 ml-1">Controlado</span>
-                            )}
+                            <div className="flex items-center gap-1 mt-0.5">
+                              {prod.curve === 'A' && (
+                                <span className="text-[9px] bg-emerald-950 text-emerald-300 font-bold px-1 rounded border border-emerald-700/60">★ Top Vendas</span>
+                              )}
+                              {prod.generic && (
+                                <span className="text-[9px] bg-amber-950 text-amber-300 font-bold px-1 rounded border border-amber-800">Genérico</span>
+                              )}
+                              {(prod.is_controlado || prod.recipe_type) && (
+                                <span className="text-[9px] bg-rose-950 text-rose-300 font-bold px-1 rounded border border-rose-800">Controlado</span>
+                              )}
+                              {prod.vendas_30d ? (
+                                <span className="text-[10px] text-slate-400 font-mono ml-1">{prod.vendas_30d} vend./mês</span>
+                              ) : null}
+                            </div>
                           </td>
                           <td className="py-2.5 px-3 text-center font-bold">
                             <span className={prod.stock_qty > 0 ? 'text-emerald-400' : 'text-rose-400'}>
@@ -2218,15 +2237,27 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ onNavigate }) => {
       <ControlledRecipeModal
         isOpen={isControlledRecipeOpen}
         controlledItems={controlledItemsInCart}
+        initialBuyer={{
+          name: customerNameInput || selectedCustomer?.name,
+          cpf: customerCpf || selectedCustomer?.cpf,
+          phone: selectedCustomer?.phone
+        }}
+        existingRecipes={controlledRecipesData}
         onClose={() => {
           setIsControlledRecipeOpen(false);
+          setIsFinishingSale(false);
           focusBarcodeInput();
         }}
         onConfirm={(recipesData) => {
           setControlledRecipesData(recipesData);
           setIsControlledRecipeOpen(false);
-          addToast(`Dados da receita retida vinculados com sucesso (${recipesData.length} ${recipesData.length === 1 ? 'item' : 'itens'})! Concluindo venda...`, 'success');
-          handleConfirmCheckout();
+          addToast(`Dados da receita retida vinculados com sucesso (${recipesData.length} ${recipesData.length === 1 ? 'item' : 'itens'})!`, 'success');
+          if (isFinishingSale) {
+            setIsFinishingSale(false);
+            handleConfirmCheckout();
+          } else {
+            focusBarcodeInput();
+          }
         }}
       />
     </div>

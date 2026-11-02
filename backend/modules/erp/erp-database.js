@@ -28,16 +28,27 @@ function initErpDatabase() {
       imposto_aliq REAL,
       ncm TEXT,
       cest TEXT,
+      vendas_30d REAL DEFAULT 0,
+      vendas_10m REAL DEFAULT 0,
       is_active INTEGER DEFAULT 1,
       created_at TEXT DEFAULT (datetime('now', 'localtime')),
       updated_at TEXT DEFAULT (datetime('now', 'localtime'))
     )
   `).run();
 
+  try {
+    const pCols = db.pragma('table_info(products)').map(c => c.name);
+    if (!pCols.includes('vendas_30d')) db.prepare(`ALTER TABLE products ADD COLUMN vendas_30d REAL DEFAULT 0`).run();
+    if (!pCols.includes('vendas_10m')) db.prepare(`ALTER TABLE products ADD COLUMN vendas_10m REAL DEFAULT 0`).run();
+  } catch (err) {
+    console.warn('[Belinha ERP DB] Aviso ao verificar colunas products:', err.message);
+  }
+
   // Índices para buscas em milissegundos
   db.prepare(`CREATE INDEX IF NOT EXISTS idx_products_barcode ON products (barcode)`).run();
   db.prepare(`CREATE INDEX IF NOT EXISTS idx_products_name ON products (name)`).run();
   db.prepare(`CREATE INDEX IF NOT EXISTS idx_products_active ON products (is_active)`).run();
+  db.prepare(`CREATE INDEX IF NOT EXISTS idx_products_vendas ON products (vendas_30d, vendas_10m)`).run();
 
   // 2. Vendas do PDV (Cabeçalho)
   db.prepare(`

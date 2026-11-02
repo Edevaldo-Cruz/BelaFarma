@@ -1,9 +1,14 @@
 {
   "version": "1.2.4",
-  "commitHash": "7bb930d",
-  "commitMessage": "feat(fiscal): modulo contabil e fiscal com segregacao simples nacional e sped",
-  "buildTime": "01/11/2026, 22:11:38",
+  "commitHash": "3e29aae",
+  "commitMessage": "feat(pdv): novo layout escuro de alta densidade com logo Bela Farma Sul e barra F1-F10",
+  "buildTime": "01/11/2026, 22:45:17",
   "recentCommits": [
+    {
+      "hash": "3e29aae",
+      "date": "01/11/2026",
+      "message": "feat(pdv): novo layout escuro de alta densidade com logo Bela Farma Sul e barra F1-F10"
+    },
     {
       "hash": "7bb930d",
       "date": "01/11/2026",
@@ -58,11 +63,6 @@
       "hash": "4042215",
       "date": "31/10/2026",
       "message": "fix(fiscal): habilitar QR code SEFAZ na tela, timeout 25s e botao de emissao no PDV v1.2.4"
-    },
-    {
-      "hash": "1c7ac5f",
-      "date": "31/10/2026",
-      "message": "fix(pdv): importar useMemo em BelinhaPDV.tsx e recompilar dist v1.2.3"
     }
   ]
 }
