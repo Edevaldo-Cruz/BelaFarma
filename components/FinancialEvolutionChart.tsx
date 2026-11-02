@@ -26,11 +26,19 @@ const monthsOrder = [
 
 export const FinancialEvolutionChart: React.FC<FinancialEvolutionChartProps> = ({ orders, boletos, cashClosings, fixedAccounts }) => {
   const chartData = useMemo(() => {
-    const dataMap: Record<string, { revenue: number, expenses: number, isFuture: boolean, isCurrent: boolean }> = {};
+    const dataMap: Record<string, { 
+      revenue: number; 
+      expenses: number; 
+      boletosOrders: number;
+      fixedAccountsVal: number;
+      provisions: number;
+      cashExpenses: number;
+      isFuture: boolean; 
+      isCurrent: boolean; 
+    }> = {};
     const now = new Date();
     const currentYear = now.getFullYear();
     const currentMonth = now.getMonth();
-    const currentKey = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`;
     
     // Gerar janela de 5 meses: M-2, M-1, M (atual no centro), M+1, M+2
     for (let offset = -2; offset <= 2; offset++) {
@@ -39,17 +47,37 @@ export const FinancialEvolutionChart: React.FC<FinancialEvolutionChartProps> = (
       dataMap[key] = {
         revenue: 0,
         expenses: 0,
+        boletosOrders: 0,
+        fixedAccountsVal: 0,
+        provisions: 0,
+        cashExpenses: 0,
         isFuture: offset > 0,
         isCurrent: offset === 0
       };
     }
 
-    // Processar Receita Realizada (CashClosings) para meses passados e atual
+    // Processar Receita Realizada, Provisões e Despesas de Caixa dos Fechamentos do Belinha
     cashClosings.forEach(closing => {
+      if (!closing || !closing.date) return;
       const d = new Date(closing.date);
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      if (dataMap.hasOwnProperty(key) && !dataMap[key].isFuture) {
-        dataMap[key].revenue += closing.totalSales;
+      if (dataMap.hasOwnProperty(key)) {
+        if (!dataMap[key].isFuture) {
+          dataMap[key].revenue += Number(closing.totalSales) || 0;
+        }
+
+        // Provisões sobre o fechamento do Belinha à vista (sem crediário):
+        // Pró-labore (12%) + Impostos (4%) + Reserva (1%) = 17%
+        const cred = Number(closing.totalCrediario) || 0;
+        const netSales = Math.max(0, (Number(closing.totalSales) || 0) - cred);
+        const prov = netSales * 0.17;
+        dataMap[key].provisions += prov;
+        dataMap[key].expenses += prov;
+
+        // Despesas operacionais lançadas direto no caixa
+        const expCaixa = Number(closing.expenses) || 0;
+        dataMap[key].cashExpenses += expCaixa;
+        dataMap[key].expenses += expCaixa;
       }
     });
 
@@ -58,7 +86,9 @@ export const FinancialEvolutionChart: React.FC<FinancialEvolutionChartProps> = (
       const d = new Date(boleto.due_date + 'T00:00:00');
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
       if (dataMap.hasOwnProperty(key)) {
-        dataMap[key].expenses += boleto.value;
+        const val = Number(boleto.value) || 0;
+        dataMap[key].boletosOrders += val;
+        dataMap[key].expenses += val;
       }
     });
 
@@ -69,7 +99,9 @@ export const FinancialEvolutionChart: React.FC<FinancialEvolutionChartProps> = (
           const d = new Date(inst.dueDate);
           const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
           if (dataMap.hasOwnProperty(key)) {
-            dataMap[key].expenses += inst.value;
+            const val = Number(inst.value) || 0;
+            dataMap[key].boletosOrders += val;
+            dataMap[key].expenses += val;
           }
         });
       }
@@ -79,8 +111,10 @@ export const FinancialEvolutionChart: React.FC<FinancialEvolutionChartProps> = (
     fixedAccounts
       .filter(acc => acc.isActive)
       .forEach(acc => {
+        const val = Number(acc.value) || 0;
         Object.keys(dataMap).forEach(key => {
-          dataMap[key].expenses += acc.value;
+          dataMap[key].fixedAccountsVal += val;
+          dataMap[key].expenses += val;
         });
       });
 
@@ -92,6 +126,15 @@ export const FinancialEvolutionChart: React.FC<FinancialEvolutionChartProps> = (
     const avgRevenue = realizedRevenues.length > 0
       ? realizedRevenues.reduce((a, b) => a + b, 0) / realizedRevenues.length
       : 0;
+
+    // Para meses futuros, projetar também a estimativa de provisões (17% da receita média esperada)
+    Object.keys(dataMap).forEach(key => {
+      if (dataMap[key].isFuture) {
+        const projProv = avgRevenue * 0.17;
+        dataMap[key].provisions = projProv;
+        dataMap[key].expenses += projProv;
+      }
+    });
 
     return Object.entries(dataMap).map(([key, data]) => {
       const [year, month] = key.split('-');
@@ -112,6 +155,10 @@ export const FinancialEvolutionChart: React.FC<FinancialEvolutionChartProps> = (
         ReceitaProjetada: data.isFuture ? avgRevenue : null,
         Despesa: data.expenses,
         ReceitaIdeal: data.expenses * 1.20, // 20% de margem
+        provisions: data.provisions,
+        boletosOrders: data.boletosOrders,
+        fixedAccountsVal: data.fixedAccountsVal,
+        cashExpenses: data.cashExpenses,
         isFuture: data.isFuture,
         isCurrent: data.isCurrent
       };
@@ -175,24 +222,69 @@ export const FinancialEvolutionChart: React.FC<FinancialEvolutionChartProps> = (
             />
             <Tooltip
               cursor={{ stroke: '#cbd5e1', strokeWidth: 1, strokeDasharray: '3 3' }}
-              contentStyle={{ 
-                borderRadius: '16px', 
-                border: '1px solid #e2e8f0', 
-                boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', 
-                backgroundColor: '#ffffff',
-                color: '#1e293b' 
+              content={({ active, payload, label }) => {
+                if (!active || !payload || !payload.length) return null;
+                const d = payload[0]?.payload;
+                if (!d) return null;
+                const fmt = (v: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0);
+
+                return (
+                  <div className="bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xl text-xs space-y-2 min-w-[250px]">
+                    <div className="font-black text-slate-900 dark:text-slate-100 text-sm border-b pb-1.5 border-slate-100 dark:border-slate-800">
+                      {d.fullName || label}
+                    </div>
+
+                    {d.Receita !== null && (
+                      <div className="flex justify-between items-center text-purple-600 dark:text-purple-400 font-bold">
+                        <span>Receita Realizada:</span>
+                        <span className="font-black">{fmt(d.Receita)}</span>
+                      </div>
+                    )}
+                    {d.ReceitaProjetada !== null && (
+                      <div className="flex justify-between items-center text-pink-600 dark:text-pink-400 font-bold">
+                        <span>Receita Projetada (Média):</span>
+                        <span className="font-black">{fmt(d.ReceitaProjetada)}</span>
+                      </div>
+                    )}
+
+                    <div className="pt-1.5 border-t border-slate-100 dark:border-slate-800 space-y-1">
+                      <div className="flex justify-between items-center text-red-600 dark:text-red-400 font-black text-xs">
+                        <span>Despesas Totais:</span>
+                        <span>{fmt(d.Despesa)}</span>
+                      </div>
+                      {d.provisions > 0 && (
+                        <div className="flex justify-between items-center text-emerald-600 dark:text-emerald-400 pl-2 text-[11px] font-bold">
+                          <span>• Provisões (17% Belinha):</span>
+                          <span>{fmt(d.provisions)}</span>
+                        </div>
+                      )}
+                      {d.boletosOrders > 0 && (
+                        <div className="flex justify-between items-center text-slate-500 dark:text-slate-400 pl-2 text-[11px]">
+                          <span>• Boletos & Compras:</span>
+                          <span className="font-semibold">{fmt(d.boletosOrders)}</span>
+                        </div>
+                      )}
+                      {d.fixedAccountsVal > 0 && (
+                        <div className="flex justify-between items-center text-slate-500 dark:text-slate-400 pl-2 text-[11px]">
+                          <span>• Contas Fixas:</span>
+                          <span className="font-semibold">{fmt(d.fixedAccountsVal)}</span>
+                        </div>
+                      )}
+                      {d.cashExpenses > 0 && (
+                        <div className="flex justify-between items-center text-slate-500 dark:text-slate-400 pl-2 text-[11px]">
+                          <span>• Despesas do Caixa:</span>
+                          <span className="font-semibold">{fmt(d.cashExpenses)}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="pt-1.5 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center text-emerald-600 dark:text-emerald-400 font-bold">
+                      <span>Receita Ideal (+20%):</span>
+                      <span className="font-black">{fmt(d.ReceitaIdeal)}</span>
+                    </div>
+                  </div>
+                );
               }}
-              itemStyle={{ fontWeight: 'bold', fontSize: '12px' }}
-              formatter={(value: any, name: string) => {
-                if (value === null || value === undefined) return ['-', name];
-                const formatted = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value));
-                if (name === 'Receita') return [formatted, 'Receita Realizada'];
-                if (name === 'ReceitaProjetada') return [formatted, 'Receita Projetada (Média)'];
-                if (name === 'ReceitaIdeal') return [formatted, 'Receita Ideal (+20%)'];
-                if (name === 'Despesa') return [formatted, 'Despesas Provisionadas'];
-                return [formatted, name];
-              }}
-              labelFormatter={(label, payload) => payload[0]?.payload?.fullName || label}
             />
             <Legend 
               verticalAlign="top" 

@@ -1,9 +1,19 @@
 {
   "version": "1.2.4",
-  "commitHash": "4d60a1c",
-  "commitMessage": "feat(finances): computar provisoes pagas como despesa em DRE, caixa minimo e contas a pagar",
-  "buildTime": "02/11/2026, 08:54:15",
+  "commitHash": "c9c3715",
+  "commitMessage": "feat(liquidacao): prorrogar promocoes da liquidacao por mais um mes ate 30/11/2026",
+  "buildTime": "02/11/2026, 09:47:35",
   "recentCommits": [
+    {
+      "hash": "c9c3715",
+      "date": "02/11/2026",
+      "message": "feat(liquidacao): prorrogar promocoes da liquidacao por mais um mes ate 30/11/2026"
+    },
+    {
+      "hash": "780c6dc",
+      "date": "02/11/2026",
+      "message": "fix(finances): calcular provisoes de prolabore estritamente sobre o fechamento do Belinha"
+    },
     {
       "hash": "4d60a1c",
       "date": "02/11/2026",
@@ -53,16 +63,6 @@
       "hash": "3e29aae",
       "date": "01/11/2026",
       "message": "feat(pdv): novo layout escuro de alta densidade com logo Bela Farma Sul e barra F1-F10"
-    },
-    {
-      "hash": "7bb930d",
-      "date": "01/11/2026",
-      "message": "feat(fiscal): modulo contabil e fiscal com segregacao simples nacional e sped"
-    },
-    {
-      "hash": "1d53f1d",
-      "date": "01/11/2026",
-      "message": "feat(fiscal): impressao direta sem modal, nome/documento na nota e reenvio sefaz unitario e em lote"
     }
   ]
 }
