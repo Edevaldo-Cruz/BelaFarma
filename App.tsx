@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { Auth } from "./components/Auth";
 import { Sidebar } from "./components/Sidebar";
+import { TopMenuBar, MenuLayoutMode } from "./components/TopMenuBar";
 import { Dashboard } from "./components/Dashboard";
 import { Orders } from "./components/Orders";
 import { Settings } from "./components/Settings";
@@ -168,6 +169,15 @@ const App: React.FC = () => {
     const saved = localStorage.getItem('belinha_theme');
     return (saved as 'light' | 'dark') || 'light';
   });
+  const [menuLayoutMode, setMenuLayoutMode] = useState<MenuLayoutMode>(() => {
+    const saved = localStorage.getItem('bf_menu_layout_mode');
+    return (saved as MenuLayoutMode) || 'sidebar';
+  });
+
+  const handleSetMenuLayoutMode = (mode: MenuLayoutMode) => {
+    setMenuLayoutMode(mode);
+    localStorage.setItem('bf_menu_layout_mode', mode);
+  };
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
@@ -1297,9 +1307,34 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="flex flex-col md:flex-row h-screen transition-colors duration-500 overflow-hidden" style={{ backgroundColor: 'var(--bf-main-bg)', color: 'var(--bf-main-text)' }}>
+    <div
+      className={`flex flex-col ${menuLayoutMode === 'sidebar' ? 'md:flex-row' : ''} h-screen transition-colors duration-500 overflow-hidden`}
+      style={{ backgroundColor: 'var(--bf-main-bg)', color: 'var(--bf-main-text)' }}
+    >
       <PwaUpdater />
       <VersionNotifier />
+      {menuLayoutMode === 'topbar' && (
+        <TopMenuBar
+          user={user}
+          currentView={currentView}
+          setView={handleNavigate}
+          onLogout={() => {
+            createLog("Sistema", "Logout", "Sessão encerrada");
+            handleLogout();
+          }}
+          theme={theme}
+          setTheme={setTheme}
+          layoutMode={menuLayoutMode}
+          setLayoutMode={handleSetMenuLayoutMode}
+          tasks={tasks}
+          boletos={boletos}
+          onOpenTeraModal={() => setIsTeraModalOpen(true)}
+          budgetStatus={currentMonthBudgetStatus}
+          onOpenMural={() => setIsMuralOpen(true)}
+          muralPendingCount={muralPendingCount}
+          onOpenVersionModal={() => setIsVersionModalOpen(true)}
+        />
+      )}
       <Sidebar
         user={user}
         currentView={currentView}
@@ -1319,6 +1354,8 @@ const App: React.FC = () => {
         onOpenMural={() => setIsMuralOpen(true)}
         muralPendingCount={muralPendingCount}
         onOpenVersionModal={() => setIsVersionModalOpen(true)}
+        layoutMode={menuLayoutMode}
+        setLayoutMode={handleSetMenuLayoutMode}
       />
       <MobileHeader 
         onOpenSidebar={() => setIsSidebarOpen(true)} 
