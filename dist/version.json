@@ -1,9 +1,14 @@
 {
   "version": "1.2.4",
-  "commitHash": "3e29aae",
-  "commitMessage": "feat(pdv): novo layout escuro de alta densidade com logo Bela Farma Sul e barra F1-F10",
-  "buildTime": "01/11/2026, 22:45:17",
+  "commitHash": "c7b01b4",
+  "commitMessage": "feat(pdv): priorizar produtos mais vendidos nas buscas e abrir formulario oficial de receita retida conforme legislacao Anvisa/SNGPC",
+  "buildTime": "01/11/2026, 23:09:16",
   "recentCommits": [
+    {
+      "hash": "c7b01b4",
+      "date": "01/11/2026",
+      "message": "feat(pdv): priorizar produtos mais vendidos nas buscas e abrir formulario oficial de receita retida conforme legislacao Anvisa/SNGPC"
+    },
     {
       "hash": "3e29aae",
       "date": "01/11/2026",
@@ -58,11 +63,6 @@
       "hash": "f2d00f7",
       "date": "31/10/2026",
       "message": "perf(belaped): ajustar intervalo de recalculo automatico de estoque de 15m para 2h"
-    },
-    {
-      "hash": "4042215",
-      "date": "31/10/2026",
-      "message": "fix(fiscal): habilitar QR code SEFAZ na tela, timeout 25s e botao de emissao no PDV v1.2.4"
     }
   ]
 }

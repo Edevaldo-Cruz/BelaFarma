@@ -293,7 +293,7 @@ function buscarProdutosPaginados({
     LIMIT ? OFFSET ?
   `;
 
-  const products = db.prepare(sql).all(...params, lim, offset);
+  const products = db.prepare(sql).all(...params, lim, offset).map(enrichProduct);
 
   return {
     products,

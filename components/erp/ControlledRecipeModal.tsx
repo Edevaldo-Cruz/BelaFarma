@@ -94,54 +94,69 @@ export const ControlledRecipeModal: React.FC<ControlledRecipeModalProps> = ({
   const [isSearchingBuyer, setIsSearchingBuyer] = useState(false);
   const [showBuyerList, setShowBuyerList] = useState(false);
 
+  const today = new Date().toISOString().split('T')[0];
+
+  // Função auxiliar para gerar item padrão
+  const buildDefaultRecipe = (item: ControlledProductItem): ControlledRecipeData => {
+    const foundExisting = existingRecipes?.find(r => r.product_code === item.code);
+    if (foundExisting) {
+      return {
+        ...foundExisting,
+        quantity: item.quantity
+      };
+    }
+    return {
+      product_code: item.code,
+      product_name: item.name,
+      recipe_type: item.recipe_type || 'BRANCA',
+      notification_number: '',
+      prescription_date: today,
+      buyer_id: '',
+      buyer_name: initialBuyer?.name || '',
+      buyer_cpf: initialBuyer?.cpf || '',
+      buyer_rg: '',
+      buyer_rg_issuer: 'SSP',
+      buyer_address: initialBuyer?.address || '',
+      buyer_phone: initialBuyer?.phone || '',
+      prescriber_id: '',
+      prescriber_council: 'CRM',
+      prescriber_number: '',
+      prescriber_uf: 'MG',
+      prescriber_name: '',
+      patient_name: initialBuyer?.name || '',
+      batch_lot: '',
+      expiry_date: '',
+      quantity: item.quantity
+    };
+  };
+
   // Inicializa o estado das receitas quando abre o modal
   useEffect(() => {
     if (isOpen && controlledItems.length > 0) {
-      const today = new Date().toISOString().split('T')[0];
-      const initial = controlledItems.map(item => {
-        const foundExisting = existingRecipes?.find(r => r.product_code === item.code);
-        if (foundExisting) {
-          return {
-            ...foundExisting,
-            quantity: item.quantity
-          };
-        }
-        return {
-          product_code: item.code,
-          product_name: item.name,
-          recipe_type: item.recipe_type || 'BRANCA',
-          notification_number: '',
-          prescription_date: today,
-          buyer_id: '',
-          buyer_name: initialBuyer?.name || '',
-          buyer_cpf: initialBuyer?.cpf || '',
-          buyer_rg: '',
-          buyer_rg_issuer: 'SSP',
-          buyer_address: initialBuyer?.address || '',
-          buyer_phone: initialBuyer?.phone || '',
-          prescriber_id: '',
-          prescriber_council: 'CRM',
-          prescriber_number: '',
-          prescriber_uf: 'MG',
-          prescriber_name: '',
-          patient_name: initialBuyer?.name || '',
-          batch_lot: '',
-          expiry_date: '',
-          quantity: item.quantity
-        };
-      });
+      const initial = controlledItems.map(buildDefaultRecipe);
       setRecipes(initial);
       setActiveItemIndex(0);
     }
   }, [isOpen, controlledItems, initialBuyer, existingRecipes]);
 
-  const currentRecipe = recipes[activeItemIndex] || null;
+  // Fallback imediato para garantir renderização instantânea no primeiro frame
+  const activeItem = controlledItems[activeItemIndex] || controlledItems[0];
+  const currentRecipe = recipes[activeItemIndex] || (activeItem ? buildDefaultRecipe(activeItem) : null);
 
   // Atualiza um campo da receita ativa
   const updateCurrentField = (field: keyof ControlledRecipeData, value: any) => {
     setRecipes(prev => {
-      const updated = [...prev];
-      if (!updated[activeItemIndex]) return prev;
+      let updated = [...prev];
+      if (updated.length === 0 && controlledItems.length > 0) {
+        updated = controlledItems.map(buildDefaultRecipe);
+      }
+      if (!updated[activeItemIndex]) {
+        if (activeItem) {
+          updated[activeItemIndex] = buildDefaultRecipe(activeItem);
+        } else {
+          return updated;
+        }
+      }
 
       updated[activeItemIndex] = {
         ...updated[activeItemIndex],
@@ -257,8 +272,9 @@ export const ControlledRecipeModal: React.FC<ControlledRecipeModalProps> = ({
 
   // Validação e confirmação
   const handleConfirmAll = () => {
-    for (let i = 0; i < recipes.length; i++) {
-      const r = recipes[i];
+    const listToValidate = recipes.length > 0 ? recipes : (currentRecipe ? [currentRecipe] : []);
+    for (let i = 0; i < listToValidate.length; i++) {
+      const r = listToValidate[i];
       if (!r.prescriber_name || !r.prescriber_number) {
         addToast(`Informe o médico / prescritor e o número do conselho para ${r.product_name}.`, 'warning');
         setActiveItemIndex(i);
@@ -276,7 +292,7 @@ export const ControlledRecipeModal: React.FC<ControlledRecipeModalProps> = ({
       }
     }
 
-    onConfirm(recipes);
+    onConfirm(listToValidate);
   };
 
   if (!isOpen || !currentRecipe) return null;
