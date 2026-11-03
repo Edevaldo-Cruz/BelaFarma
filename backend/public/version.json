@@ -1,9 +1,14 @@
 {
   "version": "1.2.4",
-  "commitHash": "8c1095e",
-  "commitMessage": "feat(fiscal): consulta dinamica do proximo numero NFC-e no Digifarma mantendo sequencia continua na serie",
-  "buildTime": "03/11/2026, 12:02:17",
+  "commitHash": "9c93b2d",
+  "commitMessage": "fix(pdv): tornar dinamico o status de espelho do Digifarma na conclusao da venda",
+  "buildTime": "03/11/2026, 13:06:40",
   "recentCommits": [
+    {
+      "hash": "9c93b2d",
+      "date": "03/11/2026",
+      "message": "fix(pdv): tornar dinamico o status de espelho do Digifarma na conclusao da venda"
+    },
     {
       "hash": "8c1095e",
       "date": "03/11/2026",
@@ -58,11 +63,6 @@
       "hash": "61cfcea",
       "date": "02/11/2026",
       "message": "fix(pdv): corrigir erro 400 no checkout ao finalizar venda (foreign key crediario, seller fallback e tolerancia centavos)"
-    },
-    {
-      "hash": "e1d6473",
-      "date": "02/11/2026",
-      "message": "fix(pdv): corrigir inicializacao do BelinhaPDV evitando crash por TDZ e loop infinito no foco/modal do vendedor"
     }
   ]
 }

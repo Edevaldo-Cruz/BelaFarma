@@ -286,6 +286,7 @@ module.exports = function (db) {
         qtdVendas,
         fundoCaixa,
         digifarmaOffline: digiOffline,
+        isOffline: digiOffline,
         belinhaSalesCount: belinha.qtdVendas
       };
 

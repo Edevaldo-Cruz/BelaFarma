@@ -937,10 +937,16 @@ export const Dashboard: React.FC<DashboardProps> = ({
             </div>
             <p className="text-[10px] font-black text-emerald-100 uppercase tracking-widest flex items-center gap-2">
               Vendas de Hoje (Live)
-              <span className="relative flex h-2.5 w-2.5">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-white"></span>
-              </span>
+              {liveSalesData?.digifarmaOffline || liveSalesData?.isOffline ? (
+                <span className="text-[9px] font-bold bg-amber-500/80 text-amber-950 px-1.5 py-0.5 rounded-full uppercase" title="Digifarma inacessível. Exibindo vendas do Belinha PDV / cache local.">
+                  Digifarma Offline
+                </span>
+              ) : (
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-white"></span>
+                </span>
+              )}
             </p>
             <p className="text-3xl font-black text-white mt-1 truncate" title={liveSalesData !== null ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(liveSalesData.totalSales) : ''}>
               {liveSalesData !== null 
@@ -948,6 +954,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 : <span className="text-emerald-200 animate-pulse text-lg">Carregando...</span>
               }
             </p>
+            {liveSalesData?.belinhaSalesCount ? (
+              <p className="text-[10px] text-emerald-100/90 font-medium mt-1">
+                {liveSalesData.belinhaSalesCount} venda(s) realizada(s) no Belinha PDV
+              </p>
+            ) : null}
           </div>
         </div>
 
