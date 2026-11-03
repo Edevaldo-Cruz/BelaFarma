@@ -51,6 +51,17 @@ export const DanfeNfceModal: React.FC<DanfeNfceModalProps> = ({ danfe, onClose }
     imprimirDanfeNfce(danfe);
   };
 
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' || e.key === 'Enter') {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
   return (
     <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
       {/* Estilos dedicados para impressoras térmicas de cupom (80mm e 58mm) */}
@@ -241,6 +252,17 @@ export const DanfeNfceModal: React.FC<DanfeNfceModalProps> = ({ danfe, onClose }
               </div>
             )}
           </div>
+        </div>
+
+        {/* Rodapé de Ação no Terminal */}
+        <div className="p-3 bg-slate-800 border-t border-slate-700 flex gap-2 no-print shrink-0">
+          <button
+            onClick={onClose}
+            className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black rounded-xl text-xs sm:text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-950/50 transition-all cursor-pointer"
+            title="Concluir visualização fiscal e retornar imediatamente para o caixa"
+          >
+            <span>Voltar ao Caixa / Adicionar Itens [ENTER ou ESC]</span>
+          </button>
         </div>
       </div>
     </div>

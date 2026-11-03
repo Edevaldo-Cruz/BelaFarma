@@ -1,9 +1,14 @@
 {
   "version": "1.2.4",
-  "commitHash": "61cfcea",
-  "commitMessage": "fix(pdv): corrigir erro 400 no checkout ao finalizar venda (foreign key crediario, seller fallback e tolerancia centavos)",
-  "buildTime": "02/11/2026, 21:07:33",
+  "commitHash": "11eb098",
+  "commitMessage": "feat(fiscal-pricing): repasse inteligente de precos nas entradas, SPED com entradas e gerador SINTEGRA",
+  "buildTime": "02/11/2026, 21:37:36",
   "recentCommits": [
+    {
+      "hash": "11eb098",
+      "date": "02/11/2026",
+      "message": "feat(fiscal-pricing): repasse inteligente de precos nas entradas, SPED com entradas e gerador SINTEGRA"
+    },
     {
       "hash": "61cfcea",
       "date": "02/11/2026",
@@ -58,11 +63,6 @@
       "hash": "9ca1a7a",
       "date": "01/11/2026",
       "message": "fix(layout): fixar rodape no final da pagina com flex column e sticky footer"
-    },
-    {
-      "hash": "b5ed44b",
-      "date": "01/11/2026",
-      "message": "feat(pdv): checkout ultrarrapido assincrono, checkboxes antibiotico/psicotropico no cadastro e registro obrigatorio de lote"
     }
   ]
 }

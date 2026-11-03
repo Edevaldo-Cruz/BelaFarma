@@ -495,6 +495,14 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
   // Atalhos de teclado globais do PDV
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Se estiver na tela de cupom concluído, ENTER ou ESC retorna imediatamente ao caixa
+      if (completedSale && (e.key === 'Enter' || e.key === 'Escape')) {
+        e.preventDefault();
+        setCompletedSale(null);
+        focusBarcodeInput();
+        return;
+      }
+
       // F1 -> Abrir Catálogo / Consulta Rápida
       if (e.key === 'F1') {
         e.preventDefault();
@@ -1126,6 +1134,11 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
           <div className="hidden md:flex items-center space-x-1.5 text-slate-400 bg-slate-900 px-2.5 py-1 rounded-lg border border-slate-800 text-xs">
             <ShieldCheck className="w-4 h-4 text-emerald-400" />
             <span>SNGPC Conectado (Anvisa)</span>
+          </div>
+
+          <div className="hidden xl:flex items-center space-x-1.5 text-slate-300 bg-slate-900 px-2.5 py-1 rounded-lg border border-slate-800 text-xs" title="Assistência e Responsabilidade Técnica ativa conforme exigência do CRF-MG">
+            <ShieldCheck className="w-4 h-4 text-teal-400" />
+            <span>RT: CRF-MG Ativo</span>
           </div>
 
           {/* Botão Auto-Print Bematech */}
@@ -2340,7 +2353,19 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
             }
           `}</style>
 
-          <div className="bg-slate-900 border border-slate-700 rounded-3xl shadow-2xl max-w-md w-full p-6 animate-in fade-in zoom-in-95 duration-200">
+          <div className="bg-slate-900 border border-slate-700 rounded-3xl shadow-2xl max-w-md w-full p-6 animate-in fade-in zoom-in-95 duration-200 relative">
+            {/* Botão de Fechar Rápido Superior */}
+            <button
+              onClick={() => {
+                setCompletedSale(null);
+                focusBarcodeInput();
+              }}
+              className="absolute right-4 top-4 text-slate-400 hover:text-white p-1 rounded-lg no-print transition-colors"
+              title="Voltar para a tela anterior (ESC)"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
             <div id="thermal-pdv-receipt" className="bg-white text-slate-900 p-4 rounded-xl font-mono text-[11px] leading-tight shadow-inner">
               <div className="text-center border-b border-dashed border-slate-300 pb-3 mb-3">
                 <div className="font-bold text-xs uppercase">DROGARIA BELA FARMA SUL</div>
@@ -2392,35 +2417,38 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
             </div>
 
             {/* Ações da Modal de Cupom */}
-            <div className="flex flex-col gap-2 mt-4 no-print">
+            <div className="flex flex-col gap-2.5 mt-4 no-print">
+              {/* Botão Principal: Retorno Imediato para Adicionar Itens */}
+              <button
+                onClick={() => {
+                  setCompletedSale(null);
+                  focusBarcodeInput();
+                }}
+                className="w-full py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black rounded-2xl text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-950/60 transition-all border border-emerald-400/30 active:scale-[0.99] cursor-pointer"
+                title="Voltar instantaneamente para a tela de bipagem e adicionar itens"
+              >
+                <ArrowRight className="w-5 h-5 rotate-180" />
+                <span>Voltar ao Caixa / Adicionar Itens [ENTER ou ESC]</span>
+              </button>
+
               <div className="flex gap-2">
                 <button
                   onClick={() => imprimirCupomVenda(completedSale)}
-                  className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors"
+                  className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors border border-slate-700 cursor-pointer"
                 >
                   <Printer className="w-4 h-4 text-emerald-400" />
                   <span>Imprimir (80mm)</span>
                 </button>
+
                 <button
-                  onClick={() => {
-                    setCompletedSale(null);
-                    focusBarcodeInput();
-                  }}
-                  className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-md transition-colors"
+                  onClick={() => handleEmitFiscalForSale(completedSale.sale_id)}
+                  disabled={isEmittingFiscal}
+                  className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-md transition-colors border border-blue-500/40 cursor-pointer"
                 >
-                  <span>Próxima Venda (ESC)</span>
-                  <ArrowRight className="w-4 h-4" />
+                  {isEmittingFiscal ? <RefreshCw className="w-4 h-4 animate-spin" /> : <QrCode className="w-4 h-4" />}
+                  <span>Emitir NFC-e</span>
                 </button>
               </div>
-
-              <button
-                onClick={() => handleEmitFiscalForSale(completedSale.sale_id)}
-                disabled={isEmittingFiscal}
-                className="w-full py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-black rounded-xl text-xs flex items-center justify-center gap-2 shadow-md transition-colors"
-              >
-                {isEmittingFiscal ? <RefreshCw className="w-4 h-4 animate-spin" /> : <QrCode className="w-4 h-4" />}
-                <span>Emitir Cupom Fiscal NFC-e (com QR Code SEFAZ)</span>
-              </button>
             </div>
           </div>
         </div>
