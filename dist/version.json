@@ -1,9 +1,19 @@
 {
   "version": "1.2.4",
-  "commitHash": "9c93b2d",
-  "commitMessage": "fix(pdv): tornar dinamico o status de espelho do Digifarma na conclusao da venda",
-  "buildTime": "03/11/2026, 13:06:40",
+  "commitHash": "ab6217a",
+  "commitMessage": "fix(liquidacao): regularizar precos promocionais vigentes dos 118 produtos e blindar sincronizacao",
+  "buildTime": "03/11/2026, 13:13:09",
   "recentCommits": [
+    {
+      "hash": "ab6217a",
+      "date": "03/11/2026",
+      "message": "fix(liquidacao): regularizar precos promocionais vigentes dos 118 produtos e blindar sincronizacao"
+    },
+    {
+      "hash": "05d5621",
+      "date": "03/11/2026",
+      "message": "fix(dashboard): harmoniza indicador live e status offline do digifarma para vendas de hoje"
+    },
     {
       "hash": "9c93b2d",
       "date": "03/11/2026",
@@ -53,16 +63,6 @@
       "hash": "df67c4f",
       "date": "02/11/2026",
       "message": "feat(pdv): auditoria regulatoria, suite de testes das funcoes e retorno rapido pos-venda"
-    },
-    {
-      "hash": "11eb098",
-      "date": "02/11/2026",
-      "message": "feat(fiscal-pricing): repasse inteligente de precos nas entradas, SPED com entradas e gerador SINTEGRA"
-    },
-    {
-      "hash": "61cfcea",
-      "date": "02/11/2026",
-      "message": "fix(pdv): corrigir erro 400 no checkout ao finalizar venda (foreign key crediario, seller fallback e tolerancia centavos)"
     }
   ]
 }

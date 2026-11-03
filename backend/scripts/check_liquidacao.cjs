@@ -1,6 +1,6 @@
-const Database = require('better-sqlite3');
-const path = require('path');
-const db = new Database(path.join(__dirname, '..', 'data', 'belafarma.db'));
+const Database = require('../node_modules/better-sqlite3');
+const config = require('../config.js');
+const db = new Database(config.dbPath);
 
 const queryTodos = `
   SELECT 
