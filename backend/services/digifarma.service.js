@@ -1,7 +1,7 @@
 const firebird = require('node-firebird');
 
 const options = {
-    host: process.env.DIGIFARMA_HOST || '127.0.0.1',
+    host: process.env.DIGIFARMA_HOST || '192.168.1.7',
     port: parseInt(process.env.DIGIFARMA_PORT || '3050', 10),
     database: process.env.DIGIFARMA_DB_PATH || 'C:\\Digifarma\\Dados\\digifarma6.fdb',
     user: process.env.DIGIFARMA_USER || 'SYSDBA',
@@ -27,7 +27,7 @@ let firebirdOfflineUntil = 0;
  * @param {number} timeoutMs
  * @returns {Promise<Array>}
  */
-async function queryDigifarma(sql, params = [], timeoutMs = 30000) {
+async function queryDigifarma(sql, params = [], timeoutMs = 5000) {
     const isWrite = /^\s*(UPDATE|INSERT|DELETE)/i.test(sql);
 
     // Se o Circuit Breaker estiver ativo, permite que escritas ou consultas pontuais prioritárias tentem conectar

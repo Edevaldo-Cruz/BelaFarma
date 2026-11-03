@@ -100,9 +100,17 @@ function initErpDatabase() {
     // Identificação do Vendedor / Atendente
     if (!sCols.includes('seller_id')) db.prepare(`ALTER TABLE sales ADD COLUMN seller_id TEXT`).run();
     if (!sCols.includes('seller_name')) db.prepare(`ALTER TABLE sales ADD COLUMN seller_name TEXT`).run();
+
+    // Rastreamento de Sincronização Resiliente com o Digifarma
+    if (!sCols.includes('digifarma_sync_status')) db.prepare(`ALTER TABLE sales ADD COLUMN digifarma_sync_status TEXT DEFAULT 'PENDENTE'`).run();
+    if (!sCols.includes('digifarma_venda_id')) db.prepare(`ALTER TABLE sales ADD COLUMN digifarma_venda_id INTEGER`).run();
+    if (!sCols.includes('digifarma_sync_at')) db.prepare(`ALTER TABLE sales ADD COLUMN digifarma_sync_at TEXT`).run();
+    if (!sCols.includes('digifarma_sync_error')) db.prepare(`ALTER TABLE sales ADD COLUMN digifarma_sync_error TEXT`).run();
   } catch (err) {
     console.warn('[Belinha ERP DB] Aviso ao verificar colunas sales:', err.message);
   }
+
+  db.prepare(`CREATE INDEX IF NOT EXISTS idx_sales_digifarma_sync ON sales (digifarma_sync_status)`).run();
 
   db.prepare(`CREATE INDEX IF NOT EXISTS idx_sales_date ON sales (sale_date)`).run();
   db.prepare(`CREATE INDEX IF NOT EXISTS idx_sales_status ON sales (status)`).run();

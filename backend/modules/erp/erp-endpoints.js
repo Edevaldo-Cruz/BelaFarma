@@ -270,6 +270,53 @@ router.post('/pos/checkout', async (req, res) => {
   }
 });
 
+// Reprocessar todas as vendas pendentes para o Digifarma
+router.post('/pos/digifarma/sync-pending', async (req, res) => {
+  try {
+    const { reprocessarVendasPendentesDigifarma } = require('./erp-digifarma-sales-sync.service');
+    const result = await reprocessarVendasPendentesDigifarma();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Reprocessar uma venda específica para o Digifarma
+router.post('/pos/digifarma/sync/:saleId', async (req, res) => {
+  try {
+    const { db } = require('./erp-database');
+    const { sincronizarVendaDigifarma } = require('./erp-digifarma-sales-sync.service');
+    const s = db.prepare('SELECT * FROM sales WHERE id = ?').get(req.params.saleId);
+    if (!s) {
+      return res.status(404).json({ success: false, error: 'Venda não encontrada' });
+    }
+    const items = db.prepare('SELECT * FROM sale_items WHERE sale_id = ?').all(s.id);
+    const payments = db.prepare('SELECT * FROM sale_payments WHERE sale_id = ?').all(s.id);
+
+    const fiscalInfo = s.fiscal_status === 'AUTORIZADA' ? {
+      success: true,
+      chave: s.access_key,
+      nfe_number: s.nfe_number,
+      serie: s.nfe_series || 1,
+      protocolo: s.protocol_number,
+      url_qrcode: s.qr_code_url
+    } : null;
+
+    const syncResult = await sincronizarVendaDigifarma({
+      sale_id: s.id,
+      items,
+      payments,
+      total_items_value: s.total_items_value,
+      discount_value: s.discount_value,
+      total_value: s.total_value,
+      user_name: s.user_name || s.seller_name || 'Caixa'
+    }, fiscalInfo);
+
+    res.json(syncResult);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
 
 router.post('/pos/cancel/:id', (req, res) => {
   try {

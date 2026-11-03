@@ -1082,6 +1082,46 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
     fetchRecentSales();
   };
 
+  const [isSyncingDigifarma, setIsSyncingDigifarma] = useState(false);
+
+  const handleSyncPendingDigifarma = async () => {
+    setIsSyncingDigifarma(true);
+    try {
+      const res = await fetch('/api/erp/pos/digifarma/sync-pending', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        if (data.total > 0) {
+          addToast(`Digifarma: ${data.sucessos} de ${data.total} venda(s) sincronizada(s) com sucesso!`, 'success', 4000);
+        } else {
+          addToast('Digifarma: Nenhuma venda pendente para sincronizar.', 'info', 3000);
+        }
+        fetchRecentSales();
+      } else {
+        addToast(`Digifarma: ${data.error || 'Falha ao sincronizar'}`, 'warning', 4000);
+      }
+    } catch (e: any) {
+      addToast(`Digifarma: Servidor inacessível (${e.message})`, 'error', 4000);
+    } finally {
+      setIsSyncingDigifarma(false);
+    }
+  };
+
+  const handleSyncSingleSale = async (saleId: string) => {
+    try {
+      addToast(`Enviando venda #${saleId} para o Digifarma...`, 'info', 2000);
+      const res = await fetch(`/api/erp/pos/digifarma/sync/${saleId}`, { method: 'POST' });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        addToast(`Venda #${saleId} sincronizada no Digifarma! (Nota #${data.venda_nota_id})`, 'success', 4000);
+        fetchRecentSales();
+      } else {
+        addToast(`Falha no Digifarma: ${data.error || 'Erro'}`, 'warning', 4000);
+      }
+    } catch (e: any) {
+      addToast(`Erro de conexão com o Digifarma: ${e.message}`, 'error', 4000);
+    }
+  };
+
   const handleConfirmCancelSale = async () => {
     if (!saleToCancel) return;
     setIsCancelling(true);
@@ -2602,16 +2642,27 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
                   <p className="text-xs text-slate-400">Selecione uma venda para cancelar e estornar o estoque na hora</p>
                 </div>
               </div>
-              <button
-                onClick={() => {
-                  setIsRecentSalesOpen(false);
-                  setSaleToCancel(null);
-                  focusBarcodeInput();
-                }}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-white"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleSyncPendingDigifarma}
+                  disabled={isSyncingDigifarma}
+                  className="px-2.5 py-1.5 rounded-xl bg-sky-950/80 hover:bg-sky-900 border border-sky-800/80 text-sky-300 text-xs font-bold flex items-center gap-1.5 transition-colors disabled:opacity-50 cursor-pointer shadow-sm"
+                  title="Reprocessar e enviar vendas pendentes para o Digifarma"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isSyncingDigifarma ? 'animate-spin' : ''}`} />
+                  Sincronizar Digifarma
+                </button>
+                <button
+                  onClick={() => {
+                    setIsRecentSalesOpen(false);
+                    setSaleToCancel(null);
+                    focusBarcodeInput();
+                  }}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-white"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
 
             {/* Listagem de Vendas */}
@@ -2645,6 +2696,19 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
                         <span className="text-[11px] text-slate-400">
                           {s.sale_time}
                         </span>
+                        {s.digifarma_sync_status === 'SINCRONIZADO' ? (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-sky-950/70 text-sky-400 border border-sky-800/70 flex items-center gap-1">
+                            Digifarma #{s.digifarma_venda_id || 'OK'}
+                          </span>
+                        ) : (
+                          <button
+                            title={s.digifarma_sync_error ? `Erro Digifarma: ${s.digifarma_sync_error}` : 'Pendente de envio ao Digifarma (Clique para tentar sincronizar agora)'}
+                            onClick={() => handleSyncSingleSale(s.id)}
+                            className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-950/70 text-amber-300 border border-amber-800/70 hover:bg-amber-900 flex items-center gap-1 cursor-pointer transition-colors"
+                          >
+                            Digifarma: Pendente <RefreshCw className="w-2.5 h-2.5" />
+                          </button>
+                        )}
                       </div>
                       <div className="text-xs text-slate-400 mt-0.5">
                         {s.total_items} item(s) • Pagto: <strong className="text-slate-300">{s.payment_methods}</strong>

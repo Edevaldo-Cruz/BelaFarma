@@ -148,6 +148,48 @@ async function sincronizarVendaDigifarma(saleData, fiscalInfo = null) {
       totalRecebidoFinal
     ]);
 
+    // 4.1 Inserir Formas de Pagamento em CAB_VENDAS_FPAGTOS
+    // TIPO_PAGAMENTO_ID: 1=Dinheiro, 2=Cheque, 3=ChequePré, 4=Cartão, 5=Crediário, 6=Parcelamento, 8=Pix
+    for (let pIdx = 0; pIdx < payments.length; pIdx++) {
+      const p = payments[pIdx];
+      const amt = parseFloat(p.amount) || 0;
+      const chg = parseFloat(p.change_amount) || 0;
+      const netAmt = Math.round(Math.max(0, amt - chg) * 100) / 100;
+      if (netAmt <= 0) continue;
+
+      const method = (p.payment_method || '').toUpperCase();
+      let tipoPagtoId = 1; // DINHEIRO padrão
+      let bandeira = null;
+
+      if (method.includes('CARTAO') || method.includes('CARTÃO') || method.includes('DEBITO') || method.includes('CREDITO')) {
+        tipoPagtoId = 4;
+        bandeira = (p.card_brand || (method.includes('DEBITO') ? 'DEBITO' : 'CREDITO')).substring(0, 20);
+      } else if (method.includes('CREDIARIO') || method.includes('CONVENIO') || method.includes('CONVÊNIO')) {
+        tipoPagtoId = 5;
+      } else if (method.includes('PIX')) {
+        tipoPagtoId = 8;
+      }
+
+      try {
+        const insertFpSql = `
+          INSERT INTO CAB_VENDAS_FPAGTOS (
+            CAB_VENDAS_FPAGTO_ID, TIPO_PAGAMENTO_ID, VENDA_NOTA_ID, ORDEM_ID, BANDEIRA, VALOR, VALOR_CANCELADO
+          ) VALUES (
+            GEN_ID(GEN_CAB_VENDAS_FPAGTOS, 1), ?, ?, ?, ?, ?, 0
+          )
+        `;
+        await queryDigifarma(insertFpSql, [
+          tipoPagtoId,
+          vendaNotaId,
+          pIdx + 1,
+          bandeira,
+          netAmt
+        ]);
+      } catch (fpErr) {
+        console.warn(`[Digifarma Sync] ⚠️ Falha ao inserir FPAGTO (${method}):`, fpErr.message);
+      }
+    }
+
     // 5. Inserir Itens em ITEM_VENDAS e dar baixa de estoque no Digifarma
     for (let idx = 0; idx < items.length; idx++) {
       const it = items[idx];
@@ -298,6 +340,19 @@ async function sincronizarVendaDigifarma(saleData, fiscalInfo = null) {
 
     console.log(`[Digifarma Sync] ✅ Sincronização concluída com sucesso! Venda Digifarma #${vendaNotaId} no Caixa #${caixaId}. Fiscal: ${nfceRecordStatus}`);
 
+    // Atualiza status no banco local SQLite
+    try {
+      const { db } = require('./erp-database');
+      db.prepare(`
+        UPDATE sales 
+        SET digifarma_sync_status = 'SINCRONIZADO',
+            digifarma_venda_id = ?,
+            digifarma_sync_at = datetime('now', 'localtime'),
+            digifarma_sync_error = NULL
+        WHERE id = ?
+      `).run(vendaNotaId, sale_id);
+    } catch (dbErr) {}
+
     return {
       success: true,
       venda_nota_id: vendaNotaId,
@@ -306,6 +361,18 @@ async function sincronizarVendaDigifarma(saleData, fiscalInfo = null) {
     };
   } catch (err) {
     console.error(`[Digifarma Sync] ❌ Erro ao sincronizar venda #${sale_id} no Digifarma:`, err.message);
+
+    // Grava status de ERRO / PENDENTE no banco local para reprocessamento posterior
+    try {
+      const { db } = require('./erp-database');
+      db.prepare(`
+        UPDATE sales 
+        SET digifarma_sync_status = 'ERRO',
+            digifarma_sync_error = ?
+        WHERE id = ?
+      `).run((err.message || 'Erro de sincronização').substring(0, 255), sale_id);
+    } catch (dbErr) {}
+
     return {
       success: false,
       error: err.message
@@ -342,9 +409,74 @@ async function atualizarNfceAutorizadaDigifarma(vendaNotaId, fiscalInfo) {
   }
 }
 
+/**
+ * Fila Resiliente: Reprocessa vendas pendentes ou com erro para o Digifarma
+ */
+async function reprocessarVendasPendentesDigifarma() {
+  const { db } = require('./erp-database');
+  const pendentes = db.prepare(`
+    SELECT * FROM sales 
+    WHERE (digifarma_sync_status IN ('PENDENTE', 'ERRO') OR digifarma_sync_status IS NULL)
+      AND status = 'CONCLUIDA'
+    ORDER BY created_at ASC
+    LIMIT 20
+  `).all();
+
+  if (!pendentes || pendentes.length === 0) {
+    return { success: true, count: 0, message: 'Nenhuma venda pendente para sincronizar no Digifarma.' };
+  }
+
+  console.log(`[Digifarma Sync] 🔄 Reprocessando ${pendentes.length} venda(s) pendente(s) para o Digifarma...`);
+  let sucessos = 0;
+  let falhas = 0;
+
+  for (const s of pendentes) {
+    try {
+      const items = db.prepare('SELECT * FROM sale_items WHERE sale_id = ?').all(s.id);
+      const payments = db.prepare('SELECT * FROM sale_payments WHERE sale_id = ?').all(s.id);
+
+      const fiscalInfo = s.fiscal_status === 'AUTORIZADA' ? {
+        success: true,
+        chave: s.access_key,
+        nfe_number: s.nfe_number,
+        serie: s.nfe_series || 1,
+        protocolo: s.protocol_number,
+        url_qrcode: s.qr_code_url
+      } : null;
+
+      const res = await sincronizarVendaDigifarma({
+        sale_id: s.id,
+        items,
+        payments,
+        total_items_value: s.total_items_value,
+        discount_value: s.discount_value,
+        total_value: s.total_value,
+        user_name: s.user_name || s.seller_name || 'Caixa'
+      }, fiscalInfo);
+
+      if (res && res.success) {
+        sucessos++;
+      } else {
+        falhas++;
+      }
+    } catch (syncErr) {
+      falhas++;
+      console.warn(`[Digifarma Sync] ⚠️ Falha ao reprocessar venda ${s.id}:`, syncErr.message);
+    }
+  }
+
+  return {
+    success: true,
+    total: pendentes.length,
+    sucessos,
+    falhas
+  };
+}
+
 module.exports = {
   obterCaixaAbertoDigifarma,
   sincronizarVendaDigifarma,
-  atualizarNfceAutorizadaDigifarma
+  atualizarNfceAutorizadaDigifarma,
+  reprocessarVendasPendentesDigifarma
 };
 

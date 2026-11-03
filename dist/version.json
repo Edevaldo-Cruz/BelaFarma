@@ -1,9 +1,14 @@
 {
   "version": "1.2.4",
-  "commitHash": "a82244d",
-  "commitMessage": "feat(fiscal-prolabore): integracao SPED 100% PVA, SINTEGRA e contabilizacao de pro-labore com INSS dinamico",
-  "buildTime": "02/11/2026, 22:35:35",
+  "commitHash": "b2efb7e",
+  "commitMessage": "feat(pdv): preparar ambiente para testes reais com transmissao sefaz, espelho digifarma e purge de vendas teste",
+  "buildTime": "03/11/2026, 08:41:43",
   "recentCommits": [
+    {
+      "hash": "b2efb7e",
+      "date": "02/11/2026",
+      "message": "feat(pdv): preparar ambiente para testes reais com transmissao sefaz, espelho digifarma e purge de vendas teste"
+    },
     {
       "hash": "a82244d",
       "date": "02/11/2026",
@@ -58,11 +63,6 @@
       "hash": "780c6dc",
       "date": "02/11/2026",
       "message": "fix(finances): calcular provisoes de prolabore estritamente sobre o fechamento do Belinha"
-    },
-    {
-      "hash": "4d60a1c",
-      "date": "02/11/2026",
-      "message": "feat(finances): computar provisoes pagas como despesa em DRE, caixa minimo e contas a pagar"
     }
   ]
 }

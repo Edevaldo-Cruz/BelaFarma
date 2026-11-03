@@ -4714,6 +4714,16 @@ const printerEndpoints = require('./printer-endpoints.js');
 app.use('/api/printer', printerEndpoints);
 console.log('🖨️ Rede de Impressão Térmica BelaFarma inicializada em /api/printer.');
 
+// Fila Resiliente de Vendas: tenta reprocessar vendas pendentes para o Digifarma a cada 60 segundos
+const { reprocessarVendasPendentesDigifarma } = require('./modules/erp/erp-digifarma-sales-sync.service.js');
+setInterval(async () => {
+  try {
+    await reprocessarVendasPendentesDigifarma();
+  } catch (err) {
+    // Silencioso se o servidor Firebird estiver desligado ou offline
+  }
+}, 60 * 1000);
+console.log('🔄 Fila Resiliente de Sincronização PDV -> Digifarma ativa (checagem a cada 60s).');
 
 // Rotina matinal diária para gerar lista de produtos parados nos dias úteis (roda a cada 1 hora para checar)
 setInterval(async () => {
