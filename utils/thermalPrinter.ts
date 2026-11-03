@@ -311,7 +311,7 @@ export function imprimirCupomVenda(venda: CupomVendaData) {
     <body>
       <div class="header">
         <div class="title">DROGARIA BELA FARMA</div>
-        <div class="subtitle">COMPROVANTE DE VENDA • NÃO FISCAL</div>
+        <div class="subtitle" style="font-size: 11px; font-weight: 900; letter-spacing: 0.5px;">COMPROVANTE DE VENDA</div>
         <div class="sale-badge">CUPOM #${venda.sale_id}</div>
         <div class="subtitle">${venda.date} às ${venda.time}</div>
         ${venda.customer_name ? `<div style="font-size:11px; font-weight:900; margin-top:3px;">CLIENTE: ${escapeHtml(venda.customer_name)}</div>` : ''}
@@ -365,6 +365,7 @@ export function imprimirCupomVenda(venda: CupomVendaData) {
       <div class="footer">
         <div>OBRIGADO PELA PREFERÊNCIA!</div>
         <div style="font-size: 10px; margin-top: 2px;">BelaFarma • Saúde e Economia ao seu lado</div>
+        <div style="font-size: 7.5px; font-weight: 500; margin-top: 5px; opacity: 0.7;">Documento auxiliar de conferência de compra</div>
       </div>
 
       <div class="cut-space"></div>

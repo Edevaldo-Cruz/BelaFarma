@@ -1460,9 +1460,9 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
                               <span className="text-[9px] bg-amber-950 text-amber-300 font-bold px-1 rounded border border-amber-800">GEN</span>
                             )}
                             {item.is_unregistered && (
-                              <span className="text-[9px] bg-amber-950/90 text-amber-300 font-bold px-1.5 py-0.5 rounded border border-amber-700/80 flex items-center gap-1">
-                                <span>⚠️</span>
-                                <span>Não Cadastrado (Não Fiscal)</span>
+                              <span className="text-[9px] bg-slate-800 text-amber-300 font-bold px-1.5 py-0.5 rounded border border-slate-700 flex items-center gap-1" title="Item avulso (gerada tarefa para cadastro com NCM)">
+                                <span>🏷️</span>
+                                <span>Item Avulso / Rápido</span>
                               </span>
                             )}
                           </div>
@@ -2369,7 +2369,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
             <div id="thermal-pdv-receipt" className="bg-white text-slate-900 p-4 rounded-xl font-mono text-[11px] leading-tight shadow-inner">
               <div className="text-center border-b border-dashed border-slate-300 pb-3 mb-3">
                 <div className="font-bold text-xs uppercase">DROGARIA BELA FARMA SUL</div>
-                <div className="text-[10px] text-slate-600">Comprovante de Venda • Não Fiscal</div>
+                <div className="text-[11px] font-bold text-slate-800 uppercase tracking-wide">Comprovante de Venda</div>
                 <h3 className="font-black text-sm text-slate-900 mt-1">CUPOM #{completedSale.sale_id}</h3>
                 <p className="text-[10px] text-slate-500">{completedSale.date} às {completedSale.time}</p>
                 {completedSale.customer_name && (
@@ -2413,6 +2413,9 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
                     <span>R$ {completedSale.change.toFixed(2)}</span>
                   </div>
                 )}
+                <div className="text-[8px] text-slate-400 text-center pt-2 border-t border-dashed border-slate-200 mt-1">
+                  Documento auxiliar de conferência de compra
+                </div>
               </div>
             </div>
 

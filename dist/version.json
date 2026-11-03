@@ -1,9 +1,14 @@
 {
   "version": "1.2.4",
-  "commitHash": "11eb098",
-  "commitMessage": "feat(fiscal-pricing): repasse inteligente de precos nas entradas, SPED com entradas e gerador SINTEGRA",
-  "buildTime": "02/11/2026, 21:37:36",
+  "commitHash": "df67c4f",
+  "commitMessage": "feat(pdv): auditoria regulatoria, suite de testes das funcoes e retorno rapido pos-venda",
+  "buildTime": "02/11/2026, 22:01:50",
   "recentCommits": [
+    {
+      "hash": "df67c4f",
+      "date": "02/11/2026",
+      "message": "feat(pdv): auditoria regulatoria, suite de testes das funcoes e retorno rapido pos-venda"
+    },
     {
       "hash": "11eb098",
       "date": "02/11/2026",
@@ -58,11 +63,6 @@
       "hash": "712128a",
       "date": "01/11/2026",
       "message": "feat(pdv): identificacao rapida e obrigatoria do vendedor por chave de acesso no PDV"
-    },
-    {
-      "hash": "9ca1a7a",
-      "date": "01/11/2026",
-      "message": "fix(layout): fixar rodape no final da pagina com flex column e sticky footer"
     }
   ]
 }
