@@ -363,27 +363,37 @@ function obterResumoCaixaDoDia(dataRef) {
   let canceladasCount = canceladas.total_canceladas || 0;
   let canceladasValor = canceladas.valor_cancelado || 0;
 
-  // Se a data de referência for a data de hoje, consolidar também as vendas do Digifarma
+  // Diretriz oficial: Priorizar exclusivamente o Digifarma como fonte da verdade de vendas
   const todayStr = getLocalDateStr();
   if (targetDate === todayStr) {
     const digiSales = obterVendasDigifarmaCache({ dataInicio: todayStr, dataFim: todayStr });
-    for (const s of digiSales) {
-      if (s.status === 'CONCLUIDA') {
-        totalCupons += 1;
-        totalFaturado += s.total_value;
-        for (const p of s.payments) {
-          const m = (p.method || '').toUpperCase();
-          const val = p.amount || 0;
-          if (m === 'DINHEIRO') pagamentosMap.DINHEIRO += val;
-          else if (m === 'CARTAO_DEBITO') pagamentosMap.CARTAO_DEBITO += val;
-          else if (m === 'CARTAO_CREDITO') pagamentosMap.CARTAO_CREDITO += val;
-          else if (m === 'PIX') pagamentosMap.PIX += val;
-          else if (m === 'CREDIARIO') pagamentosMap.CREDIARIO += val;
-          else pagamentosMap.OUTROS += val;
+    if (digiSales && digiSales.length > 0) {
+      // Se há vendas do Digifarma, elas são a única e absoluta fonte da verdade
+      totalCupons = 0;
+      totalFaturado = 0;
+      totalDescontos = 0;
+      canceladasCount = 0;
+      canceladasValor = 0;
+      Object.keys(pagamentosMap).forEach(k => { pagamentosMap[k] = 0; });
+
+      for (const s of digiSales) {
+        if (s.status === 'CONCLUIDA') {
+          totalCupons += 1;
+          totalFaturado += s.total_value;
+          for (const p of s.payments) {
+            const m = (p.method || '').toUpperCase();
+            const val = p.amount || 0;
+            if (m === 'DINHEIRO') pagamentosMap.DINHEIRO += val;
+            else if (m === 'CARTAO_DEBITO') pagamentosMap.CARTAO_DEBITO += val;
+            else if (m === 'CARTAO_CREDITO') pagamentosMap.CARTAO_CREDITO += val;
+            else if (m === 'PIX') pagamentosMap.PIX += val;
+            else if (m === 'CREDIARIO') pagamentosMap.CREDIARIO += val;
+            else pagamentosMap.OUTROS += val;
+          }
+        } else if (s.status === 'CANCELADA') {
+          canceladasCount += 1;
+          canceladasValor += s.total_value;
         }
-      } else if (s.status === 'CANCELADA') {
-        canceladasCount += 1;
-        canceladasValor += s.total_value;
       }
     }
   }

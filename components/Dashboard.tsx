@@ -938,11 +938,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 : <span className="text-emerald-200 animate-pulse text-lg">Carregando...</span>
               }
             </p>
-            {liveSalesData?.belinhaSalesCount ? (
-              <p className="text-[10px] text-emerald-100/90 font-medium mt-1">
-                {liveSalesData.belinhaSalesCount} venda(s) realizada(s) no Belinha PDV
-              </p>
-            ) : null}
           </div>
         </div>
 

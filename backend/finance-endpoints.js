@@ -203,9 +203,6 @@ module.exports = function (db) {
         ORDER BY ABERTURA DESC
       `;
 
-      const { obterVendasBelinhaLive } = require('./modules/erp/erp-sales.service');
-      const belinha = obterVendasBelinhaLive(businessDayStart);
-
       let digiVendas = 0;
       let digiTotalVendas = 0;
       let digiFundoCaixa = 0;
@@ -214,9 +211,10 @@ module.exports = function (db) {
       let digiOffline = false;
 
       try {
-        const vendasResult = await queryDigifarma(sqlVendas, [businessDayStart]);
-        const pagResult = await queryDigifarma(sqlPagamentos, [businessDayStart]);
-        const fundoCaixaResult = await queryDigifarma(sqlFundoCaixa, []);
+        // Aumenta o timeout para 15s para garantir que o Firebird responda mesmo em momentos de alto tráfego
+        const vendasResult = await queryDigifarma(sqlVendas, [businessDayStart], 15000);
+        const pagResult = await queryDigifarma(sqlPagamentos, [businessDayStart], 15000);
+        const fundoCaixaResult = await queryDigifarma(sqlFundoCaixa, [], 10000);
 
         if (vendasResult && vendasResult.length > 0) {
           digiVendas = parseInt(vendasResult[0].QTD_VENDAS || 0);
@@ -284,9 +282,8 @@ module.exports = function (db) {
         digiOffline = true;
       }
 
-      // CONSOLIDAÇÃO OFICIAL:
-      // Diretriz do usuário: Vendas locais do PDV são desconsideradas para o fechamento para
-      // garantir 100% de paridade com o relatório oficial do Digifarma (CAB_VENDAS).
+      // FONTE DA VERDADE 100% EXCLUSIVA DO DIGIFARMA
+      // Conforme solicitado pelo usuário, desconsiderar totalmente vendas de PDV ou outras origens.
       let totalSales = 0;
       let dinheiro = 0;
       let credit = 0;
@@ -309,7 +306,7 @@ module.exports = function (db) {
         qtdVendas = digiVendas;
         crediarioList = digiCrediarioList;
       } else {
-        // Fallback seguro: se o Firebird oscilar, busca no cache replicado do Digifarma (digifarma_vendas_hoje_cache)
+        // Fallback seguro: se a conexão com o Firebird oscilar, busca EXCLUSIVAMENTE no cache das vendas do Digifarma
         try {
           const cacheRow = db.prepare(`
             SELECT 
@@ -324,19 +321,6 @@ module.exports = function (db) {
           }
         } catch (cErr) {
           console.warn('[Finance] Erro ao ler cache de vendas do Digifarma:', cErr.message);
-        }
-
-        // Se até o cache estiver vazio e estiver offline, usa como último recurso o Belinha PDV
-        if (totalSales === 0 && digiOffline) {
-          dinheiro = belinha.dinheiro;
-          credit = belinha.credit;
-          debit = belinha.debit;
-          pix = belinha.pix;
-          crediario = belinha.crediario;
-          outros = belinha.outros;
-          crediarioList = belinha.crediarioList;
-          qtdVendas = belinha.qtdVendas;
-          totalSales = belinha.totalSales;
         }
       }
 

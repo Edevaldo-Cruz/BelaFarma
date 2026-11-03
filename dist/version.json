@@ -1,9 +1,14 @@
 {
   "version": "1.2.4",
-  "commitHash": "3ac833d",
-  "commitMessage": "fix(finance): alinhar total de vendas com faturamento oficial do Digifarma (CAB_VENDAS)",
-  "buildTime": "03/11/2026, 15:34:48",
+  "commitHash": "6201818",
+  "commitMessage": "fix(dashboard): eliminar exibicao e soma de vendas do PDV e aplicar anti-cache em live-closing",
+  "buildTime": "03/11/2026, 16:30:32",
   "recentCommits": [
+    {
+      "hash": "6201818",
+      "date": "03/11/2026",
+      "message": "fix(dashboard): eliminar exibicao e soma de vendas do PDV e aplicar anti-cache em live-closing"
+    },
     {
       "hash": "3ac833d",
       "date": "03/11/2026",
@@ -58,11 +63,6 @@
       "hash": "b2efb7e",
       "date": "02/11/2026",
       "message": "feat(pdv): preparar ambiente para testes reais com transmissao sefaz, espelho digifarma e purge de vendas teste"
-    },
-    {
-      "hash": "a82244d",
-      "date": "02/11/2026",
-      "message": "feat(fiscal-prolabore): integracao SPED 100% PVA, SINTEGRA e contabilizacao de pro-labore com INSS dinamico"
     }
   ]
 }
