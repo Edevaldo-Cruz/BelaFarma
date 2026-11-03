@@ -766,7 +766,11 @@ async function recalcularTodosEstoqueMinimo(margemSegurancaPercent = 15, options
           VENDAS_61_90D: cp.vendas_61_90d || 0,
           VENDAS_10M: cp.vendas_10m || (cp.vendas_30d + cp.vendas_31_60d + (cp.vendas_61_90d || 0)),
           ENTRADAS_10M: cp.entradas_10m || 0,
-          ATIVO_10M: cp.ativo_10m !== undefined ? cp.ativo_10m : 1
+          ATIVO_10M: cp.ativo_10m !== undefined ? cp.ativo_10m : 1,
+          PROD_PRVENDA: cp.preco_normal || cp.preco_venda_vigente || 0,
+          PROD_PRPROMOCAO: cp.preco_promocional || 0,
+          INICIO_PROMOCAO: cp.inicio_promocao || null,
+          TERMINO_PROMOCAO: cp.termino_promocao || null
         }));
       }
     } catch (eCache) {

@@ -881,17 +881,17 @@ module.exports = function (db) {
       try {
         db.prepare(`
           UPDATE compras_estoque_cache 
-          SET preco_promocional = ?, inicio_promocao = ?, termino_promocao = ?
+          SET preco_promocional = ?, preco_venda_vigente = ?, inicio_promocao = ?, termino_promocao = ?
           WHERE produto_id = ?
-        `).run(prPromo, data_inicio, data_termino, pId);
+        `).run(prPromo, prPromo, data_inicio, data_termino, pId);
       } catch (e) {}
 
       try {
         db.prepare(`
           UPDATE digifarma_products_cache 
-          SET preco_promocao = ?, inicio_promocao = ?, termino_promocao = ?
-          WHERE produto_id = ?
-        `).run(prPromo, data_inicio, data_termino, pId);
+          SET preco_promocao = ?, preco_venda = ?
+          WHERE produto_id = ? OR produto_id = ?
+        `).run(prPromo, prPromo, String(pId), `${pId}.0`);
       } catch (e) {}
 
       // 4. Marca no mural_produtos_parados como resolvido
@@ -1746,8 +1746,22 @@ module.exports = function (db) {
         } catch (e) {}
 
         try {
-          db.prepare('UPDATE compras_estoque_cache SET preco_promocional = ?, termino_promocao = ? WHERE produto_id = ?')
-            .run(prPromo, dtFim, pId);
+          db.prepare(`
+            UPDATE compras_estoque_cache 
+            SET preco_promocional = ?, 
+                preco_venda_vigente = ?, 
+                inicio_promocao = ?,
+                termino_promocao = ? 
+            WHERE produto_id = ?
+          `).run(prPromo, prPromo, it.data_inicio || hoje, dtFim, pId);
+        } catch (e) {}
+
+        try {
+          db.prepare(`
+            UPDATE digifarma_products_cache 
+            SET preco_promocao = ?, preco_venda = ? 
+            WHERE produto_id = ? OR produto_id = ?
+          `).run(prPromo, prPromo, String(pId), `${pId}.0`);
         } catch (e) {}
       }
 
@@ -1807,16 +1821,21 @@ module.exports = function (db) {
 
       // 5. Tenta sincronizar com o Digifarma Firebird
       const itensAtivos = db.prepare(`
-        SELECT produto_id FROM liquidacao_campanhas_itens WHERE status = 'ativo'
+        SELECT produto_id, preco_promocional, data_inicio FROM liquidacao_campanhas_itens WHERE status = 'ativo'
       `).all();
 
       const fbTermino = `${dataTerminoAlvo} 23:59:59`;
       let sucessosFb = 0;
       for (const it of itensAtivos) {
         try {
+          const fbInicio = formatarDataFirebird(it.data_inicio || '2026-10-05', false);
           await queryDigifarma(
-            `UPDATE PRODUTOS SET TERMINO_PROMOCAO = ? WHERE PRODUTO_ID = ? AND (PROD_PRPROMOCAO > 0 OR PROD_PRPROMOCAO IS NOT NULL)`,
-            [fbTermino, Number(it.produto_id)],
+            `UPDATE PRODUTOS 
+             SET PROD_PRPROMOCAO = ?, 
+                 INICIO_PROMOCAO = ?, 
+                 TERMINO_PROMOCAO = ? 
+             WHERE PRODUTO_ID = ?`,
+            [Number(it.preco_promocional), fbInicio, fbTermino, Number(it.produto_id)],
             3000
           );
           sucessosFb++;
