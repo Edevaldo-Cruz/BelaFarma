@@ -64,6 +64,8 @@ const {
   exportarRelatorioContabilCsv
 } = require('./fiscal-accounting.service');
 
+const { gerarArquivoSintegra } = require('./sintegra.service');
+
 // ==========================================
 
 // 1. ROTAS DE PRODUTOS & ESTOQUE
@@ -678,6 +680,26 @@ router.get('/fiscal/sped-txt', (req, res) => {
     res.send(conteudoSped);
   } catch (err) {
     console.error('[Fiscal API] Erro ao gerar SPED Fiscal:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Download do arquivo oficial SINTEGRA (.TXT - Convênio ICMS 57/95)
+router.get('/fiscal/sintegra-txt', (req, res) => {
+  try {
+    const { competencia } = req.query;
+    if (!competencia) {
+      return res.status(400).json({ success: false, error: 'Parâmetro competencia (YYYY-MM) obrigatório.' });
+    }
+
+    const conteudoSintegra = gerarArquivoSintegra(competencia);
+    const filename = `SINTEGRA_${competencia.replace('-', '_')}.txt`;
+
+    res.setHeader('Content-Type', 'text/plain; charset=iso-8859-1');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(conteudoSintegra);
+  } catch (err) {
+    console.error('[Fiscal API] Erro ao gerar SINTEGRA:', err);
     res.status(500).json({ success: false, error: err.message });
   }
 });

@@ -294,6 +294,62 @@ function initErpDatabase() {
   `).run();
   db.prepare(`CREATE INDEX IF NOT EXISTS idx_audit_issues_closing ON fiscal_audit_issues (closing_id)`).run();
 
+  // 11. Tabela de Histórico de Custos e Repasses de Preço
+  db.prepare(`
+    CREATE TABLE IF NOT EXISTS product_price_cost_history (
+      id TEXT PRIMARY KEY,
+      product_code TEXT NOT NULL,
+      barcode TEXT,
+      product_name TEXT NOT NULL,
+      cost_price_before REAL NOT NULL DEFAULT 0,
+      cost_price_new REAL NOT NULL DEFAULT 0,
+      cost_variation_pct REAL NOT NULL DEFAULT 0,
+      sale_price_before REAL NOT NULL DEFAULT 0,
+      sale_price_new REAL NOT NULL DEFAULT 0,
+      trigger_type TEXT NOT NULL DEFAULT 'MANUAL',
+      invoice_id TEXT,
+      applied_to_digifarma INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now', 'localtime'))
+    )
+  `).run();
+  db.prepare(`CREATE INDEX IF NOT EXISTS idx_price_cost_hist_prod ON product_price_cost_history (product_code)`).run();
+  db.prepare(`CREATE INDEX IF NOT EXISTS idx_price_cost_hist_created ON product_price_cost_history (created_at)`).run();
+
+  // 12. Garantir colunas fiscais completas em invoices e invoice_items para SPED e SINTEGRA
+  try {
+    const invCols = db.pragma('table_info(invoices)').map(c => c.name);
+    if (!invCols.includes('access_key')) db.prepare(`ALTER TABLE invoices ADD COLUMN access_key TEXT`).run();
+    if (!invCols.includes('cnpj_supplier')) db.prepare(`ALTER TABLE invoices ADD COLUMN cnpj_supplier TEXT`).run();
+    if (!invCols.includes('series')) db.prepare(`ALTER TABLE invoices ADD COLUMN series TEXT`).run();
+    if (!invCols.includes('supplier_ie')) db.prepare(`ALTER TABLE invoices ADD COLUMN supplier_ie TEXT`).run();
+    if (!invCols.includes('supplier_ibge_code')) db.prepare(`ALTER TABLE invoices ADD COLUMN supplier_ibge_code TEXT`).run();
+    if (!invCols.includes('supplier_address')) db.prepare(`ALTER TABLE invoices ADD COLUMN supplier_address TEXT`).run();
+    if (!invCols.includes('supplier_uf')) db.prepare(`ALTER TABLE invoices ADD COLUMN supplier_uf TEXT`).run();
+    if (!invCols.includes('total_icms')) db.prepare(`ALTER TABLE invoices ADD COLUMN total_icms REAL DEFAULT 0`).run();
+    if (!invCols.includes('total_icms_st')) db.prepare(`ALTER TABLE invoices ADD COLUMN total_icms_st REAL DEFAULT 0`).run();
+    if (!invCols.includes('total_ipi')) db.prepare(`ALTER TABLE invoices ADD COLUMN total_ipi REAL DEFAULT 0`).run();
+    if (!invCols.includes('xml_raw')) db.prepare(`ALTER TABLE invoices ADD COLUMN xml_raw TEXT`).run();
+
+    const itemCols = db.pragma('table_info(invoice_items)').map(c => c.name);
+    if (!itemCols.includes('barcode')) db.prepare(`ALTER TABLE invoice_items ADD COLUMN barcode TEXT`).run();
+    if (!itemCols.includes('lot_number')) db.prepare(`ALTER TABLE invoice_items ADD COLUMN lot_number TEXT`).run();
+    if (!itemCols.includes('expiration_date')) db.prepare(`ALTER TABLE invoice_items ADD COLUMN expiration_date TEXT`).run();
+    if (!itemCols.includes('cfop_original')) db.prepare(`ALTER TABLE invoice_items ADD COLUMN cfop_original TEXT`).run();
+    if (!itemCols.includes('cfop_entrada')) db.prepare(`ALTER TABLE invoice_items ADD COLUMN cfop_entrada TEXT`).run();
+    if (!itemCols.includes('cst_csosn')) db.prepare(`ALTER TABLE invoice_items ADD COLUMN cst_csosn TEXT`).run();
+    if (!itemCols.includes('base_icms')) db.prepare(`ALTER TABLE invoice_items ADD COLUMN base_icms REAL DEFAULT 0`).run();
+    if (!itemCols.includes('aliquota_icms')) db.prepare(`ALTER TABLE invoice_items ADD COLUMN aliquota_icms REAL DEFAULT 0`).run();
+    if (!itemCols.includes('valor_icms')) db.prepare(`ALTER TABLE invoice_items ADD COLUMN valor_icms REAL DEFAULT 0`).run();
+    if (!itemCols.includes('base_st')) db.prepare(`ALTER TABLE invoice_items ADD COLUMN base_st REAL DEFAULT 0`).run();
+    if (!itemCols.includes('aliquota_st')) db.prepare(`ALTER TABLE invoice_items ADD COLUMN aliquota_st REAL DEFAULT 0`).run();
+    if (!itemCols.includes('valor_st')) db.prepare(`ALTER TABLE invoice_items ADD COLUMN valor_st REAL DEFAULT 0`).run();
+    if (!itemCols.includes('valor_ipi')) db.prepare(`ALTER TABLE invoice_items ADD COLUMN valor_ipi REAL DEFAULT 0`).run();
+    if (!itemCols.includes('cst_pis')) db.prepare(`ALTER TABLE invoice_items ADD COLUMN cst_pis TEXT`).run();
+    if (!itemCols.includes('cst_cofins')) db.prepare(`ALTER TABLE invoice_items ADD COLUMN cst_cofins TEXT`).run();
+  } catch (err) {
+    console.warn('[Belinha ERP DB] Aviso ao verificar colunas fiscais de invoices/invoice_items:', err.message);
+  }
+
   console.log('[Belinha ERP DB] ✅ Schema limpo do ERP verificado e pronto!');
   return true;
 }

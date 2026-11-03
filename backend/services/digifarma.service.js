@@ -276,10 +276,49 @@ async function findOrCreateDigifarmaCustomer(customerData = {}) {
   }
 }
 
+/**
+ * Atualiza o preço de venda de um produto diretamente no Digifarma (Firebird)
+ * com as flags oficiais de replicação para caixas e terminais PDV.
+ *
+ * @param {number|string} produtoId ID numérico do produto no Digifarma
+ * @param {number} novoPreco Preço de venda calculado
+ * @param {number|null} precoAnterior Preço vigente antes da alteração
+ * @returns {Promise<{success: boolean, error?: string}>}
+ */
+async function atualizarPrecoVendaDigifarma(produtoId, novoPreco, precoAnterior = null) {
+  try {
+    const pId = parseInt(String(produtoId).replace(/\D/g, ''), 10);
+    const nPreco = Number(novoPreco);
+
+    if (isNaN(pId) || pId <= 0 || isNaN(nPreco) || nPreco <= 0) {
+      return { success: false, error: 'Parâmetros de ID ou preço inválidos.' };
+    }
+
+    const sql = `
+      UPDATE PRODUTOS 
+      SET 
+        PROD_PRVENDA = ?,
+        PRECO_ANTERIOR = COALESCE(?, PROD_PRVENDA),
+        LASTUPDATE = CURRENT_TIMESTAMP,
+        ATUALIZAR_PRECO = 'S',
+        ITEM_REAJUSTADO = 1
+      WHERE PRODUTO_ID = ?
+    `;
+
+    await queryDigifarma(sql, [nPreco, precoAnterior !== null ? Number(precoAnterior) : null, pId]);
+    console.log(`[Digifarma Sync] 💰 Preço do produto #${pId} atualizado para R$ ${nPreco.toFixed(2)} no Digifarma com sucesso.`);
+    return { success: true, produto_id: pId, novo_preco: nPreco };
+  } catch (err) {
+    console.warn(`[Digifarma Sync] ⚠️ Falha ao atualizar preço no Digifarma (Prod ID: ${produtoId}):`, err.message);
+    return { success: false, error: err.message };
+  }
+}
+
 module.exports = {
     queryDigifarma,
     findOrCreateDigifarmaCustomer,
     splitAddressNumber,
+    atualizarPrecoVendaDigifarma,
     getDigifarmaConnection: function() {
         return new Promise((resolve, reject) => {
             firebird.attach(options, function(err, db) {

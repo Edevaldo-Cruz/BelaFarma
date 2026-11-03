@@ -113,6 +113,11 @@ export const FiscalAccountingView: React.FC = () => {
     showToast('Download do SPED Fiscal iniciado!');
   };
 
+  const handleDownloadSintegra = () => {
+    window.open(`/api/erp/fiscal/sintegra-txt?competencia=${competencia}`, '_blank');
+    showToast('Download do arquivo SINTEGRA iniciado!');
+  };
+
   const handleDownloadCsv = () => {
     window.open(`/api/erp/fiscal/relatorio-csv?competencia=${competencia}`, '_blank');
     showToast('Exportação do Relatório CSV para contabilidade iniciada!');
@@ -219,10 +224,20 @@ export const FiscalAccountingView: React.FC = () => {
               onClick={handleDownloadSped}
               disabled={!report || loading}
               className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white transition-all shadow-sm"
-              title="Baixar arquivo oficial para validação no PVA da Receita Federal"
+              title="Baixar arquivo oficial para validação no PVA da Receita Federal (Entradas e Saídas)"
             >
               <Download className="w-3.5 h-3.5" />
               SPED Fiscal (.TXT)
+            </button>
+
+            <button
+              onClick={handleDownloadSintegra}
+              disabled={!report || loading}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg bg-teal-600 hover:bg-teal-500 active:scale-95 text-white transition-all shadow-sm"
+              title="Baixar arquivo oficial do SINTEGRA (Convênio ICMS 57/95) com Entradas e Saídas"
+            >
+              <Download className="w-3.5 h-3.5" />
+              SINTEGRA (.TXT)
             </button>
           </div>
         </div>

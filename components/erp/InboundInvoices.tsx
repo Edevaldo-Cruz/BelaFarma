@@ -40,12 +40,17 @@ interface NfeItemPreview {
   product_code: string | null;
   current_stock: number;
   current_cost: number;
+  last_cost?: number;
   current_sale_price: number;
   cost_variation_pct: number;
+  cost_difference_val?: number;
+  cost_difference_pct?: number;
+  cost_action?: 'INCREASE' | 'DECREASE_15PCT' | 'STABLE' | 'NEW_PRODUCT';
   conversion_factor: number;
   quantity_to_add: number;
   final_unit_cost: number;
   suggested_sale_price?: number;
+  apply_repricing?: boolean;
 }
 
 interface DuplicataPreview {
@@ -228,8 +233,38 @@ export const InboundInvoices: React.FC = () => {
     const updatedItems = [...preview.items];
     updatedItems[index] = {
       ...updatedItems[index],
-      suggested_sale_price: price
+      suggested_sale_price: price,
+      apply_repricing: price > 0
     };
+    setPreview({
+      ...preview,
+      items: updatedItems
+    });
+  };
+
+  const handleToggleRepricing = (index: number) => {
+    if (!preview) return;
+    const updatedItems = [...preview.items];
+    const current = updatedItems[index];
+    updatedItems[index] = {
+      ...current,
+      apply_repricing: !current.apply_repricing
+    };
+    setPreview({
+      ...preview,
+      items: updatedItems
+    });
+  };
+
+  const handleToggleAllRepricing = (checked: boolean) => {
+    if (!preview) return;
+    const updatedItems = preview.items.map(it => {
+      const isEligible = it.cost_action === 'INCREASE' || it.cost_action === 'DECREASE_15PCT' || it.cost_action === 'NEW_PRODUCT';
+      return {
+        ...it,
+        apply_repricing: checked ? isEligible : false
+      };
+    });
     setPreview({
       ...preview,
       items: updatedItems
@@ -248,7 +283,8 @@ export const InboundInvoices: React.FC = () => {
           ...preview,
           items: preview.items.map(it => ({
             ...it,
-            sale_price: it.suggested_sale_price || it.current_sale_price
+            suggested_sale_price: it.suggested_sale_price || it.current_sale_price,
+            apply_repricing: Boolean(it.apply_repricing)
           }))
         })
       });
@@ -258,8 +294,12 @@ export const InboundInvoices: React.FC = () => {
         throw new Error(data.error || 'Erro ao registrar entrada de estoque da NF-e.');
       }
 
+      const precosMsg = data.data.prices_updated > 0 
+        ? ` (${data.data.prices_updated} preços atualizados no Belinha e no Digifarma)` 
+        : '';
+
       addToast(
-        `Nota #${preview.invoice_number} importada! +${data.data.total_quantity_added} unidades adicionadas ao estoque.`,
+        `Nota #${preview.invoice_number} importada! +${data.data.total_quantity_added} un no estoque${precosMsg}.`,
         'success'
       );
 
@@ -298,6 +338,9 @@ export const InboundInvoices: React.FC = () => {
   const matchedCount = preview?.items.filter(i => i.is_matched).length || 0;
   const newProductsCount = (preview?.items.length || 0) - matchedCount;
   const totalUnitsToAdd = preview?.items.reduce((sum, i) => sum + i.quantity_to_add, 0) || 0;
+  const increasesCount = preview?.items.filter(i => i.cost_action === 'INCREASE' || (i.cost_difference_val && i.cost_difference_val > 0)).length || 0;
+  const decreases15Count = preview?.items.filter(i => i.cost_action === 'DECREASE_15PCT' || (i.cost_difference_pct && i.cost_difference_pct <= -15)).length || 0;
+  const repricingSelectedCount = preview?.items.filter(i => i.apply_repricing).length || 0;
 
   return (
     <div className="flex flex-col min-h-screen bg-slate-900 text-slate-100 p-4 lg:p-6 space-y-6">
@@ -517,16 +560,41 @@ export const InboundInvoices: React.FC = () => {
 
               {/* 3. Tabela de Alta Densidade de Itens da NF-e */}
               <div className="bg-slate-800/60 border border-slate-700 rounded-xl overflow-hidden shadow-lg">
-                <div className="p-3 border-b border-slate-700 flex items-center justify-between bg-slate-800/90">
-                  <div className="flex items-center gap-2">
+                <div className="p-3 border-b border-slate-700 flex flex-col md:flex-row md:items-center justify-between gap-3 bg-slate-800/90">
+                  <div className="flex flex-wrap items-center gap-2">
                     <Layers className="w-4 h-4 text-emerald-400" />
                     <span className="text-sm font-bold text-white">Conferência dos Produtos da Nota</span>
                     <span className="text-xs px-2 py-0.5 rounded-full bg-slate-700 text-slate-300">
                       {preview.items.length} itens
                     </span>
+
+                    {/* Badges de Repasse Inteligente de Preços */}
+                    {increasesCount > 0 && (
+                      <span className="text-xs px-2.5 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30 font-semibold flex items-center gap-1">
+                        <TrendingUp className="w-3 h-3 text-rose-400" />
+                        {increasesCount} aumento(s) de CMV (Vermelho)
+                      </span>
+                    )}
+
+                    {decreases15Count > 0 && (
+                      <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold flex items-center gap-1">
+                        <TrendingDown className="w-3 h-3 text-emerald-400" />
+                        {decreases15Count} queda(s) &ge; 15% c/ repasse de desconto (Verde)
+                      </span>
+                    )}
                   </div>
 
                   <div className="flex items-center gap-3">
+                    <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer bg-slate-900/80 px-2.5 py-1.5 rounded-lg border border-slate-700 hover:border-slate-500 transition-colors">
+                      <input
+                        type="checkbox"
+                        checked={repricingSelectedCount > 0 && repricingSelectedCount === (increasesCount + decreases15Count + newProductsCount)}
+                        onChange={(e) => handleToggleAllRepricing(e.target.checked)}
+                        className="rounded border-slate-700 text-emerald-500 focus:ring-emerald-500"
+                      />
+                      <span>Repassar novos preços calculados ({repricingSelectedCount})</span>
+                    </label>
+
                     <button
                       onClick={() => setShowConfirmModal(true)}
                       disabled={isSubmitting}
@@ -542,33 +610,63 @@ export const InboundInvoices: React.FC = () => {
                   <table className="w-full text-left border-collapse text-xs">
                     <thead>
                       <tr className="border-b border-slate-700 bg-slate-900/60 text-slate-400 font-semibold">
-                        <th className="py-2.5 px-3 whitespace-nowrap text-center w-10">#</th>
+                        <th className="py-2.5 px-2 whitespace-nowrap text-center w-8">
+                          <input
+                            type="checkbox"
+                            checked={repricingSelectedCount > 0 && repricingSelectedCount === (increasesCount + decreases15Count + newProductsCount)}
+                            onChange={(e) => handleToggleAllRepricing(e.target.checked)}
+                            className="rounded border-slate-700 text-emerald-500 focus:ring-emerald-500"
+                            title="Marcar/Desmarcar todos os repasses"
+                          />
+                        </th>
+                        <th className="py-2.5 px-2 whitespace-nowrap text-center w-8">#</th>
                         <th className="py-2.5 px-3 whitespace-nowrap">Código / EAN</th>
-                        <th className="py-2.5 px-3 whitespace-nowrap min-w-[240px]">Descrição do Produto</th>
-                        <th className="py-2.5 px-3 whitespace-nowrap text-center">Lote / Validade</th>
-                        <th className="py-2.5 px-3 whitespace-nowrap text-center">Qtd NF</th>
-                        <th className="py-2.5 px-3 whitespace-nowrap text-center">Fator Conv.</th>
-                        <th className="py-2.5 px-3 whitespace-nowrap text-center text-emerald-400 font-bold">Qtd Final</th>
-                        <th className="py-2.5 px-3 whitespace-nowrap text-right">Custo NF</th>
-                        <th className="py-2.5 px-3 whitespace-nowrap text-right">Custo Un.</th>
-                        <th className="py-2.5 px-3 whitespace-nowrap text-center">Variação</th>
-                        <th className="py-2.5 px-3 whitespace-nowrap text-center">Status</th>
-                        <th className="py-2.5 px-3 whitespace-nowrap text-right">Preço Venda</th>
+                        <th className="py-2.5 px-3 whitespace-nowrap min-w-[220px]">Descrição do Produto</th>
+                        <th className="py-2.5 px-2 whitespace-nowrap text-center">Fator</th>
+                        <th className="py-2.5 px-2 whitespace-nowrap text-center text-emerald-400 font-bold">Qtd Final</th>
+                        <th className="py-2.5 px-2 whitespace-nowrap text-right">Custo Un.</th>
+                        <th className="py-2.5 px-3 whitespace-nowrap text-right bg-slate-900/80 text-sky-300">Última Compra</th>
+                        <th className="py-2.5 px-3 whitespace-nowrap text-center bg-slate-900/80">Diferença</th>
+                        <th className="py-2.5 px-3 whitespace-nowrap text-right">Preço Atual</th>
+                        <th className="py-2.5 px-3 whitespace-nowrap text-right bg-emerald-950/30 text-emerald-300 font-bold">Novo Preço</th>
+                        <th className="py-2.5 px-2 whitespace-nowrap text-center">Repasse</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800">
                       {preview.items.map((item, idx) => {
-                        const isCostUp = item.cost_variation_pct > 0;
-                        const isCostDown = item.cost_variation_pct < 0;
+                        const isIncrease = item.cost_action === 'INCREASE' || (item.cost_difference_val !== undefined && item.cost_difference_val > 0);
+                        const isDecrease15 = item.cost_action === 'DECREASE_15PCT' || (item.cost_difference_pct !== undefined && item.cost_difference_pct <= -15);
+
+                        // Coloração estrita da linha solicitada pelo usuário (Vermelho para alta, Verde para queda >= 15%)
+                        const rowClass = isIncrease
+                          ? 'bg-rose-950/25 hover:bg-rose-900/35 border-l-4 border-l-rose-500'
+                          : isDecrease15
+                          ? 'bg-emerald-950/25 hover:bg-emerald-900/35 border-l-4 border-l-emerald-500'
+                          : 'hover:bg-slate-700/30';
+
+                        const lastCostDisplay = item.last_cost !== undefined && item.last_cost > 0
+                          ? item.last_cost
+                          : (item.current_cost > 0 ? item.current_cost : item.final_unit_cost);
 
                         return (
-                          <tr key={idx} className="hover:bg-slate-700/30 transition-colors">
+                          <tr key={idx} className={`${rowClass} transition-colors`}>
+                            {/* Checkbox de Repasse */}
+                            <td className="py-2 px-2 text-center whitespace-nowrap">
+                              <input
+                                type="checkbox"
+                                checked={Boolean(item.apply_repricing)}
+                                onChange={() => handleToggleRepricing(idx)}
+                                className="rounded border-slate-700 text-emerald-500 focus:ring-emerald-500 cursor-pointer"
+                                title="Aplicar reajuste de preço de venda no Belinha e no Digifarma"
+                              />
+                            </td>
+
                             {/* # */}
-                            <td className="py-2 px-3 text-center text-slate-500 font-mono">
+                            <td className="py-2 px-2 text-center text-slate-500 font-mono">
                               {item.item_index}
                             </td>
 
-                            {/* EAN / Código do Fornecedor */}
+                            {/* EAN / Código */}
                             <td className="py-2 px-3 whitespace-nowrap">
                               <div className="font-mono text-slate-200">{item.barcode || 'S/ EAN'}</div>
                               <div className="text-[10px] text-slate-500">Ref: {item.supplier_code}</div>
@@ -581,38 +679,21 @@ export const InboundInvoices: React.FC = () => {
                               </div>
                               <div className="flex items-center gap-2 mt-0.5 text-[10px] text-slate-400">
                                 {item.ncm && <span>NCM: {item.ncm}</span>}
-                                {item.unit_measure && (
-                                  <span className="px-1 rounded bg-slate-800 border border-slate-700">
-                                    {item.unit_measure}
+                                {item.cfop_entrada && (
+                                  <span className="px-1 rounded bg-slate-800 border border-slate-700 text-slate-300">
+                                    CFOP {item.cfop_entrada}
                                   </span>
                                 )}
                                 {item.is_matched && (
                                   <span className="text-slate-400">
-                                    Estoque atual: <strong className="text-white">{item.current_stock}</strong>
+                                    Estoque: <strong className="text-white">{item.current_stock}</strong>
                                   </span>
                                 )}
                               </div>
                             </td>
 
-                            {/* Lote / Validade */}
-                            <td className="py-2 px-3 text-center whitespace-nowrap">
-                              {item.lot_number ? (
-                                <div className="inline-block text-left">
-                                  <div className="font-mono text-slate-300 font-semibold">{item.lot_number}</div>
-                                  <div className="text-[10px] text-slate-400">{item.expiration_date || 'Sem val.'}</div>
-                                </div>
-                              ) : (
-                                <span className="text-slate-600">-</span>
-                              )}
-                            </td>
-
-                            {/* Qtd Comprada na Nota */}
-                            <td className="py-2 px-3 text-center font-bold text-slate-300 whitespace-nowrap">
-                              {item.quantity_bought} {item.unit_measure}
-                            </td>
-
                             {/* Fator de Conversão */}
-                            <td className="py-2 px-3 text-center whitespace-nowrap">
+                            <td className="py-2 px-2 text-center whitespace-nowrap">
                               <div className="inline-flex items-center gap-1">
                                 <span className="text-slate-500 text-[10px]">x</span>
                                 <input
@@ -621,78 +702,86 @@ export const InboundInvoices: React.FC = () => {
                                   step="1"
                                   value={item.conversion_factor}
                                   onChange={(e) => handleConversionFactorChange(idx, e.target.value)}
-                                  className="w-14 px-1.5 py-0.5 bg-slate-900 border border-slate-700 rounded text-center text-xs font-bold text-amber-400 focus:outline-none focus:border-amber-500"
+                                  className="w-12 px-1 py-0.5 bg-slate-900 border border-slate-700 rounded text-center text-xs font-bold text-amber-400 focus:outline-none focus:border-amber-500"
                                   title="Se comprou caixa com 10 unidades, digite 10"
                                 />
                               </div>
                             </td>
 
                             {/* Quantidade Final a entrar */}
-                            <td className="py-2 px-3 text-center whitespace-nowrap font-bold text-emerald-400 bg-emerald-950/20">
+                            <td className="py-2 px-2 text-center whitespace-nowrap font-bold text-emerald-400 bg-emerald-950/20">
                               +{item.quantity_to_add} un
                             </td>
 
-                            {/* Custo Unitário na Nota */}
-                            <td className="py-2 px-3 text-right whitespace-nowrap text-slate-300">
-                              R$ {item.unit_cost.toFixed(2)}
-                            </td>
-
-                            {/* Custo Unitário Convertido */}
-                            <td className="py-2 px-3 text-right whitespace-nowrap font-semibold text-white">
+                            {/* Custo Unitário Convertido da Nova Compra */}
+                            <td className="py-2 px-2 text-right whitespace-nowrap font-semibold text-white">
                               R$ {item.final_unit_cost.toFixed(2)}
                             </td>
 
-                            {/* Variação de Custo */}
-                            <td className="py-2 px-3 text-center whitespace-nowrap">
-                              {item.is_matched && item.current_cost > 0 ? (
+                            {/* COLUNA: Valor da Última Compra */}
+                            <td className="py-2 px-3 text-right whitespace-nowrap bg-slate-900/60 font-mono text-sky-200">
+                              R$ {lastCostDisplay.toFixed(2)}
+                            </td>
+
+                            {/* COLUNA: Valor da Diferença (R$ e %) */}
+                            <td className="py-2 px-3 text-center whitespace-nowrap bg-slate-900/60">
+                              {item.cost_difference_val !== undefined && item.cost_difference_pct !== undefined && lastCostDisplay > 0 ? (
                                 <span
-                                  className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                                    isCostDown
-                                      ? 'bg-emerald-500/20 text-emerald-400'
-                                      : isCostUp
-                                      ? 'bg-rose-500/20 text-rose-400'
+                                  className={`inline-flex items-center gap-0.5 px-2 py-0.5 rounded text-[11px] font-bold ${
+                                    isDecrease15
+                                      ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                      : isIncrease
+                                      ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
                                       : 'bg-slate-800 text-slate-400'
                                   }`}
+                                  title={`Diferença de R$ ${item.cost_difference_val > 0 ? '+' : ''}${item.cost_difference_val.toFixed(2)}`}
                                 >
-                                  {isCostDown && <TrendingDown className="w-3 h-3" />}
-                                  {isCostUp && <TrendingUp className="w-3 h-3" />}
-                                  {item.cost_variation_pct > 0 ? `+${item.cost_variation_pct}%` : `${item.cost_variation_pct}%`}
+                                  {isDecrease15 && <TrendingDown className="w-3 h-3" />}
+                                  {isIncrease && <TrendingUp className="w-3 h-3" />}
+                                  {item.cost_difference_val > 0 ? `+R$ ${item.cost_difference_val.toFixed(2)}` : `-R$ ${Math.abs(item.cost_difference_val).toFixed(2)}`}
+                                  <span className="text-[10px] opacity-80">({item.cost_difference_pct > 0 ? `+${item.cost_difference_pct}%` : `${item.cost_difference_pct}%`})</span>
                                 </span>
                               ) : (
-                                <span className="text-slate-600 text-[10px]">Novo</span>
+                                <span className="text-slate-500 text-[10px] font-mono">Sem ref.</span>
                               )}
                             </td>
 
-                            {/* Status de Match */}
-                            <td className="py-2 px-3 text-center whitespace-nowrap">
-                              {item.is_matched ? (
-                                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                                  Cadastrado
-                                </span>
-                              ) : (
-                                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/15 text-amber-400 border border-amber-500/30">
-                                  Novo Produto
-                                </span>
-                              )}
+                            {/* Preço de Venda Vigente */}
+                            <td className="py-2 px-3 text-right whitespace-nowrap text-slate-300 font-mono">
+                              R$ {item.current_sale_price.toFixed(2)}
                             </td>
 
-                            {/* Preço de Venda */}
-                            <td className="py-2 px-3 text-right whitespace-nowrap">
-                              {item.is_matched ? (
-                                <span className="text-slate-300 font-semibold">
-                                  R$ {item.current_sale_price.toFixed(2)}
+                            {/* COLUNA: Novo Valor de Venda (Sugerido com Margem Preservada) */}
+                            <td className="py-2 px-3 text-right whitespace-nowrap bg-emerald-950/20">
+                              <div className="inline-flex items-center gap-1 justify-end">
+                                <span className="text-slate-500 text-[10px]">R$</span>
+                                <input
+                                  type="number"
+                                  step="0.05"
+                                  value={item.suggested_sale_price !== undefined ? item.suggested_sale_price : item.current_sale_price}
+                                  onChange={(e) => handleSalePriceChange(idx, e.target.value)}
+                                  className={`w-20 px-1.5 py-0.5 bg-slate-900 border rounded text-right text-xs font-bold focus:outline-none ${
+                                    isIncrease
+                                      ? 'border-rose-500/60 text-rose-300'
+                                      : isDecrease15
+                                      ? 'border-emerald-500/60 text-emerald-300'
+                                      : 'border-slate-700 text-white'
+                                  }`}
+                                  title="Novo preço de venda sugerido para manter a margem da categoria"
+                                />
+                              </div>
+                            </td>
+
+                            {/* Status do Repasse */}
+                            <td className="py-2 px-2 text-center whitespace-nowrap">
+                              {item.apply_repricing ? (
+                                <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                                  Sim
                                 </span>
                               ) : (
-                                <div className="inline-flex items-center gap-1 justify-end">
-                                  <span className="text-slate-500 text-[10px]">R$</span>
-                                  <input
-                                    type="number"
-                                    step="0.10"
-                                    value={item.suggested_sale_price || 0}
-                                    onChange={(e) => handleSalePriceChange(idx, e.target.value)}
-                                    className="w-16 px-1.5 py-0.5 bg-slate-900 border border-slate-700 rounded text-right text-xs font-semibold text-emerald-400 focus:outline-none focus:border-emerald-500"
-                                  />
-                                </div>
+                                <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-800 text-slate-500">
+                                  Não
+                                </span>
                               )}
                             </td>
                           </tr>
@@ -836,6 +925,10 @@ export const InboundInvoices: React.FC = () => {
                 <span className="text-slate-400">Novos produtos a cadastrar:</span>
                 <span className="text-amber-400 font-bold">{newProductsCount} produtos</span>
               </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Preços a repassar (Belinha + Digifarma):</span>
+                <span className="text-sky-400 font-bold">{repricingSelectedCount} itens selecionados</span>
+              </div>
               <div className="flex justify-between border-t border-slate-800 pt-1.5">
                 <span className="text-slate-400">Valor Total da Nota:</span>
                 <span className="text-white font-bold">R$ {preview.total_invoice.toFixed(2)}</span>
@@ -843,7 +936,7 @@ export const InboundInvoices: React.FC = () => {
             </div>
 
             <p className="text-xs text-slate-400">
-              O estoque físico será incrementado imediatamente e os preços de custo serão recalculados no catálogo.
+              O estoque físico será incrementado imediatamente, dados fiscais salvos para SPED/SINTEGRA e os {repricingSelectedCount} preços aprovados serão enviados ao Belinha e ao Digifarma.
             </p>
 
             <div className="flex items-center justify-end gap-2 pt-2">

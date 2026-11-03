@@ -544,14 +544,55 @@ function gerarSpedFiscalEfd(competencia) {
 
   addLinha('0001', ['0']);
 
-  // Registro 0200: Produtos movimentados no período
+  // Registro 0150: Cadastro de Participantes (Fornecedores das Notas de Entrada do período)
+  const fornecedoresPeriodo = db.prepare(`
+    SELECT DISTINCT cnpj_supplier, supplier_name, supplier_ie, supplier_ibge_code, supplier_address, supplier_uf
+    FROM invoices
+    WHERE strftime('%Y-%m', issue_date) = ? AND cnpj_supplier IS NOT NULL
+  `).all(competencia);
+
+  for (const f of fornecedoresPeriodo) {
+    const rawCnpj = String(f.cnpj_supplier || '').replace(/\D/g, '');
+    if (!rawCnpj) continue;
+    const cnpjLimpo = rawCnpj.padStart(14, '0');
+    const codPart = `FORN_${cnpjLimpo}`;
+    const ieLimpa = String(f.supplier_ie || '').replace(/\D/g, '') || 'ISENTO';
+    const codIbge = String(f.supplier_ibge_code || '3136702').replace(/\D/g, '');
+
+    addLinha('0150', [
+      codPart,
+      (f.supplier_name || 'FORNECEDOR').substring(0, 60).toUpperCase(),
+      '1058',
+      cnpjLimpo,
+      '',
+      ieLimpa,
+      codIbge,
+      '',
+      (f.supplier_address || 'ENDERECO PRINCIPAL').substring(0, 60),
+      '',
+      '',
+      ''
+    ]);
+  }
+
+  // Registro 0200: Produtos movimentados no período (Vendas e Entradas)
   const produtosPeriodo = db.prepare(`
     SELECT DISTINCT p.code, p.name, p.barcode, p.ncm, p.cest
     FROM products p
-    JOIN sale_items si ON si.product_code = p.code
-    JOIN sales s ON s.id = si.sale_id
-    WHERE strftime('%Y-%m', s.sale_date) = ?
-  `).all(competencia);
+    WHERE p.code IN (
+      SELECT si.product_code 
+      FROM sale_items si 
+      JOIN sales s ON s.id = si.sale_id 
+      WHERE strftime('%Y-%m', s.sale_date) = ?
+      
+      UNION
+      
+      SELECT ii.product_code 
+      FROM invoice_items ii 
+      JOIN invoices i ON i.id = ii.invoice_id 
+      WHERE strftime('%Y-%m', i.issue_date) = ?
+    )
+  `).all(competencia, competencia);
 
   for (const prod of produtosPeriodo) {
     addLinha('0200', [
@@ -576,6 +617,113 @@ function gerarSpedFiscalEfd(competencia) {
   const startBlocoCIdx = linhas.length;
   addLinha('C001', ['0']);
 
+  // 1. Escrituração das Notas Fiscais de Entrada (Modelo 55 - Compra)
+  const notasEntradaMes = db.prepare(`
+    SELECT i.*
+    FROM invoices i
+    WHERE strftime('%Y-%m', i.issue_date) = ? AND i.status != 'Cancelada'
+    ORDER BY i.issue_date ASC
+  `).all(competencia);
+
+  for (const inv of notasEntradaMes) {
+    const rawCnpj = String(inv.cnpj_supplier || '').replace(/\D/g, '');
+    const cnpjForn = rawCnpj ? rawCnpj.padStart(14, '0') : '';
+    const codPart = cnpjForn ? `FORN_${cnpjForn}` : '';
+    const numNf = String(inv.invoice_number || '').replace(/\D/g, '') || '1';
+    const chave = inv.access_key || '';
+    const dtDoc = fmtSpedData(inv.issue_date);
+    const vlDoc = Number(inv.total_value || 0);
+    const vlIcms = Number(inv.total_icms || 0);
+    const vlSt = Number(inv.total_icms_st || 0);
+    const vlIpi = Number(inv.total_ipi || 0);
+
+    // C100: Cabeçalho NF-e de Entrada (IND_OPER = '0', IND_EMIT = '1' - Terceiros)
+    addLinha('C100', [
+      '0', // 0 = Entrada
+      '1', // 1 = Emissão de terceiros
+      codPart,
+      '55', // Modelo 55 NF-e
+      '00', // Documento Regular
+      String(inv.series || '1'),
+      String(numNf),
+      chave,
+      dtDoc,
+      dtDoc,
+      fmtSpedNum(vlDoc),
+      '1', // A prazo / normal
+      '0,00',
+      '0,00',
+      fmtSpedNum(vlDoc - vlSt), // Valor das mercadorias
+      '9', // Sem frete destacado
+      '0,00',
+      '0,00',
+      '0,00',
+      fmtSpedNum(vlIcms > 0 ? (vlDoc - vlSt) : 0), // Base ICMS
+      fmtSpedNum(vlIcms),
+      fmtSpedNum(vlSt > 0 ? vlDoc : 0), // Base ST
+      fmtSpedNum(vlSt),
+      fmtSpedNum(vlIpi),
+      '0,00',
+      '0,00',
+      '0,00',
+      '0,00'
+    ]);
+
+    // Itens da nota de entrada para resumo analítico C190
+    const itensEntrada = db.prepare(`
+      SELECT *
+      FROM invoice_items
+      WHERE invoice_id = ?
+    `).all(inv.id);
+
+    const analiticoEntrada = {};
+    for (const item of itensEntrada) {
+      const cst = String(item.cst_csosn || '500').replace(/\D/g, '').padEnd(3, '0').slice(-3);
+      const cfop = String(item.cfop_entrada || '1403').replace(/\D/g, '') || '1403';
+      const aliq = Number(item.aliquota_icms || 0);
+      const chaveAgrup = `${cst}_${cfop}_${aliq}`;
+
+      if (!analiticoEntrada[chaveAgrup]) {
+        analiticoEntrada[chaveAgrup] = {
+          cst,
+          cfop,
+          aliq,
+          valorOperacao: 0,
+          baseIcms: 0,
+          valorIcms: 0,
+          baseSt: 0,
+          valorSt: 0,
+          valorIpi: 0
+        };
+      }
+
+      analiticoEntrada[chaveAgrup].valorOperacao += Number(item.total_cost || 0);
+      analiticoEntrada[chaveAgrup].baseIcms += Number(item.base_icms || 0);
+      analiticoEntrada[chaveAgrup].valorIcms += Number(item.valor_icms || 0);
+      analiticoEntrada[chaveAgrup].baseSt += Number(item.base_st || 0);
+      analiticoEntrada[chaveAgrup].valorSt += Number(item.valor_st || 0);
+      analiticoEntrada[chaveAgrup].valorIpi += Number(item.valor_ipi || 0);
+    }
+
+    for (const k of Object.keys(analiticoEntrada)) {
+      const ag = analiticoEntrada[k];
+      addLinha('C190', [
+        ag.cst,
+        ag.cfop,
+        fmtSpedNum(ag.aliq),
+        fmtSpedNum(ag.valorOperacao),
+        fmtSpedNum(ag.baseIcms),
+        fmtSpedNum(ag.valorIcms),
+        fmtSpedNum(ag.baseSt),
+        fmtSpedNum(ag.valorSt),
+        '0,00',
+        fmtSpedNum(ag.valorIpi),
+        ''
+      ]);
+    }
+  }
+
+  // 2. Escrituração das Notas Fiscais de Saída (Modelo 65 - NFC-e PDV)
   const vendasMes = db.prepare(`
     SELECT s.*
     FROM sales s
@@ -590,10 +738,10 @@ function gerarSpedFiscalEfd(competencia) {
 
     // C100: Cabeçalho
     addLinha('C100', [
-      '1',
-      '0',
+      '1', // 1 = Saída
+      '0', // 0 = Emissão própria
       '',
-      '65',
+      '65', // NFC-e
       isCancelada ? '02' : '00',
       String(v.nfe_series || 1),
       String(numNf),

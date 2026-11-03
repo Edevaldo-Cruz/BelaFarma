@@ -1,9 +1,14 @@
 {
   "version": "1.2.4",
-  "commitHash": "e1d6473",
-  "commitMessage": "fix(pdv): corrigir inicializacao do BelinhaPDV evitando crash por TDZ e loop infinito no foco/modal do vendedor",
-  "buildTime": "02/11/2026, 10:44:08",
+  "commitHash": "61cfcea",
+  "commitMessage": "fix(pdv): corrigir erro 400 no checkout ao finalizar venda (foreign key crediario, seller fallback e tolerancia centavos)",
+  "buildTime": "02/11/2026, 21:07:33",
   "recentCommits": [
+    {
+      "hash": "61cfcea",
+      "date": "02/11/2026",
+      "message": "fix(pdv): corrigir erro 400 no checkout ao finalizar venda (foreign key crediario, seller fallback e tolerancia centavos)"
+    },
     {
       "hash": "e1d6473",
       "date": "02/11/2026",
@@ -58,11 +63,6 @@
       "hash": "b5ed44b",
       "date": "01/11/2026",
       "message": "feat(pdv): checkout ultrarrapido assincrono, checkboxes antibiotico/psicotropico no cadastro e registro obrigatorio de lote"
-    },
-    {
-      "hash": "b01140d",
-      "date": "01/11/2026",
-      "message": "feat(ui): implementar menu superior padrao windows com 6 categorias e alternador radio"
     }
   ]
 }
