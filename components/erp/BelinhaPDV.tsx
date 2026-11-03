@@ -2548,10 +2548,32 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
                       <ShieldCheck className="w-3 h-3 text-teal-600" />
                       Espelho Digifarma:
                     </span>
-                    <span className="px-2 py-0.5 rounded font-bold bg-teal-50 text-teal-800 border border-teal-200 flex items-center gap-1">
-                      <CheckCircle2 className="w-3 h-3 text-teal-600" />
-                      Sincronizado / Caixa Ativo
-                    </span>
+                    {(() => {
+                      const syncSt = completedSaleFiscalStatus?.digifarma_sync_status;
+                      const digiId = completedSaleFiscalStatus?.digifarma_venda_id;
+                      if (syncSt === 'SINCRONIZADO') {
+                        return (
+                          <span className="px-2 py-0.5 rounded font-bold bg-teal-50 text-teal-800 border border-teal-200 flex items-center gap-1">
+                            <CheckCircle2 className="w-3 h-3 text-teal-600" />
+                            Sincronizado {digiId ? `(#${digiId})` : '/ Caixa Ativo'}
+                          </span>
+                        );
+                      }
+                      if (syncSt === 'ERRO') {
+                        return (
+                          <span className="px-2 py-0.5 rounded font-bold bg-rose-50 text-rose-800 border border-rose-200 flex items-center gap-1" title={completedSaleFiscalStatus?.digifarma_sync_error}>
+                            <AlertCircle className="w-3 h-3 text-rose-600" />
+                            Falha Sincronização
+                          </span>
+                        );
+                      }
+                      return (
+                        <span className="px-2 py-0.5 rounded font-bold bg-amber-50 text-amber-800 border border-amber-200 flex items-center gap-1">
+                          <Clock className="w-3 h-3 text-amber-600" />
+                          Aguardando Rede / Fila
+                        </span>
+                      );
+                    })()}
                   </div>
                 </div>
 

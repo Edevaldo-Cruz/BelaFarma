@@ -1,9 +1,14 @@
 {
   "version": "1.2.4",
-  "commitHash": "43c4752",
-  "commitMessage": "fix(pdv): acionamento automatico de impressao do cupom termico e correcao de IP do Digifarma",
-  "buildTime": "03/11/2026, 10:36:38",
+  "commitHash": "8c1095e",
+  "commitMessage": "feat(fiscal): consulta dinamica do proximo numero NFC-e no Digifarma mantendo sequencia continua na serie",
+  "buildTime": "03/11/2026, 12:02:17",
   "recentCommits": [
+    {
+      "hash": "8c1095e",
+      "date": "03/11/2026",
+      "message": "feat(fiscal): consulta dinamica do proximo numero NFC-e no Digifarma mantendo sequencia continua na serie"
+    },
     {
       "hash": "43c4752",
       "date": "03/11/2026",
@@ -58,11 +63,6 @@
       "hash": "e1d6473",
       "date": "02/11/2026",
       "message": "fix(pdv): corrigir inicializacao do BelinhaPDV evitando crash por TDZ e loop infinito no foco/modal do vendedor"
-    },
-    {
-      "hash": "1f074f7",
-      "date": "02/11/2026",
-      "message": "feat(budget): permitir definicao de orcamento para o proximo ano com preenchimento rapido e salvamento em lote"
     }
   ]
 }
