@@ -1,9 +1,14 @@
 {
   "version": "1.2.4",
-  "commitHash": "ddf7344",
-  "commitMessage": "feat(pdv): fila resiliente digifarma outbox, insercao fpagtos, script destravamento caixa e diagnostico venda fantasma",
-  "buildTime": "03/11/2026, 09:05:38",
+  "commitHash": "fb879ac",
+  "commitMessage": "fix(sales): expurga cache obsoleto e valida data estrita para vendas de hoje no ERP e Dashboard",
+  "buildTime": "03/11/2026, 09:38:06",
   "recentCommits": [
+    {
+      "hash": "fb879ac",
+      "date": "03/11/2026",
+      "message": "fix(sales): expurga cache obsoleto e valida data estrita para vendas de hoje no ERP e Dashboard"
+    },
     {
       "hash": "ddf7344",
       "date": "03/11/2026",
@@ -58,11 +63,6 @@
       "hash": "825e721",
       "date": "02/11/2026",
       "message": "feat(charts): incluir despesa de provisoes e despesas de caixa nos graficos de evolucao e despesas"
-    },
-    {
-      "hash": "c9c3715",
-      "date": "02/11/2026",
-      "message": "feat(liquidacao): prorrogar promocoes da liquidacao por mais um mes ate 30/11/2026"
     }
   ]
 }

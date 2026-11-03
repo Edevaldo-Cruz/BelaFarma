@@ -51,6 +51,14 @@ export const DanfeNfceModal: React.FC<DanfeNfceModalProps> = ({ danfe, onClose }
     imprimirDanfeNfce(danfe);
   };
 
+  // Disparo automático imediato da impressão do cupom térmico ao abrir
+  React.useEffect(() => {
+    const timer = setTimeout(() => {
+      handlePrint();
+    }, 100);
+    return () => clearTimeout(timer);
+  }, []);
+
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' || e.key === 'Enter') {
