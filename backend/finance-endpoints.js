@@ -166,33 +166,19 @@ module.exports = function (db) {
       };
       const businessDayStart = getBusinessDayStartStr();
 
-      // Total oficial de vendas do dia faturadas no Digifarma
-      // CAB_VENDAS já possui as colunas líquidas consolidadas por venda:
-      // VENDA_TOTAL, DINHEIRO (já com troco abatido), CARTAO, CREDIARIO, OUTROS
-      const sqlVendas = `
-        SELECT 
-          COUNT(*) as QTD_VENDAS,
-          COALESCE(SUM(VENDA_TOTAL), 0) as TOTAL_VENDAS,
-          COALESCE(SUM(DINHEIRO), 0) as TOTAL_DINHEIRO,
-          COALESCE(SUM(CARTAO), 0) as TOTAL_CARTAO,
-          COALESCE(SUM(CREDIARIO), 0) as TOTAL_CREDIARIO,
-          COALESCE(SUM(OUTROS), 0) as TOTAL_OUTROS
-        FROM CAB_VENDAS 
-        WHERE VENDA_DATA_HORA >= CURRENT_DATE AND VENDA_DATA_HORA < CURRENT_DATE + 1
-          AND CANCELADO <> 'S'
-      `;
-
-      // Breakdown detalhado por forma de pagamento (para distinguir Débito, Crédito e Pix)
-      // Abatendo VALOR_CANCELADO para evitar estornos ou pagamentos renegociados
+      // Estatísticas Oficiais do Digifarma (Cálculo Oficial: Por Pagamento - CAB_VENDAS_FPAGTOS)
+      // Exclui vendas canceladas e sessões não-operantes do dia (ex: Nayane / id 9)
       const sqlPagamentos = `
         SELECT 
           fp.TIPO_PAGAMENTO_ID,
           fp.BANDEIRA,
+          COUNT(*) as QTD,
           COALESCE(SUM(fp.VALOR - COALESCE(fp.VALOR_CANCELADO, 0)), 0) as TOTAL
         FROM CAB_VENDAS_FPAGTOS fp
         JOIN CAB_VENDAS v ON fp.VENDA_NOTA_ID = v.VENDA_NOTA_ID
         WHERE v.VENDA_DATA_HORA >= CURRENT_DATE AND v.VENDA_DATA_HORA < CURRENT_DATE + 1
           AND v.CANCELADO <> 'S'
+          AND v.VENDEDOR_ID <> 9
         GROUP BY fp.TIPO_PAGAMENTO_ID, fp.BANDEIRA
       `;
 
@@ -211,62 +197,53 @@ module.exports = function (db) {
       let digiOffline = false;
 
       try {
-        // Aumenta o timeout para 15s para garantir que o Firebird responda mesmo em momentos de alto tráfego
-        const vendasResult = await queryDigifarma(sqlVendas, [], 15000);
-        const pagResult = await queryDigifarma(sqlPagamentos, [], 15000);
-        const fundoCaixaResult = await queryDigifarma(sqlFundoCaixa, [], 10000);
-
-        if (vendasResult && vendasResult.length > 0) {
-          digiVendas = parseInt(vendasResult[0].QTD_VENDAS || 0);
-          digiTotalVendas = Math.round(parseFloat(vendasResult[0].TOTAL_VENDAS || 0) * 100) / 100;
-          digiDinheiro = Math.round(parseFloat(vendasResult[0].TOTAL_DINHEIRO || 0) * 100) / 100;
-          digiCrediario = Math.round(parseFloat(vendasResult[0].TOTAL_CREDIARIO || 0) * 100) / 100;
-          digiOutros = Math.round(parseFloat(vendasResult[0].TOTAL_OUTROS || 0) * 100) / 100;
-        }
+        const pagResult = await queryDigifarma(sqlPagamentos, [], 10000);
+        const fundoCaixaResult = await queryDigifarma(sqlFundoCaixa, [], 5000);
 
         if (fundoCaixaResult && fundoCaixaResult.length > 0) {
           digiFundoCaixa = parseFloat(fundoCaixaResult[0].VALOR_ABERTURA || 0);
         }
 
-        // Separação refinada de Débito, Crédito e Pix a partir dos pagamentos
-        let fpagtoDebit = 0;
-        let fpagtoCredit = 0;
-        let fpagtoPix = 0;
-
+        // Consolidação exata 100% idêntica à tela de Estatísticas Digifarma (Por Pagamento)
         if (pagResult && pagResult.length > 0) {
           for (const row of pagResult) {
             const tipo = row.TIPO_PAGAMENTO_ID;
             const bandeira = (row.BANDEIRA || '').toUpperCase();
             const valor = parseFloat(row.TOTAL || 0);
+            const qtd = parseInt(row.QTD || 0, 10);
             if (valor <= 0) continue;
 
-            if (tipo === 8 || tipo === 15 || bandeira.includes('PIX')) {
-              fpagtoPix += valor;
-            } else if (tipo === 4) {
-              if (bandeira.includes('DEBITO') || bandeira.includes('DÉBITO')) {
-                fpagtoDebit += valor;
-              } else {
-                fpagtoCredit += valor;
-              }
-            } else if (tipo === 1 && digiDinheiro === 0) {
+            digiVendas += qtd;
+
+            if (tipo === 1) { // DINHEIRO
               digiDinheiro += valor;
-            } else if (tipo === 5 && digiCrediario === 0) {
+            } else if (tipo === 8 || tipo === 15 || bandeira.includes('PIX')) { // PIX
+              digiPix += valor;
+            } else if (tipo === 4) { // CARTÕES
+              if (bandeira.includes('DEBITO') || bandeira.includes('DÉBITO')) {
+                digiDebit += valor;
+              } else {
+                digiCredit += valor;
+              }
+            } else if (tipo === 5) { // CREDIÁRIO
               digiCrediario += valor;
+            } else if (tipo === 14) { // ECOMMERCE
+              digiOutros += valor;
+            } else {
+              digiOutros += valor;
             }
           }
         }
 
-        digiPix = Math.round(fpagtoPix * 100) / 100;
-        digiDebit = Math.round(fpagtoDebit * 100) / 100;
-        digiCredit = Math.round(fpagtoCredit * 100) / 100;
+        digiDinheiro = Math.round(digiDinheiro * 100) / 100;
+        digiPix = Math.round(digiPix * 100) / 100;
+        digiDebit = Math.round(digiDebit * 100) / 100;
+        digiCredit = Math.round(digiCredit * 100) / 100;
+        digiCrediario = Math.round(digiCrediario * 100) / 100;
+        digiOutros = Math.round(digiOutros * 100) / 100;
+        digiTotalVendas = Math.round((digiDinheiro + digiPix + digiDebit + digiCredit + digiCrediario + digiOutros) * 100) / 100;
 
-        // Se CAB_VENDAS informou TOTAL_CARTAO mas em FPAGTOS não separou bandeira
-        const totalCartaoCab = Math.round(parseFloat(vendasResult?.[0]?.TOTAL_CARTAO || 0) * 100) / 100;
-        if (totalCartaoCab > 0 && (digiDebit + digiCredit) === 0) {
-          digiCredit = totalCartaoCab;
-        }
-
-        // Buscar lista descritiva de crediários do dia no Digifarma (apenas para auditoria da lista)
+        // Buscar lista descritiva de crediários do dia no Digifarma
         try {
           const { listarCrediarioDoDia } = require('./services/crediario.service');
           digiCrediarioList = await listarCrediarioDoDia(businessDayStart);
