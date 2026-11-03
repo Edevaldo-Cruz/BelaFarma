@@ -102,7 +102,9 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
   const fetchLiveClosing = async (silent = false) => {
     if (!silent) setIsSyncing(true);
     try {
-      const response = await fetch('/api/finance-agent/live-closing');
+      const response = await fetch(`/api/finance-agent/live-closing?t=${Date.now()}&refresh=true`, {
+        headers: { 'Cache-Control': 'no-cache' }
+      });
       if (response.status === 503) {
         if (!silent) addToast('O Servidor do Digifarma está Offline.', 'error');
         return;

@@ -285,8 +285,8 @@ module.exports = function (db) {
       }
 
       // CONSOLIDAÇÃO OFICIAL:
-      // Diretriz do usuário: Vendas locais do PDV são desconsideradas para o fechamento quando o Digifarma está ativo,
-      // evitando qualquer duplicação ou divergência com o relatório faturado do Digifarma.
+      // Diretriz do usuário: Vendas locais do PDV são desconsideradas para o fechamento para
+      // garantir 100% de paridade com o relatório oficial do Digifarma (CAB_VENDAS).
       let totalSales = 0;
       let dinheiro = 0;
       let credit = 0;
@@ -308,17 +308,36 @@ module.exports = function (db) {
         outros = Math.round(digiOutros * 100) / 100;
         qtdVendas = digiVendas;
         crediarioList = digiCrediarioList;
-      } else if (digiOffline) {
-        // Fallback apenas se o Digifarma estiver totalmente offline
-        dinheiro = belinha.dinheiro;
-        credit = belinha.credit;
-        debit = belinha.debit;
-        pix = belinha.pix;
-        crediario = belinha.crediario;
-        outros = belinha.outros;
-        crediarioList = belinha.crediarioList;
-        qtdVendas = belinha.qtdVendas;
-        totalSales = belinha.totalSales;
+      } else {
+        // Fallback seguro: se o Firebird oscilar, busca no cache replicado do Digifarma (digifarma_vendas_hoje_cache)
+        try {
+          const cacheRow = db.prepare(`
+            SELECT 
+              COUNT(*) as qtd,
+              COALESCE(SUM(valor_total), 0) as total
+            FROM digifarma_vendas_hoje_cache
+            WHERE cancelado <> 'S'
+          `).get();
+          if (cacheRow && cacheRow.total > 0) {
+            totalSales = Math.round(cacheRow.total * 100) / 100;
+            qtdVendas = cacheRow.qtd || 0;
+          }
+        } catch (cErr) {
+          console.warn('[Finance] Erro ao ler cache de vendas do Digifarma:', cErr.message);
+        }
+
+        // Se até o cache estiver vazio e estiver offline, usa como último recurso o Belinha PDV
+        if (totalSales === 0 && digiOffline) {
+          dinheiro = belinha.dinheiro;
+          credit = belinha.credit;
+          debit = belinha.debit;
+          pix = belinha.pix;
+          crediario = belinha.crediario;
+          outros = belinha.outros;
+          crediarioList = belinha.crediarioList;
+          qtdVendas = belinha.qtdVendas;
+          totalSales = belinha.totalSales;
+        }
       }
 
       const fundoCaixa = digiFundoCaixa;
@@ -336,13 +355,14 @@ module.exports = function (db) {
         fundoCaixa,
         digifarmaOffline: digiOffline,
         isOffline: digiOffline,
-        belinhaSalesCount: belinha.qtdVendas
+        belinhaSalesCount: 0
       };
 
       // Atualiza o cache e o timestamp do cache
       liveClosingCache = payload;
       liveClosingCacheTime = Date.now();
 
+      res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
       res.json(payload);
     } catch (err) {
       console.error('[Finance] Erro fatal no live-closing:', err);

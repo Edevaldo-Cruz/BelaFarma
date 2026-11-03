@@ -1,9 +1,14 @@
 {
   "version": "1.2.4",
-  "commitHash": "aa246cd",
-  "commitMessage": "fix(sales): desativa persistencia residual em localStorage para faturamento live",
-  "buildTime": "03/11/2026, 15:24:24",
+  "commitHash": "3ac833d",
+  "commitMessage": "fix(finance): alinhar total de vendas com faturamento oficial do Digifarma (CAB_VENDAS)",
+  "buildTime": "03/11/2026, 15:34:48",
   "recentCommits": [
+    {
+      "hash": "3ac833d",
+      "date": "03/11/2026",
+      "message": "fix(finance): alinhar total de vendas com faturamento oficial do Digifarma (CAB_VENDAS)"
+    },
     {
       "hash": "aa246cd",
       "date": "03/11/2026",
@@ -58,11 +63,6 @@
       "hash": "a82244d",
       "date": "02/11/2026",
       "message": "feat(fiscal-prolabore): integracao SPED 100% PVA, SINTEGRA e contabilizacao de pro-labore com INSS dinamico"
-    },
-    {
-      "hash": "cd7ef2b",
-      "date": "02/11/2026",
-      "message": "feat(fornecedores): adicionar script de extração automática do Digifarma, arquivo bat e rotina matinal 08:30"
     }
   ]
 }

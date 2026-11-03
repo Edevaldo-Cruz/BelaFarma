@@ -477,7 +477,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
     
     const fetchLiveSales = async () => {
       try {
-        const response = await fetch('/api/finance-agent/live-closing');
+        const response = await fetch(`/api/finance-agent/live-closing?t=${Date.now()}`, {
+          headers: { 'Cache-Control': 'no-cache' }
+        });
         if (response.ok) {
            const data = await response.json();
            const todayStr = new Date().toISOString().split('T')[0];
