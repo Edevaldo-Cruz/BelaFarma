@@ -1,9 +1,14 @@
 {
   "version": "1.2.4",
-  "commitHash": "cd7ef2b",
-  "commitMessage": "feat(fornecedores): adicionar script de extração automática do Digifarma, arquivo bat e rotina matinal 08:30",
-  "buildTime": "02/11/2026, 22:09:18",
+  "commitHash": "a82244d",
+  "commitMessage": "feat(fiscal-prolabore): integracao SPED 100% PVA, SINTEGRA e contabilizacao de pro-labore com INSS dinamico",
+  "buildTime": "02/11/2026, 22:35:35",
   "recentCommits": [
+    {
+      "hash": "a82244d",
+      "date": "02/11/2026",
+      "message": "feat(fiscal-prolabore): integracao SPED 100% PVA, SINTEGRA e contabilizacao de pro-labore com INSS dinamico"
+    },
     {
       "hash": "cd7ef2b",
       "date": "02/11/2026",
@@ -58,11 +63,6 @@
       "hash": "4d60a1c",
       "date": "02/11/2026",
       "message": "feat(finances): computar provisoes pagas como despesa em DRE, caixa minimo e contas a pagar"
-    },
-    {
-      "hash": "3067dff",
-      "date": "02/11/2026",
-      "message": "feat(pdv): identificacao obrigatoria de vendedor, produtos nao cadastrados com criacao de tarefas, atalho *123/F3 e exclusao fiscal SEFAZ"
     }
   ]
 }

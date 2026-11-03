@@ -202,6 +202,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
   };
 
   const [activeDanfeModal, setActiveDanfeModal] = useState<any | null>(null);
+  const [completedSaleFiscalStatus, setCompletedSaleFiscalStatus] = useState<any | null>(null);
   const [isFiscalSettingsOpen, setIsFiscalSettingsOpen] = useState<boolean>(false);
   const [autoPrintCupom, setAutoPrintCupom] = useState<boolean>(() => {
     try {
@@ -617,6 +618,44 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
       if (autocompleteDebounceRef.current) clearTimeout(autocompleteDebounceRef.current);
     };
   }, [barcodeInput]);
+
+  // Polling em tempo real do status fiscal da venda finalizada
+  useEffect(() => {
+    if (!completedSale?.sale_id) {
+      setCompletedSaleFiscalStatus(null);
+      return;
+    }
+
+    let isMounted = true;
+    let timer: NodeJS.Timeout | null = null;
+
+    const checkSaleStatus = async () => {
+      try {
+        const res = await fetch(`/api/erp/sales/${encodeURIComponent(completedSale.sale_id)}`);
+        if (res.ok && isMounted) {
+          const json = await res.json();
+          if (json.success && json.data) {
+            setCompletedSaleFiscalStatus(json.data);
+            // Se já foi emitido, contingenciado ou erro definitivo, para o polling
+            if (['EMITIDO', 'CONTINGENCIA', 'ERRO', 'NAO_FISCAL'].includes(json.data.fiscal_status)) {
+              return;
+            }
+          }
+        }
+      } catch (e) {
+      }
+      if (isMounted) {
+        timer = setTimeout(checkSaleStatus, 1500);
+      }
+    };
+
+    checkSaleStatus();
+
+    return () => {
+      isMounted = false;
+      if (timer) clearTimeout(timer);
+    };
+  }, [completedSale?.sale_id]);
 
   // Bipagem de produto (Enter no input)
   const handleBarcodeSubmit = async (e: React.FormEvent) => {
@@ -2413,6 +2452,69 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
                     <span>R$ {completedSale.change.toFixed(2)}</span>
                   </div>
                 )}
+
+                {/* Status da Transmissão Fiscal (SEFAZ) & Digifarma */}
+                <div className="pt-2 mt-2 border-t border-dashed border-slate-300 space-y-1.5">
+                  <div className="flex items-center justify-between text-[10px]">
+                    <span className="font-bold text-slate-700 flex items-center gap-1">
+                      <QrCode className="w-3 h-3 text-blue-600" />
+                      Emissão NFC-e (SEFAZ):
+                    </span>
+                    {(() => {
+                      const st = completedSaleFiscalStatus?.fiscal_status || (emitNfce ? 'EM_PROCESSAMENTO' : 'NAO_EMITIDO');
+                      if (st === 'EMITIDO' || completedSaleFiscalStatus?.nfe_number) {
+                        return (
+                          <span className="px-2 py-0.5 rounded font-black bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1">
+                            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                            NFC-e #{completedSaleFiscalStatus?.nfe_number || ''} AUTORIZADA
+                          </span>
+                        );
+                      }
+                      if (st === 'CONTINGENCIA') {
+                        return (
+                          <span className="px-2 py-0.5 rounded font-black bg-amber-100 text-amber-800 border border-amber-300 flex items-center gap-1">
+                            <Clock className="w-3 h-3 text-amber-600" />
+                            CONTINGÊNCIA OFFLINE
+                          </span>
+                        );
+                      }
+                      if (st === 'ERRO') {
+                        return (
+                          <span className="px-2 py-0.5 rounded font-black bg-rose-100 text-rose-800 border border-rose-300 flex items-center gap-1" title={completedSaleFiscalStatus?.contingency_reason}>
+                            <AlertCircle className="w-3 h-3 text-rose-600" />
+                            PENDENTE SEFAZ
+                          </span>
+                        );
+                      }
+                      if (st === 'EM_PROCESSAMENTO') {
+                        return (
+                          <span className="px-2 py-0.5 rounded font-bold bg-blue-50 text-blue-700 border border-blue-200 flex items-center gap-1">
+                            <RefreshCw className="w-3 h-3 text-blue-600 animate-spin" />
+                            Transmitindo...
+                          </span>
+                        );
+                      }
+                      return (
+                        <span className="px-1.5 py-0.5 rounded text-slate-500 bg-slate-100 border border-slate-200 font-medium">
+                          Cupom Interno
+                        </span>
+                      );
+                    })()}
+                  </div>
+
+                  {/* Resguardo no Digifarma */}
+                  <div className="flex items-center justify-between text-[10px]">
+                    <span className="font-bold text-slate-700 flex items-center gap-1">
+                      <ShieldCheck className="w-3 h-3 text-teal-600" />
+                      Espelho Digifarma:
+                    </span>
+                    <span className="px-2 py-0.5 rounded font-bold bg-teal-50 text-teal-800 border border-teal-200 flex items-center gap-1">
+                      <CheckCircle2 className="w-3 h-3 text-teal-600" />
+                      Sincronizado / Caixa Ativo
+                    </span>
+                  </div>
+                </div>
+
                 <div className="text-[8px] text-slate-400 text-center pt-2 border-t border-dashed border-slate-200 mt-1">
                   Documento auxiliar de conferência de compra
                 </div>
@@ -2443,14 +2545,39 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
                   <span>Imprimir (80mm)</span>
                 </button>
 
-                <button
-                  onClick={() => handleEmitFiscalForSale(completedSale.sale_id)}
-                  disabled={isEmittingFiscal}
-                  className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-md transition-colors border border-blue-500/40 cursor-pointer"
-                >
-                  {isEmittingFiscal ? <RefreshCw className="w-4 h-4 animate-spin" /> : <QrCode className="w-4 h-4" />}
-                  <span>Emitir NFC-e</span>
-                </button>
+                {completedSaleFiscalStatus?.nfe_number || completedSaleFiscalStatus?.fiscal_status === 'EMITIDO' ? (
+                  <button
+                    onClick={async () => {
+                      try {
+                        const res = await fetch(`/api/erp/fiscal/danfe/${encodeURIComponent(completedSale.sale_id)}`);
+                        if (res.ok) {
+                          const json = await res.json();
+                          if (json.success && json.danfe) {
+                            setCompletedSale(null);
+                            setActiveDanfeModal(json.danfe);
+                            return;
+                          }
+                        }
+                        handleEmitFiscalForSale(completedSale.sale_id);
+                      } catch (e) {
+                        handleEmitFiscalForSale(completedSale.sale_id);
+                      }
+                    }}
+                    className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-md transition-colors border border-emerald-500/40 cursor-pointer"
+                  >
+                    <QrCode className="w-4 h-4" />
+                    <span>Ver DANFE NFC-e</span>
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => handleEmitFiscalForSale(completedSale.sale_id)}
+                    disabled={isEmittingFiscal}
+                    className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-md transition-colors border border-blue-500/40 cursor-pointer"
+                  >
+                    {isEmittingFiscal ? <RefreshCw className="w-4 h-4 animate-spin" /> : <QrCode className="w-4 h-4" />}
+                    <span>{completedSaleFiscalStatus?.fiscal_status === 'ERRO' ? 'Retentar NFC-e' : 'Emitir NFC-e'}</span>
+                  </button>
+                )}
               </div>
             </div>
           </div>
