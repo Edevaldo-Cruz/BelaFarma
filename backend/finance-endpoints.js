@@ -143,18 +143,15 @@ module.exports = function (db) {
   // Variáveis globais para cache de vendas live
   let liveClosingCache = null;
   let liveClosingCacheTime = 0;
-  const CACHE_TTL_MS = 120000; // 2 minutos de cache (120.000 ms)
+  const CACHE_TTL_MS = 15000; // 15 segundos de cache para respostas quase em tempo real sem sobrecarga
 
   // 5. Fechamento de Caixa em Tempo Real (Direto do Digifarma)
-  // Tabela real: CAB_VENDAS (vendas) + CAB_VENDAS_FPAGTOS (formas de pagamento)
-  // TIPO_PAGAMENTO_ID: 1=Dinheiro, 2=Cheque, 3=ChequePré, 4=Cartão, 5=Crediário, 6=Parcelamento, 8=Pix
-  // Para Cartão (id=4), a coluna BANDEIRA contém "DEBITO" ou "CREDITO"
+  // Fonte da Verdade: CAB_VENDAS (vendas oficiais consolidadas) + CAB_VENDAS_FPAGTOS (detalhamento de cartões e pix)
   router.get('/live-closing', async (req, res) => {
     try {
       const forceRefresh = req.query.refresh === 'true';
       const nowMs = Date.now();
       if (!forceRefresh && liveClosingCache && (nowMs - liveClosingCacheTime < CACHE_TTL_MS)) {
-        console.log('[Finance] ⚡ Retornando fechamento de hoje via cache (TTL 2m)');
         return res.json(liveClosingCache);
       }
 
@@ -169,22 +166,29 @@ module.exports = function (db) {
       };
       const businessDayStart = getBusinessDayStartStr();
 
-      // Total de vendas do dia - Otimizado para permitir uso de index (SARGable)
+      // Total oficial de vendas do dia faturadas no Digifarma
+      // CAB_VENDAS já possui as colunas líquidas consolidadas por venda:
+      // VENDA_TOTAL, DINHEIRO (já com troco abatido), CARTAO, CREDIARIO, OUTROS
       const sqlVendas = `
         SELECT 
           COUNT(*) as QTD_VENDAS,
-          COALESCE(SUM(VENDA_TOTAL), 0) as TOTAL_VENDAS
+          COALESCE(SUM(VENDA_TOTAL), 0) as TOTAL_VENDAS,
+          COALESCE(SUM(DINHEIRO), 0) as TOTAL_DINHEIRO,
+          COALESCE(SUM(CARTAO), 0) as TOTAL_CARTAO,
+          COALESCE(SUM(CREDIARIO), 0) as TOTAL_CREDIARIO,
+          COALESCE(SUM(OUTROS), 0) as TOTAL_OUTROS
         FROM CAB_VENDAS 
         WHERE VENDA_DATA_HORA >= ?
           AND CANCELADO <> 'S'
       `;
 
-      // Breakdown por forma de pagamento - Otimizado para permitir uso de index (SARGable)
+      // Breakdown detalhado por forma de pagamento (para distinguir Débito, Crédito e Pix)
+      // Abatendo VALOR_CANCELADO para evitar estornos ou pagamentos renegociados
       const sqlPagamentos = `
         SELECT 
           fp.TIPO_PAGAMENTO_ID,
           fp.BANDEIRA,
-          COALESCE(SUM(fp.VALOR), 0) as TOTAL
+          COALESCE(SUM(fp.VALOR - COALESCE(fp.VALOR_CANCELADO, 0)), 0) as TOTAL
         FROM CAB_VENDAS_FPAGTOS fp
         JOIN CAB_VENDAS v ON fp.VENDA_NOTA_ID = v.VENDA_NOTA_ID
         WHERE v.VENDA_DATA_HORA >= ?
@@ -203,50 +207,68 @@ module.exports = function (db) {
       const belinha = obterVendasBelinhaLive(businessDayStart);
 
       let digiVendas = 0;
+      let digiTotalVendas = 0;
       let digiFundoCaixa = 0;
       let digiDinheiro = 0, digiCredit = 0, digiDebit = 0, digiPix = 0, digiCrediario = 0, digiOutros = 0;
       let digiCrediarioList = [];
       let digiOffline = false;
 
       try {
-        // Executa as consultas de forma sequencial para evitar deadlocks/timeouts na conexão do Firebird
         const vendasResult = await queryDigifarma(sqlVendas, [businessDayStart]);
         const pagResult = await queryDigifarma(sqlPagamentos, [businessDayStart]);
         const fundoCaixaResult = await queryDigifarma(sqlFundoCaixa, []);
 
         if (vendasResult && vendasResult.length > 0) {
-          digiVendas = vendasResult[0].QTD_VENDAS || 0;
+          digiVendas = parseInt(vendasResult[0].QTD_VENDAS || 0);
+          digiTotalVendas = Math.round(parseFloat(vendasResult[0].TOTAL_VENDAS || 0) * 100) / 100;
+          digiDinheiro = Math.round(parseFloat(vendasResult[0].TOTAL_DINHEIRO || 0) * 100) / 100;
+          digiCrediario = Math.round(parseFloat(vendasResult[0].TOTAL_CREDIARIO || 0) * 100) / 100;
+          digiOutros = Math.round(parseFloat(vendasResult[0].TOTAL_OUTROS || 0) * 100) / 100;
         }
 
         if (fundoCaixaResult && fundoCaixaResult.length > 0) {
-          digiFundoCaixa = fundoCaixaResult[0].VALOR_ABERTURA || 0;
+          digiFundoCaixa = parseFloat(fundoCaixaResult[0].VALOR_ABERTURA || 0);
         }
+
+        // Separação refinada de Débito, Crédito e Pix a partir dos pagamentos
+        let fpagtoDebit = 0;
+        let fpagtoCredit = 0;
+        let fpagtoPix = 0;
 
         if (pagResult && pagResult.length > 0) {
           for (const row of pagResult) {
             const tipo = row.TIPO_PAGAMENTO_ID;
             const bandeira = (row.BANDEIRA || '').toUpperCase();
-            const valor = row.TOTAL || 0;
+            const valor = parseFloat(row.TOTAL || 0);
+            if (valor <= 0) continue;
 
-            if (tipo === 1) {
-              digiDinheiro += valor;
+            if (tipo === 8 || tipo === 15 || bandeira.includes('PIX')) {
+              fpagtoPix += valor;
             } else if (tipo === 4) {
-              if (bandeira.includes('DEBITO')) {
-                digiDebit += valor;
+              if (bandeira.includes('DEBITO') || bandeira.includes('DÉBITO')) {
+                fpagtoDebit += valor;
               } else {
-                digiCredit += valor;
+                fpagtoCredit += valor;
               }
-            } else if (tipo === 5) {
+            } else if (tipo === 1 && digiDinheiro === 0) {
+              digiDinheiro += valor;
+            } else if (tipo === 5 && digiCrediario === 0) {
               digiCrediario += valor;
-            } else if (tipo === 8 || tipo === 15) {
-              digiPix += valor;
-            } else {
-              digiOutros += valor;
             }
           }
         }
 
-        // Buscar lista de crediários do dia no Digifarma
+        digiPix = Math.round(fpagtoPix * 100) / 100;
+        digiDebit = Math.round(fpagtoDebit * 100) / 100;
+        digiCredit = Math.round(fpagtoCredit * 100) / 100;
+
+        // Se CAB_VENDAS informou TOTAL_CARTAO mas em FPAGTOS não separou bandeira
+        const totalCartaoCab = Math.round(parseFloat(vendasResult?.[0]?.TOTAL_CARTAO || 0) * 100) / 100;
+        if (totalCartaoCab > 0 && (digiDebit + digiCredit) === 0) {
+          digiCredit = totalCartaoCab;
+        }
+
+        // Buscar lista descritiva de crediários do dia no Digifarma (apenas para auditoria da lista)
         try {
           const { listarCrediarioDoDia } = require('./services/crediario.service');
           digiCrediarioList = await listarCrediarioDoDia(businessDayStart);
@@ -262,20 +284,47 @@ module.exports = function (db) {
         digiOffline = true;
       }
 
-      // Soma consolidada (Digifarma + Belinha PDV)
-      const dinheiro = Math.round((digiDinheiro + belinha.dinheiro) * 100) / 100;
-      const credit = Math.round((digiCredit + belinha.credit) * 100) / 100;
-      const debit = Math.round((digiDebit + belinha.debit) * 100) / 100;
-      const pix = Math.round((digiPix + belinha.pix) * 100) / 100;
-      const crediario = Math.round((digiCrediario + belinha.crediario) * 100) / 100;
-      const outros = Math.round((digiOutros + belinha.outros) * 100) / 100;
-      const crediarioList = [...digiCrediarioList, ...belinha.crediarioList];
-      const qtdVendas = digiVendas + belinha.qtdVendas;
-      const totalSales = Math.round((dinheiro + credit + debit + pix + crediario + outros) * 100) / 100;
+      // CONSOLIDAÇÃO OFICIAL:
+      // Diretriz do usuário: Vendas locais do PDV são desconsideradas para o fechamento quando o Digifarma está ativo,
+      // evitando qualquer duplicação ou divergência com o relatório faturado do Digifarma.
+      let totalSales = 0;
+      let dinheiro = 0;
+      let credit = 0;
+      let debit = 0;
+      let pix = 0;
+      let crediario = 0;
+      let outros = 0;
+      let qtdVendas = 0;
+      let crediarioList = [];
+
+      if (!digiOffline && (digiTotalVendas > 0 || digiVendas > 0)) {
+        // Digifarma online: FONTE DA VERDADE ABSOLUTA (Exatamente igual ao relatório oficial do Digifarma)
+        totalSales = digiTotalVendas;
+        dinheiro = Math.round(digiDinheiro * 100) / 100;
+        credit = Math.round(digiCredit * 100) / 100;
+        debit = Math.round(digiDebit * 100) / 100;
+        pix = Math.round(digiPix * 100) / 100;
+        crediario = Math.round(digiCrediario * 100) / 100;
+        outros = Math.round(digiOutros * 100) / 100;
+        qtdVendas = digiVendas;
+        crediarioList = digiCrediarioList;
+      } else if (digiOffline) {
+        // Fallback apenas se o Digifarma estiver totalmente offline
+        dinheiro = belinha.dinheiro;
+        credit = belinha.credit;
+        debit = belinha.debit;
+        pix = belinha.pix;
+        crediario = belinha.crediario;
+        outros = belinha.outros;
+        crediarioList = belinha.crediarioList;
+        qtdVendas = belinha.qtdVendas;
+        totalSales = belinha.totalSales;
+      }
+
       const fundoCaixa = digiFundoCaixa;
 
       const payload = {
-        totalSales,
+        totalSales: Math.round(totalSales * 100) / 100,
         dinheiro,
         credit,
         debit,

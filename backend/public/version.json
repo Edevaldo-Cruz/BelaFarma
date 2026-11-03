@@ -1,9 +1,19 @@
 {
   "version": "1.2.4",
-  "commitHash": "ab6217a",
-  "commitMessage": "fix(liquidacao): regularizar precos promocionais vigentes dos 118 produtos e blindar sincronizacao",
-  "buildTime": "03/11/2026, 13:13:09",
+  "commitHash": "aa246cd",
+  "commitMessage": "fix(sales): desativa persistencia residual em localStorage para faturamento live",
+  "buildTime": "03/11/2026, 15:24:24",
   "recentCommits": [
+    {
+      "hash": "aa246cd",
+      "date": "03/11/2026",
+      "message": "fix(sales): desativa persistencia residual em localStorage para faturamento live"
+    },
+    {
+      "hash": "61859b3",
+      "date": "03/11/2026",
+      "message": "fix(scripts): usar config.dbPath em check_liquidacao.cjs"
+    },
     {
       "hash": "ab6217a",
       "date": "03/11/2026",
@@ -53,16 +63,6 @@
       "hash": "cd7ef2b",
       "date": "02/11/2026",
       "message": "feat(fornecedores): adicionar script de extração automática do Digifarma, arquivo bat e rotina matinal 08:30"
-    },
-    {
-      "hash": "6dbbde5",
-      "date": "02/11/2026",
-      "message": "fix(pdv): discretizar mencao a comprovante interno e simplificar cabecalho do cupom"
-    },
-    {
-      "hash": "df67c4f",
-      "date": "02/11/2026",
-      "message": "feat(pdv): auditoria regulatoria, suite de testes das funcoes e retorno rapido pos-venda"
     }
   ]
 }
