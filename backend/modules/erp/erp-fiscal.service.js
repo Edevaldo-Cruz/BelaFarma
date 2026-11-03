@@ -10,6 +10,7 @@ const QRCode = require('qrcode');
 const { db, initErpDatabase } = require('./erp-database');
 const { extrairDadosCertificadoA1, assinarXmlNfe } = require('./erp-sefaz-signer');
 const { consultarStatusServicoSefaz, transmitirNfceSefaz } = require('./erp-sefaz-client');
+const { queryDigifarma } = require('../../services/digifarma.service');
 
 // Tabela de códigos IBGE por UF
 const CODIGOS_UF = {
@@ -264,7 +265,26 @@ async function emitirCupomFiscal(saleId, options = {}) {
 
   const tpAmb = config.ambiente === 'producao' ? '1' : '2';
   const serie = config.nfe_series || 1;
-  const nNF = config.next_nfe_number || 1;
+  let nNF = config.next_nfe_number || 1;
+
+  // Consulta dinâmica no Digifarma: obtém o maior número já emitido para esta série
+  try {
+    const digiMax = await queryDigifarma(
+      'SELECT COALESCE(MAX(NF_ID), 0) AS MAX_NF FROM NFCE WHERE SERIE_ID = ?',
+      [serie],
+      3000
+    );
+    if (digiMax && digiMax.length > 0 && digiMax[0].MAX_NF) {
+      const maxDigiNum = parseInt(digiMax[0].MAX_NF, 10);
+      if (!isNaN(maxDigiNum) && maxDigiNum >= nNF) {
+        console.log(`[ERP Fiscal] 🔄 Sincronizando numeração com Digifarma (Série ${serie}): Último no Digifarma = #${maxDigiNum}, próximo será #${maxDigiNum + 1}`);
+        nNF = maxDigiNum + 1;
+      }
+    }
+  } catch (digiErr) {
+    console.warn(`[ERP Fiscal] ℹ️ Servidor Digifarma não respondeu ao consultar último número NFC-e (usando contador local #${nNF}):`, digiErr.message);
+  }
+
   const tpEmis = contingency ? '9' : '1'; // 1=Normal, 9=Contingência Offline
 
   const now = new Date();
@@ -459,8 +479,8 @@ async function emitirCupomFiscal(saleId, options = {}) {
 
   // 8. Atualização Atômica no Banco de Dados
   const transaction = db.transaction(() => {
-    // Incrementa próximo número fiscal
-    db.prepare('UPDATE fiscal_settings SET next_nfe_number = next_nfe_number + 1 WHERE id = ?').run('primary');
+    // Incrementa próximo número fiscal local mantendo paridade com o nNF emitido
+    db.prepare('UPDATE fiscal_settings SET next_nfe_number = MAX(next_nfe_number + 1, ? + 1) WHERE id = ?').run(nNF, 'primary');
 
     // Atualiza a venda com os dados fiscais autorizados
     db.prepare(`

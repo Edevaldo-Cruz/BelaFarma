@@ -1,9 +1,14 @@
 {
   "version": "1.2.4",
-  "commitHash": "fb879ac",
-  "commitMessage": "fix(sales): expurga cache obsoleto e valida data estrita para vendas de hoje no ERP e Dashboard",
-  "buildTime": "03/11/2026, 09:38:06",
+  "commitHash": "43c4752",
+  "commitMessage": "fix(pdv): acionamento automatico de impressao do cupom termico e correcao de IP do Digifarma",
+  "buildTime": "03/11/2026, 10:36:38",
   "recentCommits": [
+    {
+      "hash": "43c4752",
+      "date": "03/11/2026",
+      "message": "fix(pdv): acionamento automatico de impressao do cupom termico e correcao de IP do Digifarma"
+    },
     {
       "hash": "fb879ac",
       "date": "03/11/2026",
@@ -58,11 +63,6 @@
       "hash": "1f074f7",
       "date": "02/11/2026",
       "message": "feat(budget): permitir definicao de orcamento para o proximo ano com preenchimento rapido e salvamento em lote"
-    },
-    {
-      "hash": "825e721",
-      "date": "02/11/2026",
-      "message": "feat(charts): incluir despesa de provisoes e despesas de caixa nos graficos de evolucao e despesas"
     }
   ]
 }
