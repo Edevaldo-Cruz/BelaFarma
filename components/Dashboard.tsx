@@ -200,10 +200,19 @@ export const Dashboard: React.FC<DashboardProps> = ({
     pix: number;
     crediario: number;
     outros: number;
+    savedDate?: string;
   } | null>(() => {
     try {
       const saved = localStorage.getItem('belafarma_live_sales_cache');
-      return saved ? JSON.parse(saved) : null;
+      if (!saved) return null;
+      const parsed = JSON.parse(saved);
+      const todayStr = new Date().toISOString().split('T')[0];
+      // Se o cache for de outro dia, descarta para não mostrar dados antigos como se fossem de hoje
+      if (parsed.savedDate && parsed.savedDate !== todayStr) {
+        localStorage.removeItem('belafarma_live_sales_cache');
+        return null;
+      }
+      return parsed;
     } catch (e) {
       return null;
     }
@@ -487,9 +496,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
              console.warn('[Dashboard] Servidor do Digifarma Offline. Mantendo dados do cache.');
              return;
            }
-           setLiveSalesData(data);
+           const todayStr = new Date().toISOString().split('T')[0];
+           const toSave = { ...data, savedDate: todayStr };
+           setLiveSalesData(toSave);
            try {
-             localStorage.setItem('belafarma_live_sales_cache', JSON.stringify(data));
+             localStorage.setItem('belafarma_live_sales_cache', JSON.stringify(toSave));
            } catch (err) {
              console.error('Erro ao salvar cache de live sales:', err);
            }

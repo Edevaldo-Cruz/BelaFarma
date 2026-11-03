@@ -76,7 +76,7 @@ function obterVendasDigifarmaCache({ dataInicio, dataFim, status, paymentMethod 
         continue;
       }
 
-      let dateStr = todayStr;
+      let dateStr = null;
       let timeStr = '12:00:00';
       try {
         const d = new Date(r.data_hora);
@@ -87,9 +87,17 @@ function obterVendasDigifarmaCache({ dataInicio, dataFim, status, paymentMethod 
         }
       } catch (e) {}
 
+      // Se a data do registro não pôde ser calculada ou não for a data esperada
+      if (!dateStr) continue;
+
       if (dataInicio && dataFim) {
         if (dateStr < dataInicio || dateStr > dataFim) continue;
-      } else if (dataInicio && dateStr !== dataInicio) continue;
+      } else if (dataInicio) {
+        if (dateStr !== dataInicio) continue;
+      } else {
+        // Se nenhuma data foi especificada, o cache só deve retornar vendas estritamente de HOJE
+        if (dateStr !== todayStr) continue;
+      }
 
       let rawPayments = [];
       try {
