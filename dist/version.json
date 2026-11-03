@@ -1,9 +1,14 @@
 {
   "version": "1.2.4",
-  "commitHash": "6201818",
-  "commitMessage": "fix(dashboard): eliminar exibicao e soma de vendas do PDV e aplicar anti-cache em live-closing",
-  "buildTime": "03/11/2026, 16:30:32",
+  "commitHash": "14d0f24",
+  "commitMessage": "fix(sales): restringir faturamento de vendas 100% exclusivamente ao Digifarma",
+  "buildTime": "03/11/2026, 19:15:07",
   "recentCommits": [
+    {
+      "hash": "14d0f24",
+      "date": "03/11/2026",
+      "message": "fix(sales): restringir faturamento de vendas 100% exclusivamente ao Digifarma"
+    },
     {
       "hash": "6201818",
       "date": "03/11/2026",
@@ -58,11 +63,6 @@
       "hash": "ddf7344",
       "date": "03/11/2026",
       "message": "feat(pdv): fila resiliente digifarma outbox, insercao fpagtos, script destravamento caixa e diagnostico venda fantasma"
-    },
-    {
-      "hash": "b2efb7e",
-      "date": "02/11/2026",
-      "message": "feat(pdv): preparar ambiente para testes reais com transmissao sefaz, espelho digifarma e purge de vendas teste"
     }
   ]
 }

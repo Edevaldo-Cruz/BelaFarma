@@ -178,7 +178,7 @@ module.exports = function (db) {
           COALESCE(SUM(CREDIARIO), 0) as TOTAL_CREDIARIO,
           COALESCE(SUM(OUTROS), 0) as TOTAL_OUTROS
         FROM CAB_VENDAS 
-        WHERE VENDA_DATA_HORA >= ?
+        WHERE VENDA_DATA_HORA >= CURRENT_DATE AND VENDA_DATA_HORA < CURRENT_DATE + 1
           AND CANCELADO <> 'S'
       `;
 
@@ -191,7 +191,7 @@ module.exports = function (db) {
           COALESCE(SUM(fp.VALOR - COALESCE(fp.VALOR_CANCELADO, 0)), 0) as TOTAL
         FROM CAB_VENDAS_FPAGTOS fp
         JOIN CAB_VENDAS v ON fp.VENDA_NOTA_ID = v.VENDA_NOTA_ID
-        WHERE v.VENDA_DATA_HORA >= ?
+        WHERE v.VENDA_DATA_HORA >= CURRENT_DATE AND v.VENDA_DATA_HORA < CURRENT_DATE + 1
           AND v.CANCELADO <> 'S'
         GROUP BY fp.TIPO_PAGAMENTO_ID, fp.BANDEIRA
       `;
@@ -212,8 +212,8 @@ module.exports = function (db) {
 
       try {
         // Aumenta o timeout para 15s para garantir que o Firebird responda mesmo em momentos de alto tráfego
-        const vendasResult = await queryDigifarma(sqlVendas, [businessDayStart], 15000);
-        const pagResult = await queryDigifarma(sqlPagamentos, [businessDayStart], 15000);
+        const vendasResult = await queryDigifarma(sqlVendas, [], 15000);
+        const pagResult = await queryDigifarma(sqlPagamentos, [], 15000);
         const fundoCaixaResult = await queryDigifarma(sqlFundoCaixa, [], 10000);
 
         if (vendasResult && vendasResult.length > 0) {
