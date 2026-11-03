@@ -513,10 +513,23 @@ app.post('/api/monthly-limits', security.requireAdmin, (req, res) => {
 // --- Fixed Accounts CUD ---
 app.get('/api/fixed-accounts', (req, res) => {
   try {
-    const accounts = db.prepare('SELECT * FROM fixed_accounts').all().map(acc => ({
-      ...acc,
-      isActive: !!acc.isActive
-    }));
+    const { garantirContaFixaInss, obterInssDinamicoParaMesPagamento } = require('./services/prolabore-inss.service');
+    garantirContaFixaInss(db);
+
+    const d = new Date();
+    const currentMonthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const inssInfo = obterInssDinamicoParaMesPagamento(db, currentMonthKey);
+
+    const accounts = db.prepare('SELECT * FROM fixed_accounts').all().map(acc => {
+      const isAccountInss = acc.name && acc.name.toLowerCase().includes('inss pr');
+      return {
+        ...acc,
+        value: isAccountInss ? inssInfo.valorInss : acc.value,
+        isActive: !!acc.isActive,
+        isDynamic: isAccountInss,
+        dynamicDetails: isAccountInss ? inssInfo : undefined
+      };
+    });
     res.json(accounts);
   } catch (err) {
     console.error('Error fetching fixed accounts:', err);
@@ -4428,6 +4441,34 @@ app.post('/api/whatsapp/offers-bank/trigger-status', async (req, res) => {
     console.error('[WhatsAppStatus] Erro no disparo manual:', err);
     require('./services/watcher.service.js').registerServiceRun('robo_status', 'FAILED', err.message);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================================================
+// CRON: SINCRONIZAÇÃO MATINAL DE FORNECEDORES DIGIFARMA (08:30)
+// ============================================================================
+const { executarLevantamentoFornecedores } = require('./scripts/extrair-fornecedores-digifarma.cjs');
+
+cron.schedule('30 8 * * 1-6', async () => {
+  try {
+    console.log('[CRON] 🏢 [08:30] Iniciando rotina matinal de sincronização de fornecedores do Digifarma...');
+    const resultado = await executarLevantamentoFornecedores();
+    console.log('[CRON] 🏢 Resultado da sincronização de fornecedores:', resultado);
+  } catch (err) {
+    console.error('[CRON] 🏢 Erro na sincronização matinal de fornecedores:', err.message);
+  }
+}, { timezone: 'America/Sao_Paulo' });
+console.log('[CRON] 🏢 Sincronização de fornecedores Digifarma agendada para 08:30 (Seg-Sáb).');
+
+// Endpoint para disparar sincronização manual a qualquer momento
+app.post('/api/erp/fornecedores/sincronizar-digifarma', async (req, res) => {
+  try {
+    console.log('[Fornecedores] Disparo manual de sincronização solicitado...');
+    const resultado = await executarLevantamentoFornecedores();
+    res.json(resultado);
+  } catch (err) {
+    console.error('[Fornecedores] Erro na sincronização manual:', err);
+    res.status(500).json({ sucesso: false, erro: err.message });
   }
 });
 

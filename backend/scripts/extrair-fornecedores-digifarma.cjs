@@ -27,7 +27,7 @@ function initSuppliersTable() {
     CREATE TABLE IF NOT EXISTS suppliers (
       id TEXT PRIMARY KEY,
       digifarma_id INTEGER,
-      razao_social TEXT NOT NULL,
+      razao_social TEXT,
       nome_fantasia TEXT,
       cnpj TEXT,
       inscricao_estadual TEXT,
@@ -55,8 +55,44 @@ function initSuppliersTable() {
     )
   `).run();
 
-  db.prepare(`CREATE INDEX IF NOT EXISTS idx_suppliers_cnpj ON suppliers (cnpj)`).run();
-  db.prepare(`CREATE INDEX IF NOT EXISTS idx_suppliers_razao ON suppliers (razao_social)`).run();
+  const existingCols = db.prepare("PRAGMA table_info(suppliers)").all().map(c => c.name);
+  const neededCols = [
+    ['digifarma_id', 'INTEGER'],
+    ['razao_social', 'TEXT'],
+    ['nome_fantasia', 'TEXT'],
+    ['cnpj', 'TEXT'],
+    ['inscricao_estadual', 'TEXT'],
+    ['inscricao_municipal', 'TEXT'],
+    ['logradouro', 'TEXT'],
+    ['numero', 'TEXT'],
+    ['complemento', 'TEXT'],
+    ['bairro', 'TEXT'],
+    ['cidade', 'TEXT'],
+    ['cod_municipio_ibge', 'TEXT'],
+    ['uf', 'TEXT'],
+    ['cep', 'TEXT'],
+    ['telefone', 'TEXT'],
+    ['telefone2', 'TEXT'],
+    ['contato_nome', 'TEXT'],
+    ['email', 'TEXT'],
+    ['prazo_padrao', 'TEXT'],
+    ['pedido_minimo', 'REAL DEFAULT 0'],
+    ['ativo', 'INTEGER DEFAULT 1'],
+    ['origem', 'TEXT DEFAULT "DIGIFARMA"'],
+    ['raw_data', 'TEXT'],
+    ['updated_at', 'TEXT']
+  ];
+
+  for (const [colName, colType] of neededCols) {
+    if (!existingCols.includes(colName)) {
+      try {
+        db.prepare(`ALTER TABLE suppliers ADD COLUMN ${colName} ${colType}`).run();
+      } catch (e) {}
+    }
+  }
+
+  try { db.prepare(`CREATE INDEX IF NOT EXISTS idx_suppliers_cnpj ON suppliers (cnpj)`).run(); } catch(e) {}
+  try { db.prepare(`CREATE INDEX IF NOT EXISTS idx_suppliers_razao ON suppliers (razao_social)`).run(); } catch(e) {}
   console.log('[Suppliers Script] ✅ Tabela local suppliers pronta no SQLite.');
 }
 

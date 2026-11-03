@@ -497,10 +497,23 @@ app.post('/api/monthly-limits', security.requireAdmin, (req, res) => {
 // --- Fixed Accounts CUD ---
 app.get('/api/fixed-accounts', (req, res) => {
   try {
-    const accounts = db.prepare('SELECT * FROM fixed_accounts').all().map(acc => ({
-      ...acc,
-      isActive: !!acc.isActive
-    }));
+    const { garantirContaFixaInss, obterInssDinamicoParaMesPagamento } = require('./services/prolabore-inss.service');
+    garantirContaFixaInss(db);
+
+    const d = new Date();
+    const currentMonthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const inssInfo = obterInssDinamicoParaMesPagamento(db, currentMonthKey);
+
+    const accounts = db.prepare('SELECT * FROM fixed_accounts').all().map(acc => {
+      const isAccountInss = acc.name && acc.name.toLowerCase().includes('inss pr');
+      return {
+        ...acc,
+        value: isAccountInss ? inssInfo.valorInss : acc.value,
+        isActive: !!acc.isActive,
+        isDynamic: isAccountInss,
+        dynamicDetails: isAccountInss ? inssInfo : undefined
+      };
+    });
     res.json(accounts);
   } catch (err) {
     console.error('Error fetching fixed accounts:', err);

@@ -1,9 +1,14 @@
 {
   "version": "1.2.4",
-  "commitHash": "df67c4f",
-  "commitMessage": "feat(pdv): auditoria regulatoria, suite de testes das funcoes e retorno rapido pos-venda",
-  "buildTime": "02/11/2026, 22:01:50",
+  "commitHash": "6dbbde5",
+  "commitMessage": "fix(pdv): discretizar mencao a comprovante interno e simplificar cabecalho do cupom",
+  "buildTime": "02/11/2026, 22:03:57",
   "recentCommits": [
+    {
+      "hash": "6dbbde5",
+      "date": "02/11/2026",
+      "message": "fix(pdv): discretizar mencao a comprovante interno e simplificar cabecalho do cupom"
+    },
     {
       "hash": "df67c4f",
       "date": "02/11/2026",
@@ -58,11 +63,6 @@
       "hash": "a9a13ff",
       "date": "02/11/2026",
       "message": "fix(pdv): importar icone Key de lucide-react para modal de identificacao do vendedor"
-    },
-    {
-      "hash": "712128a",
-      "date": "01/11/2026",
-      "message": "feat(pdv): identificacao rapida e obrigatoria do vendedor por chave de acesso no PDV"
     }
   ]
 }

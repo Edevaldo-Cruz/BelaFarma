@@ -240,6 +240,28 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
     }
   };
 
+  // Contabilização de Pró-labore & Cálculo de INSS
+  const [prolaboreInssSummary, setProlaboreInssSummary] = useState<any | null>(null);
+  const [isLoadingInss, setIsLoadingInss] = useState(false);
+
+  const fetchProlaboreInssSummary = async () => {
+    setIsLoadingInss(true);
+    try {
+      const comp = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}`;
+      const res = await fetch(`/api/provisions/prolabore-inss-summary?competencia=${comp}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) {
+          setProlaboreInssSummary(data);
+        }
+      }
+    } catch (err) {
+      console.error('Erro ao buscar resumo de pró-labore e INSS:', err);
+    } finally {
+      setIsLoadingInss(false);
+    }
+  };
+
   const handleToggleRateMode = (mode: 'mix' | 'pricing' | 'standard') => {
     setProvisionRateMode(mode);
     try {
@@ -263,6 +285,7 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
 
   useEffect(() => {
     fetchSalesMix();
+    fetchProlaboreInssSummary();
   }, [selectedMonth, selectedYear]);
 
   useEffect(() => {
@@ -646,12 +669,13 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
               fetchPaidDates();
               fetchPricingAverages();
               fetchSalesMix();
+              fetchProlaboreInssSummary();
             }}
-            disabled={isUpdating || isLoadingAverages || isLoadingMix}
+            disabled={isUpdating || isLoadingAverages || isLoadingMix || isLoadingInss}
             className="p-2 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition-all border border-slate-200 hover:border-emerald-200"
-            title="Atualizar dados de provisões, mix de vendas e médias da precificação"
+            title="Atualizar dados de provisões, mix de vendas, pró-labore e INSS"
           >
-            <RefreshCw className={`w-4 h-4 ${isUpdating || isLoadingAverages || isLoadingMix ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-4 h-4 ${isUpdating || isLoadingAverages || isLoadingMix || isLoadingInss ? 'animate-spin' : ''}`} />
           </button>
         </div>
       </header>
@@ -1075,6 +1099,193 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
           <div className="text-right">
             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Total Provisionado</span>
             <span className="text-2xl font-black text-slate-900">{formatBRL(grandTotalProvisions)}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* ─── CONTABILIZAÇÃO DE PRÓ-LABORE & CÁLCULO DE INSS (INTEGRAÇÃO CONTAS A PAGAR M+1) ─── */}
+      <div className="bg-white rounded-3xl p-6 sm:p-7 border border-slate-200 shadow-sm space-y-6">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+          <div className="flex items-start sm:items-center gap-3">
+            <div className="w-12 h-12 rounded-2xl bg-teal-500/10 border border-teal-500/20 flex items-center justify-center text-teal-600 shrink-0">
+              <UserCheck className="w-6 h-6" />
+            </div>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-xl font-black text-slate-900 tracking-tight flex items-center gap-2">
+                  Contabilização de Pró-labore & Cálculo de INSS
+                  <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-teal-50 text-teal-700 border border-teal-200">
+                    Alíquota 11% (Piso & Teto)
+                  </span>
+                </h2>
+                {prolaboreInssSummary?.emAndamento && (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-50 text-amber-700 border border-amber-200 flex items-center gap-1">
+                    <Clock className="w-3 h-3" /> Mês em Andamento
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-slate-500 mt-1">
+                Somatório das provisões diárias do mês com apuração do encargo previdenciário que substitui automaticamente o valor no Contas Fixas do mês subsequente.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 bg-slate-50 px-4 py-2.5 rounded-2xl border border-slate-200 text-xs">
+            <div className="text-right">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Substituição Contas Fixas</span>
+              <span className="font-extrabold text-slate-800">
+                Competência {prolaboreInssSummary?.mesSubsequente || '--'} (Venc. 20/{prolaboreInssSummary?.mesSubsequente ? prolaboreInssSummary.mesSubsequente.split('-')[1] : '--'})
+              </span>
+            </div>
+            <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" title="Conta 'INSS Pró-labore' conectada dinamicamente" />
+          </div>
+        </div>
+
+        {/* Grid de 3 Colunas: Sócio 1, Sócio 2 e Card da Guia INSS Subsequente */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+          {/* Coluna 1: Sócio 1 (Edevaldo Cruz) */}
+          <div className="bg-slate-50 rounded-2xl p-5 border border-slate-200 relative overflow-hidden flex flex-col justify-between">
+            <div>
+              <div className="flex justify-between items-start">
+                <div>
+                  <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Sócio 1</span>
+                  <h4 className="text-base font-extrabold text-slate-900 mt-0.5 flex items-center gap-1.5">
+                    👤 Edevaldo Cruz
+                  </h4>
+                </div>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">
+                  {prolaboreInssSummary?.taxasAplicadas?.socio1Pct || 6}% da Venda
+                </span>
+              </div>
+
+              <div className="mt-4 space-y-2.5 text-xs">
+                <div className="flex justify-between items-center py-1 border-b border-slate-200">
+                  <span className="text-slate-500">Pró-labore Provisionado:</span>
+                  <strong className="text-sm font-black text-slate-900">
+                    {formatBRL(prolaboreInssSummary?.prolabore?.socio1?.valor || 0)}
+                  </strong>
+                </div>
+
+                <div className="flex justify-between items-center py-1 border-b border-slate-200">
+                  <span className="text-slate-500">Base de Cálculo INSS:</span>
+                  <span className="font-bold text-slate-700">
+                    {formatBRL(prolaboreInssSummary?.prolabore?.socio1?.baseCalculoInss || 0)}
+                    {prolaboreInssSummary?.prolabore?.socio1?.limitadoAoPiso && (
+                      <span className="text-[10px] text-amber-600 block text-right font-normal">(Piso Sal. Mínimo)</span>
+                    )}
+                    {prolaboreInssSummary?.prolabore?.socio1?.limitadoAoTeto && (
+                      <span className="text-[10px] text-amber-600 block text-right font-normal">(Teto INSS)</span>
+                    )}
+                  </span>
+                </div>
+
+                <div className="flex justify-between items-center py-1">
+                  <span className="text-slate-500">Alíquota INSS:</span>
+                  <span className="font-mono font-bold text-slate-700">11%</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 pt-3 border-t border-slate-200 flex justify-between items-center">
+              <span className="text-xs font-bold text-slate-600">INSS Calculado:</span>
+              <span className="text-base font-black text-emerald-700">
+                {formatBRL(prolaboreInssSummary?.prolabore?.socio1?.inss || 0)}
+              </span>
+            </div>
+          </div>
+
+          {/* Coluna 2: Sócio 2 (Nayane Cruz) */}
+          <div className="bg-slate-50 rounded-2xl p-5 border border-slate-200 relative overflow-hidden flex flex-col justify-between">
+            <div>
+              <div className="flex justify-between items-start">
+                <div>
+                  <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Sócio 2</span>
+                  <h4 className="text-base font-extrabold text-slate-900 mt-0.5 flex items-center gap-1.5">
+                    👤 Nayane Cruz
+                  </h4>
+                </div>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">
+                  {prolaboreInssSummary?.taxasAplicadas?.socio2Pct || 6}% da Venda
+                </span>
+              </div>
+
+              <div className="mt-4 space-y-2.5 text-xs">
+                <div className="flex justify-between items-center py-1 border-b border-slate-200">
+                  <span className="text-slate-500">Pró-labore Provisionado:</span>
+                  <strong className="text-sm font-black text-slate-900">
+                    {formatBRL(prolaboreInssSummary?.prolabore?.socio2?.valor || 0)}
+                  </strong>
+                </div>
+
+                <div className="flex justify-between items-center py-1 border-b border-slate-200">
+                  <span className="text-slate-500">Base de Cálculo INSS:</span>
+                  <span className="font-bold text-slate-700">
+                    {formatBRL(prolaboreInssSummary?.prolabore?.socio2?.baseCalculoInss || 0)}
+                    {prolaboreInssSummary?.prolabore?.socio2?.limitadoAoPiso && (
+                      <span className="text-[10px] text-amber-600 block text-right font-normal">(Piso Sal. Mínimo)</span>
+                    )}
+                    {prolaboreInssSummary?.prolabore?.socio2?.limitadoAoTeto && (
+                      <span className="text-[10px] text-amber-600 block text-right font-normal">(Teto INSS)</span>
+                    )}
+                  </span>
+                </div>
+
+                <div className="flex justify-between items-center py-1">
+                  <span className="text-slate-500">Alíquota INSS:</span>
+                  <span className="font-mono font-bold text-slate-700">11%</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 pt-3 border-t border-slate-200 flex justify-between items-center">
+              <span className="text-xs font-bold text-slate-600">INSS Calculado:</span>
+              <span className="text-base font-black text-emerald-700">
+                {formatBRL(prolaboreInssSummary?.prolabore?.socio2?.inss || 0)}
+              </span>
+            </div>
+          </div>
+
+          {/* Coluna 3: Guia de INSS Consolidada (Mês Subsequente) */}
+          <div className="bg-gradient-to-br from-slate-900 via-teal-950 to-slate-900 text-white rounded-2xl p-5 border border-teal-800/40 relative overflow-hidden flex flex-col justify-between shadow-md">
+            <div>
+              <div className="flex justify-between items-start">
+                <span className="text-[10px] font-black uppercase tracking-wider text-teal-400 flex items-center gap-1.5">
+                  <Landmark className="w-3.5 h-3.5" /> Guia INSS Pró-labore (DARF)
+                </span>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-teal-500/20 text-teal-300 border border-teal-500/30">
+                  Venc. Dia 20
+                </span>
+              </div>
+
+              <div className="mt-3">
+                <span className="text-xs text-slate-400 block font-medium">Valor Total da Guia Previdenciária:</span>
+                <div className="text-3xl font-black text-teal-300 tracking-tight mt-0.5">
+                  {formatBRL(prolaboreInssSummary?.inss?.totalGuia || 0)}
+                </div>
+              </div>
+
+              <div className="mt-4 pt-3 border-t border-teal-900/60 space-y-1.5 text-xs text-slate-300">
+                <div className="flex justify-between">
+                  <span>Competência Fato Gerador:</span>
+                  <strong className="text-white font-mono">{prolaboreInssSummary?.competencia || '--'}</strong>
+                </div>
+                <div className="flex justify-between">
+                  <span>Mês no Contas a Pagar:</span>
+                  <strong className="text-teal-200 font-mono">{prolaboreInssSummary?.mesSubsequente || '--'}</strong>
+                </div>
+                <div className="flex justify-between">
+                  <span>Data de Vencimento:</span>
+                  <strong className="text-white font-mono">20/{prolaboreInssSummary?.mesSubsequente ? prolaboreInssSummary.mesSubsequente.split('-')[1] : '--'}/{prolaboreInssSummary?.mesSubsequente ? prolaboreInssSummary.mesSubsequente.split('-')[0] : '--'}</strong>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-5 p-3 rounded-xl bg-teal-900/30 border border-teal-700/40 text-[11px] text-teal-200 flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-teal-400 shrink-0" />
+              <span>
+                Valor injetado dinamicamente na conta <strong>INSS Pró-labore</strong> no Contas a Pagar do mês subsequente!
+              </span>
+            </div>
           </div>
         </div>
       </div>

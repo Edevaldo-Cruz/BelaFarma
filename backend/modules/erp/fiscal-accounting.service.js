@@ -544,6 +544,35 @@ function gerarSpedFiscalEfd(competencia) {
 
   addLinha('0001', ['0']);
 
+  // Registro 0100: Dados do Contabilista (Obrigatório pelo Guia Prático da EFD)
+  const nomeContador = (config.contador_nome || 'EDIVALDO CRUZ').toUpperCase().substring(0, 100);
+  const cpfContador = String(config.contador_cpf || '').replace(/\D/g, '');
+  const crcContador = String(config.contador_crc || 'MG000000O0').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const cnpjContabilidade = String(config.contador_cnpj || '').replace(/\D/g, '');
+  const cepContador = String(config.contador_cep || config.cep || '36033000').replace(/\D/g, '');
+  const endContador = (config.contador_endereco || config.logradouro || 'RUA PREVIDENCIARIOS').substring(0, 60).toUpperCase();
+  const numContador = String(config.contador_numero || config.numero || '100').substring(0, 10);
+  const bairroContador = (config.contador_bairro || config.bairro || 'PREVIDENCIARIOS').substring(0, 60).toUpperCase();
+  const foneContador = String(config.contador_telefone || '3232150000').replace(/\D/g, '').substring(0, 11);
+  const emailContador = String(config.contador_email || 'contabil@belafarma.com.br');
+  const codMunContador = String(config.cod_municipio_ibge || '3136702').replace(/\D/g, '');
+
+  addLinha('0100', [
+    nomeContador,
+    cpfContador,
+    crcContador,
+    cnpjContabilidade,
+    cepContador,
+    endContador,
+    numContador,
+    '', // Compl
+    bairroContador,
+    foneContador,
+    '', // Fax
+    emailContador,
+    codMunContador
+  ]);
+
   // Registro 0150: Cadastro de Participantes (Fornecedores das Notas de Entrada do período)
   const fornecedoresPeriodo = db.prepare(`
     SELECT DISTINCT cnpj_supplier, supplier_name, supplier_ie, supplier_ibge_code, supplier_address, supplier_uf
@@ -612,6 +641,11 @@ function gerarSpedFiscalEfd(competencia) {
   }
 
   addLinha('0990', [linhas.length + 1]);
+
+  // === BLOCO B: Escrituração e Apuração do ISS (DF) ===
+  // Sem movimento (IND_MOV = '1')
+  addLinha('B001', ['1']);
+  addLinha('B990', ['2']);
 
   // === BLOCO C: Documentos Fiscais ===
   const startBlocoCIdx = linhas.length;
@@ -807,17 +841,67 @@ function gerarSpedFiscalEfd(competencia) {
   const qtdLinhasBlocoC = (linhas.length - startBlocoCIdx) + 1;
   addLinha('C990', [qtdLinhasBlocoC]);
 
+  // === BLOCO D: Documentos Fiscais II - Serviços (ICMS / Fretes / Telecom) ===
+  // Sem movimento (IND_MOV = '1')
+  addLinha('D001', ['1']);
+  addLinha('D990', ['2']);
+
+  // === BLOCO E: Apuração do ICMS e do IPI ===
+  // Obrigatório para o PVA da Receita Federal
+  addLinha('E001', ['0']);
+  addLinha('E100', [dtIni, dtFin]);
+  addLinha('E110', [
+    '0,00', // VL_TOT_DEBITOS
+    '0,00', // VL_AJ_DEBITOS
+    '0,00', // VL_TOT_AJ_DEBITOS
+    '0,00', // VL_ESTORNOS_CRED
+    '0,00', // VL_TOT_CREDITOS
+    '0,00', // VL_AJ_CREDITOS
+    '0,00', // VL_TOT_AJ_CREDITOS
+    '0,00', // VL_ESTORNOS_DEB
+    '0,00', // VL_SLD_CREDOR_ANT
+    '0,00', // VL_SLD_APURADO
+    '0,00', // VL_TOT_DED
+    '0,00', // VL_ICMS_RECOLHER
+    '0,00', // VL_SLD_CREDOR_TRANSPORTAR
+    '0,00'  // DEB_ESP
+  ]);
+  addLinha('E990', ['4']);
+
+  // === BLOCO G: Controle do Crédito de ICMS do Ativo Permanente (CIAP) ===
+  // Sem movimento (IND_MOV = '1')
+  addLinha('G001', ['1']);
+  addLinha('G990', ['2']);
+
+  // === BLOCO H: Inventário Físico ===
+  // Sem movimento no mês corrente (IND_MOV = '1')
+  addLinha('H001', ['1']);
+  addLinha('H990', ['2']);
+
+  // === BLOCO 1: Outras Informações ===
+  addLinha('1001', ['0']);
+  addLinha('1010', ['N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N']);
+  addLinha('1990', ['3']);
+
   // === BLOCO 9: Encerramento e Totalizadores ===
+  const startBloco9Idx = linhas.length;
   addLinha('9001', ['0']);
-  for (const reg of Object.keys(registroContador)) {
+
+  // Tipos de registros presentes no arquivo (incluindo os próprios 9001, 9900, 9990, 9999)
+  const regsNoArquivo = Object.keys(registroContador);
+  const totalTiposRegistro = regsNoArquivo.length + 4;
+
+  for (const reg of regsNoArquivo) {
     addLinha('9900', [reg, String(registroContador[reg])]);
   }
   addLinha('9900', ['9001', '1']);
-  addLinha('9900', ['9900', String(Object.keys(registroContador).length + 4)]);
+  addLinha('9900', ['9900', String(totalTiposRegistro)]);
   addLinha('9900', ['9990', '1']);
   addLinha('9900', ['9999', '1']);
-  addLinha('9990', [Object.keys(registroContador).length + 6]);
-  addLinha('9999', [String(linhas.length + 2)]);
+
+  const qtdLinhasBloco9 = (linhas.length - startBloco9Idx) + 2;
+  addLinha('9990', [String(qtdLinhasBloco9)]);
+  addLinha('9999', [String(linhas.length + 1)]);
 
   return linhas.join('\r\n');
 }

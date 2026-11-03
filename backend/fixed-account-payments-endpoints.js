@@ -1,6 +1,9 @@
+const { garantirContaFixaInss, obterInssDinamicoParaMesPagamento } = require('./services/prolabore-inss.service');
+
 // GET /api/fixed-account-payments - Get payments for a specific month (with auto-generation)
 app.get('/api/fixed-account-payments', (req, res) => {
   try {
+    garantirContaFixaInss(db);
     let { month, year } = req.query; // Expected format: YYYY-MM
     
     if (!month) {
@@ -22,7 +25,8 @@ app.get('/api/fixed-account-payments', (req, res) => {
 
     // 1. Check if payments already exist for this month
     let payments = db.prepare('SELECT * FROM fixed_account_payments WHERE month = ?').all(monthKey);
-    
+    const inssInfo = obterInssDinamicoParaMesPagamento(db, monthKey);
+
     // 2. If no payments exist, generate them automatically from active fixed accounts
     if (payments.length === 0) {
       const activeAccounts = db.prepare('SELECT * FROM fixed_accounts WHERE isActive = 1').all();
@@ -30,12 +34,14 @@ app.get('/api/fixed-account-payments', (req, res) => {
       activeAccounts.forEach(acc => {
         const dueDay = String(acc.dueDay || 1).padStart(2, '0');
         const dueDate = `${targetYear}-${targetMonthNum}-${dueDay}`;
+        const isAccountInss = acc.name && acc.name.toLowerCase().includes('inss pr');
+        const val = isAccountInss ? inssInfo.valorInss : acc.value;
         
         const payment = {
           id: `fap_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
           fixedAccountId: acc.id,
           fixedAccountName: acc.name,
-          value: acc.value,
+          value: val,
           dueDate,
           month: monthKey,
           status: 'Pendente',
@@ -63,7 +69,58 @@ app.get('/api/fixed-account-payments', (req, res) => {
       });
       
       console.log(`Auto-generated ${payments.length} fixed account payments for ${monthKey}`);
+    } else {
+      // Se pagamentos já existiam para o mês, verifica se a conta 'INSS Pró-labore' já está incluída
+      const inssPayment = payments.find(p => p.fixedAccountName && p.fixedAccountName.toLowerCase().includes('inss pr'));
+      if (!inssPayment) {
+        const inssAcc = db.prepare("SELECT * FROM fixed_accounts WHERE LOWER(name) LIKE '%inss pr%'").get();
+        if (inssAcc && inssAcc.isActive) {
+          const dueDate = `${targetYear}-${targetMonthNum}-20`;
+          const newPayment = {
+            id: `fap_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            fixedAccountId: inssAcc.id,
+            fixedAccountName: inssAcc.name,
+            value: inssInfo.valorInss,
+            dueDate,
+            month: monthKey,
+            status: 'Pendente',
+            paidAt: null,
+            notes: null
+          };
+          db.prepare(`
+            INSERT INTO fixed_account_payments 
+            (id, fixedAccountId, fixedAccountName, value, dueDate, month, status, paidAt, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(
+            newPayment.id,
+            newPayment.fixedAccountId,
+            newPayment.fixedAccountName,
+            newPayment.value,
+            newPayment.dueDate,
+            newPayment.month,
+            newPayment.status,
+            newPayment.paidAt,
+            newPayment.notes
+          );
+          payments.push(newPayment);
+        }
+      }
     }
+
+    // Injeta detalhes dinâmicos atualizados para a conta INSS Pró-labore caso não esteja paga
+    payments = payments.map(p => {
+      const isAccountInss = p.fixedAccountName && p.fixedAccountName.toLowerCase().includes('inss pr');
+      if (isAccountInss) {
+        const itemCopy = { ...p };
+        if (p.status !== 'Pago') {
+          itemCopy.value = inssInfo.valorInss;
+        }
+        itemCopy.isDynamic = true;
+        itemCopy.dynamicDetails = inssInfo;
+        return itemCopy;
+      }
+      return p;
+    });
     
     res.json(payments);
   } catch (error) {

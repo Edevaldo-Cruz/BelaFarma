@@ -230,6 +230,28 @@ function initErpDatabase() {
     `).run();
   }
 
+  // Migração: Dados do Contabilista para o SPED Fiscal (Registro 0100)
+  const colsFiscal = db.prepare('PRAGMA table_info(fiscal_settings)').all().map(c => c.name);
+  const contadorCols = [
+    { name: 'contador_nome', def: "TEXT DEFAULT 'EDIVALDO CRUZ'" },
+    { name: 'contador_cpf', def: "TEXT DEFAULT ''" },
+    { name: 'contador_crc', def: "TEXT DEFAULT ''" },
+    { name: 'contador_cnpj', def: "TEXT DEFAULT ''" },
+    { name: 'contador_cep', def: "TEXT DEFAULT '36033000'" },
+    { name: 'contador_endereco', def: "TEXT DEFAULT 'RUA PREVIDENCIARIOS'" },
+    { name: 'contador_numero', def: "TEXT DEFAULT '100'" },
+    { name: 'contador_bairro', def: "TEXT DEFAULT 'PREVIDENCIARIOS'" },
+    { name: 'contador_telefone', def: "TEXT DEFAULT '3232150000'" },
+    { name: 'contador_email', def: "TEXT DEFAULT ''" }
+  ];
+  for (const col of contadorCols) {
+    if (!colsFiscal.includes(col.name)) {
+      try {
+        db.prepare(`ALTER TABLE fiscal_settings ADD COLUMN ${col.name} ${col.def}`).run();
+      } catch (err) {}
+    }
+  }
+
   // 8. Tabela de Matriz Fiscal por NCM
   db.prepare(`
     CREATE TABLE IF NOT EXISTS fiscal_ncm_rules (

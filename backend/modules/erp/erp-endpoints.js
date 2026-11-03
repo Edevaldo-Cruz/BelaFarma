@@ -748,6 +748,72 @@ router.post('/fiscal/quick-fix', (req, res) => {
   }
 });
 
+// Configurações Fiscais e Dados do Contador (para SPED / SINTEGRA)
+router.get('/fiscal/settings', (req, res) => {
+  try {
+    initErpDatabase();
+    const config = db.prepare('SELECT * FROM fiscal_settings WHERE id = ?').get('primary') || {};
+    // Não expõe certificado pfx ou senha completa
+    const safeConfig = { ...config, certificate_password: config.certificate_password ? '********' : '' };
+    res.json({ success: true, settings: safeConfig });
+  } catch (err) {
+    console.error('[Fiscal API] Erro ao buscar configurações fiscais:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+router.post('/fiscal/settings', (req, res) => {
+  try {
+    initErpDatabase();
+    const {
+      cnpj, razao_social, nome_fantasia, inscricao_estadual,
+      logradouro, numero, bairro, municipio, cod_municipio_ibge, uf, cep,
+      contador_nome, contador_cpf, contador_crc, contador_cnpj,
+      contador_cep, contador_endereco, contador_numero, contador_bairro,
+      contador_telefone, contador_email
+    } = req.body;
+
+    db.prepare(`
+      UPDATE fiscal_settings SET
+        cnpj = COALESCE(?, cnpj),
+        razao_social = COALESCE(?, razao_social),
+        nome_fantasia = COALESCE(?, nome_fantasia),
+        inscricao_estadual = COALESCE(?, inscricao_estadual),
+        logradouro = COALESCE(?, logradouro),
+        numero = COALESCE(?, numero),
+        bairro = COALESCE(?, bairro),
+        municipio = COALESCE(?, municipio),
+        cod_municipio_ibge = COALESCE(?, cod_municipio_ibge),
+        uf = COALESCE(?, uf),
+        cep = COALESCE(?, cep),
+        contador_nome = COALESCE(?, contador_nome),
+        contador_cpf = COALESCE(?, contador_cpf),
+        contador_crc = COALESCE(?, contador_crc),
+        contador_cnpj = COALESCE(?, contador_cnpj),
+        contador_cep = COALESCE(?, contador_cep),
+        contador_endereco = COALESCE(?, contador_endereco),
+        contador_numero = COALESCE(?, contador_numero),
+        contador_bairro = COALESCE(?, contador_bairro),
+        contador_telefone = COALESCE(?, contador_telefone),
+        contador_email = COALESCE(?, contador_email),
+        updated_at = datetime('now', 'localtime')
+      WHERE id = 'primary'
+    `).run(
+      cnpj, razao_social, nome_fantasia, inscricao_estadual,
+      logradouro, numero, bairro, municipio, cod_municipio_ibge, uf, cep,
+      contador_nome, contador_cpf, contador_crc, contador_cnpj,
+      contador_cep, contador_endereco, contador_numero, contador_bairro,
+      contador_telefone, contador_email
+    );
+
+    const updated = db.prepare('SELECT * FROM fiscal_settings WHERE id = ?').get('primary');
+    res.json({ success: true, settings: updated });
+  } catch (err) {
+    console.error('[Fiscal API] Erro ao salvar configurações fiscais:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ==========================================
 // 6. ROTAS DE MEDICAMENTOS CONTROLADOS & SNGPC
 // ==========================================

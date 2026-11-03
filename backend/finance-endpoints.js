@@ -1460,6 +1460,37 @@ module.exports = function (db) {
   router.get('/provisions/sales-mix', handleProvisionsSalesMix);
   router.get('/sales-mix', handleProvisionsSalesMix);
 
+  // Endpoint de Contabilização de Pró-labore e Cálculo de INSS (com substituição no mês subsequente)
+  router.get('/provisions/prolabore-inss-summary', (req, res) => {
+    try {
+      const { ano, mes, year, month, competencia } = req.query;
+      let comp = competencia;
+      if (!comp) {
+        const y = year || ano || new Date().getFullYear();
+        let m = month !== undefined ? month : mes;
+        if (m !== undefined && m !== null) {
+          let mNum = parseInt(m, 10);
+          // Se for enviado no padrão do JS getMonth() [0..11], ajusta para 1..12
+          if (req.query.isZeroIndexed === 'true' || (mNum >= 0 && mNum <= 11 && req.query.isZeroIndexed !== 'false' && !String(m).startsWith('0'))) {
+            mNum += 1;
+          }
+          comp = `${y}-${String(mNum).padStart(2, '0')}`;
+        } else {
+          comp = `${y}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+        }
+      }
+
+      const { calcularProlaboreEInss, garantirContaFixaInss } = require('./services/prolabore-inss.service');
+      garantirContaFixaInss(db);
+      const resultado = calcularProlaboreEInss(db, comp);
+
+      res.json({ success: true, ...resultado });
+    } catch (err) {
+      console.error('[Provisions API] Erro ao calcular resumo de Pró-labore e INSS:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   // Endpoint manual para sincronizar
   router.post('/sync-crediario', async (req, res) => {
     try {

@@ -116,8 +116,8 @@ function gerarArquivoSintegra(competencia) {
     padStr('', 22) +
     padStr(config.bairro || 'PREVIDENCIARIOS', 15) +
     padNum(config.cep || '36033000', 8) +
-    padStr('EDIVALDO CRUZ', 28) +
-    padNum('3232150000', 12);
+    padStr(config.contador_nome || 'EDIVALDO CRUZ', 28) +
+    padNum(config.contador_telefone || '3232150000', 12);
   addLinha(reg11);
 
   // === REGISTRO 50 e 54: Notas Fiscais e Itens ===
