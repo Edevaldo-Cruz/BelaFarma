@@ -17,7 +17,8 @@ import {
   Info,
   X,
   Save,
-  CheckCircle2
+  CheckCircle2,
+  UserCheck
 } from 'lucide-react';
 import { TaxClosingReport, FiscalAuditIssue } from '../types';
 
@@ -47,6 +48,66 @@ export const FiscalAccountingView: React.FC = () => {
   const [fixCstPis, setFixCstPis] = useState('04');
   const [fixAliqSt, setFixAliqSt] = useState('18');
   const [savingFix, setSavingFix] = useState(false);
+
+  // Modal de Configurações do Contador (SPED Registro 0100)
+  const [isContadorModalOpen, setIsContadorModalOpen] = useState(false);
+  const [contadorForm, setContadorForm] = useState({
+    contador_nome: '',
+    contador_cpf: '',
+    contador_crc: '',
+    contador_cnpj: '',
+    contador_cep: '',
+    contador_endereco: '',
+    contador_numero: '',
+    contador_bairro: '',
+    contador_telefone: '',
+    contador_email: ''
+  });
+  const [savingContador, setSavingContador] = useState(false);
+
+  const carregarDadosContador = async () => {
+    try {
+      const res = await fetch('/api/erp/fiscal/settings');
+      if (res.ok) {
+        const d = await res.json();
+        if (d.success && d.settings) {
+          setContadorForm({
+            contador_nome: d.settings.contador_nome || '',
+            contador_cpf: d.settings.contador_cpf || '',
+            contador_crc: d.settings.contador_crc || '',
+            contador_cnpj: d.settings.contador_cnpj || '',
+            contador_cep: d.settings.contador_cep || '',
+            contador_endereco: d.settings.contador_endereco || '',
+            contador_numero: d.settings.contador_numero || '',
+            contador_bairro: d.settings.contador_bairro || '',
+            contador_telefone: d.settings.contador_telefone || '',
+            contador_email: d.settings.contador_email || ''
+          });
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const salvarDadosContador = async () => {
+    setSavingContador(true);
+    try {
+      const res = await fetch('/api/erp/fiscal/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(contadorForm)
+      });
+      const d = await res.json();
+      if (!res.ok || !d.success) throw new Error(d.error || 'Falha ao salvar dados');
+      showToast('Dados do contabilista atualizados para o SPED Fiscal!');
+      setIsContadorModalOpen(false);
+    } catch (e: any) {
+      showToast(`Erro ao salvar: ${e.message}`);
+    } finally {
+      setSavingContador(false);
+    }
+  };
 
   const showToast = (msg: string) => {
     setToastMsg(msg);
@@ -238,6 +299,18 @@ export const FiscalAccountingView: React.FC = () => {
             >
               <Download className="w-3.5 h-3.5" />
               SINTEGRA (.TXT)
+            </button>
+
+            <button
+              onClick={() => {
+                carregarDadosContador();
+                setIsContadorModalOpen(true);
+              }}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg bg-indigo-600/90 hover:bg-indigo-600 active:scale-95 text-white transition-all shadow-sm"
+              title="Configurar dados do contabilista (CRC/CPF) para o Registro 0100 do SPED Fiscal e SINTEGRA"
+            >
+              <UserCheck className="w-3.5 h-3.5" />
+              Contador (SPED)
             </button>
           </div>
         </div>
@@ -655,6 +728,153 @@ export const FiscalAccountingView: React.FC = () => {
               >
                 <Save className="w-3.5 h-3.5" />
                 {savingFix ? 'Salvando...' : 'Salvar e Recalcular'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Configuração do Contabilista (SPED Registro 0100) */}
+      {isContadorModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg shadow-2xl p-6 space-y-4 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2 text-white font-bold text-sm">
+                <UserCheck className="w-5 h-5 text-indigo-400" />
+                <h3>Dados do Contabilista (SPED Registro 0100)</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsContadorModalOpen(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-400">
+              Estes dados são gravados no <strong>Registro 0100</strong> do SPED Fiscal e nos dados complementares do SINTEGRA, exigidos pelo validador PVA da Receita Federal.
+            </p>
+
+            <div className="space-y-3 text-xs max-h-[60vh] overflow-y-auto pr-1">
+              <div>
+                <label className="block text-slate-300 font-medium mb-1">Nome do Contabilista / Contador</label>
+                <input
+                  type="text"
+                  value={contadorForm.contador_nome}
+                  onChange={(e) => setContadorForm({ ...contadorForm, contador_nome: e.target.value })}
+                  placeholder="Ex: EDIVALDO CRUZ"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-300 font-medium mb-1">CPF do Contador</label>
+                  <input
+                    type="text"
+                    value={contadorForm.contador_cpf}
+                    onChange={(e) => setContadorForm({ ...contadorForm, contador_cpf: e.target.value })}
+                    placeholder="Apenas números"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white font-mono focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-300 font-medium mb-1">CRC (Ex: MG-123456/O)</label>
+                  <input
+                    type="text"
+                    value={contadorForm.contador_crc}
+                    onChange={(e) => setContadorForm({ ...contadorForm, contador_crc: e.target.value })}
+                    placeholder="Ex: MG000000O0"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white font-mono focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-300 font-medium mb-1">Telefone de Contato</label>
+                  <input
+                    type="text"
+                    value={contadorForm.contador_telefone}
+                    onChange={(e) => setContadorForm({ ...contadorForm, contador_telefone: e.target.value })}
+                    placeholder="DDD + Número"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-300 font-medium mb-1">E-mail</label>
+                  <input
+                    type="email"
+                    value={contadorForm.contador_email}
+                    onChange={(e) => setContadorForm({ ...contadorForm, contador_email: e.target.value })}
+                    placeholder="contador@email.com"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div className="col-span-2">
+                  <label className="block text-slate-300 font-medium mb-1">Endereço / Logradouro</label>
+                  <input
+                    type="text"
+                    value={contadorForm.contador_endereco}
+                    onChange={(e) => setContadorForm({ ...contadorForm, contador_endereco: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-300 font-medium mb-1">Número</label>
+                  <input
+                    type="text"
+                    value={contadorForm.contador_numero}
+                    onChange={(e) => setContadorForm({ ...contadorForm, contador_numero: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-300 font-medium mb-1">Bairro</label>
+                  <input
+                    type="text"
+                    value={contadorForm.contador_bairro}
+                    onChange={(e) => setContadorForm({ ...contadorForm, contador_bairro: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-300 font-medium mb-1">CEP</label>
+                  <input
+                    type="text"
+                    value={contadorForm.contador_cep}
+                    onChange={(e) => setContadorForm({ ...contadorForm, contador_cep: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-3 border-t border-slate-800 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setIsContadorModalOpen(false)}
+                className="px-3.5 py-2 rounded-lg text-slate-400 hover:text-white text-xs font-medium"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={salvarDadosContador}
+                disabled={savingContador}
+                className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white text-xs font-semibold inline-flex items-center gap-1.5 disabled:opacity-50 shadow-md"
+              >
+                <Save className="w-3.5 h-3.5" />
+                {savingContador ? 'Salvando...' : 'Salvar Dados do Contador'}
               </button>
             </div>
           </div>

@@ -299,6 +299,8 @@ export interface FixedAccountPayment {
   status: 'Pendente' | 'Pago';
   paidAt?: string; // YYYY-MM-DD
   notes?: string;
+  isDynamic?: boolean;
+  dynamicDetails?: any;
 }
 
 // CRM Module Types

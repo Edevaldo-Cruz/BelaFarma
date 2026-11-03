@@ -632,6 +632,12 @@ export const ContasAPagar: React.FC<ContasAPagarProps> = ({
                           {item.type === 'provision' && (
                             <span className="text-[9px] text-emerald-600 font-bold uppercase tracking-tighter">Reserva de Lucro</span>
                           )}
+                          {item.originalFixed?.isDynamic && (
+                            <span className="text-[9px] text-teal-700 bg-teal-50 border border-teal-200 px-1.5 py-0.5 rounded font-bold uppercase tracking-tighter w-fit mt-0.5" title="Valor apurado dinamicamente a partir das provisões de Pró-labore do mês anterior">
+                              ⚡ Apurado Pró-labore ({item.originalFixed?.dynamicDetails?.mesApurado || 'Mês Anterior'})
+                              {item.originalFixed?.dynamicDetails?.emAndamento ? ' (Em Andamento)' : ''}
+                            </span>
+                          )}
                           {item.provisionDetails && (
                             <span className="text-[10px] text-emerald-700/70 font-bold tracking-tighter mt-0.5">{item.provisionDetails}</span>
                           )}

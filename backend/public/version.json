@@ -1,9 +1,14 @@
 {
   "version": "1.2.4",
-  "commitHash": "6dbbde5",
-  "commitMessage": "fix(pdv): discretizar mencao a comprovante interno e simplificar cabecalho do cupom",
-  "buildTime": "02/11/2026, 22:03:57",
+  "commitHash": "cd7ef2b",
+  "commitMessage": "feat(fornecedores): adicionar script de extração automática do Digifarma, arquivo bat e rotina matinal 08:30",
+  "buildTime": "02/11/2026, 22:09:18",
   "recentCommits": [
+    {
+      "hash": "cd7ef2b",
+      "date": "02/11/2026",
+      "message": "feat(fornecedores): adicionar script de extração automática do Digifarma, arquivo bat e rotina matinal 08:30"
+    },
     {
       "hash": "6dbbde5",
       "date": "02/11/2026",
@@ -58,11 +63,6 @@
       "hash": "3067dff",
       "date": "02/11/2026",
       "message": "feat(pdv): identificacao obrigatoria de vendedor, produtos nao cadastrados com criacao de tarefas, atalho *123/F3 e exclusao fiscal SEFAZ"
-    },
-    {
-      "hash": "a9a13ff",
-      "date": "02/11/2026",
-      "message": "fix(pdv): importar icone Key de lucide-react para modal de identificacao do vendedor"
     }
   ]
 }
