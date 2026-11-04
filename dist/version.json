@@ -1,9 +1,14 @@
 {
   "version": "1.2.4",
-  "commitHash": "fc431fb",
-  "commitMessage": "fix(finance): alinhar fechamento live com relatorio de Estatisticas (Por Pagamento) do Digifarma",
-  "buildTime": "04/11/2026, 09:22:13",
+  "commitHash": "a0db256",
+  "commitMessage": "fix(belaped): restaurar visualizacao em tabela, selecao individual/todos e geracao de pdf",
+  "buildTime": "04/11/2026, 09:49:11",
   "recentCommits": [
+    {
+      "hash": "a0db256",
+      "date": "04/11/2026",
+      "message": "fix(belaped): restaurar visualizacao em tabela, selecao individual/todos e geracao de pdf"
+    },
     {
       "hash": "fc431fb",
       "date": "03/11/2026",
@@ -58,11 +63,6 @@
       "hash": "8c1095e",
       "date": "03/11/2026",
       "message": "feat(fiscal): consulta dinamica do proximo numero NFC-e no Digifarma mantendo sequencia continua na serie"
-    },
-    {
-      "hash": "43c4752",
-      "date": "03/11/2026",
-      "message": "fix(pdv): acionamento automatico de impressao do cupom termico e correcao de IP do Digifarma"
     }
   ]
 }

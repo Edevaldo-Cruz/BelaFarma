@@ -234,12 +234,14 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
   const [ordenacaoRadar, setOrdenacaoRadar] = useState<'margem_desc' | 'preco_asc' | 'preco_desc' | 'destaque'>('margem_desc');
   const [modoViewRadar, setModoViewRadar] = useState<'tabela' | 'cards'>('tabela');
 
-  // Modo de exibição: Grade Compacta ou Carrossel Focal 1 a 1
-  const [modoVisualizacao, setModoVisualizacao] = useState<'grade' | 'carrossel'>(() => {
+  // Modo de exibição: Cards Compactos (Vários na tela), Cards Grandes, Tabela ou Carrossel Focal 1 a 1
+  const [modoVisualizacao, setModoVisualizacao] = useState<'cards_compactos' | 'cards' | 'tabela' | 'carrossel'>(() => {
     try {
-      return (localStorage.getItem('belaped_modo_decisao') as 'grade' | 'carrossel') || 'grade';
+      const salvo = localStorage.getItem('belaped_modo_decisao');
+      if (salvo === 'cards_compactos' || salvo === 'cards' || salvo === 'tabela' || salvo === 'carrossel') return salvo;
+      return 'cards_compactos';
     } catch {
-      return 'grade';
+      return 'cards_compactos';
     }
   });
 
@@ -311,7 +313,7 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
     enviando: false
   });
 
-  const salvarModoVisualizacao = (modo: 'grade' | 'carrossel') => {
+  const salvarModoVisualizacao = (modo: 'cards_compactos' | 'cards' | 'tabela' | 'carrossel') => {
     setModoVisualizacao(modo);
     try {
       localStorage.setItem('belaped_modo_decisao', modo);
@@ -3617,31 +3619,59 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
             <span className="sm:hidden">Imprimir</span>
           </button>
 
-          {/* Alternador de Modo: Grade vs Carrossel */}
-          <div className="flex items-center bg-[#060a12] border border-slate-800 rounded-xl p-0.5">
+          {/* Alternador de Modo: Cards Menores vs Cards Grandes vs Tabela vs Carrossel */}
+          <div className="flex items-center bg-[#060a12] border border-slate-800 rounded-xl p-1 shadow-inner gap-1">
             <button
               type="button"
-              onClick={() => salvarModoVisualizacao('grade')}
-              className={`p-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                modoVisualizacao === 'grade'
-                  ? 'bg-cyan-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-white'
+              onClick={() => salvarModoVisualizacao('cards_compactos')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                modoVisualizacao === 'cards_compactos'
+                  ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-md shadow-cyan-950/60 ring-1 ring-cyan-400'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
               }`}
-              title="Visualizar em Grade de Cards"
+              title="Cards Menores: cards compactos para caber vários produtos na mesma tela"
             >
-              <Grid className="w-4 h-4" />
+              <Grid className="w-3.5 h-3.5" />
+              <span>Cards Menores</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => salvarModoVisualizacao('cards')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                modoVisualizacao === 'cards'
+                  ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-md shadow-cyan-950/60 ring-1 ring-cyan-400'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+              }`}
+              title="Cards Grandes: visão completa com pódio detalhado de cotações"
+            >
+              <LayoutGrid className="w-3.5 h-3.5" />
+              <span>Cards Grandes</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => salvarModoVisualizacao('tabela')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                modoVisualizacao === 'tabela'
+                  ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-md shadow-cyan-950/60 ring-1 ring-cyan-400'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+              }`}
+              title="Tabela de Alta Densidade: visualização em linhas"
+            >
+              <Table className="w-3.5 h-3.5" />
+              <span>Tabela</span>
             </button>
             <button
               type="button"
               onClick={() => salvarModoVisualizacao('carrossel')}
-              className={`p-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                 modoVisualizacao === 'carrossel'
-                  ? 'bg-cyan-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-white'
+                  ? 'bg-cyan-600 text-white shadow-sm ring-1 ring-cyan-400'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
               }`}
-              title="Visualizar em Carrossel Focal 1 a 1"
+              title="Visualizar 1 a 1 em Carrossel Focal"
             >
-              <Maximize2 className="w-4 h-4" />
+              <Maximize2 className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">1 a 1</span>
             </button>
           </div>
         </div>
@@ -3965,6 +3995,25 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
                     </tfoot>
                   </table>
                 </div>
+              </div>
+            ) : modoVisualizacao === 'cards_compactos' ? (
+              /* MODO CARDS COMPACTOS (MENORES - VÁRIOS NA MESMA TELA) */
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4 2xl:grid-cols-5 gap-2.5">
+                {listaAtivaSemana.map((item, idx) => (
+                  <CardProdutoCompactoDecisao
+                    key={item.produto_id}
+                    item={item}
+                    copiadoId={copiadoId}
+                    onCopiarEan={handleCopiarEan}
+                    onAlterarQtd={onAlterarQtd}
+                    onNaoCotar={() => handleNaoCotar(item)}
+                    onSubstituir={() => handleSubstituirPorOutro(item.produto_id, item.descricao)}
+                    onJaPedido={() => handleJaPedido(item)}
+                    onComprar={(dist, preco) => handleAdicionarAoCarrinho(item, dist, preco)}
+                    selecionado={Boolean(itensSelecionados[item.produto_id])}
+                    onToggleSelecionar={() => setItensSelecionados(prev => ({ ...prev, [item.produto_id]: !prev[item.produto_id] }))}
+                  />
+                ))}
               </div>
             ) : modoVisualizacao === 'cards' ? (
               /* MODO GRADE COMPACTA DE CARDS */
@@ -5034,6 +5083,206 @@ const CardProdutoDecisao: React.FC<CardProps> = ({
         )}
       </div>
 
+    </div>
+  );
+};
+
+// ─── COMPONENTE INTERNO: CARD COMPACTO (ALTA DENSIDADE / VÁRIOS NA TELA) ───
+interface CardCompactoProps {
+  item: FaltaItem7d;
+  copiadoId: string | null;
+  onCopiarEan: (ean: string, id: string) => void;
+  onAlterarQtd: (produtoId: number, novaQtd: number) => void;
+  onNaoCotar: () => void;
+  onSubstituir: () => void;
+  onJaPedido: () => void;
+  onComprar: (distribuidora: string, preco: number) => void;
+  selecionado?: boolean;
+  onToggleSelecionar?: () => void;
+}
+
+const CardProdutoCompactoDecisao: React.FC<CardCompactoProps> = ({
+  item,
+  copiadoId,
+  onCopiarEan,
+  onAlterarQtd,
+  onNaoCotar,
+  onSubstituir,
+  onJaPedido,
+  onComprar,
+  selecionado,
+  onToggleSelecionar
+}) => {
+  const preco1 = Number(item.preco_1) || 0;
+  const precoUlt = Number(item.preco_ult_compra) || 0;
+  const diffUnit = precoUlt > 0 && preco1 > 0 ? (preco1 - precoUlt) : 0;
+  const diffPct = precoUlt > 0 ? (diffUnit / precoUlt) * 100 : 0;
+  const saldo = Number(item.saldo) || 0;
+  const qtd = Math.max(1, item.qtd_sugerida_7d || 1);
+  const subtotal = Number((qtd * (preco1 > 0 ? preco1 : (precoUlt || item.custo_unitario || 0))).toFixed(2));
+
+  return (
+    <div
+      className={`border rounded-xl p-2.5 shadow-md flex flex-col justify-between gap-1.5 transition-all ${
+        selecionado
+          ? 'bg-[#0d1e38] border-cyan-400 ring-1 ring-cyan-400/50 shadow-cyan-950/60'
+          : 'bg-[#0b1222] border-slate-800 hover:border-cyan-600/60'
+      }`}
+    >
+      {/* Topo: Checkbox + Título + Curva */}
+      <div>
+        <div className="flex items-start justify-between gap-1.5">
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            {onToggleSelecionar && (
+              <input
+                type="checkbox"
+                checked={Boolean(selecionado)}
+                onChange={onToggleSelecionar}
+                className="w-3.5 h-3.5 rounded border-slate-700 bg-slate-900 text-cyan-500 focus:ring-cyan-500 cursor-pointer shrink-0"
+                title="Marcar / Desmarcar este produto"
+              />
+            )}
+            <span className="font-black text-xs text-white truncate block" title={item.descricao}>
+              {item.descricao}
+            </span>
+          </div>
+
+          <span
+            className={`text-[9px] font-black px-1.5 py-0.2 rounded border shrink-0 ${
+              item.curva_abc === 'A'
+                ? 'bg-rose-950/80 border-rose-600 text-rose-300'
+                : item.curva_abc === 'B'
+                ? 'bg-amber-950/80 border-amber-600 text-amber-300'
+                : 'bg-slate-900 border-slate-700 text-slate-400'
+            }`}
+          >
+            Curva {item.curva_abc}
+          </span>
+        </div>
+
+        {/* Linha de Metadados Sutis */}
+        <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mt-1 whitespace-nowrap overflow-hidden">
+          <button
+            type="button"
+            onClick={() => onCopiarEan(item.ean, String(item.produto_id))}
+            className="font-mono text-cyan-400 hover:text-white inline-flex items-center gap-0.5 cursor-pointer shrink-0"
+            title="Copiar EAN"
+          >
+            <Copy className="w-2.5 h-2.5" />
+            <span>{item.ean || 'S/ EAN'}</span>
+            {copiadoId === String(item.produto_id) && <span className="text-emerald-400">✓</span>}
+          </button>
+          <span className="text-slate-600">•</span>
+          <span className={saldo <= 0 ? 'text-rose-400 font-bold' : 'text-slate-300'}>
+            Est: {saldo} un
+          </span>
+          <span className="text-slate-600">•</span>
+          <span>VMD: {Number(item.vmd_ponderado).toFixed(1)}</span>
+          <span className="text-slate-600">•</span>
+          <span className={item.dias_estoque_restante <= 3 ? 'text-rose-400 font-bold' : item.dias_estoque_restante <= 7 ? 'text-amber-400' : 'text-slate-400'}>
+            {item.dias_estoque_restante}d cob
+          </span>
+        </div>
+      </div>
+
+      {/* Caixa do Melhor Fornecedor & Preço */}
+      <div className="bg-[#060e1b] border border-cyan-900/60 rounded-lg p-1.5 flex items-center justify-between text-xs">
+        <div className="truncate flex-1 min-w-0 pr-1">
+          <div className="flex items-center gap-1">
+            <span className="text-[9px] font-black px-1 py-0.2 rounded bg-amber-500 text-slate-950 shrink-0">1º</span>
+            <span className="font-bold text-white text-[11px] truncate" title={item.fornecedor_1 || 'Sem Cotação'}>
+              {item.fornecedor_1 || 'Sem Cotação'}
+            </span>
+          </div>
+          {diffUnit !== 0 && precoUlt > 0 && preco1 > 0 && (
+            <span className={`text-[9px] font-bold block mt-0.5 ${diffUnit < 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+              {diffUnit < 0 ? `-R$ ${Math.abs(diffUnit).toFixed(2)} (${diffPct.toFixed(0)}%)` : `+R$ ${diffUnit.toFixed(2)} (+${diffPct.toFixed(0)}%)`} vs últ.
+            </span>
+          )}
+        </div>
+
+        <div className="text-right shrink-0">
+          <span className="font-mono font-black text-cyan-300 text-xs block">
+            {preco1 > 0 ? `R$ ${preco1.toFixed(2)}` : 'R$ —'}
+          </span>
+          <span className="text-[9px] text-slate-500 font-mono block">
+            Últ: {precoUlt > 0 ? `R$ ${precoUlt.toFixed(2)}` : '—'}
+          </span>
+        </div>
+      </div>
+
+      {/* Rodapé do Card: Quantidade + Subtotal + Ações */}
+      <div className="flex items-center justify-between gap-1 pt-1 border-t border-slate-800/80">
+        {/* Controles de Qtd */}
+        <div className="inline-flex items-center gap-0.5 bg-[#060a12] border border-slate-700 rounded-lg p-0.5">
+          <button
+            type="button"
+            onClick={() => onAlterarQtd(item.produto_id, Math.max(1, qtd - 1))}
+            className="w-4 h-4 rounded hover:bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center font-bold text-xs cursor-pointer"
+            title="Diminuir 1 un"
+          >
+            <Minus className="w-2.5 h-2.5" />
+          </button>
+          <input
+            type="number"
+            min="1"
+            value={qtd}
+            onChange={(e) => onAlterarQtd(item.produto_id, Math.max(1, parseInt(e.target.value) || 1))}
+            className="w-6 text-center bg-transparent font-mono font-bold text-cyan-300 text-xs border-none focus:outline-none p-0"
+          />
+          <button
+            type="button"
+            onClick={() => onAlterarQtd(item.produto_id, qtd + 1)}
+            className="w-4 h-4 rounded hover:bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center font-bold text-xs cursor-pointer"
+            title="Aumentar 1 un"
+          >
+            <Plus className="w-2.5 h-2.5" />
+          </button>
+        </div>
+
+        {/* Subtotal */}
+        <div className="font-mono font-black text-white text-xs">
+          R$ {subtotal.toFixed(2)}
+        </div>
+
+        {/* Botões de Ação Enxutos */}
+        <div className="inline-flex items-center gap-1">
+          <button
+            type="button"
+            onClick={onJaPedido}
+            className="p-1 rounded-md bg-emerald-950/60 hover:bg-emerald-900 border border-emerald-700/60 text-emerald-300 hover:text-white transition-all cursor-pointer"
+            title="Marcar como Já Pedido"
+          >
+            <CheckCircle2 className="w-3 h-3" />
+          </button>
+          <button
+            type="button"
+            onClick={onNaoCotar}
+            className="p-1 rounded-md bg-rose-950/60 hover:bg-rose-900 border border-rose-700/60 text-rose-300 hover:text-white transition-all cursor-pointer"
+            title="Não Cotar"
+          >
+            <Ban className="w-3 h-3" />
+          </button>
+          <button
+            type="button"
+            onClick={onSubstituir}
+            className="p-1 rounded-md bg-amber-950/60 hover:bg-amber-900 border border-amber-700/60 text-amber-300 hover:text-white transition-all cursor-pointer"
+            title="Substituir pelo próximo do Reserva"
+          >
+            <RotateCcw className="w-3 h-3" />
+          </button>
+          {item.fornecedor_1 && preco1 > 0 && (
+            <button
+              type="button"
+              onClick={() => onComprar(item.fornecedor_1!, preco1)}
+              className="p-1 rounded-md bg-cyan-900/60 hover:bg-cyan-700 border border-cyan-600/70 text-cyan-200 hover:text-white transition-all cursor-pointer"
+              title={`Adicionar ao carrinho da ${item.fornecedor_1}`}
+            >
+              <ShoppingCart className="w-3 h-3" />
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   );
 };
