@@ -234,16 +234,20 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
   const [ordenacaoRadar, setOrdenacaoRadar] = useState<'margem_desc' | 'preco_asc' | 'preco_desc' | 'destaque'>('margem_desc');
   const [modoViewRadar, setModoViewRadar] = useState<'tabela' | 'cards'>('tabela');
 
-  // Modo de exibição: Cards Compactos (Vários na tela), Cards Grandes, Tabela ou Carrossel Focal 1 a 1
+  // Modo de exibição: Tabela (padrão simplificado), Cards Compactos, Cards Grandes ou Carrossel
   const [modoVisualizacao, setModoVisualizacao] = useState<'cards_compactos' | 'cards' | 'tabela' | 'carrossel'>(() => {
     try {
-      const salvo = localStorage.getItem('belaped_modo_decisao');
+      const salvo = localStorage.getItem('belaped_modo_decisao_v2');
       if (salvo === 'cards_compactos' || salvo === 'cards' || salvo === 'tabela' || salvo === 'carrossel') return salvo;
-      return 'cards_compactos';
+      return 'tabela';
     } catch {
-      return 'cards_compactos';
+      return 'tabela';
     }
   });
+
+  // Filtros rápidos da Lista da Semana (Fornecedor e Medicamento vs Perfumaria)
+  const [filtroFornecedorSemana, setFiltroFornecedorSemana] = useState<string>('TODAS');
+  const [filtroCategoriaSemana, setFiltroCategoriaSemana] = useState<'TODOS' | 'MEDICAMENTO' | 'PERFUMARIA'>('TODOS');
 
   // Reserva de segurança padrão 15% (com chips rápidos 5, 10, 15, 20)
   const [reservaSegurancaPct, setReservaSegurancaPct] = useState<number>(() => {
@@ -316,7 +320,7 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
   const salvarModoVisualizacao = (modo: 'cards_compactos' | 'cards' | 'tabela' | 'carrossel') => {
     setModoVisualizacao(modo);
     try {
-      localStorage.setItem('belaped_modo_decisao', modo);
+      localStorage.setItem('belaped_modo_decisao_v2', modo);
     } catch {}
   };
 
@@ -532,6 +536,34 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
       isEconomia: isEcon
     };
   }, [listaAtivaSemana]);
+
+  // 4.1 RESUMO POR FORNECEDOR E LISTA EXIBIDA FILTRADA (FORNECEDOR + MEDICAMENTO/PERFUMARIA)
+  const resumoFornecedoresSemana = useMemo(() => {
+    const mapa = new Map<string, { nome: string; qtdItens: number; valorTotal: number }>();
+    for (const item of listaAtivaSemana) {
+      const forn = (item.fornecedor_1 || 'Sem Cotação').trim();
+      const atual = mapa.get(forn) || { nome: forn, qtdItens: 0, valorTotal: 0 };
+      atual.qtdItens += 1;
+      atual.valorTotal += Number(item.subtotal_7d) || 0;
+      mapa.set(forn, atual);
+    }
+    return Array.from(mapa.values()).sort((a, b) => b.valorTotal - a.valorTotal);
+  }, [listaAtivaSemana]);
+
+  const listaExibidaSemana = useMemo(() => {
+    return listaAtivaSemana.filter(item => {
+      if (filtroFornecedorSemana !== 'TODAS') {
+        const forn = (item.fornecedor_1 || 'Sem Cotação').trim();
+        if (forn !== filtroFornecedorSemana) return false;
+      }
+      if (filtroCategoriaSemana !== 'TODOS') {
+        const cat = (item.tipo_categoria || 'MEDICAMENTO').toUpperCase();
+        if (filtroCategoriaSemana === 'PERFUMARIA' && cat !== 'PERFUMARIA') return false;
+        if (filtroCategoriaSemana === 'MEDICAMENTO' && cat === 'PERFUMARIA') return false;
+      }
+      return true;
+    });
+  }, [listaAtivaSemana, filtroFornecedorSemana, filtroCategoriaSemana]);
 
   // 5. OPORTUNIDADES: ITENS COTADOS COM VALOR ABAIXO DA ÚLTIMA COMPRA
   const oportunidadesCompra = useMemo(() => {
@@ -2127,228 +2159,27 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-[#070b14] text-slate-100 overflow-y-auto">
       
-      {/* ─── 1. HEADER DE ORÇAMENTO ESTRATÉGICO POR JANELA ─────────────────────── */}
-      <div className="bg-[#0b1222] border-b border-cyan-900/40 p-3 sm:p-4 shrink-0 shadow-lg">
-        <div className="max-w-7xl mx-auto flex flex-col gap-3">
+      {/* ─── 1. BARRA UNIFICADA SIMPLIFICADA: ABAS + RESUMO FINANCEIRO + AÇÃO DIRETA ─── */}
+      <div className="bg-[#0b1222] border-b border-cyan-900/40 px-3 sm:px-4 py-2.5 shrink-0 shadow-md">
+        <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2.5">
           
-          {/* Linha Superior: Título, Seletor de Janela e Chips de Reserva de Segurança */}
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-            <div className="flex items-center gap-2.5">
-              <div className="p-2 bg-gradient-to-br from-amber-500/20 to-orange-500/20 border border-amber-500/30 rounded-xl text-amber-400">
-                <Sparkles className="w-5 h-5" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <h1 className="text-base sm:text-lg font-black tracking-tight text-white flex items-center gap-2">
-                    Orçamento Semanal & Decisão
-                  </h1>
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-950/80 border border-cyan-800/60 text-cyan-300 font-bold">
-                    Extrema Necessidade
-                  </span>
-                </div>
-                <p className="text-[11px] text-slate-400">
-                  Lista limitada rigorosamente ao teto semanal com reposição dinâmica do Banco de Reserva.
-                </p>
-              </div>
-            </div>
-
-            {/* Controles de Janela e Reserva */}
-            <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
-              {/* Seletor de Janela de Vencimento dos Boletos */}
-              {orcamentoInfo?.janelasDisponiveis && setJanelaAlvoSelecionada && (
-                <div className="flex items-center gap-1.5 bg-[#060a12] border border-cyan-900/60 rounded-xl px-2.5 py-1.5 shadow-inner">
-                  <Calendar className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Janela:</span>
-                  <select
-                    value={janelaAlvoSelecionada}
-                    onChange={(e) => setJanelaAlvoSelecionada(e.target.value)}
-                    className="bg-transparent text-xs font-black text-cyan-200 outline-none cursor-pointer"
-                  >
-                    {orcamentoInfo.janelasDisponiveis.map((j: any) => (
-                      <option key={j.chave} value={j.chave} className="bg-slate-900 text-slate-100">
-                        {j.label} {j.isMesAtual ? '(Mês Atual)' : ''} — Saldo: R$ {Math.max(0, j.saldoLivre).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              {/* Seletor de Reserva de Segurança (5%, 10%, 15%, 20%) */}
-              <div className="flex items-center gap-1 bg-[#060a12] border border-slate-800 rounded-xl px-2 py-1">
-                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                <span className="text-[10px] font-bold text-slate-400 uppercase">Reserva:</span>
-                {[5, 10, 15, 20].map(pct => (
-                  <button
-                    key={pct}
-                    onClick={() => salvarReservaPct(pct)}
-                    className={`px-1.5 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer ${
-                      reservaSegurancaPct === pct
-                        ? 'bg-emerald-600 text-white shadow-sm shadow-emerald-950'
-                        : 'text-slate-400 hover:text-white hover:bg-slate-800'
-                    }`}
-                  >
-                    {pct}%
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Cards de Métricas Financeiras e Progresso Orçamentário */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2 pt-1">
-            {/* Teto do Mês */}
-            <div className="bg-[#070d18] border border-slate-800/80 rounded-xl p-2.5 flex flex-col justify-between">
-              <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Limite do Mês</span>
-              <span className="text-sm font-black text-white font-mono">
-                R$ {limiteMes.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </span>
-            </div>
-
-            {/* Boletos Comprometidos */}
-            <div className="bg-[#070d18] border border-slate-800/80 rounded-xl p-2.5 flex flex-col justify-between">
-              <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Boletos do Mês</span>
-              <span className="text-sm font-black text-rose-400 font-mono">
-                R$ {comprometidoMes.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </span>
-            </div>
-
-            {/* Saldo Livre do Mês */}
-            <div className="bg-[#070d18] border border-slate-800/80 rounded-xl p-2.5 flex flex-col justify-between">
-              <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Saldo Livre</span>
-              <span className="text-sm font-black text-emerald-400 font-mono">
-                R$ {saldoLivreMes.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </span>
-            </div>
-
-            {/* Cota da Semana (Com Reserva de Segurança Deduzida) */}
-            <div className="bg-[#081528] border border-cyan-800/80 rounded-xl p-2.5 flex flex-col justify-between relative group">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] uppercase font-black text-cyan-300 tracking-wider flex items-center gap-1">
-                  Cota da Semana
-                  <span className="text-[9px] font-normal text-cyan-400/80">(-{reservaSegurancaPct}%)</span>
-                </span>
-                <button
-                  onClick={() => {
-                    setTetoManualEditando(!tetoManualEditando);
-                    if (!tetoManualEditando) setTetoManualValor(String(tetoSemanalAtivo.toFixed(2)));
-                  }}
-                  className="text-[10px] text-cyan-400 hover:text-white cursor-pointer"
-                  title="Ajustar teto da semana manualmente"
-                >
-                  ✎
-                </button>
-              </div>
-
-              {tetoManualEditando ? (
-                <div className="flex items-center gap-1 mt-1">
-                  <input
-                    type="number"
-                    value={tetoManualValor}
-                    onChange={(e) => setTetoManualValor(e.target.value)}
-                    className="w-full bg-[#050914] text-xs font-mono font-bold text-white border border-cyan-600 rounded px-1.5 py-0.5 outline-none"
-                    placeholder="Teto R$"
-                  />
-                  <button
-                    onClick={() => setTetoManualEditando(false)}
-                    className="px-1.5 py-0.5 bg-cyan-600 text-white rounded text-[10px] font-bold"
-                  >
-                    OK
-                  </button>
-                </div>
-              ) : (
-                <span className="text-sm font-black text-cyan-300 font-mono">
-                  R$ {tetoSemanalAtivo.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span>
-              )}
-            </div>
-
-            {/* Gasto Total da Lista Ativa */}
-            <div className="bg-[#070d18] border border-slate-800/80 rounded-xl p-2.5 flex flex-col justify-between">
-              <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Total da Semana</span>
-              <span className={`text-sm font-black font-mono ${
-                totalOrcadoSemana > tetoSemanalAtivo ? 'text-rose-400' : 'text-white'
-              }`}>
-                R$ {totalOrcadoSemana.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </span>
-            </div>
-
-            {/* Economia Enxugada (Reserva + Sobra) */}
-            <div className="bg-gradient-to-br from-emerald-950/40 to-teal-950/30 border border-emerald-800/60 rounded-xl p-2.5 flex flex-col justify-between">
-              <span className="text-[10px] uppercase font-black text-emerald-300 tracking-wider flex items-center gap-1">
-                Poupado / Sobra
-                <Sparkles className="w-3 h-3 text-emerald-400" />
-              </span>
-              <span className="text-sm font-black text-emerald-300 font-mono">
-                R$ {totalPoupadoSemana.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </span>
-            </div>
-
-            {/* Balanço de Economia ou Gasto a Mais na Cotação vs Última Compra */}
-            <div className={`border rounded-xl p-2.5 flex flex-col justify-between ${
-              isEconomia 
-                ? 'bg-gradient-to-br from-emerald-950/40 to-teal-950/30 border-emerald-700/60' 
-                : 'bg-gradient-to-br from-rose-950/40 to-amber-950/30 border-rose-700/60'
-            }`}>
-              <div className="flex items-center justify-between">
-                <span className={`text-[10px] uppercase font-black tracking-wider flex items-center gap-1 ${
-                  isEconomia ? 'text-emerald-300' : 'text-rose-300'
-                }`}>
-                  {isEconomia ? 'Economia Cotação' : 'Acréscimo Cotação'}
-                </span>
-                {isEconomia ? <TrendingDown className="w-3.5 h-3.5 text-emerald-400" /> : <TrendingUp className="w-3.5 h-3.5 text-rose-400" />}
-              </div>
-              <div className="flex items-baseline gap-1 mt-0.5">
-                <span className={`text-sm font-black font-mono ${isEconomia ? 'text-emerald-300' : 'text-rose-300'}`}>
-                  {isEconomia ? '-' : '+'}R$ {diferencaEconomiaReais.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span>
-                <span className={`text-[10px] font-bold ${isEconomia ? 'text-emerald-400' : 'text-rose-400'}`}>
-                  ({isEconomia ? '-' : '+'}{diferencaEconomiaPct}%)
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Barra de Progresso Orçamentário da Semana */}
-          <div className="w-full flex items-center gap-3 pt-1">
-            <div className="flex-1 bg-slate-900 rounded-full h-2 overflow-hidden border border-slate-800">
-              <div 
-                className={`h-full transition-all duration-500 rounded-full ${
-                  pctConsumoOrcamento > 100 
-                    ? 'bg-rose-500' 
-                    : pctConsumoOrcamento > 85 
-                    ? 'bg-amber-500' 
-                    : 'bg-gradient-to-r from-cyan-500 to-emerald-400'
-                }`}
-                style={{ width: `${Math.min(100, Math.max(0, pctConsumoOrcamento))}%` }}
-              />
-            </div>
-            <span className="text-[11px] font-mono font-bold text-slate-400 shrink-0">
-              {pctConsumoOrcamento.toFixed(1)}% do Teto Semanal
-            </span>
-          </div>
-
-        </div>
-      </div>
-
-      {/* ─── 1.1 BARRA DE GUIAS PRINCIPAIS: PEDIDO DA SEMANA vs OPORTUNIDADES ─── */}
-      <div className="bg-[#0b1222] border-b border-cyan-900/40 px-3 sm:px-4 py-2 shrink-0">
-        <div className="max-w-7xl mx-auto flex items-center justify-between flex-wrap gap-2">
-          <div className="flex items-center gap-2">
+          {/* Esquerda: Abas Principais Diretas */}
+          <div className="flex items-center gap-1.5 flex-wrap">
             <button
               type="button"
               onClick={() => {
                 setAbaDecisaoAtiva('pedido_semana');
                 if (onNavegarTab) onNavegarTab('decisao');
               }}
-              className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-black transition-all flex items-center gap-2 cursor-pointer ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer ${
                 abaDecisaoAtiva === 'pedido_semana'
-                  ? 'bg-gradient-to-r from-amber-600 to-orange-600 text-white shadow-md shadow-amber-950/40 border border-amber-400/40'
-                  : 'bg-[#060a12] text-slate-400 hover:text-white hover:bg-slate-800/60 border border-slate-800'
+                  ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-md border border-cyan-400/50'
+                  : 'bg-[#060a12] text-slate-400 hover:text-white border border-slate-800'
               }`}
             >
-              <Sparkles className="w-4 h-4 text-amber-300" />
-              <span>Pedido da Semana (Orçamento)</span>
-              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-amber-950 text-amber-200 border border-amber-800/80">
+              <ShoppingCart className="w-3.5 h-3.5 text-cyan-300" />
+              <span>Lista de Compras</span>
+              <span className="px-1.5 py-0.2 rounded-full text-[10px] font-black bg-slate-950/80 text-cyan-200">
                 {listaAtivaSemana.length}
               </span>
             </button>
@@ -2359,16 +2190,16 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
                 setAbaDecisaoAtiva('oportunidades');
                 if (onNavegarTab) onNavegarTab('oportunidades');
               }}
-              className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-black transition-all flex items-center gap-2 cursor-pointer ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer ${
                 abaDecisaoAtiva === 'oportunidades'
-                  ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md shadow-emerald-950/40 border border-emerald-400/40'
-                  : 'bg-[#060a12] text-slate-400 hover:text-white hover:bg-slate-800/60 border border-slate-800'
+                  ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md border border-emerald-400/50'
+                  : 'bg-[#060a12] text-slate-400 hover:text-white border border-slate-800'
               }`}
             >
-              <TrendingDown className="w-4 h-4 text-emerald-300" />
+              <TrendingDown className="w-3.5 h-3.5 text-emerald-300" />
               <span>Oportunidades</span>
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-950 text-emerald-300 border border-emerald-700/80">
-                {oportunidadesCompra.length} abaixo da última compra
+              <span className="px-1.5 py-0.2 rounded-full text-[10px] font-black bg-emerald-950 text-emerald-300">
+                {oportunidadesCompra.length}
               </span>
             </button>
 
@@ -2382,44 +2213,108 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
                 } catch {}
                 if (onNavegarTab) onNavegarTab('promocoes_whatsapp');
               }}
-              className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-black transition-all flex items-center gap-2 cursor-pointer ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer ${
                 abaDecisaoAtiva === 'promocoes_whatsapp'
-                  ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-md shadow-purple-950/40 border border-purple-400/40'
-                  : 'bg-[#060a12] text-slate-400 hover:text-white hover:bg-slate-800/60 border border-slate-800'
+                  ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-md border border-purple-400/50'
+                  : 'bg-[#060a12] text-slate-400 hover:text-white border border-slate-800'
               }`}
             >
-              <MessageSquare className="w-4 h-4 text-purple-300" />
-              <span>Promoção WhatsApp</span>
-              {novasPromocoesWppCount > 0 ? (
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-500 text-slate-950 border border-amber-300 animate-pulse flex items-center gap-0.5 shadow-sm">
-                  <Flame className="w-2.5 h-2.5 fill-current" />
-                  {novasPromocoesWppCount} novas
-                </span>
-              ) : (
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-purple-950 text-purple-300 border border-purple-700/80">
-                  {totalPromocoesWpp > 0 ? `${totalPromocoesWpp.toLocaleString('pt-BR')} itens` : 'Radar'}
+              <MessageSquare className="w-3.5 h-3.5 text-purple-300" />
+              <span>Ofertas WhatsApp</span>
+              {novasPromocoesWppCount > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full text-[10px] font-black bg-amber-500 text-slate-950 animate-pulse">
+                  {novasPromocoesWppCount}
                 </span>
               )}
             </button>
           </div>
 
-          {abaDecisaoAtiva === 'oportunidades' && (
-            <div className="flex items-center gap-2 text-xs text-slate-400">
-              <span className="hidden md:inline font-medium">Economia potencial:</span>
-              <span className="font-mono font-black text-emerald-400 bg-emerald-950/60 border border-emerald-800/60 px-2.5 py-1 rounded-lg">
-                R$ {totalEconomiaOportunidades.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </span>
-            </div>
-          )}
+          {/* Direita: Resumo Financeiro Compacto em 1 Linha + Seletor de Janela */}
+          <div className="flex items-center gap-2 flex-wrap">
+            {orcamentoInfo?.janelasDisponiveis && setJanelaAlvoSelecionada && (
+              <div className="flex items-center gap-1 bg-[#060a12] border border-slate-800 rounded-xl px-2.5 py-1">
+                <Calendar className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                <select
+                  value={janelaAlvoSelecionada}
+                  onChange={(e) => setJanelaAlvoSelecionada(e.target.value)}
+                  className="bg-transparent text-[11px] font-bold text-cyan-200 outline-none cursor-pointer"
+                  title="Janela de Vencimento dos Boletos"
+                >
+                  {orcamentoInfo.janelasDisponiveis.map((j: any) => (
+                    <option key={j.chave} value={j.chave} className="bg-slate-900 text-slate-100">
+                      {j.label} (Livre: R$ {Math.max(0, j.saldoLivre).toLocaleString('pt-BR', { maximumFractionDigits: 0 })})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
-          {abaDecisaoAtiva === 'promocoes_whatsapp' && (
-            <div className="flex items-center gap-2 text-xs text-slate-400">
-              <span className="hidden md:inline font-medium">Cruzamento Digifarma:</span>
-              <span className="font-mono font-black text-purple-400 bg-purple-950/60 border border-purple-800/60 px-2.5 py-1 rounded-lg">
-                Estoque + Última Compra
-              </span>
+            <div className="flex items-center gap-2.5 bg-[#060a12] border border-slate-800 rounded-xl px-3 py-1 text-xs">
+              <div className="flex items-center gap-1" title="Cota Semanal Sugerida (clique no lápis para ajustar)">
+                <span className="text-[10px] uppercase font-bold text-slate-400">Teto:</span>
+                {tetoManualEditando ? (
+                  <span className="inline-flex items-center gap-1">
+                    <input
+                      type="number"
+                      value={tetoManualValor}
+                      onChange={(e) => setTetoManualValor(e.target.value)}
+                      className="w-20 bg-slate-900 text-xs font-mono font-bold text-white border border-cyan-600 rounded px-1 py-0.2 outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setTetoManualEditando(false)}
+                      className="px-1.5 py-0.2 bg-cyan-600 text-white rounded text-[10px] font-bold cursor-pointer"
+                    >
+                      OK
+                    </button>
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTetoManualEditando(true);
+                      setTetoManualValor(String(tetoSemanalAtivo.toFixed(2)));
+                    }}
+                    className="font-mono font-black text-cyan-300 hover:underline cursor-pointer flex items-center gap-0.5"
+                  >
+                    R$ {tetoSemanalAtivo.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    <span className="text-[10px] text-slate-500">✎</span>
+                  </button>
+                )}
+              </div>
+
+              <span className="text-slate-700">|</span>
+
+              <div className="flex items-center gap-1">
+                <span className="text-[10px] uppercase font-bold text-slate-400">Total Lista:</span>
+                <span className={`font-mono font-black ${totalOrcadoSemana > tetoSemanalAtivo ? 'text-rose-400' : 'text-emerald-400'}`}>
+                  R$ {totalOrcadoSemana.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              </div>
+
+              {totalReferenciaUltCompra > 0 && (
+                <>
+                  <span className="text-slate-700 hidden sm:inline">|</span>
+                  <span className={`hidden sm:inline-flex items-center gap-1 text-[11px] font-bold ${isEconomia ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {isEconomia ? 'Econ:' : 'Acrésc:'} {isEconomia ? '-' : '+'}R$ {diferencaEconomiaReais.toFixed(2)} ({diferencaEconomiaPct}%)
+                  </span>
+                </>
+              )}
             </div>
-          )}
+
+            {onAbrirVerCarrinhos && (
+              <button
+                type="button"
+                onClick={onAbrirVerCarrinhos}
+                className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-black uppercase tracking-wider shadow-md flex items-center gap-1.5 cursor-pointer active:scale-95 transition-all"
+                title="Conferir carrinhos separados por distribuidora e enviar aos portais"
+              >
+                <ShoppingCart className="w-3.5 h-3.5" />
+                <span>Carrinhos</span>
+              </button>
+            )}
+          </div>
+
         </div>
       </div>
 
@@ -3586,221 +3481,189 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
         )}
       </div>
 
-      {/* ─── 3. BARRA DE CONTROLE DA LISTA DA SEMANA ───────────────────────────── */}
-      <div className="px-3 sm:px-4 max-w-7xl mx-auto w-full flex items-center justify-between gap-3 pb-2 shrink-0 flex-wrap">
-        <div className="flex items-center gap-2.5 flex-wrap">
-          <span className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-1.5">
-            <Layers className="w-4 h-4 text-cyan-400" />
-            Lote Ativo da Semana ({listaAtivaSemana.length} itens)
-          </span>
-          <span className="text-[11px] font-mono text-cyan-300 font-bold">
-            = R$ {totalOrcadoSemana.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          </span>
-
-          {totalReferenciaUltCompra > 0 && (
-            <span className={`text-[11px] font-bold px-2 py-0.5 rounded-lg border flex items-center gap-1.5 ${
-              isEconomia 
-                ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60' 
-                : 'bg-rose-950/80 text-rose-300 border-rose-700/60'
-            }`}>
-              {isEconomia ? <TrendingDown className="w-3.5 h-3.5 text-emerald-400" /> : <TrendingUp className="w-3.5 h-3.5 text-rose-400" />}
-              <span>
-                {isEconomia ? 'Economia:' : 'Gasto a mais:'} <b>{isEconomia ? '-' : '+'}R$ {diferencaEconomiaReais.toFixed(2)}</b> ({isEconomia ? '-' : '+'}{diferencaEconomiaPct}% vs última compra)
-              </span>
-            </span>
-          )}
-        </div>
-
-        <div className="flex items-center gap-2">
-          {/* Botão Recalcular Opções da Semana */}
-          <button
-            type="button"
-            onClick={handleRecalcularOpcoesSemana}
-            className="px-2.5 py-1.5 rounded-xl bg-cyan-950/60 border border-cyan-700/80 hover:border-cyan-400 text-cyan-200 hover:text-white text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-sm"
-            title="Recalcular e recompor o lote ideal da semana com base nos produtos prioritários"
-          >
-            <RefreshCw className="w-3.5 h-3.5 text-cyan-300" />
-            <span>Recalcular Semana</span>
-          </button>
-
-          {/* Botão para ver Banco de Reserva */}
-          <button
-            type="button"
-            onClick={() => setModalBancoAberto(true)}
-            className="px-2.5 py-1.5 rounded-xl bg-[#060a12] border border-slate-700 hover:border-cyan-500 text-slate-300 hover:text-white text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-sm"
-          >
-            <Clock className="w-3.5 h-3.5 text-amber-400" />
-            <span>Banco de Reserva ({bancoReservaSemana.length})</span>
-          </button>
-
-          {/* Botão para ver Sem Estoque nos Portais */}
-          {itensSemEstoquePortais.length > 0 && (
+      {/* ─── 3. FILTROS RÁPIDOS (POR FORNECEDOR & MEDICAMENTO/PERFUMARIA) + AÇÕES ─── */}
+      <div className="px-3 sm:px-4 max-w-7xl mx-auto w-full flex flex-col gap-2.5 pb-2 shrink-0">
+        
+        {/* Linha 1: Chips de Fornecedores (Separação por Distribuidora) */}
+        {resumoFornecedoresSemana.length > 0 && (
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 custom-scrollbar">
             <button
               type="button"
-              onClick={() => setModalSemEstoqueAberto(true)}
-              className="px-2.5 py-1.5 rounded-xl bg-amber-950/40 border border-amber-800/80 hover:border-amber-500 text-amber-300 text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-sm"
-              title="Itens críticos esgotados em todos os 12 portais (abriram vaga na semana)"
-            >
-              <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
-              <span>Sem Estoque ({itensSemEstoquePortais.length})</span>
-            </button>
-          )}
-
-          {/* Botão para ver Lista de Exclusão */}
-          {itensExcluidos.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setModalExclusaoAberto(true)}
-              className="px-2.5 py-1.5 rounded-xl bg-[#060a12] border border-rose-900/60 hover:border-rose-500 text-rose-300 text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-sm"
-            >
-              <Ban className="w-3.5 h-3.5 text-rose-400" />
-              <span>Excluídos ({itensExcluidos.length})</span>
-            </button>
-          )}
-
-          {/* Botão de Impressão da Lista (A4) */}
-          <button
-            type="button"
-            onClick={handleAbrirRelatorioHtml}
-            className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-cyan-900/60 to-blue-900/60 border border-cyan-700/80 hover:border-cyan-400 text-cyan-200 hover:text-white text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 shadow-sm active:scale-95"
-            title="Imprimir relatório da semana e faltas esgotadas nos portais"
-          >
-            <Printer className="w-3.5 h-3.5 text-cyan-400" />
-            <span className="hidden sm:inline">Imprimir Lista</span>
-            <span className="sm:hidden">Imprimir</span>
-          </button>
-
-          {/* Alternador de Modo: Cards Menores vs Cards Grandes vs Tabela vs Carrossel */}
-          <div className="flex items-center bg-[#060a12] border border-slate-800 rounded-xl p-1 shadow-inner gap-1">
-            <button
-              type="button"
-              onClick={() => salvarModoVisualizacao('cards_compactos')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer ${
-                modoVisualizacao === 'cards_compactos'
-                  ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-md shadow-cyan-950/60 ring-1 ring-cyan-400'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+              onClick={() => setFiltroFornecedorSemana('TODAS')}
+              className={`px-2.5 py-1.5 rounded-xl text-xs font-black whitespace-nowrap transition-all cursor-pointer border flex items-center gap-1.5 ${
+                filtroFornecedorSemana === 'TODAS'
+                  ? 'bg-cyan-600 text-white border-cyan-400 shadow-sm'
+                  : 'bg-[#0b1222] text-slate-300 border-slate-800 hover:border-slate-600'
               }`}
-              title="Cards Menores: cards compactos para caber vários produtos na mesma tela"
             >
-              <Grid className="w-3.5 h-3.5" />
-              <span>Cards Menores</span>
+              <span>Todos Fornecedores ({listaAtivaSemana.length})</span>
             </button>
+            {resumoFornecedoresSemana.map(forn => {
+              const ativo = filtroFornecedorSemana === forn.nome;
+              return (
+                <button
+                  key={forn.nome}
+                  type="button"
+                  onClick={() => setFiltroFornecedorSemana(ativo ? 'TODAS' : forn.nome)}
+                  className={`px-2.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all cursor-pointer border flex items-center gap-1.5 ${
+                    ativo
+                      ? 'bg-emerald-600 text-white border-emerald-400 shadow-sm'
+                      : 'bg-[#0b1222] text-slate-300 border-slate-800 hover:border-emerald-700/60'
+                  }`}
+                >
+                  <span className="font-black uppercase">{forn.nome}</span>
+                  <span className="px-1.5 py-0.2 rounded bg-black/30 text-[10px] font-mono">
+                    {forn.qtdItens} it. • R$ {forn.valorTotal.toFixed(2)}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Linha 2: Filtro Medicamento vs Perfumaria + Seleção + Botões Utilitários */}
+        <div className="flex flex-wrap items-center justify-between gap-2 bg-[#080f1d] px-3 py-2 rounded-xl border border-slate-800">
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Filtro Medicamento vs Perfumaria */}
+            <div className="flex items-center bg-[#060a12] border border-slate-800 rounded-lg p-0.5 gap-0.5">
+              {([
+                { id: 'TODOS', label: 'Todos' },
+                { id: 'MEDICAMENTO', label: '💊 Medicamentos' },
+                { id: 'PERFUMARIA', label: '🧴 Perfumaria' }
+              ] as const).map(cat => (
+                <button
+                  key={cat.id}
+                  type="button"
+                  onClick={() => setFiltroCategoriaSemana(cat.id)}
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-black transition-all cursor-pointer ${
+                    filtroCategoriaSemana === cat.id
+                      ? 'bg-cyan-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  {cat.label}
+                </button>
+              ))}
+            </div>
+
+            <span className="text-slate-700 hidden sm:inline">|</span>
+
+            <label className="flex items-center gap-1.5 text-xs font-bold text-slate-300 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={listaExibidaSemana.length > 0 && listaExibidaSemana.every(it => itensSelecionados[it.produto_id])}
+                onChange={() => {
+                  const todosMarcados = listaExibidaSemana.length > 0 && listaExibidaSemana.every(it => itensSelecionados[it.produto_id]);
+                  const novoMap = { ...itensSelecionados };
+                  listaExibidaSemana.forEach(it => {
+                    novoMap[it.produto_id] = !todosMarcados;
+                  });
+                  setItensSelecionados(novoMap);
+                }}
+                className="w-3.5 h-3.5 rounded border-slate-700 bg-slate-900 text-cyan-500 cursor-pointer"
+              />
+              <span>Selecionar ({listaExibidaSemana.filter(it => itensSelecionados[it.produto_id]).length}/{listaExibidaSemana.length})</span>
+            </label>
+          </div>
+
+          {/* Ações Enxutas à Direita */}
+          <div className="flex items-center gap-1.5 flex-wrap">
             <button
               type="button"
-              onClick={() => salvarModoVisualizacao('cards')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer ${
-                modoVisualizacao === 'cards'
-                  ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-md shadow-cyan-950/60 ring-1 ring-cyan-400'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-              }`}
-              title="Cards Grandes: visão completa com pódio detalhado de cotações"
+              onClick={() => setModalBancoAberto(true)}
+              className="px-2.5 py-1 rounded-lg bg-[#060a12] border border-slate-700 hover:border-cyan-500 text-slate-300 hover:text-white text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1"
+              title="Produtos aguardando vaga no orçamento semanal"
             >
-              <LayoutGrid className="w-3.5 h-3.5" />
-              <span>Cards Grandes</span>
+              <Clock className="w-3 h-3 text-amber-400" />
+              <span>Reserva ({bancoReservaSemana.length})</span>
             </button>
+
+            {itensSemEstoquePortais.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setModalSemEstoqueAberto(true)}
+                className="px-2.5 py-1 rounded-lg bg-amber-950/40 border border-amber-800/80 hover:border-amber-500 text-amber-300 text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1"
+              >
+                <AlertTriangle className="w-3 h-3 text-amber-400" />
+                <span>Esgotados ({itensSemEstoquePortais.length})</span>
+              </button>
+            )}
+
+            {itensExcluidos.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setModalExclusaoAberto(true)}
+                className="px-2 py-1 rounded-lg bg-[#060a12] border border-rose-900/60 hover:border-rose-500 text-rose-300 text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1"
+              >
+                <Ban className="w-3 h-3 text-rose-400" />
+                <span>({itensExcluidos.length})</span>
+              </button>
+            )}
+
             <button
               type="button"
-              onClick={() => salvarModoVisualizacao('tabela')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer ${
-                modoVisualizacao === 'tabela'
-                  ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-md shadow-cyan-950/60 ring-1 ring-cyan-400'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-              }`}
-              title="Tabela de Alta Densidade: visualização em linhas"
+              onClick={handleAbrirRelatorioHtml}
+              className="px-2.5 py-1 rounded-lg bg-cyan-950/70 border border-cyan-700/80 hover:border-cyan-400 text-cyan-200 hover:text-white text-[11px] font-black transition-all cursor-pointer flex items-center gap-1"
+              title="Imprimir lista de compras A4"
             >
-              <Table className="w-3.5 h-3.5" />
-              <span>Tabela</span>
+              <Printer className="w-3 h-3 text-cyan-400" />
+              <span>Imprimir</span>
             </button>
-            <button
-              type="button"
-              onClick={() => salvarModoVisualizacao('carrossel')}
-              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                modoVisualizacao === 'carrossel'
-                  ? 'bg-cyan-600 text-white shadow-sm ring-1 ring-cyan-400'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-              }`}
-              title="Visualizar 1 a 1 em Carrossel Focal"
-            >
-              <Maximize2 className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">1 a 1</span>
-            </button>
+
+            {/* Alternador Simples: Tabela vs Cards */}
+            <div className="flex items-center bg-[#060a12] border border-slate-800 rounded-lg p-0.5 gap-0.5">
+              <button
+                type="button"
+                onClick={() => salvarModoVisualizacao('tabela')}
+                className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-black transition-all cursor-pointer ${
+                  modoVisualizacao === 'tabela'
+                    ? 'bg-cyan-600 text-white'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+                title="Visualização em Tabela"
+              >
+                <Table className="w-3 h-3" />
+                <span>Tabela</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => salvarModoVisualizacao('cards_compactos')}
+                className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-black transition-all cursor-pointer ${
+                  modoVisualizacao !== 'tabela'
+                    ? 'bg-cyan-600 text-white'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+                title="Visualização em Cards"
+              >
+                <Grid className="w-3 h-3" />
+                <span>Cards</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* ─── 4. LISTA DE PRODUTOS DA SEMANA (CARDS, TABELA OU CARROSSEL) ─────────── */}
+      {/* ─── 4. LISTA DE PRODUTOS DA SEMANA (TABELA OU CARDS) ─────────── */}
       <div className="px-3 sm:px-4 max-w-7xl mx-auto w-full flex-1 pb-12">
-        {listaAtivaSemana.length === 0 ? (
+        {listaExibidaSemana.length === 0 ? (
           <div className="bg-[#0b1222] border border-slate-800 rounded-2xl p-8 text-center flex flex-col items-center justify-center gap-3">
-            <CheckCircle2 className="w-12 h-12 text-emerald-400" />
-            <h3 className="text-base font-black text-white">Nenhum produto crítico restante para cotar nesta semana!</h3>
-            <p className="text-xs text-slate-400 max-w-md">
-              Todos os itens de extrema necessidade foram atendidos, pedidos ou estão com estoque suficiente para os próximos 7 dias.
-            </p>
+            <CheckCircle2 className="w-10 h-10 text-emerald-400" />
+            <h3 className="text-sm font-black text-white">Nenhum produto encontrado para o filtro selecionado.</h3>
+            {(filtroFornecedorSemana !== 'TODAS' || filtroCategoriaSemana !== 'TODOS') && (
+              <button
+                type="button"
+                onClick={() => {
+                  setFiltroFornecedorSemana('TODAS');
+                  setFiltroCategoriaSemana('TODOS');
+                }}
+                className="px-3 py-1.5 rounded-xl bg-cyan-600 text-white text-xs font-bold cursor-pointer"
+              >
+                Limpar Filtros
+              </button>
+            )}
           </div>
         ) : (
           <div className="space-y-3">
-            {/* ── BARRA DE SELEÇÃO EM MASSA & RESUMO RÁPIDO ── */}
-            <div className="flex flex-wrap items-center justify-between gap-3 bg-[#080f1d] px-3.5 py-2.5 rounded-xl border border-slate-800 shadow-md">
-              <div className="flex items-center gap-3">
-                <label className="flex items-center gap-2 text-xs font-black text-slate-200 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={listaAtivaSemana.length > 0 && listaAtivaSemana.every(it => itensSelecionados[it.produto_id])}
-                    onChange={() => {
-                      const todosMarcados = listaAtivaSemana.length > 0 && listaAtivaSemana.every(it => itensSelecionados[it.produto_id]);
-                      const novoMap = { ...itensSelecionados };
-                      listaAtivaSemana.forEach(it => {
-                        novoMap[it.produto_id] = !todosMarcados;
-                      });
-                      setItensSelecionados(novoMap);
-                    }}
-                    className="w-4 h-4 rounded border-slate-700 bg-slate-900 text-cyan-500 focus:ring-cyan-500 cursor-pointer"
-                    title="Selecionar ou desmarcar todos os itens da semana"
-                  />
-                  <span>Selecionar Todos ({listaAtivaSemana.length})</span>
-                </label>
-
-                <div className="flex items-center gap-1.5 text-xs">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const novoMap = { ...itensSelecionados };
-                      listaAtivaSemana.forEach(it => { novoMap[it.produto_id] = true; });
-                      setItensSelecionados(novoMap);
-                    }}
-                    className="text-[11px] font-bold text-cyan-400 hover:text-cyan-300 underline px-1 cursor-pointer"
-                  >
-                    Marcar Todos
-                  </button>
-                  <span className="text-slate-600">•</span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const novoMap = { ...itensSelecionados };
-                      listaAtivaSemana.forEach(it => { novoMap[it.produto_id] = false; });
-                      setItensSelecionados(novoMap);
-                    }}
-                    className="text-[11px] font-bold text-slate-400 hover:text-slate-200 underline px-1 cursor-pointer"
-                  >
-                    Desmarcar Todos
-                  </button>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-3 text-xs">
-                <span className="text-slate-400 font-medium">
-                  <b className="text-cyan-300">{listaAtivaSemana.filter(it => itensSelecionados[it.produto_id]).length}</b> de <b>{listaAtivaSemana.length}</b> selecionados
-                </span>
-                <span className="text-slate-400 font-medium">
-                  Total Selecionado: <b className="text-emerald-400 font-mono">R$ {listaAtivaSemana
-                    .filter(it => itensSelecionados[it.produto_id])
-                    .reduce((acc, it) => acc + (it.subtotal_7d || 0), 0)
-                    .toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b>
-                </span>
-              </div>
-            </div>
-
             {/* ── MODO TABELA DE ALTA DENSIDADE ── */}
             {modoVisualizacao === 'tabela' ? (
               <div className="bg-[#0b1222] border border-slate-800 rounded-2xl overflow-hidden shadow-2xl">
@@ -3833,7 +3696,7 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/80">
-                      {listaAtivaSemana.map((item, idx) => {
+                      {listaExibidaSemana.map((item, idx) => {
                         const isSelected = Boolean(itensSelecionados[item.produto_id]);
                         const preco1 = Number(item.preco_1) || 0;
                         const precoUlt = Number(item.preco_ult_compra) || Number(item.custo_unitario) || 0;
@@ -3891,6 +3754,14 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
                                     'bg-slate-900 border-slate-700 text-slate-400'
                                   }`}>
                                     Curva {item.curva_abc}
+                                  </span>
+                                  <span className="text-slate-600">•</span>
+                                  <span className={`px-1 py-0.2 rounded font-bold text-[9px] ${
+                                    String(item.tipo_categoria || '').toUpperCase() === 'PERFUMARIA'
+                                      ? 'bg-purple-950/80 text-purple-300 border border-purple-800/60'
+                                      : 'bg-cyan-950/80 text-cyan-300 border border-cyan-800/60'
+                                  }`}>
+                                    {String(item.tipo_categoria || '').toUpperCase() === 'PERFUMARIA' ? '🧴 Perf' : '💊 Med'}
                                   </span>
                                   <span className="text-slate-600">•</span>
                                   <span className={item.saldo <= 0 ? 'text-rose-400 font-bold' : 'text-slate-300'}>
@@ -4050,7 +3921,7 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
             ) : modoVisualizacao === 'cards_compactos' ? (
               /* MODO CARDS COMPACTOS (MENORES - VÁRIOS NA MESMA TELA) */
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4 2xl:grid-cols-5 gap-2.5">
-                {listaAtivaSemana.map((item, idx) => (
+                {listaExibidaSemana.map((item, idx) => (
                   <CardProdutoCompactoDecisao
                     key={item.produto_id}
                     item={item}

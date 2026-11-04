@@ -3991,19 +3991,20 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     }).length;
   }, [faltas]);
 
-  // Lista unificada de Módulos para Navegação Desktop e Mobile
+  // Lista enxuta de Módulos Principais (fluxo simplificado) + Ferramentas Avançadas recolhidas
   const modulosNav = useMemo(() => [
-    { id: 'decisao' as const, label: '🎯 Orçamento Semanal & Decisão', shortLabel: 'Orçamento & Decisão', icon: <Sparkles className="w-4 h-4 text-amber-400" />, badge: itensPendentesDecisaoCount },
-    { id: 'promocoes_whatsapp' as const, label: '📱 Promoção WhatsApp', shortLabel: 'Promoção WhatsApp', icon: <MessageSquare className="w-4 h-4 text-purple-400" />, badge: 0 },
-    { id: 'oportunidades' as const, label: '🔥 Oportunidades de Compra', shortLabel: 'Oportunidades', icon: <TrendingDown className="w-4 h-4 text-emerald-400" />, badge: totalOportunidadesCount },
-    { id: 'cotacoes_matriz' as const, label: '📊 Tabela de Cotações', shortLabel: 'Cotações', icon: <Table className="w-4 h-4 text-emerald-400" />, badge: 0 },
-    { id: 'faltas' as const, label: '1. Extrema Necessidade', shortLabel: 'Extrema Necessidade', icon: <AlertTriangle className="w-4 h-4 text-amber-400" />, badge: faltas.length },
-    { id: 'cotacao' as const, label: '2. Portais & Carrinho', shortLabel: 'Portais', icon: <Globe className="w-4 h-4 text-blue-400" />, badge: carrinhosOtimizados.length },
-    { id: 'pedidos' as const, label: '3. Meus Pedidos & NF', shortLabel: 'Pedidos', icon: <ShoppingCart className="w-4 h-4 text-amber-400" />, badge: 0 },
-    { id: 'orcamento' as const, label: '4. Radar de Orçamento', shortLabel: 'Orçamento', icon: <DollarSign className="w-4 h-4 text-emerald-400" />, badge: 0 },
-    { id: 'relatorios' as const, label: '5. Relatórios & Preços', shortLabel: 'Relatórios', icon: <BarChart3 className="w-4 h-4 text-purple-400" />, badge: 0 },
-    { id: 'simulador' as const, label: '6. Simulador de Giro', shortLabel: 'Giro', icon: <Calendar className="w-4 h-4 text-teal-400" />, badge: 0 }
-  ], [itensPendentesDecisaoCount, totalOportunidadesCount, faltas.length, carrinhosOtimizados.length]);
+    { id: 'decisao' as const, label: '🛒 Lista de Compras', shortLabel: 'Compras', icon: <ShoppingCart className="w-4 h-4 text-cyan-400" />, badge: itensPendentesDecisaoCount },
+    { id: 'cotacao' as const, label: '🌐 Portais & Carrinhos', shortLabel: 'Carrinhos', icon: <Globe className="w-4 h-4 text-emerald-400" />, badge: carrinhosOtimizados.length },
+    { id: 'pedidos' as const, label: '📦 Pedidos & Notas', shortLabel: 'Pedidos', icon: <FileText className="w-4 h-4 text-amber-400" />, badge: 0 },
+    { id: 'cotacoes_matriz' as const, label: '📊 Matriz de Preços', shortLabel: 'Preços', icon: <Table className="w-4 h-4 text-blue-400" />, badge: 0 }
+  ], [itensPendentesDecisaoCount, carrinhosOtimizados.length]);
+
+  const modulosAvancados = useMemo(() => [
+    { id: 'faltas' as const, label: 'Lista Completa (7d)', icon: <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />, badge: faltas.length },
+    { id: 'orcamento' as const, label: 'Radar de Orçamento', icon: <DollarSign className="w-3.5 h-3.5 text-emerald-400" />, badge: 0 },
+    { id: 'relatorios' as const, label: 'Relatórios & Preços', icon: <BarChart3 className="w-3.5 h-3.5 text-purple-400" />, badge: 0 },
+    { id: 'simulador' as const, label: 'Simulador de Giro', icon: <Calendar className="w-3.5 h-3.5 text-teal-400" />, badge: 0 }
+  ], [faltas.length]);
 
   return (
     <div className="flex-1 flex flex-col h-screen w-screen overflow-hidden bg-[#070b14] text-slate-100 font-sans selection:bg-cyan-500/30 selection:text-cyan-200">
@@ -4126,113 +4127,70 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       {/* ─── CORPO PRINCIPAL COM SCROLL INTERNO ──────────────────────────────── */}
       {/* ─── MENU LATERAL EXCLUSIVO DO BELAPED + CORPO ───────────────────────── */}
       <div className="flex-1 flex overflow-hidden relative">
-        {/* SIDEBAR DESKTOP */}
+        {/* SIDEBAR DESKTOP ENXUTA */}
         {!modoApenasTabela && (
-          <aside className="hidden md:flex w-64 shrink-0 bg-[#0b1222] border-r border-slate-800/80 flex-col overflow-y-auto custom-scrollbar">
+          <aside className="hidden md:flex w-56 shrink-0 bg-[#0b1222] border-r border-slate-800/80 flex-col overflow-y-auto custom-scrollbar">
             <nav className="p-3 space-y-1.5">
               <span className="px-2 text-[10px] font-black uppercase tracking-widest text-cyan-400/80 block mb-1">
-                Módulos Exclusivos BelaPed
+                Menu Principal
               </span>
-              {modulosNav.map(item => (
-                <button
-                  key={item.id}
-                  onClick={() => setActiveTab(item.id)}
-                  className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer text-left ${
-                    activeTab === item.id
-                      ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg shadow-cyan-900/30 border border-cyan-400/40'
-                      : 'text-slate-300 hover:text-white hover:bg-slate-800/60 border border-transparent'
-                  }`}
-                >
-                  {item.icon}
-                  <span className="flex-1 truncate">{item.label}</span>
-                  {item.badge > 0 && (
-                    <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-cyan-950 text-cyan-200 border border-cyan-800">{item.badge}</span>
-                  )}
-                </button>
-              ))}
-            </nav>
+              {modulosNav.map(item => {
+                const isAtivo = activeTab === item.id || (item.id === 'decisao' && (activeTab === 'oportunidades' || activeTab === 'promocoes_whatsapp'));
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => setActiveTab(item.id)}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer text-left ${
+                      isAtivo
+                        ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg shadow-cyan-900/30 border border-cyan-400/40'
+                        : 'text-slate-300 hover:text-white hover:bg-slate-800/60 border border-transparent'
+                    }`}
+                  >
+                    {item.icon}
+                    <span className="flex-1 truncate">{item.label}</span>
+                    {item.badge > 0 && (
+                      <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-cyan-950 text-cyan-200 border border-cyan-800">{item.badge}</span>
+                    )}
+                  </button>
+                );
+              })}
 
-            {/* Filtro Rápido no Menu Lateral: Melhor Preço por Distribuidora */}
-            <div className="p-3 border-t border-slate-800/80 space-y-1.5">
-              <div className="flex items-center justify-between px-2 mb-1">
-                <span className="text-[10px] font-black uppercase tracking-widest text-emerald-400">
-                  Melhor Preço por Empresa
-                </span>
-                <Filter className="w-3 h-3 text-emerald-400" />
-              </div>
-              <button
-                onClick={() => {
-                  setActiveTab('faltas');
-                  setFiltroDistribuidora('TODAS');
-                }}
-                className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-black cursor-pointer border transition-all ${
-                  activeTab === 'faltas' && filtroDistribuidora === 'TODAS'
-                    ? 'bg-cyan-950/70 border-cyan-500 text-cyan-200 shadow-sm'
-                    : 'bg-[#09101f] border-slate-800 text-slate-300 hover:border-slate-600'
-                }`}
-              >
-                <span>Todas Distribuidoras</span>
-                <span className="px-1.5 py-0.5 rounded bg-cyan-900/60 text-[10px] text-cyan-200">{faltasBaseFiltradas.length} it.</span>
-              </button>
-
-              {totaisPorDistribuidora
-                .filter(grp => grp.isEmpresaReal && grp.qtdProdutos > 0)
-                .map(grp => {
-                  const nomeDist = grp.distribuidora;
-                  const ativo = activeTab === 'faltas' && filtroDistribuidora === nomeDist;
-                  return (
+              {/* Ferramentas Avançadas recolhidas por padrão para não poluir */}
+              <details className="pt-2 group">
+                <summary className="px-2 py-1.5 text-[11px] font-bold text-slate-400 hover:text-white cursor-pointer list-none flex items-center justify-between rounded-lg hover:bg-slate-800/40">
+                  <span>⚙️ Mais Ferramentas</span>
+                  <span className="text-[10px] group-open:rotate-180 transition-transform">▼</span>
+                </summary>
+                <div className="mt-1 space-y-1 pl-1">
+                  {modulosAvancados.map(item => (
                     <button
-                      key={nomeDist}
-                      onClick={() => {
-                        setActiveTab('faltas');
-                        setFiltroDistribuidora(filtroDistribuidora === nomeDist ? 'TODAS' : nomeDist);
-                      }}
-                      title={`Filtrar produtos onde ${nomeDist} tem o 1º melhor preço`}
-                      className={`w-full flex flex-col gap-0.5 px-3 py-2 rounded-xl text-left cursor-pointer border transition-all ${
-                        ativo
-                          ? 'bg-emerald-950/70 border-emerald-500 text-emerald-200 ring-1 ring-emerald-500/40 shadow-md'
-                          : 'bg-[#09101f] border-slate-800 text-slate-300 hover:border-emerald-700/60'
+                      key={item.id}
+                      onClick={() => setActiveTab(item.id)}
+                      className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-[11px] font-semibold transition-all cursor-pointer text-left ${
+                        activeTab === item.id
+                          ? 'bg-slate-800 text-cyan-300 border border-cyan-800/60'
+                          : 'text-slate-400 hover:text-white hover:bg-slate-800/40'
                       }`}
                     >
-                      <div className="flex items-center justify-between w-full gap-1">
-                        <span className="text-xs font-black truncate uppercase text-emerald-300">{nomeDist}</span>
-                        <span className="shrink-0 px-1.5 py-0.5 rounded bg-slate-800 text-[10px] font-black text-white">
-                          {grp.qtdProdutos} it.
-                        </span>
-                      </div>
-                      <span className="text-[11px] font-bold text-slate-400">
-                        Total: <b className="text-white">R$ {grp.valorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</b>
-                      </span>
+                      {item.icon}
+                      <span className="flex-1 truncate">{item.label}</span>
+                      {item.badge > 0 && (
+                        <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-slate-900 text-slate-300">{item.badge}</span>
+                      )}
                     </button>
-                  );
-                })}
-            </div>
+                  ))}
+                </div>
+              </details>
+            </nav>
 
-            {/* Ações Rápidas Exclusivas do Ped no Menu Lateral */}
+            {/* Ações Rápidas no Rodapé da Sidebar */}
             <div className="p-3 border-t border-slate-800/80 space-y-2 mt-auto">
-              <span className="px-2 text-[10px] font-black uppercase tracking-widest text-slate-400 block">
-                Ações Rápidas do Ped
-              </span>
-              <button
-                onClick={() => {
-                  setActiveTab('faltas');
-                  setAgruparPorDistribuidora(prev => !prev);
-                }}
-                className={`w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-black uppercase cursor-pointer border transition-all ${
-                  agruparPorDistribuidora
-                    ? 'bg-cyan-600 text-white border-cyan-400'
-                    : 'bg-[#09101f] text-cyan-300 border-cyan-800/70 hover:border-cyan-500'
-                }`}
-              >
-                <Layers className="w-3.5 h-3.5" />
-                <span>{agruparPorDistribuidora ? '✓ Agrupado por Empresa' : 'Agrupar por Empresa'}</span>
-              </button>
               <button
                 onClick={() => setAvulsoModalOpen(true)}
-                className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-black uppercase cursor-pointer border border-slate-700 bg-slate-800/80 hover:bg-slate-700 text-slate-200 transition-all"
+                className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-bold cursor-pointer border border-slate-700 bg-slate-800/80 hover:bg-slate-700 text-slate-200 transition-all"
               >
                 <Plus className="w-3.5 h-3.5 text-cyan-400" />
-                <span>Adicionar Item Avulso</span>
+                <span>+ Item Avulso</span>
               </button>
             </div>
           </aside>
@@ -4426,7 +4384,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
         <div className="flex-1 overflow-y-auto custom-scrollbar p-2.5 sm:p-4 md:p-6 pb-20 md:pb-6 space-y-4 md:space-y-5 bg-gradient-to-b from-[#070b14] via-[#09101f] to-[#070b14]">
         
         {/* ─── BARRA DA REGRA MASTER: ORÇAMENTO & VENCIMENTO DE BOLETOS ─────────── */}
-        {orcamentoInfo && !modoApenasTabela && (
+        {orcamentoInfo && !modoApenasTabela && activeTab !== 'decisao' && activeTab !== 'oportunidades' && activeTab !== 'promocoes_whatsapp' && (
           <div className={`p-4 rounded-2xl border shadow-lg backdrop-blur-md transition-all ${
             orcamentoInfo.regraMaster.bloquearVencimentosMesAtual
               ? 'bg-rose-950/40 border-rose-800/80 text-rose-200'

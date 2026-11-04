@@ -1,9 +1,14 @@
 {
   "version": "1.2.4",
-  "commitHash": "e410460",
-  "commitMessage": "fix(belaped): persistir produtos ja pedidos por 7 dias no banco e filtrar na lista semanal",
-  "buildTime": "04/11/2026, 10:45:15",
+  "commitHash": "071ce86",
+  "commitMessage": "fix(belaped): efeito cascata na reposicao semanal e recalculo automatico de opcoes",
+  "buildTime": "04/11/2026, 19:44:24",
   "recentCommits": [
+    {
+      "hash": "071ce86",
+      "date": "04/11/2026",
+      "message": "fix(belaped): efeito cascata na reposicao semanal e recalculo automatico de opcoes"
+    },
     {
       "hash": "e410460",
       "date": "04/11/2026",
@@ -58,11 +63,6 @@
       "hash": "ab6217a",
       "date": "03/11/2026",
       "message": "fix(liquidacao): regularizar precos promocionais vigentes dos 118 produtos e blindar sincronizacao"
-    },
-    {
-      "hash": "05d5621",
-      "date": "03/11/2026",
-      "message": "fix(dashboard): harmoniza indicador live e status offline do digifarma para vendas de hoje"
     }
   ]
 }
