@@ -1,9 +1,19 @@
 {
   "version": "1.2.4",
-  "commitHash": "14d0f24",
-  "commitMessage": "fix(sales): restringir faturamento de vendas 100% exclusivamente ao Digifarma",
-  "buildTime": "03/11/2026, 19:15:07",
+  "commitHash": "fc431fb",
+  "commitMessage": "fix(finance): alinhar fechamento live com relatorio de Estatisticas (Por Pagamento) do Digifarma",
+  "buildTime": "04/11/2026, 09:22:13",
   "recentCommits": [
+    {
+      "hash": "fc431fb",
+      "date": "03/11/2026",
+      "message": "fix(finance): alinhar fechamento live com relatorio de Estatisticas (Por Pagamento) do Digifarma"
+    },
+    {
+      "hash": "6c196ea",
+      "date": "03/11/2026",
+      "message": "fix(digifarma): conectar no IP real 192.168.1.10, vendas estritamente CURRENT_DATE e reativar liquidação 118 itens"
+    },
     {
       "hash": "14d0f24",
       "date": "03/11/2026",
@@ -53,16 +63,6 @@
       "hash": "43c4752",
       "date": "03/11/2026",
       "message": "fix(pdv): acionamento automatico de impressao do cupom termico e correcao de IP do Digifarma"
-    },
-    {
-      "hash": "fb879ac",
-      "date": "03/11/2026",
-      "message": "fix(sales): expurga cache obsoleto e valida data estrita para vendas de hoje no ERP e Dashboard"
-    },
-    {
-      "hash": "ddf7344",
-      "date": "03/11/2026",
-      "message": "feat(pdv): fila resiliente digifarma outbox, insercao fpagtos, script destravamento caixa e diagnostico venda fantasma"
     }
   ]
 }

@@ -567,8 +567,14 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     // 1. Filtra itens marcados/selecionados
     let itensSel = faltas.filter(f => itensSelecionados[f.produto_id]);
     if (itensSel.length === 0) {
-      addToast('Nenhum produto selecionado para gerar o arquivo TXT.', 'warning');
-      return;
+      const baseDisponivel = (faltasFiltradas && faltasFiltradas.length > 0) ? faltasFiltradas : faltas;
+      if (baseDisponivel.length > 0) {
+        itensSel = baseDisponivel;
+        addToast('Nenhum item marcado manualmente: gerando arquivo com todos os produtos da lista.', 'info');
+      } else {
+        addToast('Nenhum produto encontrado para exportação.', 'warning');
+        return;
+      }
     }
 
     if (modo === 'SO_MEDICAMENTOS') {
@@ -8556,8 +8562,141 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
             {/* Conteúdo com Opções */}
             <div className="p-6 space-y-3.5">
               <p className="text-xs text-slate-300 leading-relaxed">
-                Escolha o formato desejado para gerar e baixar os arquivos no seu computador:
+                Escolha o formato desejado para exportar ou imprimir os produtos:
               </p>
+
+              {/* Opção PDF / Impressão A4 */}
+              <button
+                type="button"
+                onClick={() => {
+                  setModalExportarTxtOpen(false);
+                  const listaAlvo = Object.values(itensSelecionados).some(Boolean)
+                    ? faltas.filter(f => itensSelecionados[f.produto_id])
+                    : (faltasFiltradas.length > 0 ? faltasFiltradas : faltas);
+                  
+                  if (listaAlvo.length === 0) {
+                    addToast('Nenhum produto para imprimir.', 'warning');
+                    return;
+                  }
+                  
+                  const dataHoje = new Date().toLocaleDateString('pt-BR');
+                  const horaHoje = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+                  const win = window.open('', '_blank', 'width=1000,height=800');
+                  if (!win) {
+                    addToast('Pop-up bloqueado pelo navegador. Por favor, autorize pop-ups.', 'warning');
+                    return;
+                  }
+                  const totalGeral = listaAlvo.reduce((acc, it) => acc + (Number(it.subtotal_7d) || 0), 0);
+                  const totalUn = listaAlvo.reduce((acc, it) => acc + (Number(it.qtd_sugerida_7d) || 1), 0);
+                  
+                  win.document.write(`<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>BelaFarma - Relatório de Compras (${dataHoje})</title>
+  <style>
+    @page { size: A4 portrait; margin: 8mm; }
+    * { box-sizing: border-box; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 10px; margin: 0; color: #0f172a; }
+    .toolbar { position: sticky; top: 0; background: #0f172a; color: white; padding: 10px 16px; display: flex; justify-content: space-between; align-items: center; }
+    .btn { padding: 6px 12px; border-radius: 6px; font-weight: bold; cursor: pointer; border: none; font-size: 11px; }
+    .btn-primary { background: #0284c7; color: white; }
+    .sheet { padding: 16px; }
+    h1 { font-size: 16px; margin: 0; }
+    table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 9.5px; }
+    th, td { border: 1px solid #cbd5e1; padding: 4px 6px; }
+    th { background: #f1f5f9; text-align: left; }
+    .text-right { text-align: right; }
+    .text-center { text-align: center; }
+    @media print { .toolbar { display: none !important; } .sheet { padding: 0 !important; } }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <div><b>📄 BelaFarma • Relatório de Compras (${listaAlvo.length} produtos)</b></div>
+    <div>
+      <button class="btn btn-primary" onclick="window.print()">🖨️ Imprimir / Salvar PDF</button>
+      <button class="btn" style="background: #334155; color: white; margin-left: 6px;" onclick="window.close()">✕ Fechar</button>
+    </div>
+  </div>
+  <div class="sheet">
+    <div style="display: flex; justify-content: space-between; border-bottom: 2px solid #0f172a; padding-bottom: 8px;">
+      <div>
+        <h1>BelaFarma • Relatório de Compras</h1>
+        <p style="margin: 2px 0 0; color: #64748b; font-size: 10px;">Produtos selecionados e cotados nos portais</p>
+      </div>
+      <div style="text-align: right; font-size: 9.5px; color: #475569;">
+        <div><b>Emissão:</b> ${dataHoje} às ${horaHoje}</div>
+        <div><b>Itens:</b> ${listaAlvo.length} produtos (${totalUn} un)</div>
+        <div><b>Total:</b> R$ ${totalGeral.toFixed(2)}</div>
+      </div>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th style="width: 25px;" class="text-center">#</th>
+          <th>Produto / Descrição</th>
+          <th style="width: 85px;" class="text-center">EAN</th>
+          <th style="width: 30px;" class="text-center">Curva</th>
+          <th style="width: 35px;" class="text-right">Saldo</th>
+          <th style="width: 35px;" class="text-center">Qtd</th>
+          <th style="width: 120px;">1º Fornecedor</th>
+          <th style="width: 60px;" class="text-right">Preço Cot.</th>
+          <th style="width: 60px;" class="text-right">Últ. Compra</th>
+          <th style="width: 65px;" class="text-right">Subtotal</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${listaAlvo.map((it, idx) => `
+          <tr>
+            <td class="text-center">${idx + 1}</td>
+            <td><b>${String(it.descricao || '').replace(/</g, '&lt;')}</b></td>
+            <td class="text-center font-mono">${it.ean || '—'}</td>
+            <td class="text-center font-bold">${it.curva_abc || '—'}</td>
+            <td class="text-right">${it.saldo}</td>
+            <td class="text-center font-bold" style="color: #0284c7;">${it.qtd_sugerida_7d || 1}</td>
+            <td><b>${it.fornecedor_1 || '—'}</b></td>
+            <td class="text-right font-mono">R$ ${(Number(it.preco_1) || 0).toFixed(2)}</td>
+            <td class="text-right font-mono" style="color: #64748b;">${Number(it.preco_ult_compra || it.custo_unitario) ? `R$ ${(Number(it.preco_ult_compra || it.custo_unitario)).toFixed(2)}` : '—'}</td>
+            <td class="text-right font-mono font-bold">R$ ${(Number(it.subtotal_7d) || 0).toFixed(2)}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+      <tfoot>
+        <tr style="background: #f1f5f9; font-weight: bold;">
+          <td colspan="5" class="text-right">Totais:</td>
+          <td class="text-center" style="color: #0284c7;">${totalUn} un</td>
+          <td colspan="3" class="text-right">Valor Total Estimado:</td>
+          <td class="text-right font-mono" style="font-size: 11px;">R$ ${totalGeral.toFixed(2)}</td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</body>
+</html>`);
+                  win.document.close();
+                }}
+                className="w-full text-left p-3.5 rounded-2xl border border-cyan-600/70 bg-gradient-to-r from-cyan-950/70 via-blue-950/60 to-[#0c1a30] hover:border-cyan-400 hover:from-cyan-900/80 hover:to-blue-900/80 transition-all cursor-pointer shadow-md group"
+              >
+                <div className="flex items-start gap-3.5">
+                  <div className="p-2.5 rounded-xl bg-cyan-600/30 text-cyan-300 border border-cyan-500/40 group-hover:scale-105 transition-transform shrink-0 mt-0.5">
+                    <Printer className="w-5 h-5 text-cyan-300" />
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-black text-white group-hover:text-cyan-200">
+                        🖨️ Imprimir / Salvar em PDF (Folha A4)
+                      </span>
+                      <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">
+                        Visualizar & PDF
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-300 font-medium mt-1">
+                      Abre o relatório formatado em A4 com todos os produtos selecionados (ou visíveis), pronto para salvar em PDF ou imprimir diretamente.
+                    </p>
+                  </div>
+                </div>
+              </button>
 
               {/* Opção 1: Consolidado com divisão interna de Categoria e Fornecedor */}
               <button

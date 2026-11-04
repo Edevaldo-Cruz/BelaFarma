@@ -23,6 +23,7 @@ import {
   X,
   Layers,
   Grid,
+  LayoutGrid,
   Maximize2,
   SlidersHorizontal,
   Info,
@@ -812,7 +813,19 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
   const handleAbrirRelatorioHtml = () => {
     const dataHoje = new Date().toLocaleDateString('pt-BR');
     const horaHoje = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-    const totalUnidades = listaAtivaSemana.reduce((acc, it) => acc + (it.qtd_sugerida_7d || 1), 0);
+    
+    // Respeitar seleção manual de produtos caso o usuário tenha marcado itens
+    const itensMarcados = listaAtivaSemana.filter(it => itensSelecionados[it.produto_id]);
+    const temFiltroSelecaoManual = itensMarcados.length > 0;
+    const listaParaRelatorio = temFiltroSelecaoManual ? itensMarcados : listaAtivaSemana;
+
+    if (listaParaRelatorio.length === 0) {
+      addToast('Nenhum produto disponível para gerar a lista em PDF.', 'warning');
+      return;
+    }
+
+    const totalUnidades = listaParaRelatorio.reduce((acc, it) => acc + (it.qtd_sugerida_7d || 1), 0);
+    const totalOrcadoParaRelatorio = listaParaRelatorio.reduce((acc, it) => acc + (it.subtotal_7d || 0), 0);
     const escapeHtml = (str: any) => String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
     const html = `<!DOCTYPE html>
@@ -1173,6 +1186,7 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
         <div><b>Emissão:</b> ${dataHoje} às ${horaHoje}</div>
         <div><b>Janela:</b> ${escapeHtml(janelaAlvoSelecionada || 'Padrão')}</div>
         <div><b>Reserva de Caixa:</b> ${reservaSegurancaPct}%</div>
+        ${temFiltroSelecaoManual ? `<div style="color: #0284c7; font-weight: 800;"><b>Seleção:</b> ${listaParaRelatorio.length} produtos selecionados manualmente</div>` : ''}
       </div>
     </div>
 
@@ -1197,7 +1211,7 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
       </div>
       <div class="kpi-item">
         <span class="kpi-label">Itens Aprovados</span>
-        <span class="kpi-val" id="kpi-itens-aprovados">${listaAtivaSemana.length} produtos (${totalUnidades} un)</span>
+        <span class="kpi-val" id="kpi-itens-aprovados">${listaParaRelatorio.length} produtos (${totalUnidades} un)</span>
       </div>
     </div>
 
@@ -1229,7 +1243,7 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
         </tr>
       </thead>
       <tbody>
-        ${listaAtivaSemana.map((it, idx) => {
+        ${listaParaRelatorio.map((it, idx) => {
           const precoUlt = Number(it.preco_ult_compra) || Number(it.custo_unitario) || 0;
           const precoCot = Number(it.preco_1) || 0;
           const diffUnit = precoUlt > 0 && precoCot > 0 ? (precoCot - precoUlt) : 0;
@@ -3633,7 +3647,7 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* ─── 4. LISTA DE CARDS DE COMPRA (GRADE OU CARROSSEL) ─────────────────── */}
+      {/* ─── 4. LISTA DE PRODUTOS DA SEMANA (CARDS, TABELA OU CARROSSEL) ─────────── */}
       <div className="px-3 sm:px-4 max-w-7xl mx-auto w-full flex-1 pb-12">
         {listaAtivaSemana.length === 0 ? (
           <div className="bg-[#0b1222] border border-slate-800 rounded-2xl p-8 text-center flex flex-col items-center justify-center gap-3">
@@ -3643,57 +3657,372 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
               Todos os itens de extrema necessidade foram atendidos, pedidos ou estão com estoque suficiente para os próximos 7 dias.
             </p>
           </div>
-        ) : modoVisualizacao === 'grade' ? (
-          /* MODO GRADE COMPACTA DE CARDS */
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {listaAtivaSemana.map((item, idx) => (
-              <CardProdutoDecisao
-                key={item.produto_id}
-                item={item}
-                indiceAtual={idx}
-                totalItens={listaAtivaSemana.length}
-                copiadoId={copiadoId}
-                onCopiarEan={handleCopiarEan}
-                onAlterarQtd={onAlterarQtd}
-                onNaoCotar={() => handleNaoCotar(item)}
-                onSubstituir={() => handleSubstituirPorOutro(item.produto_id, item.descricao)}
-                onJaPedido={() => handleJaPedido(item)}
-                onComprar={(dist, preco) => handleAdicionarAoCarrinho(item, dist, preco)}
-                onNavegarAnterior={() => {}}
-                onNavegarProximo={() => {}}
-                isModoCarrossel={false}
-              />
-            ))}
-          </div>
         ) : (
-          /* MODO CARROSSEL FOCAL 1 A 1 */
-          <div className="max-w-2xl mx-auto flex flex-col gap-3">
-            <div className="flex items-center justify-between text-xs text-slate-400 px-2">
-              <span>Card <b>{indiceCarrossel + 1}</b> de <b>{listaAtivaSemana.length}</b></span>
-              <span className="font-mono font-bold text-cyan-300">
-                Subtotal acumulado até aqui: R$ {listaAtivaSemana
-                  .slice(0, indiceCarrossel + 1)
-                  .reduce((acc, it) => acc + it.subtotal_7d, 0)
-                  .toFixed(2)}
-              </span>
+          <div className="space-y-3">
+            {/* ── BARRA DE SELEÇÃO EM MASSA & RESUMO RÁPIDO ── */}
+            <div className="flex flex-wrap items-center justify-between gap-3 bg-[#080f1d] px-3.5 py-2.5 rounded-xl border border-slate-800 shadow-md">
+              <div className="flex items-center gap-3">
+                <label className="flex items-center gap-2 text-xs font-black text-slate-200 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={listaAtivaSemana.length > 0 && listaAtivaSemana.every(it => itensSelecionados[it.produto_id])}
+                    onChange={() => {
+                      const todosMarcados = listaAtivaSemana.length > 0 && listaAtivaSemana.every(it => itensSelecionados[it.produto_id]);
+                      const novoMap = { ...itensSelecionados };
+                      listaAtivaSemana.forEach(it => {
+                        novoMap[it.produto_id] = !todosMarcados;
+                      });
+                      setItensSelecionados(novoMap);
+                    }}
+                    className="w-4 h-4 rounded border-slate-700 bg-slate-900 text-cyan-500 focus:ring-cyan-500 cursor-pointer"
+                    title="Selecionar ou desmarcar todos os itens da semana"
+                  />
+                  <span>Selecionar Todos ({listaAtivaSemana.length})</span>
+                </label>
+
+                <div className="flex items-center gap-1.5 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const novoMap = { ...itensSelecionados };
+                      listaAtivaSemana.forEach(it => { novoMap[it.produto_id] = true; });
+                      setItensSelecionados(novoMap);
+                    }}
+                    className="text-[11px] font-bold text-cyan-400 hover:text-cyan-300 underline px-1 cursor-pointer"
+                  >
+                    Marcar Todos
+                  </button>
+                  <span className="text-slate-600">•</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const novoMap = { ...itensSelecionados };
+                      listaAtivaSemana.forEach(it => { novoMap[it.produto_id] = false; });
+                      setItensSelecionados(novoMap);
+                    }}
+                    className="text-[11px] font-bold text-slate-400 hover:text-slate-200 underline px-1 cursor-pointer"
+                  >
+                    Desmarcar Todos
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 text-xs">
+                <span className="text-slate-400 font-medium">
+                  <b className="text-cyan-300">{listaAtivaSemana.filter(it => itensSelecionados[it.produto_id]).length}</b> de <b>{listaAtivaSemana.length}</b> selecionados
+                </span>
+                <span className="text-slate-400 font-medium">
+                  Total Selecionado: <b className="text-emerald-400 font-mono">R$ {listaAtivaSemana
+                    .filter(it => itensSelecionados[it.produto_id])
+                    .reduce((acc, it) => acc + (it.subtotal_7d || 0), 0)
+                    .toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b>
+                </span>
+              </div>
             </div>
 
-            {listaAtivaSemana[indiceCarrossel] && (
-              <CardProdutoDecisao
-                item={listaAtivaSemana[indiceCarrossel]}
-                indiceAtual={indiceCarrossel}
-                totalItens={listaAtivaSemana.length}
-                copiadoId={copiadoId}
-                onCopiarEan={handleCopiarEan}
-                onAlterarQtd={onAlterarQtd}
-                onNaoCotar={() => handleNaoCotar(listaAtivaSemana[indiceCarrossel])}
-                onSubstituir={() => handleSubstituirPorOutro(listaAtivaSemana[indiceCarrossel].produto_id, listaAtivaSemana[indiceCarrossel].descricao)}
-                onJaPedido={() => handleJaPedido(listaAtivaSemana[indiceCarrossel])}
-                onComprar={(dist, preco) => handleAdicionarAoCarrinho(listaAtivaSemana[indiceCarrossel], dist, preco)}
-                onNavegarAnterior={() => setIndiceCarrossel(prev => Math.max(0, prev - 1))}
-                onNavegarProximo={() => setIndiceCarrossel(prev => Math.min(listaAtivaSemana.length - 1, prev + 1))}
-                isModoCarrossel={true}
-              />
+            {/* ── MODO TABELA DE ALTA DENSIDADE ── */}
+            {modoVisualizacao === 'tabela' ? (
+              <div className="bg-[#0b1222] border border-slate-800 rounded-2xl overflow-hidden shadow-2xl">
+                <div className="overflow-x-auto custom-scrollbar">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead>
+                      <tr className="bg-[#060a12] border-b border-slate-800 text-[11px] font-black text-slate-400 uppercase tracking-wider">
+                        <th className="py-2.5 px-3 w-12 text-center whitespace-nowrap">
+                          <input
+                            type="checkbox"
+                            checked={listaAtivaSemana.length > 0 && listaAtivaSemana.every(it => itensSelecionados[it.produto_id])}
+                            onChange={() => {
+                              const todosMarcados = listaAtivaSemana.length > 0 && listaAtivaSemana.every(it => itensSelecionados[it.produto_id]);
+                              const novoMap = { ...itensSelecionados };
+                              listaAtivaSemana.forEach(it => { novoMap[it.produto_id] = !todosMarcados; });
+                              setItensSelecionados(novoMap);
+                            }}
+                            className="w-4 h-4 rounded border-slate-700 bg-slate-900 text-cyan-500 focus:ring-cyan-500 cursor-pointer"
+                            title="Marcar / Desmarcar todos os produtos da semana"
+                          />
+                        </th>
+                        <th className="py-2.5 px-2 w-10 text-center whitespace-nowrap text-slate-500">#</th>
+                        <th className="py-2.5 px-3 whitespace-nowrap min-w-[280px]">Produto / Metadados</th>
+                        <th className="py-2.5 px-2.5 text-center whitespace-nowrap w-28">Pedir (Qtd)</th>
+                        <th className="py-2.5 px-3 whitespace-nowrap w-48">1º Fornecedor (Melhor Cotação)</th>
+                        <th className="py-2.5 px-3 text-right whitespace-nowrap w-28">Últ. Compra</th>
+                        <th className="py-2.5 px-3 text-right whitespace-nowrap w-24">Variação</th>
+                        <th className="py-2.5 px-3 text-right whitespace-nowrap w-28">Subtotal</th>
+                        <th className="py-2.5 px-3 text-center whitespace-nowrap w-36">Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/80">
+                      {listaAtivaSemana.map((item, idx) => {
+                        const isSelected = Boolean(itensSelecionados[item.produto_id]);
+                        const preco1 = Number(item.preco_1) || 0;
+                        const precoUlt = Number(item.preco_ult_compra) || Number(item.custo_unitario) || 0;
+                        const diffUnit = precoUlt > 0 && preco1 > 0 ? (preco1 - precoUlt) : 0;
+                        const diffPct = precoUlt > 0 ? (diffUnit / precoUlt) * 100 : 0;
+                        const qtd = Math.max(1, item.qtd_sugerida_7d || 1);
+                        const subtotal = Number((qtd * (preco1 > 0 ? preco1 : precoUlt)).toFixed(2));
+
+                        return (
+                          <tr
+                            key={item.produto_id}
+                            className={`transition-colors ${
+                              isSelected 
+                                ? 'bg-cyan-950/40 border-l-4 border-cyan-400' 
+                                : idx % 2 === 0 ? 'bg-[#080f1d] hover:bg-slate-800/40' : 'bg-[#0b1222] hover:bg-slate-800/40'
+                            }`}
+                          >
+                            {/* Checkbox Individual */}
+                            <td className="py-2 px-3 text-center">
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => setItensSelecionados(prev => ({ ...prev, [item.produto_id]: !prev[item.produto_id] }))}
+                                className="w-4 h-4 rounded border-slate-700 bg-slate-900 text-cyan-500 focus:ring-cyan-500 cursor-pointer"
+                                title="Selecionar este produto"
+                              />
+                            </td>
+
+                            {/* Índice */}
+                            <td className="py-2 px-2 text-center font-bold text-slate-500 text-[11px]">
+                              {idx + 1}
+                            </td>
+
+                            {/* Produto + Metadados em linha única compacta */}
+                            <td className="py-2 px-3">
+                              <div className="flex flex-col">
+                                <span className="font-bold text-white text-xs truncate max-w-lg" title={item.descricao}>
+                                  {item.descricao}
+                                </span>
+                                <div className="inline-flex items-center gap-1.5 text-[10px] text-slate-400 mt-0.5 whitespace-nowrap">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCopiarEan(item.ean, String(item.produto_id))}
+                                    className="font-mono text-cyan-400 hover:text-white inline-flex items-center gap-0.5 cursor-pointer"
+                                    title="Copiar EAN"
+                                  >
+                                    <Copy className="w-2.5 h-2.5" />
+                                    <span>{item.ean || 'S/ EAN'}</span>
+                                    {copiadoId === String(item.produto_id) && <span className="text-emerald-400">✓</span>}
+                                  </button>
+                                  <span className="text-slate-600">•</span>
+                                  <span className={`px-1 py-0.2 rounded font-black text-[9px] border ${
+                                    item.curva_abc === 'A' ? 'bg-rose-950/80 border-rose-700 text-rose-300' :
+                                    item.curva_abc === 'B' ? 'bg-amber-950/80 border-amber-700 text-amber-300' :
+                                    'bg-slate-900 border-slate-700 text-slate-400'
+                                  }`}>
+                                    Curva {item.curva_abc}
+                                  </span>
+                                  <span className="text-slate-600">•</span>
+                                  <span className={item.saldo <= 0 ? 'text-rose-400 font-bold' : 'text-slate-300'}>
+                                    Est: {item.saldo} un
+                                  </span>
+                                  <span className="text-slate-600">•</span>
+                                  <span>VMD: {Number(item.vmd_ponderado).toFixed(1)}</span>
+                                  <span className="text-slate-600">•</span>
+                                  <span className={item.dias_estoque_restante <= 3 ? 'text-rose-400 font-bold' : item.dias_estoque_restante <= 7 ? 'text-amber-400' : 'text-slate-400'}>
+                                    {item.dias_estoque_restante}d cob
+                                  </span>
+                                </div>
+                              </div>
+                            </td>
+
+                            {/* Quantidade com Controles Compactos - / + */}
+                            <td className="py-2 px-2.5 text-center">
+                              <div className="inline-flex items-center gap-1 bg-[#060a12] border border-slate-700 rounded-lg p-0.5">
+                                <button
+                                  type="button"
+                                  onClick={() => onAlterarQtd(item.produto_id, Math.max(1, qtd - 1))}
+                                  className="w-5 h-5 rounded hover:bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center font-bold text-xs cursor-pointer"
+                                  title="Diminuir 1 un"
+                                >
+                                  <Minus className="w-3 h-3" />
+                                </button>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  value={qtd}
+                                  onChange={(e) => onAlterarQtd(item.produto_id, Math.max(1, parseInt(e.target.value) || 1))}
+                                  className="w-8 text-center bg-transparent font-mono font-bold text-cyan-300 text-xs border-none focus:outline-none"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => onAlterarQtd(item.produto_id, qtd + 1)}
+                                  className="w-5 h-5 rounded hover:bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center font-bold text-xs cursor-pointer"
+                                  title="Aumentar 1 un"
+                                >
+                                  <Plus className="w-3 h-3" />
+                                </button>
+                              </div>
+                            </td>
+
+                            {/* 1º Fornecedor e Preço Cotado */}
+                            <td className="py-2 px-3">
+                              <div className="flex flex-col">
+                                <div className="flex items-center gap-1">
+                                  <span className="font-bold text-white text-xs truncate" title={item.fornecedor_1 || '—'}>
+                                    {item.fornecedor_1 || 'Sem Cotação'}
+                                  </span>
+                                  {item.melhor_fora_janela && item.melhor_fora_janela.distribuidora === item.fornecedor_1 ? (
+                                    <span className="text-[9px] font-bold px-1 rounded bg-amber-950 text-amber-300 border border-amber-800" title={item.melhor_fora_janela.motivo}>
+                                      Fora Janela
+                                    </span>
+                                  ) : item.preco_1 && item.preco_1 > 0 ? (
+                                    <span className="text-[9px] font-bold px-1 rounded bg-emerald-950 text-emerald-300 border border-emerald-800">
+                                      Janela OK
+                                    </span>
+                                  ) : null}
+                                </div>
+                                <span className="text-xs font-mono font-black text-cyan-300 mt-0.5">
+                                  {preco1 > 0 ? `R$ ${preco1.toFixed(2)}` : 'R$ —'}
+                                </span>
+                              </div>
+                            </td>
+
+                            {/* Última Compra */}
+                            <td className="py-2 px-3 text-right font-mono text-slate-300 text-xs">
+                              {precoUlt > 0 ? `R$ ${precoUlt.toFixed(2)}` : '—'}
+                            </td>
+
+                            {/* Variação */}
+                            <td className="py-2 px-3 text-right">
+                              {precoUlt > 0 && preco1 > 0 ? (
+                                <span className={`text-[10px] font-mono font-black ${
+                                  diffUnit < 0 ? 'text-emerald-400' : diffUnit > 0 ? 'text-rose-400' : 'text-slate-400'
+                                }`}>
+                                  {diffUnit < 0 ? `-R$ ${Math.abs(diffUnit).toFixed(2)} (${diffPct.toFixed(0)}%)` :
+                                   diffUnit > 0 ? `+R$ ${diffUnit.toFixed(2)} (+${diffPct.toFixed(0)}%)` : '='}
+                                </span>
+                              ) : (
+                                <span className="text-slate-500 text-[10px]">—</span>
+                              )}
+                            </td>
+
+                            {/* Subtotal */}
+                            <td className="py-2 px-3 text-right font-mono font-black text-white text-xs">
+                              R$ {subtotal.toFixed(2)}
+                            </td>
+
+                            {/* Ações Enxutas por Ícone */}
+                            <td className="py-2 px-3 text-center whitespace-nowrap">
+                              <div className="inline-flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => handleJaPedido(item)}
+                                  className="p-1.5 rounded-lg bg-emerald-950/60 hover:bg-emerald-900 border border-emerald-700/60 text-emerald-300 hover:text-white transition-all cursor-pointer"
+                                  title="Marcar como Já Pedido (remove da cota semanal e sobe o próximo do Banco de Reserva)"
+                                >
+                                  <CheckCircle2 className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleNaoCotar(item)}
+                                  className="p-1.5 rounded-lg bg-rose-950/60 hover:bg-rose-900 border border-rose-700/60 text-rose-300 hover:text-white transition-all cursor-pointer"
+                                  title="Não Cotar (enviar para Lista de Exclusão)"
+                                >
+                                  <Ban className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleSubstituirPorOutro(item.produto_id, item.descricao)}
+                                  className="p-1.5 rounded-lg bg-amber-950/60 hover:bg-amber-900 border border-amber-700/60 text-amber-300 hover:text-white transition-all cursor-pointer"
+                                  title="Substituir pelo próximo item prioritário do Banco de Reserva"
+                                >
+                                  <RotateCcw className="w-3.5 h-3.5" />
+                                </button>
+                                {item.fornecedor_1 && preco1 > 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleAdicionarAoCarrinho(item, item.fornecedor_1!, preco1)}
+                                    className="p-1.5 rounded-lg bg-cyan-900/60 hover:bg-cyan-700 border border-cyan-600/70 text-cyan-200 hover:text-white transition-all cursor-pointer"
+                                    title={`Adicionar ao carrinho da ${item.fornecedor_1}`}
+                                  >
+                                    <ShoppingCart className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                    <tfoot>
+                      <tr className="bg-[#060a12] border-t-2 border-slate-700 font-bold text-xs">
+                        <td colSpan={3} className="py-3 px-3 text-right uppercase text-slate-400">
+                          Totais da Lista Semanal:
+                        </td>
+                        <td className="py-3 px-2 text-center font-mono font-bold text-cyan-300">
+                          {listaAtivaSemana.reduce((acc, it) => acc + (it.qtd_sugerida_7d || 1), 0)} un
+                        </td>
+                        <td colSpan={3} className="py-3 px-3 text-right uppercase text-slate-400">
+                          Comprometido no Orçamento:
+                        </td>
+                        <td className="py-3 px-3 text-right font-mono font-black text-emerald-400 text-sm">
+                          R$ {totalOrcadoSemana.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </td>
+                        <td className="py-3 px-3 text-center text-[10px] text-slate-400">
+                          {listaAtivaSemana.filter(it => itensSelecionados[it.produto_id]).length} sel.
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </div>
+            ) : modoVisualizacao === 'cards' ? (
+              /* MODO GRADE COMPACTA DE CARDS */
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {listaAtivaSemana.map((item, idx) => (
+                  <CardProdutoDecisao
+                    key={item.produto_id}
+                    item={item}
+                    indiceAtual={idx}
+                    totalItens={listaAtivaSemana.length}
+                    copiadoId={copiadoId}
+                    onCopiarEan={handleCopiarEan}
+                    onAlterarQtd={onAlterarQtd}
+                    onNaoCotar={() => handleNaoCotar(item)}
+                    onSubstituir={() => handleSubstituirPorOutro(item.produto_id, item.descricao)}
+                    onJaPedido={() => handleJaPedido(item)}
+                    onComprar={(dist, preco) => handleAdicionarAoCarrinho(item, dist, preco)}
+                    onNavegarAnterior={() => {}}
+                    onNavegarProximo={() => {}}
+                    isModoCarrossel={false}
+                    selecionado={Boolean(itensSelecionados[item.produto_id])}
+                    onToggleSelecionar={() => setItensSelecionados(prev => ({ ...prev, [item.produto_id]: !prev[item.produto_id] }))}
+                  />
+                ))}
+              </div>
+            ) : (
+              /* MODO CARROSSEL FOCAL 1 A 1 */
+              <div className="max-w-2xl mx-auto flex flex-col gap-3">
+                <div className="flex items-center justify-between text-xs text-slate-400 px-2">
+                  <span>Card <b>{indiceCarrossel + 1}</b> de <b>{listaAtivaSemana.length}</b></span>
+                  <span className="font-mono font-bold text-cyan-300">
+                    Subtotal acumulado até aqui: R$ {listaAtivaSemana
+                      .slice(0, indiceCarrossel + 1)
+                      .reduce((acc, it) => acc + it.subtotal_7d, 0)
+                      .toFixed(2)}
+                  </span>
+                </div>
+
+                {listaAtivaSemana[indiceCarrossel] && (
+                  <CardProdutoDecisao
+                    item={listaAtivaSemana[indiceCarrossel]}
+                    indiceAtual={indiceCarrossel}
+                    totalItens={listaAtivaSemana.length}
+                    copiadoId={copiadoId}
+                    onCopiarEan={handleCopiarEan}
+                    onAlterarQtd={onAlterarQtd}
+                    onNaoCotar={() => handleNaoCotar(listaAtivaSemana[indiceCarrossel])}
+                    onSubstituir={() => handleSubstituirPorOutro(listaAtivaSemana[indiceCarrossel].produto_id, listaAtivaSemana[indiceCarrossel].descricao)}
+                    onJaPedido={() => handleJaPedido(listaAtivaSemana[indiceCarrossel])}
+                    onComprar={(dist, preco) => handleAdicionarAoCarrinho(listaAtivaSemana[indiceCarrossel], dist, preco)}
+                    onNavegarAnterior={() => setIndiceCarrossel(prev => Math.max(0, prev - 1))}
+                    onNavegarProximo={() => setIndiceCarrossel(prev => Math.min(listaAtivaSemana.length - 1, prev + 1))}
+                    isModoCarrossel={true}
+                    selecionado={Boolean(itensSelecionados[listaAtivaSemana[indiceCarrossel].produto_id])}
+                    onToggleSelecionar={() => setItensSelecionados(prev => ({ ...prev, [listaAtivaSemana[indiceCarrossel].produto_id]: !prev[listaAtivaSemana[indiceCarrossel].produto_id] }))}
+                  />
+                )}
+              </div>
             )}
           </div>
         )}
@@ -4381,6 +4710,8 @@ interface CardProps {
   onNavegarAnterior: () => void;
   onNavegarProximo: () => void;
   isModoCarrossel: boolean;
+  selecionado?: boolean;
+  onToggleSelecionar?: () => void;
 }
 
 const CardProdutoDecisao: React.FC<CardProps> = ({
@@ -4396,7 +4727,9 @@ const CardProdutoDecisao: React.FC<CardProps> = ({
   onComprar,
   onNavegarAnterior,
   onNavegarProximo,
-  isModoCarrossel
+  isModoCarrossel,
+  selecionado,
+  onToggleSelecionar
 }) => {
   const preco1 = Number(item.preco_1) || 0;
   const precoUlt = Number(item.preco_ult_compra) || 0;
@@ -4411,21 +4744,36 @@ const CardProdutoDecisao: React.FC<CardProps> = ({
   const subtotal = Number((qtd * (preco1 > 0 ? preco1 : (precoUlt || item.custo_unitario || 0))).toFixed(2));
 
   return (
-    <div className="bg-[#0b1222] border border-cyan-900/50 hover:border-cyan-500/60 rounded-2xl p-3 sm:p-4 shadow-lg flex flex-col justify-between gap-3 transition-all duration-200">
+    <div className={`border rounded-2xl p-3 sm:p-4 shadow-lg flex flex-col justify-between gap-3 transition-all duration-200 ${
+    selecionado
+      ? 'bg-[#0d1e38] border-cyan-400 ring-2 ring-cyan-500/40 shadow-cyan-950/60'
+      : 'bg-[#0b1222] border-cyan-900/50 hover:border-cyan-500/60'
+  }`}>
       
       {/* 1. TOPO DO CARD: Identificação, Apresentação e Badges de Estoque */}
       <div>
         <div className="flex items-start justify-between gap-2 mb-1.5">
-          <div className="truncate flex-1">
-            <span className="font-black text-sm text-white truncate block" title={item.descricao}>
+          <div className="flex items-center gap-2.5 flex-1 min-w-0">
+            {onToggleSelecionar && (
+              <input
+                type="checkbox"
+                checked={Boolean(selecionado)}
+                onChange={onToggleSelecionar}
+                className="w-4 h-4 rounded border-slate-700 bg-slate-900 text-cyan-500 focus:ring-cyan-500 cursor-pointer shrink-0"
+                title="Marcar / Desmarcar este produto"
+              />
+            )}
+            <div className="truncate flex-1">
+              <span className="font-black text-sm text-white truncate block" title={item.descricao}>
               {item.descricao}
             </span>
             <span className="text-[11px] text-slate-400 block truncate">
               {item.apresentacao || 'Sem apresentação cadastrada'}
             </span>
           </div>
+        </div>
 
-          <div className="flex items-center gap-1 shrink-0">
+        <div className="flex items-center gap-1 shrink-0">
             <span className={`text-[10px] font-black px-1.5 py-0.5 rounded border ${
               item.curva_abc === 'A'
                 ? 'bg-rose-950/80 border-rose-600 text-rose-300'
