@@ -327,7 +327,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
   };
 
   // Filtro específico para regras de produtos
-  const [filtroRegras, setFiltroRegras] = useState<'TODOS' | 'BLOQUEADOS_CARRINHO' | 'NAO_COTAR' | 'ADIADOS_PROXIMA_SEMANA' | 'LIBERADOS'>('TODOS');
+  const [filtroRegras, setFiltroRegras] = useState<'TODOS' | 'BLOQUEADOS_CARRINHO' | 'NAO_COTAR' | 'ADIADOS_PROXIMA_SEMANA' | 'JA_PEDIDOS' | 'LIBERADOS'>('TODOS');
   const [justificativaEditando, setJustificativaEditando] = useState<{ [id: number]: string }>({});
   const [copiadoEan, setCopiadoEan] = useState<string | null>(null);
 
@@ -375,7 +375,10 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       adiar_ate: novoAdiarAte,
       is_adiado_proxima_semana: isAdiado,
       ja_pedido_ate: novoJaPedidoAte,
-      is_ja_pedido: isJaPedido
+      is_ja_pedido: isJaPedido,
+      ja_pedido_detalhe: isJaPedido
+        ? (item.ja_pedido_detalhe || { automatico: false, motivo: 'Marcado manualmente' })
+        : null
     };
 
     // Atualização otimista no estado local imediato
@@ -1467,17 +1470,28 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
         return false;
       }
       if (filtroCategoria !== 'TODAS' && f.tipo_categoria !== filtroCategoria) return false;
-      // Filtro de Regras de Produtos (Bloqueados para Carrinho, Não Cotar, Liberados ou Adiados p/ Próx. Semana)
+      const hojeIso = new Date().toISOString().slice(0, 10);
+      const isJaPedido = Boolean(f.is_ja_pedido || (f.ja_pedido_ate && String(f.ja_pedido_ate) >= hojeIso));
+      const isAdiado = Boolean(f.is_adiado_proxima_semana || (f.adiar_ate && String(f.adiar_ate) >= hojeIso));
+
+      // Filtro de Regras de Produtos (Bloqueados para Carrinho, Não Cotar, Liberados, Adiados p/ Próx. Semana ou Já Pedidos)
       if (filtroRegras === 'BLOQUEADOS_CARRINHO' && !f.nao_carrinho) {
         return false;
       }
       if (filtroRegras === 'NAO_COTAR' && !f.nao_cotar) {
         return false;
       }
-      if (filtroRegras === 'ADIADOS_PROXIMA_SEMANA' && !f.is_adiado_proxima_semana) {
+      if (filtroRegras === 'ADIADOS_PROXIMA_SEMANA' && !isAdiado) {
         return false;
       }
-      if (filtroRegras === 'LIBERADOS' && (f.nao_carrinho || f.nao_cotar || f.is_adiado_proxima_semana)) {
+      if (filtroRegras === 'JA_PEDIDOS' && !isJaPedido) {
+        return false;
+      }
+      if (filtroRegras === 'LIBERADOS' && (f.nao_carrinho || f.nao_cotar || isAdiado || isJaPedido)) {
+        return false;
+      }
+      // No modo padrão TODOS, produtos já pedidos ou adiados para próxima semana não poluem a lista ativa da semana
+      if (filtroRegras === 'TODOS' && (isJaPedido || isAdiado) && !buscaFalta) {
         return false;
       }
       if (buscaFalta) {
@@ -1901,8 +1915,15 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     const espera: FaltaItem7d[] = [];
     let acumulado = 0;
 
+    const hojeIso = new Date().toISOString().slice(0, 10);
     faltasFiltradas.forEach(it => {
-      const isBloqueado = Boolean(it.nao_carrinho || it.nao_cotar || it.is_adiado_proxima_semana || it.is_ja_pedido);
+      const isJaPedido = Boolean(it.is_ja_pedido || (it.ja_pedido_ate && String(it.ja_pedido_ate) >= hojeIso));
+      const isAdiado = Boolean(it.is_adiado_proxima_semana || (it.adiar_ate && String(it.adiar_ate) >= hojeIso));
+      if (isJaPedido || isAdiado) {
+        return; // Já pedidos ou adiados para a próxima semana não entram na cota nem no banco de espera desta semana
+      }
+
+      const isBloqueado = Boolean(it.nao_carrinho || it.nao_cotar);
       const isSelected = Boolean(itensSelecionados[it.produto_id]);
 
       if (isBloqueado) {
@@ -4703,7 +4724,19 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                     title="Filtrar produtos adiados para cotar na próxima semana"
                   >
                     <Calendar className="w-3 h-3 text-indigo-300" />
-                    <span>Próx. Semana ({faltas.filter(f => f.is_adiado_proxima_semana).length})</span>
+                    <span>Próx. Semana ({faltas.filter(f => f.is_adiado_proxima_semana || (f.adiar_ate && String(f.adiar_ate) >= new Date().toISOString().slice(0, 10))).length})</span>
+                  </button>
+                  <button
+                    onClick={() => setFiltroRegras('JA_PEDIDOS')}
+                    className={`flex items-center gap-1 px-2 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                      filtroRegras === 'JA_PEDIDOS'
+                        ? 'bg-blue-600 text-white font-black shadow-sm'
+                        : 'text-blue-400/90 hover:text-blue-300'
+                    }`}
+                    title="Filtrar produtos marcados como Já Pedidos (retornam somente na próxima semana)"
+                  >
+                    <PackageCheck className="w-3 h-3 text-blue-300" />
+                    <span>Já Pedidos ({faltas.filter(f => f.is_ja_pedido || (f.ja_pedido_ate && String(f.ja_pedido_ate) >= new Date().toISOString().slice(0, 10))).length})</span>
                   </button>
                 </div>
               </div>

@@ -1,9 +1,14 @@
 {
   "version": "1.2.4",
-  "commitHash": "a0db256",
-  "commitMessage": "fix(belaped): restaurar visualizacao em tabela, selecao individual/todos e geracao de pdf",
-  "buildTime": "04/11/2026, 09:49:11",
+  "commitHash": "8b91dd3",
+  "commitMessage": "feat(belaped): adicionar modo de cards menores (compactos) para varios produtos na tela",
+  "buildTime": "04/11/2026, 10:08:01",
   "recentCommits": [
+    {
+      "hash": "8b91dd3",
+      "date": "04/11/2026",
+      "message": "feat(belaped): adicionar modo de cards menores (compactos) para varios produtos na tela"
+    },
     {
       "hash": "a0db256",
       "date": "04/11/2026",
@@ -58,11 +63,6 @@
       "hash": "9c93b2d",
       "date": "03/11/2026",
       "message": "fix(pdv): tornar dinamico o status de espelho do Digifarma na conclusao da venda"
-    },
-    {
-      "hash": "8c1095e",
-      "date": "03/11/2026",
-      "message": "feat(fiscal): consulta dinamica do proximo numero NFC-e no Digifarma mantendo sequencia continua na serie"
     }
   ]
 }

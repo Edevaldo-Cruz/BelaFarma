@@ -378,13 +378,14 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
       }
     });
 
+    const hojeIso = new Date().toISOString().slice(0, 10);
     const lista = Array.from(mapaUnicos.values()).filter(f => {
       // Ignora itens excluídos da cotação
       if (f.nao_cotar) return false;
       // Ignora itens com adiamento para próxima semana
-      if (f.is_adiado_proxima_semana) return false;
-      // Ignora itens já pedidos
-      if (f.is_ja_pedido) return false;
+      if (f.is_adiado_proxima_semana || (f.adiar_ate && String(f.adiar_ate) >= hojeIso)) return false;
+      // Ignora itens já pedidos (persiste no banco e só volta na próxima semana)
+      if (f.is_ja_pedido || (f.ja_pedido_ate && String(f.ja_pedido_ate) >= hojeIso) || f.ja_pedido_detalhe) return false;
       // Ignora itens descartados nesta sessão
       if (descartadosSessao.has(f.produto_id)) return false;
       return true;
@@ -764,9 +765,11 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
     const dataAte = new Date();
     dataAte.setDate(dataAte.getDate() + 7);
     const dataIso = dataAte.toISOString().slice(0, 10);
+    // Remove da tela de decisão instantaneamente nesta sessão
+    setDescartadosSessao(prev => new Set(prev).add(item.produto_id));
     try {
       await onAtualizarRegra(item, 'ja_pedido_ate', dataIso);
-      addToast(`"${item.descricao.slice(0, 25)}" marcado como Já Pedido!`, 'success');
+      addToast(`"${item.descricao.slice(0, 25)}" marcado como Já Pedido! Reaparecerá na próxima semana.`, 'success');
     } catch (e) {
       addToast('Erro ao marcar como já pedido.', 'error');
     }

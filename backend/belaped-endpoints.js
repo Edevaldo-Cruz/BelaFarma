@@ -1162,11 +1162,25 @@ function belapedEndpoints(db) {
       // Regras e preferências de produtos (não cotar, não colocar no carrinho, justificativas, adiar, já pedido e enviado ao carrinho na semana)
       const regrasMap = {};
       try {
-        const rowsRegras = db.prepare(`SELECT chave_regra, ean, produto_id, nao_cotar, nao_carrinho, motivo_justificativa, adiar_ate, enviado_carrinho_ate, ja_pedido_ate FROM belaped_produtos_regras`).all();
+        const rowsRegras = db.prepare(`
+          SELECT chave_regra, ean, produto_id, nao_cotar, nao_carrinho, motivo_justificativa, adiar_ate, enviado_carrinho_ate, ja_pedido_ate
+          FROM belaped_produtos_regras
+          ORDER BY atualizado_em ASC
+        `).all();
         for (const reg of rowsRegras) {
-          if (reg.ean) regrasMap[reg.ean] = reg;
-          if (reg.produto_id) regrasMap[`ID_${reg.produto_id}`] = reg;
-          if (reg.chave_regra) regrasMap[reg.chave_regra] = reg;
+          if (reg.chave_regra) {
+            regrasMap[reg.chave_regra] = reg;
+            regrasMap[String(reg.chave_regra).trim()] = reg;
+          }
+          if (reg.ean) {
+            regrasMap[reg.ean] = reg;
+            regrasMap[String(reg.ean).trim()] = reg;
+          }
+          if (reg.produto_id) {
+            regrasMap[`ID_${reg.produto_id}`] = reg;
+            regrasMap[String(reg.produto_id)] = reg;
+            regrasMap[Number(reg.produto_id)] = reg;
+          }
         }
       } catch (e) {}
 
@@ -1734,7 +1748,12 @@ function belapedEndpoints(db) {
           ? Number((((preco1 - precoUltCompra) / precoUltCompra) * 100).toFixed(1))
           : 0;
 
-        const regProd = (r.ean && regrasMap[r.ean]) || (r.produto_id && regrasMap[`ID_${r.produto_id}`]) || null;
+        const eanR = r.ean ? String(r.ean).trim() : '';
+        const pidR = r.produto_id ? String(r.produto_id).trim() : '';
+        const regProd = (eanR && (regrasMap[eanR] || regrasMap[r.ean])) ||
+                        (pidR && (regrasMap[`ID_${pidR}`] || regrasMap[pidR] || regrasMap[r.produto_id])) ||
+                        (r.chave_regra && regrasMap[r.chave_regra]) ||
+                        null;
 
         const isCurvaAlta = r.curva_abc === 'A' || r.curva_abc === 'B';
         let prioridade = 'P4';
@@ -2246,6 +2265,35 @@ function belapedEndpoints(db) {
         ja_pedido_ate: ja_pedido_ate ? String(ja_pedido_ate).trim() : null,
         atualizado_por: usuario || 'Farmacêutico/Gestor'
       });
+
+      // Se o produto possui EAN e ID, atualiza também registros correlatos no banco para total coerência
+      if (eanLimpo && pidNum) {
+        try {
+          db.prepare(`
+            UPDATE belaped_produtos_regras
+            SET ja_pedido_ate = @ja_pedido_ate,
+                nao_cotar = @nao_cotar,
+                nao_carrinho = @nao_carrinho,
+                motivo_justificativa = @motivo_justificativa,
+                adiar_ate = @adiar_ate,
+                atualizado_por = @atualizado_por,
+                atualizado_em = datetime('now', 'localtime')
+            WHERE (produto_id = @pidNum OR ean = @eanLimpo OR chave_regra = @altChave)
+              AND chave_regra != @chaveRegra
+          `).run({
+            ja_pedido_ate: ja_pedido_ate ? String(ja_pedido_ate).trim() : null,
+            nao_cotar: nao_cotar ? 1 : 0,
+            nao_carrinho: nao_carrinho ? 1 : 0,
+            motivo_justificativa: String(motivo_justificativa || '').trim(),
+            adiar_ate: adiar_ate ? String(adiar_ate).trim() : null,
+            atualizado_por: usuario || 'Farmacêutico/Gestor',
+            pidNum,
+            eanLimpo,
+            altChave: `ID_${pidNum}`,
+            chaveRegra
+          });
+        } catch (eAlt) {}
+      }
 
       res.json({
         success: true,
