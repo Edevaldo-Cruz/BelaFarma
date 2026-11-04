@@ -431,7 +431,9 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
     const semEstoque: FaltaItem7d[] = [];
     let acumulado = 0;
     let rankGlobal = 1;
-    let loteSemanaCheio = false;
+
+    // Tolerância orçamentária suave de 10% para não travar a lista ativa por poucos reais ou centavos
+    const tetoComTolerancia = tetoSemanalAtivo > 0 ? tetoSemanalAtivo * 1.10 : 0;
 
     for (const item of itensCandidatos) {
       const forn = String(item.fornecedor_1 || '').trim().toLowerCase();
@@ -450,49 +452,35 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
       const qtd = Math.max(1, item.qtd_sugerida_7d || 1);
       const subtotal = Number((qtd * preco).toFixed(2));
 
-      // Enquanto o lote ativo da semana ainda NÃO completou o orçamento:
-      if (!loteSemanaCheio) {
-        if (!temEstoque) {
-          // Item prioritário avaliado para esta semana que não tem estoque em nenhum portal:
-          // Abre vaga para o próximo e entra na lista de auditadas da semana!
-          semEstoque.push({
-            ...item,
-            subtotal_7d: subtotal,
-            prioridade_original: rankGlobal++,
-            motivo_sem_estoque: 'Esgotado em todos os 12 portais'
-          });
-          continue;
-        }
+      if (!temEstoque) {
+        // Item prioritário avaliado para esta semana que não tem estoque em nenhum portal:
+        // Abre vaga para o próximo e entra na lista de auditadas da semana!
+        semEstoque.push({
+          ...item,
+          subtotal_7d: subtotal,
+          prioridade_original: rankGlobal++,
+          motivo_sem_estoque: 'Esgotado em todos os 12 portais'
+        });
+        continue;
+      }
 
-        // Tem estoque: verifica se cabe no orçamento da semana
-        const isPromovido = promovidosManualmente.has(item.produto_id);
+      const isPromovido = promovidosManualmente.has(item.produto_id);
 
-        if (isPromovido || (acumulado + subtotal <= tetoSemanalAtivo || ativa.length === 0)) {
-          ativa.push({
-            ...item,
-            subtotal_7d: subtotal,
-            prioridade_original: rankGlobal++
-          });
-          acumulado += subtotal;
-        } else {
-          // Ultrapassou o teto orçamentário da semana: o lote da semana fechou!
-          loteSemanaCheio = true;
-          reserva.push({
-            ...item,
-            subtotal_7d: subtotal,
-            prioridade_original: rankGlobal++
-          });
-        }
+      // Entra na lista ativa se for promovido manualmente, ou se couber no teto com tolerância, ou se a lista estiver vazia
+      if (isPromovido || (acumulado + subtotal <= tetoComTolerancia || ativa.length === 0)) {
+        ativa.push({
+          ...item,
+          subtotal_7d: subtotal,
+          prioridade_original: rankGlobal++
+        });
+        acumulado += subtotal;
       } else {
-        // Lote da semana já completo: apenas os itens restantes COM estoque vão para o Banco de Reserva
-        if (temEstoque) {
-          reserva.push({
-            ...item,
-            subtotal_7d: subtotal,
-            prioridade_original: rankGlobal++
-          });
-        }
-        // Itens sem estoque além do corte semanal são ignorados para não poluir o relatório da semana
+        // Não coube no saldo orçamentário restante da semana: vai para o Banco de Reserva
+        reserva.push({
+          ...item,
+          subtotal_7d: subtotal,
+          prioridade_original: rankGlobal++
+        });
       }
     }
 
@@ -733,18 +721,60 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
     }
   }, [listaAtivaSemana.length, indiceCarrossel]);
 
-  // AÇÕES NOS CARDS
+  // AÇÕES NOS CARDS E REPOSIÇÃO EM CASCATA
+  // Função auxiliar para promover e puxar imediatamente o próximo item elegível do Banco de Reserva
+  const promoverProximoDoBanco = (descartadoId: number): FaltaItem7d | null => {
+    const hojeIso = new Date().toISOString().slice(0, 10);
+    const proximo = bancoReservaSemana.find(
+      r => r.produto_id !== descartadoId && 
+           !descartadosSessao.has(r.produto_id) && 
+           !promovidosManualmente.has(r.produto_id) &&
+           !r.is_ja_pedido &&
+           !(r.ja_pedido_ate && String(r.ja_pedido_ate) >= hojeIso) &&
+           !r.is_adiado_proxima_semana
+    );
+    if (proximo) {
+      setPromovidosManualmente(prev => new Set(prev).add(proximo.produto_id));
+      setItensSelecionados(prev => ({ ...prev, [proximo.produto_id]: true }));
+      return proximo;
+    }
+    return null;
+  };
+
+  // Recalcular opções da semana (recompõe lote ideal e reseta descartes de sessão)
+  const handleRecalcularOpcoesSemana = () => {
+    setDescartadosSessao(new Set());
+    setPromovidosManualmente(new Set());
+    if (onRecarregarDados) {
+      onRecarregarDados();
+    }
+    addToast('Opções da semana recalculadas com sucesso!', 'success');
+  };
+
   // 1. Substituir por Outro (descarta temporariamente e puxa o 1º do Banco de Reserva)
   const handleSubstituirPorOutro = (produtoId: number, descricao: string) => {
     setDescartadosSessao(prev => new Set(prev).add(produtoId));
-    addToast(`"${descricao.slice(0, 30)}" substituído! Próximo item do Banco de Reserva promovido.`, 'info');
+    setItensSelecionados(prev => ({ ...prev, [produtoId]: false }));
+    const substituto = promoverProximoDoBanco(produtoId);
+    if (substituto) {
+      addToast(`"${descricao.slice(0, 22)}" substituído! Promovido: "${substituto.descricao.slice(0, 22)}".`, 'info');
+    } else {
+      addToast(`"${descricao.slice(0, 30)}" substituído!`, 'info');
+    }
   };
 
   // 2. Não Cotar (envia para Lista de Exclusão permanente e puxa o 1º do Banco)
   const handleNaoCotar = async (item: FaltaItem7d) => {
+    setDescartadosSessao(prev => new Set(prev).add(item.produto_id));
+    setItensSelecionados(prev => ({ ...prev, [item.produto_id]: false }));
+    const substituto = promoverProximoDoBanco(item.produto_id);
     try {
       await onAtualizarRegra(item, 'nao_cotar', true);
-      addToast(`"${item.descricao.slice(0, 25)}" enviado para a Lista de Exclusão.`, 'warning');
+      if (substituto) {
+        addToast(`"${item.descricao.slice(0, 20)}" excluído! Promovido: "${substituto.descricao.slice(0, 20)}".`, 'warning');
+      } else {
+        addToast(`"${item.descricao.slice(0, 25)}" enviado para a Lista de Exclusão.`, 'warning');
+      }
     } catch (e) {
       addToast('Erro ao atualizar regra de exclusão.', 'error');
     }
@@ -760,16 +790,23 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
     }
   };
 
-  // 4. Já Pedido (marca que já foi pedido e retira do orçamento da semana)
+  // 4. Já Pedido (marca que já foi pedido e retira do orçamento da semana, promovendo o próximo do banco)
   const handleJaPedido = async (item: FaltaItem7d) => {
     const dataAte = new Date();
     dataAte.setDate(dataAte.getDate() + 7);
     const dataIso = dataAte.toISOString().slice(0, 10);
     // Remove da tela de decisão instantaneamente nesta sessão
     setDescartadosSessao(prev => new Set(prev).add(item.produto_id));
+    setItensSelecionados(prev => ({ ...prev, [item.produto_id]: false }));
+    // Puxa o próximo item do banco de reserva para ocupar a vaga imediatamente
+    const substituto = promoverProximoDoBanco(item.produto_id);
     try {
       await onAtualizarRegra(item, 'ja_pedido_ate', dataIso);
-      addToast(`"${item.descricao.slice(0, 25)}" marcado como Já Pedido! Reaparecerá na próxima semana.`, 'success');
+      if (substituto) {
+        addToast(`"${item.descricao.slice(0, 20)}" marcado Já Pedido! Promovido: "${substituto.descricao.slice(0, 20)}".`, 'success');
+      } else {
+        addToast(`"${item.descricao.slice(0, 25)}" marcado como Já Pedido! Reaparecerá na próxima semana.`, 'success');
+      }
     } catch (e) {
       addToast('Erro ao marcar como já pedido.', 'error');
     }
@@ -3575,6 +3612,17 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Botão Recalcular Opções da Semana */}
+          <button
+            type="button"
+            onClick={handleRecalcularOpcoesSemana}
+            className="px-2.5 py-1.5 rounded-xl bg-cyan-950/60 border border-cyan-700/80 hover:border-cyan-400 text-cyan-200 hover:text-white text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-sm"
+            title="Recalcular e recompor o lote ideal da semana com base nos produtos prioritários"
+          >
+            <RefreshCw className="w-3.5 h-3.5 text-cyan-300" />
+            <span>Recalcular Semana</span>
+          </button>
+
           {/* Botão para ver Banco de Reserva */}
           <button
             type="button"

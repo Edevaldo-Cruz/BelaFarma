@@ -428,7 +428,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
     }
   };
 
-  // Alternar Deixar para Cotar na Próxima Semana
+  // Alternar Deixar para Cotar na Próxima Semana (com Efeito Cascata)
   const handleAlternarAdiarProximaSemana = (item: FaltaItem7d, e?: React.MouseEvent) => {
     if (e) {
       e.preventDefault();
@@ -443,10 +443,17 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       d.setDate(d.getDate() + 7);
       const proximaData = d.toISOString().slice(0, 10);
       handleAtualizarRegraProduto(item, 'adiar_ate', proximaData);
+
+      // Efeito cascata: Puxa o 1º do Banco de Espera para a cota semanal
+      const proximoEspera = itensBancoEspera.find(b => b.produto_id !== item.produto_id && !b.is_ja_pedido && !b.nao_cotar && !b.nao_carrinho);
+      if (proximoEspera) {
+        setItensSelecionados(prev => ({ ...prev, [item.produto_id]: false, [proximoEspera.produto_id]: true }));
+        addToast(`"${item.descricao.slice(0, 20)}" adiado! Promovido da espera: "${proximoEspera.descricao.slice(0, 20)}".`, 'info');
+      }
     }
   };
 
-  // Alternar Status de Já Pedido
+  // Alternar Status de Já Pedido (com Efeito Cascata)
   const handleAlternarJaPedido = (item: FaltaItem7d, e?: React.MouseEvent) => {
     if (e) {
       e.preventDefault();
@@ -461,6 +468,13 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       d.setDate(d.getDate() + 7);
       const proximaData = d.toISOString().slice(0, 10);
       handleAtualizarRegraProduto(item, 'ja_pedido_ate', proximaData);
+
+      // Efeito cascata: Puxa o 1º do Banco de Espera para a cota semanal
+      const proximoEspera = itensBancoEspera.find(b => b.produto_id !== item.produto_id && !b.is_ja_pedido && !b.nao_cotar && !b.nao_carrinho);
+      if (proximoEspera) {
+        setItensSelecionados(prev => ({ ...prev, [item.produto_id]: false, [proximoEspera.produto_id]: true }));
+        addToast(`"${item.descricao.slice(0, 20)}" marcado Já Pedido! Promovido da espera: "${proximoEspera.descricao.slice(0, 20)}".`, 'info');
+      }
     }
   };
 
