@@ -215,26 +215,28 @@ async function connect(db) {
       }
     });
 
-    // ── Histórico de mensagens (Sincronização de conversas) ──────────
-    sock.ev.on('messaging-history.set', async (history) => {
-      const { messages } = history;
-      if (!messages || messages.length === 0) return;
-
-      console.log(`[Baileys-Compras] 📥 Histórico recebido na instância de compras (${messages.length} msgs). Mineração em lote aguardando acionamento sob demanda.`);
-    });
-
-    // ── Mensagens Recebidas em Tempo Real ────────────────────────────
-    sock.ev.on('messages.upsert', async (m) => {
+    // ── Função auxiliar para processar cada mensagem (tempo real ou sincronizada) ──
+    const processarMensagemUnitaria = async (msg, isSync = false) => {
       try {
-        if (m.type !== 'notify') return;
-        // Domingo o bot de compras não precisa trabalhar
-        if (new Date().getDay() === 0) return;
-
-        const msg = m.messages?.[0];
         if (!msg || !msg.message) return;
 
         const remoteJid = msg.key?.remoteJid;
-        if (!remoteJid || remoteJid.endsWith('@broadcast')) return;
+        if (!remoteJid || remoteJid.endsWith('@broadcast') || remoteJid === 'status@broadcast') return;
+
+        const rawTs = msg.messageTimestamp ? Number(msg.messageTimestamp) : 0;
+        const timestamp = rawTs ? (rawTs < 1e12 ? rawTs * 1000 : rawTs) : Date.now();
+
+        // Em sincronização de histórico/reconexão (append), processa apenas mensagens das últimas 48h
+        if (isSync && (Date.now() - timestamp > 48 * 60 * 60 * 1000)) return;
+
+        const messageId = msg.key.id || `msg_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+        if (isSync && savedDb) {
+          const jaExiste = savedDb.prepare('SELECT id, processado_mineracao FROM compras_historico_mensagens WHERE message_id = ?').get(messageId);
+          if (jaExiste && jaExiste.processado_mineracao === 1) return;
+        }
+
+        // Domingo o bot de compras não precisa trabalhar em tempo real
+        if (!isSync && new Date().getDay() === 0) return;
 
         // Desembrulha mensagens envelopadas
         let contentMsg = msg.message;
@@ -265,9 +267,7 @@ async function connect(db) {
         }
 
         const phone = remoteJid.split('@')[0];
-        const timestamp = msg.messageTimestamp ? (msg.messageTimestamp * 1000) : Date.now();
         const fromMe = msg.key.fromMe ? 1 : 0;
-        const messageId = msg.key.id || `msg_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
         const contactName = msg.pushName || '';
 
         // Salva histórico bruto de compras no SQLite
@@ -382,6 +382,30 @@ async function connect(db) {
           } catch (dbErr) {
             console.error('[Baileys-Compras] Erro ao gravar mensagem no SQLite:', dbErr.message);
           }
+        }
+      } catch (err) {
+        console.error('[Baileys-Compras] Erro no processamento de mensagem unitária:', err.message);
+      }
+    };
+
+    // ── Histórico de mensagens (Sincronização de conversas ao reconectar) ──────────
+    sock.ev.on('messaging-history.set', async (history) => {
+      const { messages } = history;
+      if (!messages || messages.length === 0) return;
+
+      console.log(`[Baileys-Compras] 📥 Histórico recebido na instância de compras (${messages.length} msgs). Filtrando mensagens das últimas 48h para análise automática (texto + imagens)...`);
+      for (const msg of messages) {
+        await processarMensagemUnitaria(msg, true);
+      }
+    });
+
+    // ── Mensagens Recebidas em Tempo Real e Reconexão (notify + append) ────────────
+    sock.ev.on('messages.upsert', async (m) => {
+      try {
+        if (m.type !== 'notify' && m.type !== 'append') return;
+        const isSync = m.type === 'append';
+        for (const msg of (m.messages || [])) {
+          await processarMensagemUnitaria(msg, isSync);
         }
       } catch (err) {
         console.error('[Baileys-Compras] Erro no processamento de messages.upsert:', err.message);
