@@ -326,11 +326,11 @@ function gerarArquivoSintegra(competencia) {
         numNf +
         g.cfop +
         'P' + // P = Emissão própria
-        padDec(g.valorContabil, 13, 2) +
+        padDec(isCancelada ? 0 : g.valorContabil, 13, 2) +
         padDec(0, 13, 2) +
         padDec(0, 13, 2) +
         padDec(0, 13, 2) +
-        padDec(g.outras, 13, 2) +
+        padDec(isCancelada ? 0 : g.outras, 13, 2) +
         padDec(g.aliq, 4, 2) +
         (isCancelada ? 'S' : 'N');
 

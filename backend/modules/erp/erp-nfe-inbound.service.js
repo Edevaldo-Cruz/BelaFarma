@@ -741,11 +741,210 @@ function obterNotaDetalhada(invoiceId) {
   };
 }
 
+/**
+ * Sincroniza e consolida as notas fiscais de compra/entrada lançadas no Digifarma
+ * para a base de dados do BelaFarma (invoices e invoice_items)
+ * @param {Object} options { competencia: 'YYYY-MM', dias: 35 }
+ * @returns {Promise<Object>}
+ */
+async function sincronizarComprasDigifarma({ competencia, dias = 35 } = {}) {
+  ensureNfeColumns();
+  const { queryDigifarma } = require('../../services/digifarma.service');
+
+  let where = "c.ENTRADA_SAIDA = 'E' AND (c.CANCELAMENTO = 'N' OR c.CANCELAMENTO IS NULL)";
+  const params = [];
+
+  if (competencia) {
+    const [ano, mes] = competencia.split('-');
+    const dtIni = `${ano}-${mes}-01 00:00:00`;
+    const ultimoDia = new Date(parseInt(ano, 10), parseInt(mes, 10), 0).getDate();
+    const dtFin = `${ano}-${mes}-${String(ultimoDia).padStart(2, '0')} 23:59:59`;
+    where += " AND c.DATA_EMISSAO >= ? AND c.DATA_EMISSAO <= ?";
+    params.push(dtIni, dtFin);
+  } else {
+    const dataLimite = new Date();
+    dataLimite.setDate(dataLimite.getDate() - parseInt(dias, 10));
+    const dtIni = dataLimite.toISOString().split('T')[0] + ' 00:00:00';
+    where += " AND c.DATA_EMISSAO >= ?";
+    params.push(dtIni);
+  }
+
+  const sqlCab = `
+    SELECT 
+      c.CAB_NOTA_ID,
+      c.NOTA_FISCAL,
+      c.DATA_EMISSAO,
+      c.FORNECEDOR_ID,
+      f.FORNECEDOR,
+      COALESCE(c.VALOR_TOTAL, c.VALOR_TOTAL_DEC, 0) as TOTAL_NOTA
+    FROM CAB_NOTAS c
+    LEFT JOIN FORNECEDORES f ON c.FORNECEDOR_ID = f.FORNECEDOR_ID
+    WHERE ${where}
+    ORDER BY c.DATA_EMISSAO DESC
+  `;
+
+  console.log(`[Digifarma Inbound Sync] 🔍 Buscando notas de entrada no Firebird (${competencia || `${dias} dias`})...`);
+  let notasCab = [];
+  try {
+    notasCab = await queryDigifarma(sqlCab, params, 15000);
+  } catch (err) {
+    console.warn('[Digifarma Inbound Sync] ⚠️ Falha ao consultar CAB_NOTAS no Digifarma:', err.message);
+    return {
+      success: false,
+      error: `Não foi possível consultar as notas no Digifarma: ${err.message}`
+    };
+  }
+
+  if (!notasCab || notasCab.length === 0) {
+    return {
+      success: true,
+      total_encontradas: 0,
+      total_importadas: 0,
+      total_ja_existentes: 0,
+      message: 'Nenhuma nota de compra encontrada no período no Digifarma.'
+    };
+  }
+
+  let importadas = 0;
+  let jaExistentes = 0;
+  let totalItensImportados = 0;
+
+  for (const cab of notasCab) {
+    const numNf = String(cab.NOTA_FISCAL || '').trim();
+    if (!numNf) continue;
+
+    const fornNome = String(cab.FORNECEDOR || 'DISTRIBUIDORA DIVERSA').trim();
+    const fornId = cab.FORNECEDOR_ID;
+
+    // Localizar CNPJ/Dados do Fornecedor na tabela local suppliers se existir
+    let cnpjForn = '00000000000100';
+    let ieForn = 'ISENTO';
+    let ufForn = 'MG';
+
+    const supRow = db.prepare('SELECT cnpj, inscricao_estadual, uf FROM suppliers WHERE digifarma_id = ? OR razao_social = ? LIMIT 1').get(fornId, fornNome);
+    if (supRow && supRow.cnpj) {
+      cnpjForn = supRow.cnpj.replace(/\D/g, '');
+      ieForn = supRow.inscricao_estadual || 'ISENTO';
+      ufForn = supRow.uf || 'MG';
+    }
+
+    // Checar se a nota já foi lançada no SQLite
+    const notaExistente = db.prepare(`
+      SELECT id FROM invoices 
+      WHERE invoice_number = ? AND (supplier_name = ? OR cnpj_supplier = ?)
+    `).get(numNf, fornNome, cnpjForn);
+
+    if (notaExistente) {
+      jaExistentes++;
+      continue;
+    }
+
+    // Consultar itens da nota no Firebird
+    const sqlItens = `
+      SELECT 
+        i.ITEM_NOTA_ID,
+        i.PRODUTO_ID,
+        p.PRODUTO,
+        p.APRESENTACAO,
+        p.COD_BARRAS,
+        p.NCM,
+        i.ITEM_NOTAS_QUANT,
+        i.ITEM_NOTAS_PRCOMPRA
+      FROM ITEM_NOTAS i
+      JOIN PRODUTOS p ON i.PRODUTO_ID = p.PRODUTO_ID
+      WHERE i.CAB_NOTA_ID = ?
+    `;
+
+    let itensRows = [];
+    try {
+      itensRows = await queryDigifarma(sqlItens, [cab.CAB_NOTA_ID], 10000);
+    } catch (itErr) {
+      console.warn(`[Digifarma Inbound Sync] ⚠️ Falha ao carregar itens da nota #${numNf}:`, itErr.message);
+      continue;
+    }
+
+    const dataEmissao = cab.DATA_EMISSAO ? new Date(cab.DATA_EMISSAO).toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
+    const invoiceId = `INV-DG-${cab.CAB_NOTA_ID}-${numNf}`;
+    const totalNotaVal = parseFloat(cab.TOTAL_NOTA) || 0;
+
+    const tx = db.transaction(() => {
+      db.prepare(`
+        INSERT INTO invoices (
+          id, invoice_number, supplier_name, cnpj_supplier, supplier_ie, supplier_uf,
+          issue_date, total_amount, source, status, created_at
+        ) VALUES (
+          ?, ?, ?, ?, ?, ?,
+          ?, ?, 'DIGIFARMA', 'Confirmada', datetime('now', 'localtime')
+        )
+      `).run(
+        invoiceId,
+        numNf,
+        fornNome,
+        cnpjForn,
+        ieForn,
+        ufForn,
+        dataEmissao,
+        totalNotaVal
+      );
+
+      const insertItemStmt = db.prepare(`
+        INSERT INTO invoice_items (
+          id, invoice_id, product_code, barcode, product_name,
+          quantity, cost_price, total_cost, cfop_original, cfop_entrada, cst_csosn
+        ) VALUES (
+          ?, ?, ?, ?, ?,
+          ?, ?, ?, ?, ?, ?
+        )
+      `);
+
+      for (let i = 0; i < itensRows.length; i++) {
+        const item = itensRows[i];
+        const qtd = parseFloat(item.ITEM_NOTAS_QUANT) || 1;
+        const prCompra = parseFloat(item.ITEM_NOTAS_PRCOMPRA) || 0;
+        const totalItem = Math.round((qtd * prCompra) * 100) / 100;
+        const ncmStr = String(item.NCM || '').replace(/\D/g, '');
+        const isMedicamentoST = ncmStr.startsWith('3003') || ncmStr.startsWith('3004');
+        const cfopEntrada = isMedicamentoST ? '1403' : '1102';
+        const cstEntrada = isMedicamentoST ? '500' : '102';
+
+        insertItemStmt.run(
+          `${invoiceId}-${i + 1}`,
+          invoiceId,
+          String(item.PRODUTO_ID),
+          item.COD_BARRAS || '',
+          String(item.PRODUTO || 'PRODUTO').trim(),
+          qtd,
+          prCompra,
+          totalItem,
+          isMedicamentoST ? '5405' : '5102',
+          cfopEntrada,
+          cstEntrada
+        );
+
+        totalItensImportados++;
+      }
+    });
+
+    tx();
+    importadas++;
+  }
+
+  console.log(`[Digifarma Inbound Sync] ✅ Sincronização concluída: ${importadas} novas notas importadas, ${jaExistentes} já existentes.`);
+  return {
+    success: true,
+    total_encontradas: notasCab.length,
+    total_importadas: importadas,
+    total_ja_existentes: jaExistentes,
+    total_itens_importados: totalItensImportados
+  };
+}
+
 module.exports = {
   processarPreviewNfe,
   confirmarImportacaoNfe,
   listarNotasEntrada,
   obterNotaDetalhada,
   converterCfopEntrada,
-  calcularNovoPrecoVendaPreservandoMargem
+  calcularNovoPrecoVendaPreservandoMargem,
+  sincronizarComprasDigifarma
 };

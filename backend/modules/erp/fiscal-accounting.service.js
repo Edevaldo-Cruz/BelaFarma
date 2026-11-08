@@ -967,6 +967,201 @@ function exportarRelatorioContabilCsv(competencia) {
   return '\uFEFF' + linhasCsv.join('\r\n'); // BOM UTF-8 para abrir perfeitamente no Excel
 }
 
+/**
+ * Auditoria Prévia de Fechamento Fiscal Mensal
+ * Realiza varredura rigorosa antes da geração dos arquivos magnéticos para o contador
+ * @param {string} competencia 'YYYY-MM'
+ * @returns {Object} Diagnóstico fiscal completo com alertas e erros impeditivos
+ */
+function auditarFechamentoFiscal(competencia) {
+  initErpDatabase();
+
+  const alertas = [];
+  let errosCriticos = 0;
+
+  // 1. Verificar notas fiscais em Contingência não transmitidas à SEFAZ
+  const contingencias = db.prepare(`
+    SELECT id, sale_date, nfe_number, total_value, contingency_reason
+    FROM sales
+    WHERE strftime('%Y-%m', sale_date) = ? AND fiscal_status = 'CONTINGENCIA'
+  `).all(competencia);
+
+  if (contingencias.length > 0) {
+    errosCriticos += contingencias.length;
+    alertas.push({
+      tipo: 'ERRO',
+      codigo: 'CONTINGENCIA_PENDENTE',
+      mensagem: `Existem ${contingencias.length} cupom(ns) emitido(s) em contingência offline que ainda não foram transmitidos à SEFAZ. Transmita-os antes de gerar os arquivos contábeis oficiais.`,
+      detalhes: contingencias.map(c => `Venda #${c.id} (R$ ${Number(c.total_value).toFixed(2)})`)
+    });
+  }
+
+  // 2. Verificar produtos vendidos com NCM ausente, genérico ou inválido
+  const itensComNcmInvalido = db.prepare(`
+    SELECT DISTINCT si.product_code, si.product_name, si.barcode, p.ncm
+    FROM sale_items si
+    JOIN sales s ON si.sale_id = s.id
+    LEFT JOIN products p ON si.product_code = p.code
+    WHERE strftime('%Y-%m', s.sale_date) = ? AND s.status != 'CANCELADA'
+  `).all(competencia).filter(item => !validarNcm(item.ncm));
+
+  if (itensComNcmInvalido.length > 0) {
+    alertas.push({
+      tipo: 'AVISO',
+      codigo: 'NCM_INVALIDO',
+      mensagem: `${itensComNcmInvalido.length} produto(s) movimentado(s) possuem NCM inválido ou ausente. O validador do SINTEGRA/SPED exige NCM oficial com 8 dígitos numéricos válidos.`,
+      detalhes: itensComNcmInvalido.slice(0, 10).map(i => `${i.product_name} (${i.product_code}) - NCM: "${i.ncm || 'VAZIO'}"`)
+    });
+  }
+
+  // 3. Contagem de Entradas, Saídas e Cancelamentos do período
+  const countSaidas = db.prepare(`
+    SELECT 
+      COUNT(*) as total_vendas,
+      COALESCE(SUM(total_value), 0) as faturamento_bruto,
+      SUM(CASE WHEN status = 'CANCELADA' THEN 1 ELSE 0 END) as canceladas,
+      SUM(CASE WHEN fiscal_status = 'EMITIDO' THEN 1 ELSE 0 END) as nfc_emitidas
+    FROM sales
+    WHERE strftime('%Y-%m', sale_date) = ?
+  `).get(competencia) || {};
+
+  const countEntradas = db.prepare(`
+    SELECT 
+      COUNT(*) as total_notas,
+      COALESCE(SUM(total_value), 0) as total_compras,
+      SUM(CASE WHEN cnpj_supplier IS NULL OR cnpj_supplier = '' THEN 1 ELSE 0 END) as sem_cnpj
+    FROM invoices
+    WHERE strftime('%Y-%m', issue_date) = ? AND status != 'Cancelada'
+  `).get(competencia) || {};
+
+  if (countEntradas.sem_cnpj > 0) {
+    alertas.push({
+      tipo: 'AVISO',
+      codigo: 'FORNECEDOR_SEM_CNPJ',
+      mensagem: `${countEntradas.sem_cnpj} nota(s) fiscal(is) de entrada está(ão) sem CNPJ do fornecedor informado.`
+    });
+  }
+
+  if (countSaidas.total_vendas === 0 && countEntradas.total_notas === 0) {
+    alertas.push({
+      tipo: 'AVISO',
+      codigo: 'SEM_MOVIMENTO',
+      mensagem: `Nenhuma movimentação de saída ou entrada registrada no sistema para a competência ${competencia}.`
+    });
+  }
+
+  const aprovado = errosCriticos === 0;
+
+  return {
+    competencia,
+    aprovado,
+    pronto_para_fechamento: aprovado,
+    errosCriticos,
+    totalAlertas: alertas.length,
+    alertas: alertas.map(a => ({
+      ...a,
+      nivel: a.tipo || a.nivel || 'AVISO',
+      categoria: a.codigo || a.categoria || 'FISCAL'
+    })),
+    resumo: {
+      total_saidas: countSaidas.total_vendas || 0,
+      nfc_autorizadas: countSaidas.nfc_emitidas || 0,
+      saidas_canceladas: countSaidas.canceladas || 0,
+      faturamento_bruto: countSaidas.faturamento_bruto || 0,
+      total_entradas: countEntradas.total_notas || 0,
+      total_compras: countEntradas.total_compras || 0,
+      contingencias_pendentes: contingencias.length,
+      produtos_ncm_invalido: itensComNcmInvalido.length
+    }
+  };
+}
+
+/**
+ * Gera o Pacote Contábil Completo (.ZIP) para a contabilidade
+ * Contém SINTEGRA (.TXT), SPED Fiscal (.TXT), Relatório (.CSV) e pastas com todos os XMLs de Entradas, Saídas e Cancelamentos.
+ * @param {string} competencia 'YYYY-MM'
+ * @returns {Buffer} Buffer binário do arquivo .ZIP gerado
+ */
+function gerarPacoteContabilZip(competencia) {
+  initErpDatabase();
+  const AdmZip = require('adm-zip');
+  const { gerarArquivoSintegra } = require('./sintegra.service');
+
+  const zip = new AdmZip();
+
+  // 1. Arquivo SINTEGRA Oficial (.TXT Convênio ICMS 57/95)
+  try {
+    const sintegraTxt = gerarArquivoSintegra(competencia);
+    zip.addFile(`SINTEGRA_${competencia.replace('-', '_')}.TXT`, Buffer.from(sintegraTxt, 'utf-8'));
+  } catch (err) {
+    console.warn(`[Pacote Contábil] ⚠️ Falha ao gerar SINTEGRA para o ZIP:`, err.message);
+  }
+
+  // 2. Arquivo SPED Fiscal Oficial EFD ICMS/IPI (.TXT)
+  try {
+    const spedTxt = gerarSpedFiscalEfd(competencia);
+    zip.addFile(`SPED_Fiscal_EFD_${competencia.replace('-', '_')}.TXT`, Buffer.from(spedTxt, 'utf-8'));
+  } catch (err) {
+    console.warn(`[Pacote Contábil] ⚠️ Falha ao gerar SPED Fiscal para o ZIP:`, err.message);
+  }
+
+  // 3. Relatório de Conferência e Segregação Contábil (.CSV)
+  try {
+    const csvTxt = exportarRelatorioContabilCsv(competencia);
+    zip.addFile(`Relatorio_Conferencia_Fiscal_${competencia.replace('-', '_')}.csv`, Buffer.from(csvTxt, 'utf-8'));
+  } catch (err) {
+    console.warn(`[Pacote Contábil] ⚠️ Falha ao gerar Relatório CSV para o ZIP:`, err.message);
+  }
+
+  // 4. Pasta XML_ENTRADAS: XMLs das compras do mês
+  const notasEntrada = db.prepare(`
+    SELECT id, invoice_number, cnpj_supplier, xml_raw
+    FROM invoices
+    WHERE strftime('%Y-%m', issue_date) = ? AND xml_raw IS NOT NULL
+  `).all(competencia);
+
+  for (const inv of notasEntrada) {
+    if (inv.xml_raw) {
+      const nomeXml = `NFe_${inv.cnpj_supplier || 'FORN'}_${inv.invoice_number || inv.id}.xml`;
+      zip.addFile(`XML_ENTRADAS/${nomeXml}`, Buffer.from(inv.xml_raw, 'utf-8'));
+    }
+  }
+
+  // 5. Pasta XML_SAIDAS: XMLs dos cupons fiscais autorizados
+  const cuponsAutorizados = db.prepare(`
+    SELECT id, nfe_number, access_key, xml_content
+    FROM sales
+    WHERE strftime('%Y-%m', sale_date) = ? AND status != 'CANCELADA' AND xml_content IS NOT NULL
+  `).all(competencia);
+
+  for (const c of cuponsAutorizados) {
+    if (c.xml_content) {
+      const nomeXml = `NFCe_${c.access_key || c.nfe_number || c.id}.xml`;
+      zip.addFile(`XML_SAIDAS/${nomeXml}`, Buffer.from(c.xml_content, 'utf-8'));
+    }
+  }
+
+  // 6. Pasta XML_CANCELADAS: Eventos de cancelamento homologados na SEFAZ
+  const cuponsCancelados = db.prepare(`
+    SELECT id, nfe_number, access_key, xml_cancellation, xml_content
+    FROM sales
+    WHERE strftime('%Y-%m', sale_date) = ? AND status = 'CANCELADA'
+  `).all(competencia);
+
+  for (const c of cuponsCancelados) {
+    if (c.xml_cancellation) {
+      const nomeXml = `Cancelamento_NFCe_${c.access_key || c.nfe_number || c.id}.xml`;
+      zip.addFile(`XML_CANCELADAS/${nomeXml}`, Buffer.from(c.xml_cancellation, 'utf-8'));
+    } else if (c.xml_content) {
+      const nomeXml = `NFCe_Cancelada_${c.access_key || c.nfe_number || c.id}.xml`;
+      zip.addFile(`XML_CANCELADAS/${nomeXml}`, Buffer.from(c.xml_content, 'utf-8'));
+    }
+  }
+
+  console.log(`[Pacote Contábil] 📦 Pacote ZIP da competência ${competencia} gerado com sucesso!`);
+  return zip.toBuffer();
+}
+
 module.exports = {
   calcularRbt12EAliquotas,
   classificarItemFiscal,
@@ -974,5 +1169,7 @@ module.exports = {
   quickFixProdutoFiscal,
   gerarSpedFiscalEfd,
   exportarRelatorioContabilCsv,
-  validarNcm
+  validarNcm,
+  auditarFechamentoFiscal,
+  gerarPacoteContabilZip
 };

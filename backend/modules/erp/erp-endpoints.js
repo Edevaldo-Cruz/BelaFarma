@@ -45,7 +45,8 @@ const {
   processarPreviewNfe,
   confirmarImportacaoNfe,
   listarNotasEntrada,
-  obterNotaDetalhada
+  obterNotaDetalhada,
+  sincronizarComprasDigifarma
 } = require('./erp-nfe-inbound.service');
 
 const {
@@ -69,7 +70,9 @@ const {
   processarApuracaoFiscal,
   quickFixProdutoFiscal,
   gerarSpedFiscalEfd,
-  exportarRelatorioContabilCsv
+  exportarRelatorioContabilCsv,
+  auditarFechamentoFiscal,
+  gerarPacoteContabilZip
 } = require('./fiscal-accounting.service');
 
 const { gerarArquivoSintegra } = require('./sintegra.service');
@@ -879,6 +882,46 @@ router.get('/fiscal/relatorio-csv', (req, res) => {
     res.send(conteudoCsv);
   } catch (err) {
     console.error('[Fiscal API] Erro ao exportar CSV contábil:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Auditoria Prévia de Fechamento Fiscal Mensal
+router.get('/fiscal/audit/:competencia', (req, res) => {
+  try {
+    const { competencia } = req.params;
+    const resultado = auditarFechamentoFiscal(competencia);
+    res.json({ success: true, data: resultado });
+  } catch (err) {
+    console.error('[Fiscal API] Erro na auditoria fiscal:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Download do Pacote Contábil Completo (.ZIP)
+router.get('/fiscal/package-zip/:competencia', (req, res) => {
+  try {
+    const { competencia } = req.params;
+    const zipBuffer = gerarPacoteContabilZip(competencia);
+    const filename = `PACOTE_CONTABIL_${competencia.replace('-', '_')}.zip`;
+
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(zipBuffer);
+  } catch (err) {
+    console.error('[Fiscal API] Erro ao gerar pacote contábil ZIP:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Sincronização de Compras / Entradas do Digifarma
+router.post('/inbound/sync-digifarma', async (req, res) => {
+  try {
+    const { competencia, dias } = req.body || {};
+    const resultado = await sincronizarComprasDigifarma({ competencia, dias });
+    res.json(resultado);
+  } catch (err) {
+    console.error('[Inbound API] Erro na sincronização com Digifarma:', err);
     res.status(500).json({ success: false, error: err.message });
   }
 });

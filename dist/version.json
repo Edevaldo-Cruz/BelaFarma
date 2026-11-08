@@ -1,9 +1,14 @@
 {
   "version": "1.2.4",
-  "commitHash": "813de47",
-  "commitMessage": "feat(pdv): Fase 1 - Atalhos estilo Digifarma, Sangria/Suprimento de Caixa, Pré-Vendas e Crediário",
-  "buildTime": "08/11/2026, 14:04:55",
+  "commitHash": "7a611a7",
+  "commitMessage": "feat(fiscal): Fase 2 - Cancelamento Bidirecional Rigoroso SEFAZ MG (tpEvento 110111) e Estorno Digifarma",
+  "buildTime": "08/11/2026, 14:24:10",
   "recentCommits": [
+    {
+      "hash": "7a611a7",
+      "date": "08/11/2026",
+      "message": "feat(fiscal): Fase 2 - Cancelamento Bidirecional Rigoroso SEFAZ MG (tpEvento 110111) e Estorno Digifarma"
+    },
     {
       "hash": "813de47",
       "date": "08/11/2026",
@@ -58,11 +63,6 @@
       "hash": "14d0f24",
       "date": "03/11/2026",
       "message": "fix(sales): restringir faturamento de vendas 100% exclusivamente ao Digifarma"
-    },
-    {
-      "hash": "6201818",
-      "date": "03/11/2026",
-      "message": "fix(dashboard): eliminar exibicao e soma de vendas do PDV e aplicar anti-cache em live-closing"
     }
   ]
 }

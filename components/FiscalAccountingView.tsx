@@ -18,7 +18,12 @@ import {
   X,
   Save,
   CheckCircle2,
-  UserCheck
+  UserCheck,
+  Package,
+  Archive,
+  ChevronDown,
+  ChevronUp,
+  FileText
 } from 'lucide-react';
 import { TaxClosingReport, FiscalAuditIssue } from '../types';
 
@@ -48,6 +53,12 @@ export const FiscalAccountingView: React.FC = () => {
   const [fixCstPis, setFixCstPis] = useState('04');
   const [fixAliqSt, setFixAliqSt] = useState('18');
   const [savingFix, setSavingFix] = useState(false);
+
+  // Auditoria Prévia de Fechamento & Pacote Contábil (.ZIP)
+  const [auditResult, setAuditResult] = useState<any | null>(null);
+  const [isAuditing, setIsAuditing] = useState(false);
+  const [isSyncingDigifarma, setIsSyncingDigifarma] = useState(false);
+  const [showAuditDetails, setShowAuditDetails] = useState(false);
 
   // Modal de Configurações do Contador (SPED Registro 0100)
   const [isContadorModalOpen, setIsContadorModalOpen] = useState(false);
@@ -160,7 +171,51 @@ export const FiscalAccountingView: React.FC = () => {
 
   useEffect(() => {
     carregarApuracao();
+    handleAudit();
   }, [competencia]);
+
+  const handleAudit = async () => {
+    setIsAuditing(true);
+    try {
+      const res = await fetch(`/api/erp/fiscal/audit/${competencia}`);
+      const json = await res.json();
+      if (res.ok && json.success) {
+        setAuditResult(json.data);
+      }
+    } catch (err) {
+      console.warn('Erro ao carregar auditoria prévia:', err);
+    } finally {
+      setIsAuditing(false);
+    }
+  };
+
+  const handleSyncDigifarma = async () => {
+    setIsSyncingDigifarma(true);
+    try {
+      const res = await fetch('/api/erp/inbound/sync-digifarma', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ competencia })
+      });
+      const json = await res.json();
+      if (res.ok && json.success) {
+        showToast(`✅ Digifarma: ${json.total_importadas} nova(s) nota(s) importada(s), ${json.total_ja_existentes} já existentes!`);
+        await carregarApuracao(true);
+        await handleAudit();
+      } else {
+        showToast(json.error || 'Erro ao sincronizar com Digifarma.');
+      }
+    } catch {
+      showToast('Falha na comunicação com o servidor.');
+    } finally {
+      setIsSyncingDigifarma(false);
+    }
+  };
+
+  const handleDownloadPackageZip = () => {
+    window.open(`/api/erp/fiscal/package-zip/${competencia}`, '_blank');
+    showToast('Download do Pacote Contábil Completo (.ZIP) iniciado!');
+  };
 
   const copiarValor = (texto: string, chave: string) => {
     navigator.clipboard.writeText(texto);
@@ -221,7 +276,7 @@ export const FiscalAccountingView: React.FC = () => {
       // Recalcula o fechamento na hora
       await carregarApuracao(true);
     } catch (err: any) {
-      alert(`Erro: ${err.message}`);
+      showToast(`Erro ao atualizar: ${err.message}`);
     } finally {
       setSavingFix(false);
     }
@@ -262,9 +317,39 @@ export const FiscalAccountingView: React.FC = () => {
           {/* Ações de Download e Recálculo */}
           <div className="flex flex-wrap items-center gap-2.5">
             <button
+              onClick={handleSyncDigifarma}
+              disabled={isSyncingDigifarma || loading}
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg bg-cyan-700/80 hover:bg-cyan-600 active:scale-95 text-white transition-all shadow-sm"
+              title="Importar compras faturadas no Digifarma (CAB_NOTAS) para este mês"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isSyncingDigifarma ? 'animate-spin' : ''}`} />
+              {isSyncingDigifarma ? 'Sincronizando...' : 'Sincronizar Digifarma'}
+            </button>
+
+            <button
+              onClick={handleAudit}
+              disabled={isAuditing}
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg bg-amber-600/90 hover:bg-amber-600 active:scale-95 text-white transition-all shadow-sm"
+              title="Executar auditoria prévia e validação de pendências fiscais"
+            >
+              <ShieldCheck className={`w-3.5 h-3.5 ${isAuditing ? 'animate-spin' : ''}`} />
+              {isAuditing ? 'Auditando...' : 'Auditar Fechamento'}
+            </button>
+
+            <button
+              onClick={handleDownloadPackageZip}
+              disabled={loading}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-lg bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 active:scale-95 text-white shadow-md shadow-violet-900/30 transition-all border border-violet-400/30"
+              title="Baixar pacote contábil completo compactado (.ZIP) com SINTEGRA, SPED, CSV e todas as pastas de XMLs (Entradas, Saídas e Cancelamentos)"
+            >
+              <Package className="w-4 h-4 text-violet-200" />
+              Pacote Contábil (.ZIP)
+            </button>
+
+            <button
               onClick={() => carregarApuracao(true)}
               disabled={loading}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-200 border border-slate-700 transition-all shadow-sm"
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-200 border border-slate-700 transition-all shadow-sm"
               title="Recalcular todos os cupons do período"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-blue-400' : ''}`} />
@@ -274,7 +359,7 @@ export const FiscalAccountingView: React.FC = () => {
             <button
               onClick={handleDownloadCsv}
               disabled={!report || loading}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg bg-blue-600/90 hover:bg-blue-600 active:scale-95 text-white transition-all shadow-sm"
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg bg-blue-600/90 hover:bg-blue-600 active:scale-95 text-white transition-all shadow-sm"
               title="Exportar planilha completa para o contador"
             >
               <FileSpreadsheet className="w-3.5 h-3.5" />
@@ -284,7 +369,7 @@ export const FiscalAccountingView: React.FC = () => {
             <button
               onClick={handleDownloadSped}
               disabled={!report || loading}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white transition-all shadow-sm"
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white transition-all shadow-sm"
               title="Baixar arquivo oficial para validação no PVA da Receita Federal (Entradas e Saídas)"
             >
               <Download className="w-3.5 h-3.5" />
@@ -294,7 +379,7 @@ export const FiscalAccountingView: React.FC = () => {
             <button
               onClick={handleDownloadSintegra}
               disabled={!report || loading}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg bg-teal-600 hover:bg-teal-500 active:scale-95 text-white transition-all shadow-sm"
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg bg-teal-600 hover:bg-teal-500 active:scale-95 text-white transition-all shadow-sm"
               title="Baixar arquivo oficial do SINTEGRA (Convênio ICMS 57/95) com Entradas e Saídas"
             >
               <Download className="w-3.5 h-3.5" />
@@ -306,7 +391,7 @@ export const FiscalAccountingView: React.FC = () => {
                 carregarDadosContador();
                 setIsContadorModalOpen(true);
               }}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg bg-indigo-600/90 hover:bg-indigo-600 active:scale-95 text-white transition-all shadow-sm"
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg bg-slate-700 hover:bg-slate-600 active:scale-95 text-white transition-all shadow-sm"
               title="Configurar dados do contabilista (CRC/CPF) para o Registro 0100 do SPED Fiscal e SINTEGRA"
             >
               <UserCheck className="w-3.5 h-3.5" />
@@ -411,6 +496,147 @@ export const FiscalAccountingView: React.FC = () => {
         <div className="p-4 rounded-xl bg-red-950/40 border border-red-900/60 text-red-200 text-sm flex items-center gap-3">
           <AlertTriangle className="w-5 h-5 text-red-400 shrink-0" />
           <span>{errorMsg}</span>
+        </div>
+      )}
+
+      {/* Painel de Auditoria Prévia de Fechamento Fiscal */}
+      {auditResult && (
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-sm space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <div className={`p-2 rounded-lg ${auditResult.pronto_para_fechamento ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'}`}>
+                {auditResult.pronto_para_fechamento ? <ShieldCheck className="w-5 h-5" /> : <AlertTriangle className="w-5 h-5" />}
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-sm font-bold text-white tracking-tight">
+                    Auditoria Prévia de Fechamento Fiscal ({competencia})
+                  </h2>
+                  <span className={`text-[11px] px-2.5 py-0.5 rounded-full font-semibold border ${
+                    auditResult.pronto_para_fechamento 
+                      ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60' 
+                      : 'bg-amber-950/80 text-amber-300 border-amber-700/60'
+                  }`}>
+                    {auditResult.pronto_para_fechamento ? '✅ Pronto para Fechamento' : '⚠️ Pendências Encontradas'}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Conferência cruzada de NFC-e, Compras (NF-e 55), contingências e integridade cadastral de NCMs.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowAuditDetails(!showAuditDetails)}
+                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors"
+              >
+                {showAuditDetails ? (
+                  <>
+                    <ChevronUp className="w-3.5 h-3.5" />
+                    Ocultar Alertas ({auditResult.alertas?.length || 0})
+                  </>
+                ) : (
+                  <>
+                    <ChevronDown className="w-3.5 h-3.5" />
+                    Ver Detalhes ({auditResult.alertas?.length || 0})
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* Cards de Métricas Compactas da Auditoria */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 pt-2 border-t border-slate-800/80">
+            <div className="bg-slate-950/50 p-2.5 rounded-lg border border-slate-800/60">
+              <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
+                Saídas Autorizadas
+              </span>
+              <div className="text-base font-bold text-emerald-400 font-mono mt-0.5">
+                {auditResult.resumo?.nfc_autorizadas ?? 0}
+              </div>
+            </div>
+
+            <div className="bg-slate-950/50 p-2.5 rounded-lg border border-slate-800/60">
+              <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
+                Saídas Canceladas
+              </span>
+              <div className="text-base font-bold text-slate-300 font-mono mt-0.5">
+                {auditResult.resumo?.saidas_canceladas ?? 0}
+              </div>
+            </div>
+
+            <div className="bg-slate-950/50 p-2.5 rounded-lg border border-slate-800/60">
+              <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
+                Entradas (NF-e 55)
+              </span>
+              <div className="text-base font-bold text-blue-400 font-mono mt-0.5">
+                {auditResult.resumo?.total_entradas ?? 0}
+              </div>
+            </div>
+
+            <div className={`p-2.5 rounded-lg border ${
+              (auditResult.resumo?.contingencias_pendentes ?? 0) > 0 
+                ? 'bg-red-950/30 border-red-800/60 text-red-300' 
+                : 'bg-slate-950/50 border-slate-800/60 text-emerald-400'
+            }`}>
+              <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
+                Contingências Pendentes
+              </span>
+              <div className="text-base font-bold font-mono mt-0.5">
+                {auditResult.resumo?.contingencias_pendentes ?? 0}
+              </div>
+            </div>
+
+            <div className={`p-2.5 rounded-lg border ${
+              (auditResult.resumo?.produtos_ncm_invalido ?? 0) > 0 
+                ? 'bg-amber-950/30 border-amber-800/60 text-amber-300' 
+                : 'bg-slate-950/50 border-slate-800/60 text-emerald-400'
+            }`}>
+              <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
+                NCMs Inválidos
+              </span>
+              <div className="text-base font-bold font-mono mt-0.5">
+                {auditResult.resumo?.produtos_ncm_invalido ?? 0}
+              </div>
+            </div>
+          </div>
+
+          {/* Listagem detalhada de Alertas Expandida */}
+          {showAuditDetails && auditResult.alertas && auditResult.alertas.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-slate-800 space-y-2">
+              <span className="text-xs font-semibold text-slate-300 block">
+                Lista de Inconsistências Fiscais Detectadas:
+              </span>
+              <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1">
+                {auditResult.alertas.map((alerta: any, idx: number) => (
+                  <div
+                    key={idx}
+                    className={`p-2.5 rounded-lg border flex items-start gap-2.5 text-xs ${
+                      alerta.nivel === 'ERRO'
+                        ? 'bg-red-950/40 border-red-800/60 text-red-200'
+                        : 'bg-amber-950/30 border-amber-800/50 text-amber-200'
+                    }`}
+                  >
+                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase shrink-0 ${
+                      alerta.nivel === 'ERRO' ? 'bg-red-800 text-white' : 'bg-amber-700 text-white'
+                    }`}>
+                      {alerta.nivel}
+                    </span>
+                    <div className="flex-1">
+                      <div className="font-semibold text-slate-100 flex items-center justify-between">
+                        <span>{alerta.categoria}</span>
+                        {alerta.count > 0 && (
+                          <span className="text-[10px] opacity-75">{alerta.count} ocorrência(s)</span>
+                        )}
+                      </div>
+                      <p className="text-[11px] opacity-90 mt-0.5">{alerta.mensagem}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
