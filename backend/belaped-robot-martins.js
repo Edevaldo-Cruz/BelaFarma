@@ -107,7 +107,8 @@ class MartinsRobot {
     // Checa se já está autenticado
     const isLogado = await this.page.evaluate(() => {
       const text = document.body.innerText || '';
-      return text.includes('Minha Conta') || text.includes('Olá, ') || text.includes('Sair') || !text.includes('Entrar');
+      if (text.includes('Faça Login') || text.includes('Cadastre-se')) return false;
+      return text.includes('Minha Conta') || text.includes('Olá, ') || text.includes('Sair') || text.includes('BELA FARMA');
     });
 
     if (isLogado) {
@@ -357,7 +358,7 @@ class MartinsRobot {
 
   async _executarBuscaMartins(termo) {
     try {
-      const urlBusca = `https://www.martinsatacado.com.br/busca?q=${encodeURIComponent(termo)}`;
+      const urlBusca = `https://www.martinsatacado.com.br/busca/${encodeURIComponent(termo)}`;
       await this.page.goto(urlBusca, { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
       await new Promise(r => setTimeout(r, 1200));
 
@@ -371,7 +372,7 @@ class MartinsRobot {
           return [];
         }
 
-        const cards = Array.from(document.querySelectorAll('[data-testid*="product"], article, [class*="productCard"], [class*="product-card"], .shelf-item'));
+        const cards = Array.from(document.querySelectorAll('#product-card-container, [id*="product-card"], [data-testid*="product"], article, [class*="productCard"], [class*="product-card"], .shelf-item'));
         const resultados = [];
 
         const indicadoresForaEstado = [
