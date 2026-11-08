@@ -578,6 +578,141 @@ export function imprimirDanfeNfce(danfe: DanfeNfceData) {
 }
 
 
+export interface MovimentacaoCaixaData {
+  id: string;
+  movement_type: 'SANGRIA' | 'SUPRIMENTO';
+  amount: number;
+  reason: string;
+  user_name: string;
+  created_at?: string;
+}
+
+export function imprimirComprovanteMovimentacaoCaixa(mov: MovimentacaoCaixaData) {
+  const isSangria = mov.movement_type === 'SANGRIA';
+  const titulo = isSangria ? 'COMPROVANTE DE SANGRIA' : 'COMPROVANTE DE SUPRIMENTO';
+  const subtitulo = isSangria ? 'RETIRADA DE VALOR DO CAIXA' : 'REFORÇO / TROCO INICIAL';
+  const dataFormatada = mov.created_at ? new Date(mov.created_at).toLocaleString('pt-BR') : new Date().toLocaleString('pt-BR');
+
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <title>${titulo}</title>
+      <style>
+        @page {
+          size: 80mm auto;
+          margin: 0;
+        }
+        @media print {
+          html, body {
+            width: 72mm !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            filter: contrast(300%) grayscale(100%);
+          }
+        }
+        * {
+          box-sizing: border-box;
+          margin: 0;
+          padding: 0;
+          color: #000000 !important;
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+        }
+        body {
+          width: 72mm;
+          max-width: 72mm;
+          margin: 0 auto;
+          padding: 2mm 1mm 12mm 1mm;
+          font-family: 'Segoe UI', 'Consolas', 'Arial', -apple-system, sans-serif;
+          font-size: 12px;
+          font-weight: 700;
+          line-height: 1.28;
+          color: #000000 !important;
+          background: #ffffff !important;
+        }
+        .text-center { text-align: center; }
+        .text-right { text-align: right; }
+        .bold { font-weight: 900; }
+        .uppercase { text-transform: uppercase; }
+        .divider {
+          border-bottom: 2px dashed #000000;
+          margin: 6px 0;
+        }
+        .cut-space {
+          height: 25mm;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="text-center bold uppercase" style="font-size: 14px;">DROGARIA BELA FARMA</div>
+      <div class="text-center" style="font-size: 10px;">CONTROLE INTERNO DE CAIXA</div>
+      <div class="divider"></div>
+
+      <div class="text-center bold uppercase" style="font-size: 13px; margin: 4px 0;">
+        ${titulo}
+      </div>
+      <div class="text-center" style="font-size: 10px; margin-bottom: 4px;">
+        ${subtitulo}
+      </div>
+      <div class="divider"></div>
+
+      <div style="margin: 6px 0; font-size: 11px;">
+        <div style="display: flex; justify-content: space-between;">
+          <span>DATA / HORA:</span>
+          <span class="bold">${dataFormatada}</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; margin-top: 3px;">
+          <span>OPERADOR:</span>
+          <span class="bold uppercase">${escapeHtml(mov.user_name || 'Caixa')}</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; margin-top: 3px;">
+          <span>CONTROLE:</span>
+          <span class="bold font-mono">${escapeHtml(mov.id)}</span>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div style="margin: 8px 0; padding: 6px 0; border: 1px solid #000; text-align: center;">
+        <div style="font-size: 11px; font-weight: 700;">VALOR DA OPERAÇÃO</div>
+        <div style="font-size: 18px; font-weight: 900; margin-top: 2px;">
+          R$ ${Number(mov.amount).toFixed(2).replace('.', ',')}
+        </div>
+      </div>
+
+      <div style="margin: 6px 0; font-size: 11px;">
+        <div class="bold">MOTIVO / JUSTIFICATIVA:</div>
+        <div style="margin-top: 2px; font-style: italic;">
+          ${escapeHtml(mov.reason || 'Operação realizada no caixa')}
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div style="margin-top: 20px; text-align: center; font-size: 10px;">
+        <div style="border-top: 1px solid #000; width: 85%; margin: 0 auto 4px auto;"></div>
+        <div>ASSINATURA DO OPERADOR / CAIXA</div>
+      </div>
+
+      <div style="margin-top: 18px; text-align: center; font-size: 10px;">
+        <div style="border-top: 1px solid #000; width: 85%; margin: 0 auto 4px auto;"></div>
+        <div>ASSINATURA DO GERENTE / RESPONSÁVEL</div>
+      </div>
+
+      <div class="cut-space"></div>
+    </body>
+    </html>
+  `;
+
+  despacharImpressaoTermica(html, `${titulo} - R$ ${Number(mov.amount).toFixed(2)}`, {
+    print_type: 'MOVIMENTACAO_CAIXA',
+    movement_type: mov.movement_type,
+    amount: mov.amount
+  });
+}
+
 function escapeHtml(text: string | null | undefined): string {
   if (!text) return '';
   return String(text)

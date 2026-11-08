@@ -1,9 +1,24 @@
 {
   "version": "1.2.4",
-  "commitHash": "071ce86",
-  "commitMessage": "fix(belaped): efeito cascata na reposicao semanal e recalculo automatico de opcoes",
-  "buildTime": "04/11/2026, 19:44:24",
+  "commitHash": "b210c67",
+  "commitMessage": "fix(belaped): corrige verificacao de login, url de busca e seletores do robo Martins",
+  "buildTime": "08/11/2026, 13:39:44",
   "recentCommits": [
+    {
+      "hash": "b210c67",
+      "date": "08/11/2026",
+      "message": "fix(belaped): corrige verificacao de login, url de busca e seletores do robo Martins"
+    },
+    {
+      "hash": "1cfdd77",
+      "date": "05/11/2026",
+      "message": "feat(compras): processar historico/imagens 48h ao reconectar WhatsApp e robo RPA para ofertas do dia"
+    },
+    {
+      "hash": "ac9dcba",
+      "date": "04/11/2026",
+      "message": "feat(belaped): simplifica interface e adiciona filtros rapidos por fornecedor e categoria"
+    },
     {
       "hash": "071ce86",
       "date": "04/11/2026",
@@ -48,21 +63,6 @@
       "hash": "3ac833d",
       "date": "03/11/2026",
       "message": "fix(finance): alinhar total de vendas com faturamento oficial do Digifarma (CAB_VENDAS)"
-    },
-    {
-      "hash": "aa246cd",
-      "date": "03/11/2026",
-      "message": "fix(sales): desativa persistencia residual em localStorage para faturamento live"
-    },
-    {
-      "hash": "61859b3",
-      "date": "03/11/2026",
-      "message": "fix(scripts): usar config.dbPath em check_liquidacao.cjs"
-    },
-    {
-      "hash": "ab6217a",
-      "date": "03/11/2026",
-      "message": "fix(liquidacao): regularizar precos promocionais vigentes dos 118 produtos e blindar sincronizacao"
     }
   ]
 }

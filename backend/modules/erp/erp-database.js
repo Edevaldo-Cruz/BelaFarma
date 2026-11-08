@@ -229,6 +229,59 @@ function initErpDatabase() {
     )
   `).run();
 
+  // 8. Tabela de Movimentações de Caixa (Sangria e Suprimento)
+  db.prepare(`
+    CREATE TABLE IF NOT EXISTS cash_movements (
+      id TEXT PRIMARY KEY,
+      movement_type TEXT NOT NULL, -- 'SANGRIA' ou 'SUPRIMENTO'
+      amount REAL NOT NULL,
+      reason TEXT,
+      user_name TEXT NOT NULL DEFAULT 'Caixa',
+      created_at TEXT DEFAULT (datetime('now', 'localtime')),
+      digifarma_sync_status TEXT DEFAULT 'PENDENTE',
+      digifarma_caixa_id INTEGER,
+      digifarma_sync_error TEXT
+    )
+  `).run();
+  db.prepare(`CREATE INDEX IF NOT EXISTS idx_cash_movements_created ON cash_movements (created_at)`).run();
+
+  // 9. Tabelas de Pré-Vendas e Orçamentos (Balcão / WhatsApp)
+  db.prepare(`
+    CREATE TABLE IF NOT EXISTS pre_sales (
+      id TEXT PRIMARY KEY,
+      customer_id TEXT,
+      customer_name TEXT,
+      seller_id TEXT,
+      seller_name TEXT,
+      total_items_value REAL DEFAULT 0,
+      discount_value REAL DEFAULT 0,
+      total_value REAL DEFAULT 0,
+      notes TEXT,
+      status TEXT DEFAULT 'ABERTA', -- 'ABERTA', 'FATURADA', 'CANCELADA'
+      created_at TEXT DEFAULT (datetime('now', 'localtime')),
+      consumed_at TEXT,
+      sale_id TEXT
+    )
+  `).run();
+  db.prepare(`CREATE INDEX IF NOT EXISTS idx_pre_sales_status ON pre_sales (status)`).run();
+
+  db.prepare(`
+    CREATE TABLE IF NOT EXISTS pre_sale_items (
+      id TEXT PRIMARY KEY,
+      pre_sale_id TEXT NOT NULL,
+      product_code TEXT NOT NULL,
+      barcode TEXT,
+      product_name TEXT NOT NULL,
+      quantity REAL NOT NULL DEFAULT 1,
+      unit_price REAL NOT NULL DEFAULT 0,
+      total_price REAL NOT NULL DEFAULT 0,
+      unit_cost REAL DEFAULT 0,
+      recipe_type TEXT,
+      recipe_label TEXT
+    )
+  `).run();
+  db.prepare(`CREATE INDEX IF NOT EXISTS idx_pre_sale_items_ps ON pre_sale_items (pre_sale_id)`).run();
+
   // Garante um registro padrão em fiscal_settings se estiver vazia
   const existingFiscal = db.prepare('SELECT id FROM fiscal_settings WHERE id = ?').get('primary');
   if (!existingFiscal) {

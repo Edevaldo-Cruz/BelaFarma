@@ -20,7 +20,14 @@ const {
 
 const {
   registrarVenda,
-  cancelarVenda
+  cancelarVenda,
+  registrarMovimentacaoCaixa,
+  listarMovimentacoesCaixa,
+  criarPreVenda,
+  listarPreVendas,
+  obterPreVenda,
+  consumirPreVenda,
+  consultarStatusCrediarioCliente
 } = require('./erp-pos.service');
 
 const {
@@ -53,7 +60,8 @@ const {
 
 const {
   sincronizarVendaDigifarma,
-  atualizarNfceAutorizadaDigifarma
+  atualizarNfceAutorizadaDigifarma,
+  sincronizarMovimentacaoCaixaDigifarma
 } = require('./erp-digifarma-sales-sync.service');
 
 const {
@@ -325,6 +333,110 @@ router.post('/pos/cancel/:id', (req, res) => {
       user_name: userName,
       reason: req.body.reason || 'Cancelamento solicitado no caixa'
     });
+    res.json(resultado);
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// Movimentações de Caixa (Sangria e Suprimento)
+router.post('/pos/cash-movement', async (req, res) => {
+  try {
+    const { movement_type, amount, reason, user_name } = req.body;
+    const mov = registrarMovimentacaoCaixa({
+      movement_type,
+      amount,
+      reason,
+      user_name: user_name || req.headers['x-user-name'] || 'Caixa'
+    });
+
+    // Dispara sincronização em segundo plano com o CAIXA do Digifarma
+    sincronizarMovimentacaoCaixaDigifarma(mov).then(syncRes => {
+      const { db } = require('./erp-database');
+      if (syncRes && syncRes.success) {
+        db.prepare(`
+          UPDATE cash_movements 
+          SET digifarma_sync_status = 'SINCRONIZADO',
+              digifarma_caixa_id = ?
+          WHERE id = ?
+        `).run(syncRes.caixa_id, mov.id);
+      } else {
+        db.prepare(`
+          UPDATE cash_movements 
+          SET digifarma_sync_status = 'FALHA',
+              digifarma_sync_error = ?
+          WHERE id = ?
+        `).run(syncRes?.error || 'Erro desconhecido', mov.id);
+      }
+    }).catch(err => {
+      console.warn('[PDV Movimentação] ⚠️ Falha na sincronização assíncrona com Digifarma:', err.message);
+    });
+
+    res.json(mov);
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+router.get('/pos/cash-movements', (req, res) => {
+  try {
+    const { date } = req.query;
+    const resultado = listarMovimentacoesCaixa(date);
+    res.json({ success: true, data: resultado });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Consulta de Crediário e Limite do Cliente
+router.get('/pos/customer-credit/:term', (req, res) => {
+  try {
+    const info = consultarStatusCrediarioCliente(req.params.term);
+    if (!info) {
+      return res.status(404).json({ success: false, error: 'Cliente não encontrado no cadastro de crediário.' });
+    }
+    res.json({ success: true, data: info });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Pré-Vendas e Orçamentos (Balcão / WhatsApp)
+router.post('/pos/pre-sales', (req, res) => {
+  try {
+    const resultado = criarPreVenda(req.body);
+    res.json(resultado);
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+router.get('/pos/pre-sales', (req, res) => {
+  try {
+    const { status, limit } = req.query;
+    const lista = listarPreVendas({ status, limit: parseInt(limit, 10) || 30 });
+    res.json({ success: true, data: lista });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+router.get('/pos/pre-sales/:id', (req, res) => {
+  try {
+    const ps = obterPreVenda(req.params.id);
+    if (!ps) {
+      return res.status(404).json({ success: false, error: 'Pré-venda não encontrada.' });
+    }
+    res.json({ success: true, data: ps });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+router.post('/pos/pre-sales/:id/consume', (req, res) => {
+  try {
+    const { sale_id } = req.body;
+    const resultado = consumirPreVenda(req.params.id, sale_id);
     res.json(resultado);
   } catch (err) {
     res.status(400).json({ success: false, error: err.message });

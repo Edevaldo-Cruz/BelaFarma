@@ -36,7 +36,7 @@ import { useToast } from '../ToastContext';
 import { BelaFarmaLogo } from '../BelaFarmaLogo';
 import { DanfeNfceModal } from './DanfeNfceModal';
 import { FiscalSettingsModal } from './FiscalSettingsModal';
-import { imprimirCupomVenda, imprimirDanfeNfce } from '../../utils/thermalPrinter';
+import { imprimirCupomVenda, imprimirDanfeNfce, imprimirComprovanteMovimentacaoCaixa } from '../../utils/thermalPrinter';
 import { ControlledRecipeModal, ControlledProductItem, ControlledRecipeData } from './ControlledRecipeModal';
 import { useThermalPrintSpooler } from './useThermalPrintSpooler';
 
@@ -227,6 +227,22 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
   const [cancelReason, setCancelReason] = useState<string>('');
   const [isCancelling, setIsCancelling] = useState<boolean>(false);
   const [isEmittingFiscal, setIsEmittingFiscal] = useState<boolean>(false);
+
+  // Movimentações de Caixa (Sangria e Suprimento) [F4]
+  const [isCashMovementModalOpen, setIsCashMovementModalOpen] = useState<boolean>(false);
+  const [movementType, setMovementType] = useState<'SANGRIA' | 'SUPRIMENTO'>('SANGRIA');
+  const [movementAmount, setMovementAmount] = useState<string>('');
+  const [movementReason, setMovementReason] = useState<string>('');
+  const [isSavingMovement, setIsSavingMovement] = useState<boolean>(false);
+  const [recentMovements, setRecentMovements] = useState<any[]>([]);
+
+  // Pré-Vendas e Orçamentos do Balcão [F9]
+  const [isPreSaleModalOpen, setIsPreSaleModalOpen] = useState<boolean>(false);
+  const [preSalesList, setPreSalesList] = useState<any[]>([]);
+  const [isLoadingPreSales, setIsLoadingPreSales] = useState<boolean>(false);
+
+  // Status de Crediário e Limite do Cliente
+  const [customerCreditInfo, setCustomerCreditInfo] = useState<any | null>(null);
 
   // Controle Sanitário & Receitas Retidas (SNGPC)
   const [isControlledRecipeOpen, setIsControlledRecipeOpen] = useState<boolean>(false);
@@ -504,52 +520,54 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
         return;
       }
 
-      // F1 -> Abrir Catálogo / Consulta Rápida
-      if (e.key === 'F1') {
+      // F1 ou F2 -> Abrir Catálogo / Consulta Inteligente de Produtos (Digifarma F2)
+      if (e.key === 'F1' || e.key === 'F2') {
         e.preventDefault();
         setIsSearchOpen(true);
         setTimeout(() => searchInputRef.current?.focus(), 100);
       }
-      // F2 -> Desconto Geral (%) ou Consulta
-      else if (e.key === 'F2') {
-        e.preventDefault();
-        setIsDiscountModalOpen(true);
-      }
-      // F3 -> Produto Sem Código de Barras (*123)
-      else if (e.key === 'F3') {
-        e.preventDefault();
-        handleOpenUnregisteredModal('*123');
-      }
-      // F4 -> Identificar / Trocar Vendedor Rápido
-      else if (e.key === 'F4') {
-        e.preventDefault();
-        handleOpenSellerModal();
-      }
-      // F6 -> Cliente / CPF Fidelidade
-      else if (e.key === 'F6') {
+      // F3 ou F6 -> Cliente / Convênio / Crediário (Digifarma F3)
+      else if (e.key === 'F3' || e.key === 'F6') {
         e.preventDefault();
         setIsCustomerModalOpen(true);
       }
-      // F10 -> Finalizar Venda
-      else if (e.key === 'F10') {
+      // F4 -> Sangria e Suprimento (Movimentações de Caixa)
+      else if (e.key === 'F4') {
+        e.preventDefault();
+        fetchRecentMovements();
+        setIsCashMovementModalOpen(true);
+      }
+      // F5 -> Identificar / Trocar Vendedor Rápido
+      else if (e.key === 'F5') {
+        e.preventDefault();
+        handleOpenSellerModal();
+      }
+      // F7 -> Desconto Geral (%) ou Valor
+      else if (e.key === 'F7') {
+        e.preventDefault();
+        setIsDiscountModalOpen(true);
+      }
+      // F8 ou F10 -> Finalizar Venda / Pagamento Rápido (Digifarma F8)
+      else if (e.key === 'F8' || e.key === 'F10') {
         e.preventDefault();
         handleStartCheckout();
       }
-      // F7 -> Cancelar Venda / Consultar Últimas Vendas
-      else if (e.key === 'F7') {
+      // F9 -> Puxar Pré-Venda / Balcão / WhatsApp (Digifarma Pré-Venda)
+      else if (e.key === 'F9') {
+        e.preventDefault();
+        fetchPreSales();
+        setIsPreSaleModalOpen(true);
+      }
+      // F11 ou Shift+F10 ou F12 -> Cancelar Venda / Consultar Vendas do Dia
+      else if (e.key === 'F11' || e.key === 'F12') {
         e.preventDefault();
         handleOpenRecentSales();
       }
-      // F9 -> Limpar Carrinho
-      else if (e.key === 'F9') {
-        e.preventDefault();
-        if (cart.length > 0) {
-          setIsClearCartModalOpen(true);
-        }
-      }
-      // ESC -> Fechar qualquer modal aberta
+      // ESC -> Fechar qualquer modal aberta ou limpar cupom
       else if (e.key === 'Escape') {
-        if (isUnregisteredModalOpen) setIsUnregisteredModalOpen(false);
+        if (isCashMovementModalOpen) setIsCashMovementModalOpen(false);
+        else if (isPreSaleModalOpen) setIsPreSaleModalOpen(false);
+        else if (isUnregisteredModalOpen) setIsUnregisteredModalOpen(false);
         else if (isSellerModalOpen) {
           setIsSellerModalOpen(false);
           setIsPendingCheckout(false);
@@ -565,6 +583,10 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
         else if (isClearCartModalOpen) setIsClearCartModalOpen(false);
         else if (completedSale) setCompletedSale(null);
         else if (autocompleteResults.length > 0) setAutocompleteResults([]);
+        else if (cart.length > 0) {
+          // Se nenhuma modal está aberta e há itens no carrinho, ESC aciona confirmação de limpar cupom
+          setIsClearCartModalOpen(true);
+        }
         focusBarcodeInput();
       }
     };
@@ -836,6 +858,24 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
     focusBarcodeInput();
   };
 
+  // Busca status de crediário do cliente
+  const fetchCustomerCredit = async (term: string) => {
+    if (!term) return;
+    try {
+      const res = await fetch(`/api/erp/pos/customer-credit/${encodeURIComponent(term)}`);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && json.data) {
+          setCustomerCreditInfo(json.data);
+        }
+      } else {
+        setCustomerCreditInfo(null);
+      }
+    } catch {
+      setCustomerCreditInfo(null);
+    }
+  };
+
   // Identificação do Cliente
   const handleIdentifyCustomer = (cpf: string, name?: string) => {
     const cleanCpf = cpf.trim();
@@ -852,6 +892,9 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
     if (found) {
       setSelectedCustomer(found);
       setCustomerNameInput(found.name);
+      fetchCustomerCredit(found.id || cleanCpf);
+    } else if (cleanCpf || cleanName) {
+      fetchCustomerCredit(cleanCpf || cleanName);
     }
 
     // Recalcula descontos de genéricos no carrinho se houver
@@ -875,12 +918,175 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
     setSelectedCustomer(null);
     setCustomerCpf('');
     setCustomerNameInput('');
+    setCustomerCreditInfo(null);
     setCart(prev => prev.map(it => ({
       ...it,
       discount: 0,
       total_price: Math.round(it.quantity * it.unit_price * 100) / 100
     })));
     addToast('Cliente desvinculado.', 'info');
+  };
+
+  // Movimentações de Caixa (Sangria e Suprimento)
+  const fetchRecentMovements = async () => {
+    try {
+      const res = await fetch('/api/erp/pos/cash-movements');
+      if (res.ok) {
+        const json = await res.json();
+        setRecentMovements(json.data?.movements || []);
+      }
+    } catch (err) {
+      console.error('Erro ao buscar movimentações de caixa:', err);
+    }
+  };
+
+  const handleConfirmCashMovement = async () => {
+    const numVal = parseFloat(movementAmount.replace(',', '.')) || 0;
+    if (numVal <= 0) {
+      addToast('Informe um valor válido maior que zero.', 'warning');
+      return;
+    }
+
+    setIsSavingMovement(true);
+    try {
+      const res = await fetch('/api/erp/pos/cash-movement', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-user-name': currentSeller?.name || 'Caixa'
+        },
+        body: JSON.stringify({
+          movement_type: movementType,
+          amount: numVal,
+          reason: movementReason || (movementType === 'SANGRIA' ? 'Sangria de Caixa' : 'Suprimento / Reforço'),
+          user_name: currentSeller?.name || 'Caixa'
+        })
+      });
+
+      const json = await res.json();
+      if (res.ok && json.id) {
+        addToast(`✅ ${movementType} de R$ ${numVal.toFixed(2)} lançada com sucesso!`, 'success');
+        imprimirComprovanteMovimentacaoCaixa({
+          id: json.id,
+          movement_type: movementType,
+          amount: numVal,
+          reason: movementReason || (movementType === 'SANGRIA' ? 'Sangria de Caixa' : 'Suprimento / Reforço'),
+          user_name: currentSeller?.name || 'Caixa',
+          created_at: json.created_at
+        });
+        setMovementAmount('');
+        setMovementReason('');
+        setIsCashMovementModalOpen(false);
+        focusBarcodeInput();
+      } else {
+        addToast(json.error || 'Erro ao registrar movimentação.', 'error');
+      }
+    } catch (err) {
+      addToast('Erro na conexão com o servidor.', 'error');
+    } finally {
+      setIsSavingMovement(false);
+    }
+  };
+
+  // Pré-Vendas e Orçamentos (Balcão / WhatsApp)
+  const fetchPreSales = async () => {
+    setIsLoadingPreSales(true);
+    try {
+      const res = await fetch('/api/erp/pos/pre-sales?status=ABERTA');
+      if (res.ok) {
+        const json = await res.json();
+        setPreSalesList(json.data || []);
+      }
+    } catch (err) {
+      addToast('Erro ao carregar pré-vendas.', 'error');
+    } finally {
+      setIsLoadingPreSales(false);
+    }
+  };
+
+  const handleImportPreSale = async (preSale: any) => {
+    if (!preSale || !Array.isArray(preSale.items)) return;
+
+    const importedItems: CartItem[] = preSale.items.map((it: any) => ({
+      code: it.product_code,
+      barcode: it.barcode || '',
+      name: it.product_name,
+      unit_price: it.unit_price,
+      unit_cost: it.unit_cost || 0,
+      quantity: it.quantity,
+      discount: 0,
+      total_price: it.total_price,
+      recipe_type: it.recipe_type || null,
+      recipe_label: it.recipe_label || null
+    }));
+
+    setCart(importedItems);
+    if (preSale.discount_value > 0) {
+      setDiscount(preSale.discount_value);
+    }
+    if (preSale.customer_name) {
+      setCustomerNameInput(preSale.customer_name);
+      if (preSale.customer_id) {
+        const found = customersList.find(c => c.id === preSale.customer_id);
+        if (found) {
+          setSelectedCustomer(found);
+          fetchCustomerCredit(found.id);
+        }
+      }
+    }
+
+    try {
+      await fetch(`/api/erp/pos/pre-sales/${preSale.id}/consume`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sale_id: 'IMPORTADO_PDV' })
+      });
+    } catch {}
+
+    setIsPreSaleModalOpen(false);
+    addToast(`✅ Pré-venda #${preSale.id} importada com ${importedItems.length} itens!`, 'success');
+    focusBarcodeInput();
+  };
+
+  const handleSaveAsPreSale = async () => {
+    if (cart.length === 0) {
+      addToast('Adicione produtos para salvar como orçamento/pré-venda.', 'warning');
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/erp/pos/pre-sales', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customer_id: selectedCustomer?.id || null,
+          customer_name: selectedCustomer?.name || customerNameInput || null,
+          seller_id: currentSeller?.id || null,
+          seller_name: currentSeller?.name || null,
+          items: cart,
+          discount_value: totalDiscount,
+          notes: 'Gerado pelo Balcão / PDV'
+        })
+      });
+
+      const json = await res.json();
+      if (res.ok && json.success) {
+        addToast(`📋 Pré-Venda #${json.pre_sale_id} gerada com sucesso!`, 'success');
+        setCart([]);
+        setDiscount(0);
+        setDiscountPercent(0);
+        setSelectedCustomer(null);
+        setCustomerCpf('');
+        setCustomerNameInput('');
+        setCustomerCreditInfo(null);
+        setIsPreSaleModalOpen(false);
+        focusBarcodeInput();
+      } else {
+        addToast(json.error || 'Erro ao gerar pré-venda.', 'error');
+      }
+    } catch {
+      addToast('Erro ao comunicar com o servidor.', 'error');
+    }
   };
 
   // Busca de produtos por nome no modal [F1]
@@ -1271,7 +1477,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
         </div>
       </header>
 
-      {/* 2. BARRA DE ATALHOS RÁPIDOS [F1 a F10] */}
+      {/* 2. BARRA DE ATALHOS RÁPIDOS [F1 a F10 - Padrão Balcão Farmácia] */}
       <nav className="bg-slate-900 border-b border-slate-800 px-3 sm:px-4 py-1.5 flex items-center justify-between text-xs overflow-x-auto gap-2 shrink-0">
         <div className="flex items-center space-x-2 shrink-0">
           <button 
@@ -1280,26 +1486,35 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
               setTimeout(() => searchInputRef.current?.focus(), 100);
             }} 
             className="flex items-center space-x-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 px-2.5 py-1 rounded-lg transition border border-slate-700"
-          >
-            <span className="bg-amber-500/20 text-amber-300 font-bold px-1.5 py-0.5 rounded text-[10px]">F1</span>
-            <span>Buscar Produto</span>
-          </button>
-          
-          <button 
-            onClick={() => setIsDiscountModalOpen(true)} 
-            className="flex items-center space-x-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 px-2.5 py-1 rounded-lg transition border border-slate-700"
+            title="Consulta Inteligente de Produtos, Genéricos e Similares (F2)"
           >
             <span className="bg-amber-500/20 text-amber-300 font-bold px-1.5 py-0.5 rounded text-[10px]">F2</span>
-            <span>Desconto</span>
+            <span>Buscar Produto</span>
           </button>
-          
+
           <button 
-            onClick={() => handleOpenUnregisteredModal('*123')} 
-            className="flex items-center space-x-1.5 bg-blue-950/70 hover:bg-blue-900 text-blue-200 px-2.5 py-1 rounded-lg transition border border-blue-700/60"
-            title="Lançar produto avulso sem código de barras (*123)"
+            onClick={() => setIsCustomerModalOpen(true)} 
+            className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-lg transition border ${
+              selectedCustomer 
+                ? 'bg-blue-950/80 text-blue-200 border-blue-600'
+                : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+            }`}
+            title="Identificar Cliente, Convênio e Limite de Crediário (F3)"
           >
-            <span className="bg-blue-900 text-blue-200 font-bold px-1.5 py-0.5 rounded text-[10px]">F3</span>
-            <span>Sem Código (*)</span>
+            <span className="bg-blue-500/20 text-blue-300 font-bold px-1.5 py-0.5 rounded text-[10px]">F3</span>
+            <span>{selectedCustomer ? selectedCustomer.name.split(' ')[0] : 'Cliente / Crediário'}</span>
+          </button>
+
+          <button 
+            onClick={() => {
+              fetchRecentMovements();
+              setIsCashMovementModalOpen(true);
+            }} 
+            className="flex items-center space-x-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 px-2.5 py-1 rounded-lg transition border border-slate-700"
+            title="Lançar Sangria (retirada) ou Suprimento (troco) no Caixa (F4)"
+          >
+            <span className="bg-emerald-500/20 text-emerald-300 font-bold px-1.5 py-0.5 rounded text-[10px]">F4</span>
+            <span>Sangria / Suprimento</span>
           </button>
 
           <button 
@@ -1309,36 +1524,50 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
                 ? 'bg-emerald-950/60 hover:bg-emerald-900 text-emerald-300 border-emerald-700/60'
                 : 'bg-amber-950/70 hover:bg-amber-900 text-amber-300 border-amber-600 animate-pulse'
             }`}
-            title="Identificar ou trocar vendedor por chave de acesso de login"
+            title="Identificar ou trocar vendedor por chave de acesso (F5)"
           >
-            <span className="bg-amber-500/20 text-amber-300 font-bold px-1.5 py-0.5 rounded text-[10px]">F4</span>
+            <span className="bg-amber-500/20 text-amber-300 font-bold px-1.5 py-0.5 rounded text-[10px]">F5</span>
             <span>{currentSeller ? currentSeller.name.split(' ')[0] : 'Vendedor'}</span>
           </button>
-          
+
           <button 
-            onClick={() => setIsCustomerModalOpen(true)} 
+            onClick={() => setIsDiscountModalOpen(true)} 
             className="flex items-center space-x-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 px-2.5 py-1 rounded-lg transition border border-slate-700"
+            title="Aplicar Desconto Geral no Cupom (F7)"
           >
-            <span className="bg-amber-500/20 text-amber-300 font-bold px-1.5 py-0.5 rounded text-[10px]">F6</span>
-            <span>Cliente / CPF</span>
+            <span className="bg-amber-500/20 text-amber-300 font-bold px-1.5 py-0.5 rounded text-[10px]">F7</span>
+            <span>Desconto</span>
           </button>
           
           <button 
             onClick={handleStartCheckout} 
             disabled={cart.length === 0}
             className="flex items-center space-x-1.5 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-emerald-100 px-2.5 py-1 rounded-lg transition border border-emerald-500/50 font-medium shadow-sm"
+            title="Fechar Venda e Receber Pagamento (F8)"
           >
-            <span className="bg-emerald-950 text-emerald-300 font-bold px-1.5 py-0.5 rounded text-[10px]">F10</span>
+            <span className="bg-emerald-950 text-emerald-300 font-bold px-1.5 py-0.5 rounded text-[10px]">F8</span>
             <span>Finalizar Venda</span>
+          </button>
+
+          <button 
+            onClick={() => {
+              fetchPreSales();
+              setIsPreSaleModalOpen(true);
+            }} 
+            className="flex items-center space-x-1.5 bg-indigo-950/70 hover:bg-indigo-900 text-indigo-200 px-2.5 py-1 rounded-lg transition border border-indigo-700/60"
+            title="Puxar Pré-Vendas e Orçamentos do Balcão / WhatsApp (F9)"
+          >
+            <span className="bg-indigo-900 text-indigo-300 font-bold px-1.5 py-0.5 rounded text-[10px]">F9</span>
+            <span>Pré-Venda / Balcão</span>
           </button>
           
           <button 
             onClick={handleOpenRecentSales} 
             className="flex items-center space-x-1.5 bg-rose-950/60 hover:bg-rose-900 text-rose-300 px-2.5 py-1 rounded-lg transition border border-rose-800/50"
-            title="Ver últimas vendas e cancelar com estorno de estoque"
+            title="Ver últimas vendas e cancelar com estorno de estoque (F10)"
           >
-            <span className="bg-rose-900 text-rose-200 font-bold px-1.5 py-0.5 rounded text-[10px]">F7</span>
-            <span>Cancelar Venda</span>
+            <span className="bg-rose-900 text-rose-200 font-bold px-1.5 py-0.5 rounded text-[10px]">F10</span>
+            <span>Cancelar / Histórico</span>
           </button>
 
           <button 
@@ -1347,9 +1576,10 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
             }} 
             disabled={cart.length === 0}
             className="flex items-center space-x-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-300 px-2.5 py-1 rounded-lg transition border border-slate-700"
+            title="Cancelar cupom e esvaziar carrinho (ESC)"
           >
-            <span className="bg-slate-900 text-slate-400 font-bold px-1.5 py-0.5 rounded text-[10px]">F9</span>
-            <span>Limpar Cupom</span>
+            <span className="bg-slate-900 text-slate-400 font-bold px-1.5 py-0.5 rounded text-[10px]">ESC</span>
+            <span>Limpar</span>
           </button>
         </div>
 
@@ -1716,6 +1946,21 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
                     </span>
                     <span className="text-slate-400">{convenioNome}</span>
                   </div>
+
+                  {customerCreditInfo && (
+                    <div className="mt-2 pt-1.5 border-t border-slate-800 flex items-center justify-between gap-2 text-[10px]">
+                      <div>
+                        <span className="text-slate-500">Débito: </span>
+                        <span className="text-amber-400 font-mono font-bold">R$ {Number(customerCreditInfo.open_debt).toFixed(2)}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-500">Limite Disp: </span>
+                        <span className={`font-mono font-bold ${customerCreditInfo.available_limit > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                          R$ {Number(customerCreditInfo.available_limit).toFixed(2)}
+                        </span>
+                      </div>
+                    </div>
+                  )}
                 </div>
                 <button 
                   onClick={handleResetCustomer}
@@ -3068,6 +3313,283 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL 11: MOVIMENTAÇÕES DE CAIXA (SANGRIA & SUPRIMENTO) [F4] */}
+      {/* ========================================================================= */}
+      {isCashMovementModalOpen && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-lg w-full p-5 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <Banknote className="w-5 h-5 text-emerald-400" />
+                <h3 className="font-black text-sm text-slate-100">Movimentações de Caixa • Sangria & Suprimento [F4]</h3>
+              </div>
+              <button 
+                onClick={() => {
+                  setIsCashMovementModalOpen(false);
+                  focusBarcodeInput();
+                }}
+                className="text-slate-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Seletor de Tipo */}
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setMovementType('SANGRIA')}
+                className={`py-2.5 px-3 rounded-xl border flex items-center justify-center gap-2 text-xs font-bold transition-all ${
+                  movementType === 'SANGRIA'
+                    ? 'bg-rose-950/80 border-rose-600 text-rose-300 shadow-lg'
+                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-800'
+                }`}
+              >
+                <Minus className="w-4 h-4 text-rose-400" />
+                <span>Sangria (Retirada)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setMovementType('SUPRIMENTO')}
+                className={`py-2.5 px-3 rounded-xl border flex items-center justify-center gap-2 text-xs font-bold transition-all ${
+                  movementType === 'SUPRIMENTO'
+                    ? 'bg-emerald-950/80 border-emerald-600 text-emerald-300 shadow-lg'
+                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-800'
+                }`}
+              >
+                <Plus className="w-4 h-4 text-emerald-400" />
+                <span>Suprimento (Reforço)</span>
+              </button>
+            </div>
+
+            {/* Formulário de Lançamento */}
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-400 mb-1">Valor da Operação (R$):</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-2.5 text-slate-500 font-mono text-sm font-bold">R$</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    autoFocus
+                    placeholder="0.00"
+                    value={movementAmount}
+                    onChange={(e) => setMovementAmount(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleConfirmCashMovement();
+                      }
+                    }}
+                    className="w-full pl-10 pr-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-lg font-mono font-black text-slate-100 focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-400 mb-1">Motivo / Justificativa:</label>
+                <input
+                  type="text"
+                  placeholder={movementType === 'SANGRIA' ? 'Ex: Recolhimento para cofre / pagamento despesa' : 'Ex: Troco inicial em moedas'}
+                  value={movementReason}
+                  onChange={(e) => setMovementReason(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              {/* Sugestões Rápidas de Motivo */}
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                {(movementType === 'SANGRIA'
+                  ? ['Recolhimento Cofre', 'Pagamento Despesa', 'Sangria Periódica', 'Adiantamento']
+                  : ['Troco Inicial', 'Aporte de Moedas', 'Suprimento Troco', 'Reforço de Caixa']
+                ).map((motivo) => (
+                  <button
+                    key={motivo}
+                    type="button"
+                    onClick={() => setMovementReason(motivo)}
+                    className="text-[10px] bg-slate-950 hover:bg-slate-800 text-slate-400 hover:text-slate-200 px-2 py-1 rounded-lg border border-slate-800"
+                  >
+                    {motivo}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Ações */}
+            <div className="flex gap-2 pt-2 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsCashMovementModalOpen(false);
+                  focusBarcodeInput();
+                }}
+                className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-xl transition"
+              >
+                Cancelar [ESC]
+              </button>
+              <button
+                type="button"
+                disabled={isSavingMovement || !movementAmount}
+                onClick={handleConfirmCashMovement}
+                className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-black rounded-xl shadow-md flex items-center justify-center gap-1.5 transition"
+              >
+                {isSavingMovement ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Printer className="w-4 h-4" />
+                )}
+                <span>Confirmar & Imprimir</span>
+              </button>
+            </div>
+
+            {/* Histórico das Últimas Movimentações do Dia */}
+            {recentMovements.length > 0 && (
+              <div className="pt-2 border-t border-slate-800/80">
+                <span className="text-[11px] font-bold text-slate-400 block mb-1.5">Lançamentos Recentes de Hoje:</span>
+                <div className="max-h-28 overflow-y-auto space-y-1 bg-slate-950 p-2 rounded-xl border border-slate-800">
+                  {recentMovements.slice(0, 6).map((m: any) => (
+                    <div key={m.id} className="flex items-center justify-between text-[11px] font-mono">
+                      <div className="flex items-center gap-1.5">
+                        <span className={`px-1 py-0.2 rounded font-bold text-[9px] ${
+                          m.movement_type === 'SANGRIA' ? 'bg-rose-950 text-rose-300' : 'bg-emerald-950 text-emerald-300'
+                        }`}>
+                          {m.movement_type}
+                        </span>
+                        <span className="text-slate-300 font-sans truncate max-w-[170px]">{m.reason || 'Sem motivo'}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-slate-200 font-bold">R$ {Number(m.amount).toFixed(2)}</span>
+                        <span className="text-[10px] text-slate-500">{m.created_at ? new Date(m.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : ''}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL 12: PRÉ-VENDAS E ORÇAMENTOS (BALCÃO / WHATSAPP) [F9] */}
+      {/* ========================================================================= */}
+      {isPreSaleModalOpen && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-2xl w-full p-5 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <FileText className="w-5 h-5 text-indigo-400" />
+                <h3 className="font-black text-sm text-slate-100">Pré-Vendas & Orçamentos do Balcão [F9]</h3>
+              </div>
+              <button 
+                onClick={() => {
+                  setIsPreSaleModalOpen(false);
+                  focusBarcodeInput();
+                }}
+                className="text-slate-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Ação para Salvar o Carrinho Atual como Orçamento */}
+            {cart.length > 0 && (
+              <div className="bg-indigo-950/40 border border-indigo-800/60 p-3 rounded-xl flex items-center justify-between">
+                <div>
+                  <div className="text-xs font-bold text-indigo-200">Deseja transformar o carrinho atual em pré-venda?</div>
+                  <div className="text-[11px] text-indigo-300/80">Salva os {cart.length} itens atuais como orçamento para faturar depois.</div>
+                </div>
+                <button
+                  onClick={handleSaveAsPreSale}
+                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-lg shadow-sm"
+                >
+                  Salvar Orçamento
+                </button>
+              </div>
+            )}
+
+            {/* Lista de Pré-Vendas Abertas */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-400">Pré-Vendas Aguardando Faturamento ({preSalesList.length}):</span>
+                <button
+                  onClick={fetchPreSales}
+                  className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 font-semibold"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  Atualizar
+                </button>
+              </div>
+
+              {isLoadingPreSales ? (
+                <div className="py-8 text-center text-slate-500 flex flex-col items-center gap-2">
+                  <RefreshCw className="w-6 h-6 animate-spin text-indigo-400" />
+                  <span className="text-xs font-medium">Buscando pré-vendas...</span>
+                </div>
+              ) : preSalesList.length === 0 ? (
+                <div className="py-8 text-center bg-slate-950 rounded-xl border border-slate-800 text-slate-500 text-xs">
+                  Nenhuma pré-venda ou orçamento pendente no momento.
+                </div>
+              ) : (
+                <div className="max-h-72 overflow-y-auto space-y-2 pr-1">
+                  {preSalesList.map((ps: any) => (
+                    <div
+                      key={ps.id}
+                      className="bg-slate-950 hover:bg-slate-850 p-3 rounded-xl border border-slate-800 hover:border-indigo-600/70 transition flex items-center justify-between gap-3"
+                    >
+                      <div className="space-y-0.5">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-xs font-bold text-indigo-300">#{ps.id}</span>
+                          <span className="text-xs font-black text-slate-200">
+                            {ps.customer_name || 'Consumidor Balcão'}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-slate-400 flex items-center gap-2">
+                          <span>Vendedor: {ps.seller_name || 'Balcão'}</span>
+                          <span>•</span>
+                          <span>{ps.items?.length || 0} produto(s)</span>
+                          <span>•</span>
+                          <span>{new Date(ps.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-3">
+                        <span className="font-mono font-black text-sm text-emerald-400">
+                          R$ {Number(ps.total_value).toFixed(2)}
+                        </span>
+                        <button
+                          onClick={() => handleImportPreSale(ps)}
+                          className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg shadow-sm flex items-center gap-1"
+                        >
+                          <ShoppingCart className="w-3.5 h-3.5" />
+                          <span>Puxar</span>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="pt-2 border-t border-slate-800 flex justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsPreSaleModalOpen(false);
+                  focusBarcodeInput();
+                }}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-xl"
+              >
+                Fechar [ESC]
+              </button>
+            </div>
           </div>
         </div>
       )}

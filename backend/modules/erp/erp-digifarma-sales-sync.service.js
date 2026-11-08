@@ -473,10 +473,61 @@ async function reprocessarVendasPendentesDigifarma() {
   };
 }
 
+/**
+ * Sincroniza Sangria ou Suprimento diretamente no CAIXA ativo do Digifarma
+ * @param {Object} mov Dados da movimentação { id, movement_type, amount, reason, user_name }
+ * @returns {Promise<Object>}
+ */
+async function sincronizarMovimentacaoCaixaDigifarma(mov) {
+  const { movement_type, amount } = mov;
+  const numAmount = Math.round(parseFloat(amount) * 100) / 100;
+
+  if (isNaN(numAmount) || numAmount <= 0) {
+    throw new Error('Valor da movimentação inválido.');
+  }
+
+  const tipo = String(movement_type).toUpperCase();
+  if (tipo !== 'SANGRIA' && tipo !== 'SUPRIMENTO') {
+    throw new Error('Tipo de movimentação inválido (deve ser SANGRIA ou SUPRIMENTO).');
+  }
+
+  const caixa = await obterCaixaAbertoDigifarma();
+  if (!caixa) {
+    return {
+      success: false,
+      error: 'Nenhum Caixa aberto encontrado no Digifarma.'
+    };
+  }
+
+  const caixaId = caixa.CAIXA_ID;
+  const col = tipo === 'SANGRIA' ? 'SANGRIA' : 'SUPRIMENTO';
+
+  try {
+    const sql = `UPDATE CAIXA SET ${col} = COALESCE(${col}, 0) + ? WHERE CAIXA_ID = ?`;
+    await queryDigifarma(sql, [numAmount, caixaId]);
+
+    console.log(`[Digifarma Sync] 💵 ${tipo} de R$ ${numAmount.toFixed(2)} aplicada com sucesso ao Caixa #${caixaId} no Digifarma!`);
+    return {
+      success: true,
+      caixa_id: caixaId,
+      tipo,
+      amount: numAmount
+    };
+  } catch (err) {
+    console.error(`[Digifarma Sync] ⚠️ Erro ao aplicar ${tipo} no Caixa #${caixaId}:`, err.message);
+    return {
+      success: false,
+      caixa_id: caixaId,
+      error: err.message
+    };
+  }
+}
+
 module.exports = {
   obterCaixaAbertoDigifarma,
   sincronizarVendaDigifarma,
   atualizarNfceAutorizadaDigifarma,
-  reprocessarVendasPendentesDigifarma
+  reprocessarVendasPendentesDigifarma,
+  sincronizarMovimentacaoCaixaDigifarma
 };
 

@@ -338,7 +338,279 @@ function cancelarVenda(saleId, { user_name = 'Admin', reason = 'Cancelamento no 
   };
 }
 
+/**
+ * Registra movimentação de caixa (Sangria ou Suprimento) no PDV
+ */
+function registrarMovimentacaoCaixa({ movement_type, amount, reason = '', user_name = 'Caixa' }) {
+  const tipo = String(movement_type || '').toUpperCase().trim();
+  const numAmount = Math.round(parseFloat(amount) * 100) / 100;
+
+  if (tipo !== 'SANGRIA' && tipo !== 'SUPRIMENTO') {
+    throw new Error('Tipo de movimentação inválido. Utilize SANGRIA ou SUPRIMENTO.');
+  }
+
+  if (isNaN(numAmount) || numAmount <= 0) {
+    throw new Error('O valor da movimentação deve ser maior que zero.');
+  }
+
+  const id = `MOV-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+  const cleanReason = String(reason || '').trim() || (tipo === 'SANGRIA' ? 'Sangria de Caixa' : 'Suprimento / Reforço de Caixa');
+
+  db.prepare(`
+    INSERT INTO cash_movements (id, movement_type, amount, reason, user_name, created_at)
+    VALUES (?, ?, ?, ?, ?, datetime('now', 'localtime'))
+  `).run(id, tipo, numAmount, cleanReason, user_name);
+
+  return {
+    success: true,
+    id,
+    movement_type: tipo,
+    amount: numAmount,
+    reason: cleanReason,
+    user_name,
+    created_at: new Date().toISOString()
+  };
+}
+
+/**
+ * Lista as movimentações de caixa do dia
+ */
+function listarMovimentacoesCaixa(dateRef = null) {
+  const dateStr = dateRef || new Date().toISOString().split('T')[0];
+  const rows = db.prepare(`
+    SELECT * FROM cash_movements 
+    WHERE date(created_at) = date(?)
+    ORDER BY created_at DESC
+  `).all(dateStr);
+
+  const totais = {
+    total_sangria: 0,
+    total_suprimento: 0,
+    quantidade: rows.length
+  };
+
+  for (const r of rows) {
+    if (r.movement_type === 'SANGRIA') {
+      totais.total_sangria += parseFloat(r.amount) || 0;
+    } else if (r.movement_type === 'SUPRIMENTO') {
+      totais.total_suprimento += parseFloat(r.amount) || 0;
+    }
+  }
+
+  totais.total_sangria = Math.round(totais.total_sangria * 100) / 100;
+  totais.total_suprimento = Math.round(totais.total_suprimento * 100) / 100;
+
+  return {
+    date: dateStr,
+    totais,
+    movements: rows
+  };
+}
+
+/**
+ * Cria ou salva uma Pré-Venda / Orçamento gerado no Balcão ou WhatsApp
+ */
+function criarPreVenda(payload) {
+  const {
+    customer_id = null,
+    customer_name = null,
+    seller_id = null,
+    seller_name = null,
+    items = [],
+    discount_value = 0,
+    notes = ''
+  } = payload;
+
+  if (!Array.isArray(items) || items.length === 0) {
+    throw new Error('A pré-venda deve conter pelo menos 1 item.');
+  }
+
+  const preSaleId = `PRE-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+  let totalItems = 0;
+  const processed = [];
+
+  for (const it of items) {
+    const qtd = Math.max(1, parseFloat(it.quantity) || 1);
+    const prod = obterProdutoPorCodigo(it.code || it.product_code || it.barcode);
+    const preco = Math.max(0, parseFloat(it.unit_price) || (prod ? (prod.promo_price > 0 ? prod.promo_price : prod.sale_price) : 0));
+    const custo = Math.max(0, parseFloat(it.unit_cost) || (prod ? prod.cost_price : 0));
+    const subtotal = Math.round((qtd * preco) * 100) / 100;
+
+    totalItems += subtotal;
+    processed.push({
+      product_code: prod ? prod.code : String(it.code || it.product_code || it.barcode).trim(),
+      barcode: prod ? prod.barcode : (it.barcode || ''),
+      product_name: prod ? prod.name : String(it.product_name || it.name || 'PRODUTO').trim(),
+      quantity: qtd,
+      unit_price: preco,
+      total_price: subtotal,
+      unit_cost: custo,
+      recipe_type: it.recipe_type || null,
+      recipe_label: it.recipe_label || null
+    });
+  }
+
+  totalItems = Math.round(totalItems * 100) / 100;
+  const desc = Math.max(0, parseFloat(discount_value) || 0);
+  const total = Math.max(0, Math.round((totalItems - desc) * 100) / 100);
+
+  const tx = db.transaction(() => {
+    db.prepare(`
+      INSERT INTO pre_sales (
+        id, customer_id, customer_name, seller_id, seller_name,
+        total_items_value, discount_value, total_value, notes, status, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ABERTA', datetime('now', 'localtime'))
+    `).run(
+      preSaleId,
+      customer_id || null,
+      customer_name || null,
+      seller_id || null,
+      seller_name || null,
+      totalItems,
+      desc,
+      total,
+      notes || null
+    );
+
+    const insertItem = db.prepare(`
+      INSERT INTO pre_sale_items (
+        id, pre_sale_id, product_code, barcode, product_name,
+        quantity, unit_price, total_price, unit_cost, recipe_type, recipe_label
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    for (let i = 0; i < processed.length; i++) {
+      const it = processed[i];
+      insertItem.run(
+        `${preSaleId}-${i + 1}`,
+        preSaleId,
+        it.product_code,
+        it.barcode,
+        it.product_name,
+        it.quantity,
+        it.unit_price,
+        it.total_price,
+        it.unit_cost,
+        it.recipe_type,
+        it.recipe_label
+      );
+    }
+  });
+
+  tx();
+
+  return {
+    success: true,
+    pre_sale_id: preSaleId,
+    total_value: total,
+    items_count: processed.length
+  };
+}
+
+/**
+ * Lista pré-vendas abertas para puxar no PDV
+ */
+function listarPreVendas({ status = 'ABERTA', limit = 30 } = {}) {
+  const rows = db.prepare(`
+    SELECT * FROM pre_sales 
+    WHERE status = ?
+    ORDER BY created_at DESC 
+    LIMIT ?
+  `).all(status, limit);
+
+  return rows.map(r => {
+    const items = db.prepare('SELECT * FROM pre_sale_items WHERE pre_sale_id = ?').all(r.id);
+    return {
+      ...r,
+      items
+    };
+  });
+}
+
+/**
+ * Puxa uma pré-venda específica com seus itens
+ */
+function obterPreVenda(id) {
+  const ps = db.prepare('SELECT * FROM pre_sales WHERE id = ?').get(id);
+  if (!ps) return null;
+
+  const items = db.prepare('SELECT * FROM pre_sale_items WHERE pre_sale_id = ?').all(id);
+  return {
+    ...ps,
+    items
+  };
+}
+
+/**
+ * Marca uma pré-venda como consumida/faturada no caixa
+ */
+function consumirPreVenda(id, saleId) {
+  db.prepare(`
+    UPDATE pre_sales
+    SET status = 'FATURADA',
+        consumed_at = datetime('now', 'localtime'),
+        sale_id = ?
+    WHERE id = ?
+  `).run(saleId, id);
+
+  return { success: true };
+}
+
+/**
+ * Consulta status de crediário, limites e dívidas de um cliente
+ */
+function consultarStatusCrediarioCliente(term) {
+  if (!term) return null;
+  const cleanTerm = String(term).trim();
+  const cleanDigits = cleanTerm.replace(/\D/g, '');
+
+  let cust = null;
+  if (cleanDigits.length >= 11) {
+    cust = db.prepare('SELECT * FROM customers WHERE cpf = ? OR id = ?').get(cleanDigits, cleanTerm);
+  }
+  if (!cust) {
+    cust = db.prepare('SELECT * FROM customers WHERE id = ? OR name LIKE ? LIMIT 1').get(cleanTerm, `%${cleanTerm}%`);
+  }
+
+  if (!cust) return null;
+
+  const debts = db.prepare(`
+    SELECT * FROM customer_debts 
+    WHERE customerId = ? AND status != 'PAGO' AND status != 'CANCELADO'
+    ORDER BY purchaseDate ASC
+  `).all(cust.id);
+
+  let totalAberto = 0;
+  for (const d of debts) {
+    totalAberto += parseFloat(d.balance !== undefined ? d.balance : d.totalValue) || 0;
+  }
+  totalAberto = Math.round(totalAberto * 100) / 100;
+
+  const limiteCadastrado = parseFloat(cust.creditLimit) || 300.00; // Padrão de farmácia R$ 300 se não cadastrado
+  const limiteDisponivel = Math.max(0, Math.round((limiteCadastrado - totalAberto) * 100) / 100);
+
+  return {
+    customer_id: cust.id,
+    customer_name: cust.name,
+    customer_cpf: cust.cpf,
+    phone: cust.phone,
+    credit_limit: limiteCadastrado,
+    open_debt: totalAberto,
+    available_limit: limiteDisponivel,
+    can_purchase: limiteDisponivel > 0,
+    debts_count: debts.length,
+    recent_debts: debts.slice(0, 5)
+  };
+}
+
 module.exports = {
   registrarVenda,
-  cancelarVenda
+  cancelarVenda,
+  registrarMovimentacaoCaixa,
+  listarMovimentacoesCaixa,
+  criarPreVenda,
+  listarPreVendas,
+  obterPreVenda,
+  consumirPreVenda,
+  consultarStatusCrediarioCliente
 };
