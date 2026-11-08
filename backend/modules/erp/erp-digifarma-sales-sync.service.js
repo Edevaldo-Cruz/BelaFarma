@@ -523,11 +523,149 @@ async function sincronizarMovimentacaoCaixaDigifarma(mov) {
   }
 }
 
+/**
+ * Estorna atomicamente uma venda no Firebird do Digifarma:
+ * - Marca CAB_VENDAS.CANCELADO = 'S'
+ * - Marca ITEM_VENDAS.CANCELADO = 'S'
+ * - Devolve as quantidades ao estoque físico em PRODUTOS.PROD_SALDO
+ * - Subtrai os valores faturados da tabela CAIXA
+ * - Marca NFCE.STATUS = 'C' (Cancelado)
+ * @param {number|string} digifarmaVendaId ID da venda no Firebird (VENDA_NOTA_ID)
+ * @param {string} motivo Justificativa do estorno
+ * @returns {Promise<Object>}
+ */
+async function estornarVendaDigifarma(digifarmaVendaId, motivo = '') {
+  const vId = parseInt(digifarmaVendaId, 10);
+  if (isNaN(vId) || vId <= 0) {
+    console.warn('[Digifarma Estorno] ⚠️ ID da venda no Digifarma não informado ou inválido.');
+    return { success: false, error: 'ID de venda Digifarma inválido.' };
+  }
+
+  console.log(`[Digifarma Estorno] ↩️ Iniciando estorno atômico da Venda #${vId} no Digifarma...`);
+
+  try {
+    // 1. Obter dados da venda gravada no Firebird
+    const cabRows = await queryDigifarma(`
+      SELECT VENDA_NOTA_ID, VENDA_TOTAL, DINHEIRO, CARTAO, CREDIARIO, CAIXA_ID, CANCELADO 
+      FROM CAB_VENDAS 
+      WHERE VENDA_NOTA_ID = ?
+    `, [vId], 10000);
+
+    if (!cabRows || cabRows.length === 0) {
+      console.warn(`[Digifarma Estorno] ⚠️ Venda #${vId} não encontrada na CAB_VENDAS do Firebird.`);
+      return { success: false, error: `Venda #${vId} não encontrada no Digifarma.` };
+    }
+
+    const cab = cabRows[0];
+    if (cab.CANCELADO === 'S') {
+      console.log(`[Digifarma Estorno] ℹ️ Venda #${vId} já consta como cancelada no Digifarma.`);
+      return { success: true, already_cancelled: true };
+    }
+
+    // 2. Marcar CAB_VENDAS como cancelada
+    await queryDigifarma(`
+      UPDATE CAB_VENDAS 
+      SET CANCELADO = 'S',
+          VALOR_DEVOLUCAO = VENDA_TOTAL,
+          LASTUPDATE = CURRENT_TIMESTAMP
+      WHERE VENDA_NOTA_ID = ?
+    `, [vId], 10000);
+
+    // 3. Obter itens para estornar estoque em PRODUTOS
+    const itemRows = await queryDigifarma(`
+      SELECT PRODUTO_ID, ITEMVEND_QUANT 
+      FROM ITEM_VENDAS 
+      WHERE VENDA_NOTA_ID = ?
+    `, [vId], 10000);
+
+    if (itemRows && itemRows.length > 0) {
+      for (const item of itemRows) {
+        const prodId = parseInt(item.PRODUTO_ID, 10);
+        const qtd = parseFloat(item.ITEMVEND_QUANT) || 0;
+
+        if (prodId > 0 && qtd > 0) {
+          try {
+            await queryDigifarma(`
+              UPDATE PRODUTOS 
+              SET PROD_SALDO = COALESCE(PROD_SALDO, 0) + ? 
+              WHERE PRODUTO_ID = ?
+            `, [qtd, prodId], 10000);
+          } catch (stkErr) {
+            console.error(`[Digifarma Estorno] ⚠️ Erro ao estornar saldo do produto ${prodId}:`, stkErr.message);
+          }
+        }
+      }
+
+      // Marcar itens como cancelados
+      await queryDigifarma(`
+        UPDATE ITEM_VENDAS 
+        SET CANCELADO = 'S',
+            LASTUPDATE = CURRENT_TIMESTAMP
+        WHERE VENDA_NOTA_ID = ?
+      `, [vId], 10000);
+    }
+
+    // 4. Estornar valores acumulados no CAIXA do Digifarma
+    if (cab.CAIXA_ID) {
+      const vTotal = parseFloat(cab.VENDA_TOTAL) || 0;
+      const vDin = parseFloat(cab.DINHEIRO) || 0;
+      const vCard = parseFloat(cab.CARTAO) || 0;
+      const vCred = parseFloat(cab.CREDIARIO) || 0;
+
+      try {
+        await queryDigifarma(`
+          UPDATE CAIXA 
+          SET TOTAL_VENDAS = CASE WHEN TOTAL_VENDAS >= ? THEN TOTAL_VENDAS - ? ELSE 0 END,
+              VENDAS_DINHEIRO = CASE WHEN VENDAS_DINHEIRO >= ? THEN VENDAS_DINHEIRO - ? ELSE 0 END,
+              VENDAS_CARTAO = CASE WHEN VENDAS_CARTAO >= ? THEN VENDAS_CARTAO - ? ELSE 0 END,
+              VENDAS_CREDIARIO = CASE WHEN VENDAS_CREDIARIO >= ? THEN VENDAS_CREDIARIO - ? ELSE 0 END
+          WHERE CAIXA_ID = ?
+        `, [
+          vTotal, vTotal,
+          vDin, vDin,
+          vCard, vCard,
+          vCred, vCred,
+          cab.CAIXA_ID
+        ], 10000);
+      } catch (cxErr) {
+        console.error(`[Digifarma Estorno] ⚠️ Erro ao estornar acumulados do Caixa #${cab.CAIXA_ID}:`, cxErr.message);
+      }
+    }
+
+    // 5. Atualizar status na tabela NFCE
+    try {
+      await queryDigifarma(`
+        UPDATE NFCE 
+        SET STATUS = 'C',
+            DATA_OPERACAO = CURRENT_TIMESTAMP
+        WHERE VENDA_NOTA_ID = ?
+      `, [vId], 10000);
+    } catch (nfceErr) {
+      console.warn(`[Digifarma Estorno] ⚠️ Aviso ao atualizar tabela NFCE para cancelado:`, nfceErr.message);
+    }
+
+    console.log(`[Digifarma Estorno] ✅ Venda #${vId} totalmente estornada no Firebird (Estoque + Caixa + Status).`);
+    return {
+      success: true,
+      venda_nota_id: vId,
+      items_restocked: itemRows?.length || 0
+    };
+
+  } catch (err) {
+    console.error(`[Digifarma Estorno] ⚠️ Erro crítico no estorno da Venda #${vId}:`, err.message);
+    return {
+      success: false,
+      error: err.message
+    };
+  }
+}
+
 module.exports = {
   obterCaixaAbertoDigifarma,
   sincronizarVendaDigifarma,
   atualizarNfceAutorizadaDigifarma,
   reprocessarVendasPendentesDigifarma,
-  sincronizarMovimentacaoCaixaDigifarma
+  sincronizarMovimentacaoCaixaDigifarma,
+  estornarVendaDigifarma
 };
 

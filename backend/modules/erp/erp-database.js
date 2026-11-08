@@ -96,6 +96,8 @@ function initErpDatabase() {
     if (!sCols.includes('issued_at')) db.prepare(`ALTER TABLE sales ADD COLUMN issued_at TEXT`).run();
     if (!sCols.includes('xml_content')) db.prepare(`ALTER TABLE sales ADD COLUMN xml_content TEXT`).run();
     if (!sCols.includes('contingency_reason')) db.prepare(`ALTER TABLE sales ADD COLUMN contingency_reason TEXT`).run();
+    if (!sCols.includes('cancellation_protocol')) db.prepare(`ALTER TABLE sales ADD COLUMN cancellation_protocol TEXT`).run();
+    if (!sCols.includes('xml_cancellation')) db.prepare(`ALTER TABLE sales ADD COLUMN xml_cancellation TEXT`).run();
 
     // Identificação do Vendedor / Atendente
     if (!sCols.includes('seller_id')) db.prepare(`ALTER TABLE sales ADD COLUMN seller_id TEXT`).run();

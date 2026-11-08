@@ -282,9 +282,9 @@ function registrarVenda(payload) {
 }
 
 /**
- * Cancela uma venda e estorna o estoque atômico
+ * Cancela uma venda e estorna o estoque atômico, integrando com cancelamento SEFAZ e Digifarma
  */
-function cancelarVenda(saleId, { user_name = 'Admin', reason = 'Cancelamento no Caixa' } = {}) {
+async function cancelarVenda(saleId, { user_name = 'Admin', reason = 'Cancelamento no Caixa' } = {}) {
   const sale = db.prepare('SELECT * FROM sales WHERE id = ?').get(saleId);
   if (!sale) {
     throw new Error('Venda não encontrada.');
@@ -294,6 +294,26 @@ function cancelarVenda(saleId, { user_name = 'Admin', reason = 'Cancelamento no 
     throw new Error('Esta venda já foi cancelada anteriormente.');
   }
 
+  const cleanReason = String(reason || '').trim();
+
+  // Se a venda possui NFC-e homologada na SEFAZ, aciona o cancelamento fiscal estrito
+  if (sale.fiscal_status === 'EMITIDO') {
+    const { cancelarCupomFiscal } = require('./erp-fiscal.service');
+    return await cancelarCupomFiscal(saleId, cleanReason);
+  }
+
+  // Caso seja venda sem emissão fiscal ou em contingência não transmitida
+  // Estorno no Digifarma (Firebird) se vinculado
+  let digifarmaEstorno = null;
+  if (sale.digifarma_venda_id) {
+    try {
+      const { estornarVendaDigifarma } = require('./erp-digifarma-sales-sync.service');
+      digifarmaEstorno = await estornarVendaDigifarma(sale.digifarma_venda_id, cleanReason);
+    } catch (dgErr) {
+      console.warn(`[Belinha PDV] ⚠️ Falha ao estornar venda ${sale.digifarma_venda_id} no Digifarma:`, dgErr.message);
+    }
+  }
+
   const items = db.prepare('SELECT * FROM sale_items WHERE sale_id = ?').all(saleId);
 
   const executeCancelTransaction = db.transaction(() => {
@@ -301,10 +321,11 @@ function cancelarVenda(saleId, { user_name = 'Admin', reason = 'Cancelamento no 
     db.prepare(`
       UPDATE sales 
       SET status = 'CANCELADA',
+          fiscal_status = CASE WHEN fiscal_status = 'CONTINGENCIA' THEN 'CANCELADO' ELSE fiscal_status END,
           cancelled_at = datetime('now', 'localtime'),
           cancellation_reason = ?
       WHERE id = ?
-    `).run(reason, saleId);
+    `).run(cleanReason, saleId);
 
     // 2. Estorna o estoque dos itens
     const restockStmt = db.prepare(`
@@ -334,7 +355,8 @@ function cancelarVenda(saleId, { user_name = 'Admin', reason = 'Cancelamento no 
     success: true,
     sale_id: saleId,
     status: 'CANCELADA',
-    restocked_items: items.length
+    restocked_items: items.length,
+    digifarma_estorno: digifarmaEstorno
   };
 }
 

@@ -9,7 +9,7 @@ const crypto = require('crypto');
 const QRCode = require('qrcode');
 const { db, initErpDatabase } = require('./erp-database');
 const { extrairDadosCertificadoA1, assinarXmlNfe } = require('./erp-sefaz-signer');
-const { consultarStatusServicoSefaz, transmitirNfceSefaz } = require('./erp-sefaz-client');
+const { consultarStatusServicoSefaz, transmitirNfceSefaz, transmitirCancelamentoSefaz } = require('./erp-sefaz-client');
 const { queryDigifarma } = require('../../services/digifarma.service');
 
 // Tabela de códigos IBGE por UF
@@ -596,30 +596,120 @@ async function obterDanfeNfce(saleId, cachedQrCodeBase64 = null) {
 }
 
 /**
- * Cancela um Cupom Fiscal emitido
+ * Cancela um Cupom Fiscal emitido com transmissão síncrona do evento 110111 para SEFAZ
+ * e estorno atômico de estoque e caixa no Digifarma e BelaFarma.
  */
-function cancelarCupomFiscal(saleId, motivo = 'Cancelamento a pedido do operador/cliente') {
+async function cancelarCupomFiscal(saleId, motivo = 'Cancelamento a pedido do operador/cliente') {
   initErpDatabase();
 
   const sale = db.prepare('SELECT * FROM sales WHERE id = ?').get(saleId);
   if (!sale) throw new Error('Venda não encontrada.');
-  if (sale.fiscal_status !== 'EMITIDO' && sale.fiscal_status !== 'CONTINGENCIA') {
-    throw new Error('Apenas vendas com cupom fiscal emitido podem ser canceladas.');
+
+  const cleanMotivo = String(motivo || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+  if (cleanMotivo.length < 15) {
+    throw new Error(`A justificativa de cancelamento fiscal deve ter no mínimo 15 caracteres conforme exigência legal da SEFAZ (atual: ${cleanMotivo.length}).`);
   }
 
-  db.prepare(`
-    UPDATE sales
-    SET fiscal_status = 'CANCELADO',
-        cancellation_reason = ?,
-        cancelled_at = datetime('now', 'localtime')
-    WHERE id = ?
-  `).run(motivo, saleId);
+  // 1. Verificação de Prazo Legal SEFAZ (30 minutos para NFC-e Modelo 65)
+  let sefazCancellationResult = null;
+  if (sale.fiscal_status === 'EMITIDO') {
+    if (!sale.access_key || !sale.protocol_number) {
+      throw new Error('NFC-e autorizada sem Chave de Acesso ou Protocolo registrado.');
+    }
+
+    const dataRefEmissao = sale.issued_at ? new Date(sale.issued_at) : new Date(sale.created_at);
+    const minutosDecorridos = (Date.now() - dataRefEmissao.getTime()) / (60 * 1000);
+
+    if (minutosDecorridos > 30) {
+      throw new Error(`Prazo legal de 30 minutos para cancelamento de NFC-e na SEFAZ expirado. Decorreram ${Math.floor(minutosDecorridos)} minutos desde a autorização. Conforme RICMS/MG, emita uma NF-e de devolução (CFOP 1.202/1.949) ou solicite cancelamento extemporâneo junto ao Posto Fiscal.`);
+    }
+
+    // Carregar configurações fiscais e certificado A1
+    const config = db.prepare('SELECT * FROM fiscal_settings WHERE id = ?').get('primary');
+    if (!config || !config.certificate_pfx_base64) {
+      throw new Error('Certificado Digital A1 não configurado para transmissão do cancelamento à SEFAZ.');
+    }
+
+    const dadosCert = extrairDadosCertificadoA1(config.certificate_pfx_base64, config.certificate_password || '');
+
+    // Disparar evento 110111 para SEFAZ
+    sefazCancellationResult = await transmitirCancelamentoSefaz({
+      chaveAcesso: sale.access_key,
+      nProt: sale.protocol_number,
+      motivo: cleanMotivo,
+      pfxBuffer: dadosCert.pfxBuffer,
+      passphrase: config.certificate_password || '',
+      ambiente: config.ambiente || 'homologacao',
+      cUF: CODIGOS_UF[config.uf || 'MG'] || '31',
+      cnpj: config.cnpj || '47378578000140',
+      privateKeyPem: dadosCert.privateKeyPem,
+      certificateClean: dadosCert.certificateClean
+    });
+
+    if (!sefazCancellationResult.success) {
+      throw new Error(`Rejeição da SEFAZ no cancelamento: [${sefazCancellationResult.cStat}] ${sefazCancellationResult.xMotivo}`);
+    }
+
+    console.log(`[Fiscal Cancel] 🛡️ Evento de cancelamento da NFC-e #${sale.nfe_number} homologado na SEFAZ sob protocolo ${sefazCancellationResult.nProtEvento}`);
+  }
+
+  // 2. Estorno Atômico no Digifarma (Firebird) se vinculado
+  let digifarmaEstorno = null;
+  if (sale.digifarma_venda_id) {
+    try {
+      const { estornarVendaDigifarma } = require('./erp-digifarma-sales-sync.service');
+      digifarmaEstorno = await estornarVendaDigifarma(sale.digifarma_venda_id, cleanMotivo);
+    } catch (dgErr) {
+      console.warn(`[Fiscal Cancel] ⚠️ Falha ao estornar venda ${sale.digifarma_venda_id} no Digifarma:`, dgErr.message);
+    }
+  }
+
+  // 3. Atualização Atômica no SQLite (BelaFarma)
+  const tx = db.transaction(() => {
+    db.prepare(`
+      UPDATE sales
+      SET status = 'CANCELADA',
+          fiscal_status = 'CANCELADO',
+          cancellation_reason = ?,
+          cancelled_at = datetime('now', 'localtime'),
+          cancellation_protocol = ?,
+          xml_cancellation = ?
+      WHERE id = ?
+    `).run(
+      cleanMotivo,
+      sefazCancellationResult?.nProtEvento || null,
+      sefazCancellationResult?.xmlProcEvento || null,
+      saleId
+    );
+
+    // Devolve estoque no SQLite
+    const items = db.prepare('SELECT product_code, quantity FROM sale_items WHERE sale_id = ?').all(saleId);
+    const restockStmt = db.prepare(`
+      UPDATE products 
+      SET stock_qty = stock_qty + ?, updated_at = datetime('now', 'localtime') 
+      WHERE code = ?
+    `);
+    for (const it of items) {
+      restockStmt.run(it.quantity, it.product_code);
+    }
+
+    // Cancela débitos de crediário
+    db.prepare(`
+      UPDATE customer_debts 
+      SET status = 'CANCELADO', balance = 0 
+      WHERE sale_id = ?
+    `).run(saleId);
+  });
+
+  tx();
 
   return {
     success: true,
-    message: `NFC-e #${sale.nfe_number} cancelada com sucesso.`,
+    message: `NFC-e #${sale.nfe_number || saleId} cancelada com sucesso na SEFAZ e estornada no sistema!`,
     sale_id: saleId,
-    nfe_number: sale.nfe_number
+    nfe_number: sale.nfe_number,
+    protocolo_cancelamento: sefazCancellationResult?.nProtEvento || null,
+    digifarma_estorno: digifarmaEstorno
   };
 }
 

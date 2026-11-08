@@ -326,10 +326,10 @@ router.post('/pos/digifarma/sync/:saleId', async (req, res) => {
   }
 });
 
-router.post('/pos/cancel/:id', (req, res) => {
+router.post('/pos/cancel/:id', async (req, res) => {
   try {
     const userName = req.headers['x-user-name'] || req.body.user_name || 'Admin';
-    const resultado = cancelarVenda(req.params.id, {
+    const resultado = await cancelarVenda(req.params.id, {
       user_name: userName,
       reason: req.body.reason || 'Cancelamento solicitado no caixa'
     });
@@ -751,10 +751,10 @@ router.get('/fiscal/danfe/:saleId', async (req, res) => {
 });
 
 // Cancela NFC-e emitida
-router.post('/fiscal/cancel/:saleId', (req, res) => {
+router.post('/fiscal/cancel/:saleId', async (req, res) => {
   try {
     const { motivo } = req.body;
-    const resultado = cancelarCupomFiscal(req.params.saleId, motivo);
+    const resultado = await cancelarCupomFiscal(req.params.saleId, motivo);
     res.json(resultado);
   } catch (err) {
     res.status(400).json({ success: false, error: err.message });

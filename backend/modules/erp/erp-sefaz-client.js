@@ -208,8 +208,104 @@ async function transmitirNfceSefaz(xmlNfeAssinado, pfxBuffer, passphrase, ambien
   };
 }
 
+/**
+ * Transmite o Evento de Cancelamento (tpEvento 110111) para a SEFAZ
+ * @param {Object} params { chaveAcesso, nProt, motivo, pfxBuffer, passphrase, ambiente, cUF, cnpj, privateKeyPem, certificateClean }
+ * @returns {Promise<Object>} Resultado oficial da homologação do cancelamento
+ */
+async function transmitirCancelamentoSefaz(params) {
+  const {
+    chaveAcesso,
+    nProt,
+    motivo,
+    pfxBuffer,
+    passphrase,
+    ambiente = 'homologacao',
+    cUF = '31', // MG
+    cnpj,
+    privateKeyPem,
+    certificateClean
+  } = params;
+
+  if (!chaveAcesso || chaveAcesso.length !== 44) {
+    throw new Error('Chave de acesso da NFC-e inválida para cancelamento.');
+  }
+
+  if (!nProt) {
+    throw new Error('Protocolo de autorização da SEFAZ não informado para cancelamento.');
+  }
+
+  const cleanMotivo = String(motivo || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+  if (cleanMotivo.length < 15) {
+    throw new Error(`A justificativa de cancelamento deve conter no mínimo 15 caracteres (atual: ${cleanMotivo.length}).`);
+  }
+
+  const { assinarXmlEvento } = require('./erp-sefaz-signer');
+  const ws = (WEBSERVICES_SEFAZ_MG[ambiente] || WEBSERVICES_SEFAZ_MG.homologacao).recepcaoEvento;
+  const tpAmb = ambiente === 'producao' ? '1' : '2';
+
+  const now = new Date();
+  const dhEvento = now.toISOString().replace(/\.\d{3}Z$/, '-03:00');
+  const idLote = String(Date.now()).slice(-15);
+  const idEvento = `ID110111${chaveAcesso}01`;
+
+  // XML canônico do evento a ser assinado
+  const xmlEventoBruto = `<evento xmlns="http://www.portalfiscal.inf.br/nfe" versao="1.00"><infEvento Id="${idEvento}"><cOrgao>${cUF}</cOrgao><tpAmb>${tpAmb}</tpAmb><CNPJ>${cnpj.replace(/\D/g, '')}</CNPJ><chNFe>${chaveAcesso}</chNFe><dhEvento>${dhEvento}</dhEvento><tpEvento>110111</tpEvento><nSeqEvento>1</nSeqEvento><verEvento>1.00</verEvento><detEvento versao="1.00"><descEvento>Cancelamento</descEvento><nProt>${nProt}</nProt><xJust>${cleanMotivo.slice(0, 255)}</xJust></detEvento></infEvento></evento>`;
+
+  // Assinatura digital XMLDSig
+  const xmlEventoAssinado = assinarXmlEvento(xmlEventoBruto, idEvento, privateKeyPem, certificateClean);
+  const xmlSemDeclaracao = xmlEventoAssinado.replace(/<\?xml[^>]*\?>/g, '').trim();
+
+  // Envelopamento no lote de eventos (envEvento)
+  const xmlEnvEvento = `<envEvento xmlns="http://www.portalfiscal.inf.br/nfe" versao="1.00"><idLote>${idLote}</idLote>${xmlSemDeclaracao}</envEvento>`;
+  const soapAction = 'http://www.portalfiscal.inf.br/nfe/wsdl/NFeRecepcaoEvento4';
+
+  const resp = await enviarRequisicaoSoapSefaz(ws, soapAction, xmlEnvEvento, pfxBuffer, passphrase, 25000);
+  const parsed = xmlParser.parse(resp.body);
+
+  const retEnvEvento = parsed.Envelope?.Body?.nfeResultMsg?.retEnvEvento
+    || parsed['soap12:Envelope']?.['soap12:Body']?.nfeResultMsg?.retEnvEvento
+    || parsed['S:Envelope']?.['S:Body']?.nfeResultMsg?.retEnvEvento
+    || parsed.retEnvEvento;
+
+  if (!retEnvEvento) {
+    throw new Error(`Resposta inválida da SEFAZ ao registrar evento: ${resp.body.slice(0, 300)}`);
+  }
+
+  const retEvento = retEnvEvento.retEvento?.infEvento || retEnvEvento.retEvento;
+  if (!retEvento) {
+    const cStatLote = String(retEnvEvento.cStat || '');
+    const xMotivoLote = String(retEnvEvento.xMotivo || '');
+    throw new Error(`Lote de evento rejeitado pela SEFAZ: [${cStatLote}] ${xMotivoLote}`);
+  }
+
+  const cStatEvento = String(retEvento.cStat || '');
+  const xMotivoEvento = String(retEvento.xMotivo || '');
+  const nProtEvento = String(retEvento.nProt || '');
+  const dhRegEvento = String(retEvento.dhRegEvento || new Date().toISOString());
+
+  // 135 = Evento registrado e vinculado a NF-e
+  const isHomologado = cStatEvento === '135';
+
+  let xmlProcEvento = null;
+  if (isHomologado) {
+    const retEventoXml = `<retEvento versao="1.00"><infEvento><tpAmb>${tpAmb}</tpAmb><verAplic>${retEnvEvento.verAplic || 'MG'}</verAplic><cOrgao>${cUF}</cOrgao><cStat>${cStatEvento}</cStat><xMotivo>${xMotivoEvento}</xMotivo><chNFe>${chaveAcesso}</chNFe><tpEvento>110111</tpEvento><xEvento>Cancelamento</xEvento><nSeqEvento>1</nSeqEvento><dhRegEvento>${dhRegEvento}</dhRegEvento><nProt>${nProtEvento}</nProt></infEvento></retEvento>`;
+    xmlProcEvento = `<?xml version="1.0" encoding="UTF-8"?><procEventoNFe xmlns="http://www.portalfiscal.inf.br/nfe" versao="1.00">${xmlEventoAssinado}${retEventoXml}</procEventoNFe>`;
+  }
+
+  return {
+    success: isHomologado,
+    cStat: cStatEvento,
+    xMotivo: xMotivoEvento,
+    nProtEvento,
+    dhRegEvento,
+    xmlProcEvento
+  };
+}
+
 module.exports = {
   consultarStatusServicoSefaz,
   transmitirNfceSefaz,
+  transmitirCancelamentoSefaz,
   enviarRequisicaoSoapSefaz
 };

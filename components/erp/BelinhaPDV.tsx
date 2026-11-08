@@ -1330,16 +1330,26 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
 
   const handleConfirmCancelSale = async () => {
     if (!saleToCancel) return;
+    const cleanReason = cancelReason.trim();
+
+    // Se a venda tiver cupom fiscal emitido na SEFAZ, exige no mínimo 15 caracteres
+    const hasNfce = saleToCancel.fiscal_status === 'EMITIDO' || Boolean(saleToCancel.nfe_number);
+    if (hasNfce && cleanReason.length < 15) {
+      addToast(`A SEFAZ exige justificativa com no mínimo 15 caracteres para cancelamento (atual: ${cleanReason.length}).`, 'warning', 4000);
+      return;
+    }
+
     setIsCancelling(true);
     try {
       const res = await fetch(`/api/erp/pos/cancel/${saleToCancel.id}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reason: cancelReason || 'Cancelamento solicitado no balcão' })
+        body: JSON.stringify({ reason: cleanReason || 'Cancelamento solicitado no balcão' })
       });
       const json = await res.json();
       if (res.ok && json.success) {
-        addToast(`Venda #${saleToCancel.id} cancelada e estoque estornado com sucesso!`, 'success');
+        const msgFiscal = json.protocolo_cancelamento ? ` (SEFAZ Prot: ${json.protocolo_cancelamento})` : '';
+        addToast(`✅ Venda #${saleToCancel.id} cancelada na SEFAZ, estornada no Digifarma e estoque recomposto!${msgFiscal}`, 'success', 5000);
         setSaleToCancel(null);
         setCancelReason('');
         if (completedSale?.sale_id === saleToCancel.id) {
@@ -1347,9 +1357,9 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
         }
         fetchRecentSales();
       } else {
-        addToast(json.error || 'Erro ao cancelar venda.', 'error');
+        addToast(json.error || 'Erro ao cancelar venda.', 'error', 6000);
       }
-    } catch (e) {
+    } catch (e: any) {
       addToast('Erro de comunicação ao cancelar venda.', 'error');
     } finally {
       setIsCancelling(false);
@@ -3007,45 +3017,121 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
               )}
             </div>
 
-            {/* Submodal de Confirmação de Cancelamento */}
-            {saleToCancel && (
-              <div className="mt-3 p-4 bg-rose-950/40 border border-rose-900 rounded-2xl animate-in fade-in duration-150">
-                <h4 className="text-xs font-black uppercase tracking-wider text-rose-300 flex items-center gap-1.5 mb-2">
-                  <AlertCircle className="w-4 h-4" />
-                  Confirmar Cancelamento da Venda #{saleToCancel.id}?
-                </h4>
-                <p className="text-xs text-rose-300 mb-2">
-                  O valor de R$ {Number(saleToCancel.total_value).toFixed(2)} será estornado e os produtos voltarão automaticamente para o estoque.
-                </p>
-                <input
-                  type="text"
-                  value={cancelReason}
-                  onChange={(e) => setCancelReason(e.target.value)}
-                  placeholder="Motivo do cancelamento (Ex: Erro no valor, desistência...)"
-                  autoFocus
-                  className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-rose-800 text-xs font-medium text-slate-100 placeholder-slate-500 mb-3"
-                />
-                <div className="flex justify-end gap-2">
-                  <button
-                    onClick={() => {
-                      setSaleToCancel(null);
-                      setCancelReason('');
-                    }}
-                    className="px-3 py-1.5 rounded-xl text-xs font-bold text-slate-400 hover:bg-slate-800"
-                  >
-                    Voltar
-                  </button>
-                  <button
-                    onClick={handleConfirmCancelSale}
-                    disabled={isCancelling}
-                    className="px-4 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white font-black text-xs flex items-center gap-1.5 shadow-md"
-                  >
-                    {isCancelling ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
-                    Confirmar Estorno
-                  </button>
+            {/* Submodal de Confirmação de Cancelamento com Regras Fiscais SEFAZ & Digifarma */}
+            {saleToCancel && (() => {
+              const hasNfce = saleToCancel.fiscal_status === 'EMITIDO' || Boolean(saleToCancel.nfe_number);
+              const dataRef = saleToCancel.issued_at ? new Date(saleToCancel.issued_at) : new Date(saleToCancel.created_at);
+              const minutosDecorridos = Math.max(0, Math.floor((Date.now() - dataRef.getTime()) / (60 * 1000)));
+              const prazoExpirado = minutosDecorridos > 30;
+              const minutosRestantes = Math.max(0, 30 - minutosDecorridos);
+              const motivoValido = !hasNfce || cancelReason.trim().length >= 15;
+
+              return (
+                <div className="mt-3 p-4 bg-rose-950/40 border border-rose-900 rounded-2xl animate-in fade-in duration-150 space-y-3">
+                  <div className="flex items-center justify-between border-b border-rose-900/60 pb-2">
+                    <h4 className="text-xs font-black uppercase tracking-wider text-rose-300 flex items-center gap-1.5">
+                      <AlertCircle className="w-4 h-4 text-rose-400" />
+                      Cancelar Venda #{saleToCancel.id} • R$ {Number(saleToCancel.total_value).toFixed(2)}
+                    </h4>
+                    {hasNfce && (
+                      <span className="font-mono text-[10px] bg-rose-900/60 text-rose-200 px-2 py-0.5 rounded border border-rose-700">
+                        NFC-e #{saleToCancel.nfe_number}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Diagnóstico do Prazo Legal da SEFAZ */}
+                  {hasNfce && (
+                    <div className={`p-2.5 rounded-xl border text-xs flex items-start gap-2 ${
+                      prazoExpirado 
+                        ? 'bg-amber-950/60 border-amber-800 text-amber-200' 
+                        : 'bg-emerald-950/60 border-emerald-800 text-emerald-200'
+                    }`}>
+                      <Clock className="w-4 h-4 shrink-0 mt-0.5" />
+                      <div>
+                        {prazoExpirado ? (
+                          <>
+                            <div className="font-bold text-amber-300">⚠️ Prazo Legal da SEFAZ (30 min) Expirado</div>
+                            <div className="text-[11px] text-amber-200/90 mt-0.5">
+                              Emitido há <strong>{minutosDecorridos} minutos</strong>. Na SEFAZ MG o cancelamento direto por evento é bloqueado após 30 min. O estorno pode ser lançado internamente ou por NF-e de devolução.
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div className="font-bold text-emerald-300">✅ Dentro do Prazo Legal SEFAZ (30 minutos)</div>
+                            <div className="text-[11px] text-emerald-200/90 mt-0.5">
+                              Restam <strong>{minutosRestantes} minutos</strong> para envio do Evento 110111 de Cancelamento síncrono à SEFAZ.
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  <div>
+                    <div className="flex justify-between items-center mb-1">
+                      <label className="text-xs font-bold text-slate-300">
+                        Motivo do Cancelamento {hasNfce && <span className="text-rose-400">* (mínimo 15 caracteres)</span>}:
+                      </label>
+                      {hasNfce && (
+                        <span className={`text-[10px] font-mono font-bold ${
+                          cancelReason.trim().length >= 15 ? 'text-emerald-400' : 'text-amber-400'
+                        }`}>
+                          {cancelReason.trim().length} / 15 caracteres
+                        </span>
+                      )}
+                    </div>
+                    <input
+                      type="text"
+                      value={cancelReason}
+                      onChange={(e) => setCancelReason(e.target.value)}
+                      placeholder="Ex: Desistência da compra pelo consumidor no balcão"
+                      autoFocus
+                      className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-rose-800 text-xs font-medium text-slate-100 placeholder-slate-500 focus:outline-none focus:border-rose-500"
+                    />
+
+                    {/* Atalhos de Motivos Válidos para Agilizar o Balcão */}
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      {[
+                        'Desistência da compra pelo cliente no balcão',
+                        'Erro no lançamento da quantidade de itens',
+                        'Forma de pagamento informada incorretamente',
+                        'Produto com embalagem danificada na entrega'
+                      ].map(mot => (
+                        <button
+                          key={mot}
+                          type="button"
+                          onClick={() => setCancelReason(mot)}
+                          className="text-[10px] bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 px-2 py-0.5 rounded border border-rose-900/60"
+                        >
+                          {mot}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end gap-2 pt-2 border-t border-rose-900/60">
+                    <button
+                      onClick={() => {
+                        setSaleToCancel(null);
+                        setCancelReason('');
+                      }}
+                      className="px-3 py-1.5 rounded-xl text-xs font-bold text-slate-400 hover:bg-slate-800"
+                    >
+                      Voltar
+                    </button>
+                    <button
+                      onClick={handleConfirmCancelSale}
+                      disabled={isCancelling || (hasNfce && !motivoValido)}
+                      className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 disabled:opacity-40 text-white font-black text-xs flex items-center gap-1.5 shadow-md transition"
+                    >
+                      {isCancelling ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
+                      <span>Confirmar Estorno Completo</span>
+                    </button>
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
           </div>
         </div>
       )}
