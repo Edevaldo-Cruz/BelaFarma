@@ -1,9 +1,14 @@
 {
   "version": "1.2.4",
-  "commitHash": "6d584f3",
-  "commitMessage": "feat(fiscal): Fase 3 e 4 - Sincronizacao Compras Digifarma, Auditoria Previa e Pacote Contabil (.ZIP)",
-  "buildTime": "08/11/2026, 15:08:16",
+  "commitHash": "2833f12",
+  "commitMessage": "feat(pdv-fiscal): Cadastro Expresso no PDV com SEM GTIN, Fila de Saneamento e Precos Escalonados Digifarma",
+  "buildTime": "08/11/2026, 15:24:49",
   "recentCommits": [
+    {
+      "hash": "2833f12",
+      "date": "08/11/2026",
+      "message": "feat(pdv-fiscal): Cadastro Expresso no PDV com SEM GTIN, Fila de Saneamento e Precos Escalonados Digifarma"
+    },
     {
       "hash": "6d584f3",
       "date": "08/11/2026",
@@ -58,11 +63,6 @@
       "hash": "fc431fb",
       "date": "03/11/2026",
       "message": "fix(finance): alinhar fechamento live com relatorio de Estatisticas (Por Pagamento) do Digifarma"
-    },
-    {
-      "hash": "6c196ea",
-      "date": "03/11/2026",
-      "message": "fix(digifarma): conectar no IP real 192.168.1.10, vendas estritamente CURRENT_DATE e reativar liquidação 118 itens"
     }
   ]
 }

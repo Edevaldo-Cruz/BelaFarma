@@ -21,6 +21,7 @@ const {
 const {
   registrarVenda,
   cancelarVenda,
+  cancelarItemVenda,
   registrarMovimentacaoCaixa,
   listarMovimentacoesCaixa,
   criarPreVenda,
@@ -345,6 +346,33 @@ router.post('/pos/cancel/:id', async (req, res) => {
     const resultado = await cancelarVenda(req.params.id, {
       user_name: userName,
       reason: req.body.reason || 'Cancelamento solicitado no caixa'
+    });
+    res.json(resultado);
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// Excluir / Estornar individualmente um item de venda já realizada (Padrão Digifarma)
+router.post('/pos/sales/:saleId/items/:itemId/cancel', async (req, res) => {
+  try {
+    const userName = req.headers['x-user-name'] || req.body.user_name || 'Caixa';
+    const resultado = await cancelarItemVenda(req.params.saleId, req.params.itemId, {
+      user_name: userName,
+      reason: req.body.reason || 'Devolução/Exclusão de item no caixa'
+    });
+    res.json(resultado);
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+router.post('/sales/:saleId/items/:itemId/cancel', async (req, res) => {
+  try {
+    const userName = req.headers['x-user-name'] || req.body.user_name || 'Caixa';
+    const resultado = await cancelarItemVenda(req.params.saleId, req.params.itemId, {
+      user_name: userName,
+      reason: req.body.reason || 'Devolução/Exclusão de item no caixa'
     });
     res.json(resultado);
   } catch (err) {

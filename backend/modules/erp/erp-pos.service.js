@@ -361,6 +361,122 @@ async function cancelarVenda(saleId, { user_name = 'Admin', reason = 'Cancelamen
 }
 
 /**
+ * Exclui/Estorna individualmente um item de uma venda já realizada (Padrão Digifarma)
+ * - Marca o item como cancelado em sale_items (is_cancelled = 1)
+ * - Estorna o estoque físico do produto no SQLite e no Digifarma
+ * - Deduz o valor do item no total da venda e acumula em returned_value
+ * - Se todos os itens da venda forem cancelados, atualiza a venda para CANCELADA
+ * @param {string} saleId 
+ * @param {string} itemId 
+ * @param {Object} options { user_name, reason }
+ * @returns {Promise<Object>}
+ */
+async function cancelarItemVenda(saleId, itemId, { user_name = 'Caixa', reason = 'Devolução no Caixa' } = {}) {
+  const sale = db.prepare('SELECT * FROM sales WHERE id = ?').get(saleId);
+  if (!sale) {
+    throw new Error('Venda não encontrada.');
+  }
+
+  if (sale.status === 'CANCELADA') {
+    throw new Error('Esta venda já se encontra totalmente cancelada.');
+  }
+
+  const it = db.prepare('SELECT * FROM sale_items WHERE id = ? AND sale_id = ?').get(itemId, saleId);
+  if (!it) {
+    throw new Error('Item não encontrado nesta venda.');
+  }
+
+  if (it.is_cancelled === 1) {
+    throw new Error('Este item já foi cancelado/devolvido anteriormente.');
+  }
+
+  const cleanReason = String(reason || 'Devolução/Exclusão de item no Caixa').trim();
+  const valorItem = Number(it.total_price) || 0;
+  const qtdItem = Number(it.quantity) || 1;
+
+  // 1. Estorno no Digifarma (Firebird) se vinculado
+  let digifarmaResult = null;
+  if (sale.digifarma_venda_id) {
+    try {
+      const { estornarItemVendaDigifarma } = require('./erp-digifarma-sales-sync.service');
+      digifarmaResult = await estornarItemVendaDigifarma({
+        digifarmaVendaId: sale.digifarma_venda_id,
+        produtoId: it.product_code,
+        quantidade: qtdItem,
+        valorItem: valorItem,
+        digifarmaItemId: it.digifarma_item_id
+      });
+    } catch (dgErr) {
+      console.warn(`[Belinha PDV] ⚠️ Falha ao estornar item ${it.product_code} no Digifarma:`, dgErr.message);
+      digifarmaResult = { success: false, error: dgErr.message };
+    }
+  }
+
+  // 2. Transação atômica no SQLite local
+  let vendaTodaCancelada = false;
+  const tx = db.transaction(() => {
+    // A. Marca o item como cancelado
+    db.prepare(`
+      UPDATE sale_items 
+      SET is_cancelled = 1,
+          cancelled_at = datetime('now', 'localtime'),
+          cancellation_reason = ?
+      WHERE id = ?
+    `).run(cleanReason, itemId);
+
+    // B. Estorna estoque físico local
+    db.prepare(`
+      UPDATE products 
+      SET stock_qty = stock_qty + ?,
+          updated_at = datetime('now', 'localtime')
+      WHERE code = ?
+    `).run(qtdItem, it.product_code);
+
+    // C. Atualiza valores da venda
+    db.prepare(`
+      UPDATE sales 
+      SET returned_value = COALESCE(returned_value, 0) + ?,
+          total_value = MAX(0, total_value - ?),
+          updated_at = datetime('now', 'localtime')
+      WHERE id = ?
+    `).run(valorItem, valorItem, saleId);
+
+    // D. Verifica se ainda restam itens ativos
+    const itensAtivos = db.prepare(`
+      SELECT COUNT(*) AS ativos 
+      FROM sale_items 
+      WHERE sale_id = ? AND (is_cancelled IS NULL OR is_cancelled = 0)
+    `).get(saleId);
+
+    if (itensAtivos && itensAtivos.ativos === 0) {
+      db.prepare(`
+        UPDATE sales 
+        SET status = 'CANCELADA',
+            cancelled_at = datetime('now', 'localtime'),
+            cancellation_reason = ?
+        WHERE id = ?
+      `).run(`Todos os itens cancelados individualmente. Último motivo: ${cleanReason}`, saleId);
+      vendaTodaCancelada = true;
+    }
+  });
+
+  tx();
+
+  console.log(`[Belinha PDV] ✅ Item #${itemId} (${it.product_name}) da Venda #${saleId} cancelado com sucesso. Devolução: R$ ${valorItem.toFixed(2)}`);
+
+  return {
+    success: true,
+    sale_id: saleId,
+    item_id: itemId,
+    product_name: it.product_name,
+    quantity: qtdItem,
+    valor_estornado: valorItem,
+    venda_toda_cancelada: vendaTodaCancelada,
+    digifarma: digifarmaResult
+  };
+}
+
+/**
  * Registra movimentação de caixa (Sangria ou Suprimento) no PDV
  */
 function registrarMovimentacaoCaixa({ movement_type, amount, reason = '', user_name = 'Caixa' }) {
@@ -628,6 +744,7 @@ function consultarStatusCrediarioCliente(term) {
 module.exports = {
   registrarVenda,
   cancelarVenda,
+  cancelarItemVenda,
   registrarMovimentacaoCaixa,
   listarMovimentacoesCaixa,
   criarPreVenda,

@@ -248,6 +248,13 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
   const [isCancelling, setIsCancelling] = useState<boolean>(false);
   const [isEmittingFiscal, setIsEmittingFiscal] = useState<boolean>(false);
 
+  // Inspeção de Itens da Venda e Exclusão Individual (Padrão Digifarma)
+  const [inspectedSaleDetail, setInspectedSaleDetail] = useState<any | null>(null);
+  const [isLoadingInspectedDetail, setIsLoadingInspectedDetail] = useState<boolean>(false);
+  const [itemToCancelInPdv, setItemToCancelInPdv] = useState<{ saleId: string; item: any } | null>(null);
+  const [itemCancelReasonInPdv, setItemCancelReasonInPdv] = useState<string>('Devolução / Desistência no Balcão');
+  const [isCancellingItemInPdv, setIsCancellingItemInPdv] = useState<boolean>(false);
+
   // Movimentações de Caixa (Sangria e Suprimento) [F4]
   const [isCashMovementModalOpen, setIsCashMovementModalOpen] = useState<boolean>(false);
   const [movementType, setMovementType] = useState<'SANGRIA' | 'SUPRIMENTO'>('SANGRIA');
@@ -649,8 +656,14 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
         else if (isDiscountModalOpen) setIsDiscountModalOpen(false);
         else if (isCustomerModalOpen) setIsCustomerModalOpen(false);
         else if (isRecentSalesOpen) {
-          setIsRecentSalesOpen(false);
-          setSaleToCancel(null);
+          if (itemToCancelInPdv) {
+            setItemToCancelInPdv(null);
+          } else if (inspectedSaleDetail) {
+            setInspectedSaleDetail(null);
+          } else {
+            setIsRecentSalesOpen(false);
+            setSaleToCancel(null);
+          }
         }
         else if (isClearCartModalOpen) setIsClearCartModalOpen(false);
         else if (completedSale) setCompletedSale(null);
@@ -1435,6 +1448,50 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
       addToast('Erro de comunicação ao cancelar venda.', 'error');
     } finally {
       setIsCancelling(false);
+    }
+  };
+
+  // Carregar detalhes de uma venda para inspecionar e permitir exclusão individual de itens
+  const handleInspectSale = async (saleId: string) => {
+    setIsLoadingInspectedDetail(true);
+    try {
+      const res = await fetch(`/api/erp/sales/${encodeURIComponent(saleId)}`);
+      if (res.ok) {
+        const json = await res.json();
+        setInspectedSaleDetail(json.data);
+      } else {
+        addToast('Não foi possível carregar os itens desta venda.', 'error');
+      }
+    } catch (e) {
+      addToast('Erro ao obter itens da venda.', 'error');
+    } finally {
+      setIsLoadingInspectedDetail(false);
+    }
+  };
+
+  // Confirmar exclusão / devolução individual de item no PDV (Padrão Digifarma)
+  const handleConfirmCancelItemInPdv = async () => {
+    if (!itemToCancelInPdv) return;
+    setIsCancellingItemInPdv(true);
+    try {
+      const res = await fetch(`/api/erp/pos/sales/${itemToCancelInPdv.saleId}/items/${itemToCancelInPdv.item.id}/cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: itemCancelReasonInPdv || 'Devolução / Desistência no Balcão' })
+      });
+      const json = await res.json();
+      if (res.ok && json.success) {
+        addToast(`✅ Item "${itemToCancelInPdv.item.product_name}" excluído e estoque estornado com sucesso!`, 'success', 3500);
+        setItemToCancelInPdv(null);
+        await handleInspectSale(itemToCancelInPdv.saleId);
+        fetchRecentSales();
+      } else {
+        addToast(json.error || 'Erro ao excluir item da venda.', 'error');
+      }
+    } catch (e) {
+      addToast('Erro de comunicação ao excluir item.', 'error');
+    } finally {
+      setIsCancellingItemInPdv(false);
     }
   };
 
@@ -3039,6 +3096,8 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
                   onClick={() => {
                     setIsRecentSalesOpen(false);
                     setSaleToCancel(null);
+                    setInspectedSaleDetail(null);
+                    setItemToCancelInPdv(null);
                     focusBarcodeInput();
                   }}
                   className="p-1.5 rounded-lg text-slate-400 hover:text-white"
@@ -3048,80 +3107,235 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
               </div>
             </div>
 
-            {/* Listagem de Vendas */}
-            <div className="flex-1 overflow-y-auto space-y-2 pr-1">
-              {isLoadingRecent ? (
-                <div className="text-center py-10 text-slate-500 text-xs">Carregando histórico do dia...</div>
-              ) : recentSales.length === 0 ? (
-                <div className="text-center py-10 text-slate-500 text-xs">Nenhuma venda realizada hoje até o momento.</div>
-              ) : (
-                recentSales.map((s) => (
-                  <div
-                    key={s.id}
-                    className={`p-3 rounded-2xl border flex items-center justify-between gap-3 ${
-                      s.status === 'CANCELADA'
-                        ? 'bg-rose-950/20 border-rose-900/40 opacity-75'
-                        : 'bg-slate-950 border-slate-800'
-                    }`}
-                  >
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono font-bold text-xs text-slate-200">
-                          #{s.id}
-                        </span>
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${
-                          s.status === 'CANCELADA'
-                            ? 'bg-rose-900/60 text-rose-300'
-                            : 'bg-emerald-950/60 text-emerald-300'
-                        }`}>
-                          {s.status}
-                        </span>
-                        <span className="text-[11px] text-slate-400">
-                          {s.sale_time}
-                        </span>
-                        {s.digifarma_sync_status === 'SINCRONIZADO' ? (
-                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-sky-950/70 text-sky-400 border border-sky-800/70 flex items-center gap-1">
-                            Digifarma #{s.digifarma_venda_id || 'OK'}
+            {/* Listagem de Vendas ou Detalhes da Venda Selecionada */}
+            {inspectedSaleDetail ? (
+              <div className="flex-1 flex flex-col overflow-hidden animate-in fade-in duration-150">
+                <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-800 text-xs">
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setInspectedSaleDetail(null)}
+                      className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs flex items-center gap-1 transition"
+                    >
+                      ← Voltar à lista
+                    </button>
+                    <span className="font-bold text-slate-200">
+                      Itens do Cupom #{inspectedSaleDetail.id}
+                    </span>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                      inspectedSaleDetail.status === 'CANCELADA' ? 'bg-rose-900/60 text-rose-300' : 'bg-emerald-950/60 text-emerald-300'
+                    }`}>
+                      {inspectedSaleDetail.status}
+                    </span>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-slate-400 text-[11px]">Total: </span>
+                    <span className="font-mono font-bold text-emerald-400">
+                      R$ {Number(inspectedSaleDetail.total_value).toFixed(2)}
+                    </span>
+                    {Number(inspectedSaleDetail.returned_value || 0) > 0 && (
+                      <span className="text-[10px] text-rose-400 ml-2 font-mono">
+                        (Estornado: R$ {Number(inspectedSaleDetail.returned_value).toFixed(2)})
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+                  {isLoadingInspectedDetail ? (
+                    <div className="text-center py-8 text-slate-500 text-xs">Carregando itens do cupom...</div>
+                  ) : inspectedSaleDetail.items?.length === 0 ? (
+                    <div className="text-center py-8 text-slate-500 text-xs">Nenhum item encontrado nesta venda.</div>
+                  ) : (
+                    inspectedSaleDetail.items?.map((it: any, idx: number) => {
+                      const isItemCancelled = it.is_cancelled === 1;
+                      return (
+                        <div
+                          key={idx}
+                          className={`p-2.5 rounded-xl border flex items-center justify-between gap-3 text-xs ${
+                            isItemCancelled
+                              ? 'bg-rose-950/20 border-rose-900/40 opacity-70'
+                              : 'bg-slate-950 border-slate-800 hover:border-slate-700'
+                          }`}
+                        >
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className={`font-bold ${isItemCancelled ? 'line-through text-slate-500' : 'text-slate-200'}`}>
+                                {it.product_name}
+                              </span>
+                              {isItemCancelled && (
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase bg-rose-900/60 text-rose-300 border border-rose-700">
+                                  Excluído / Devolvido
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-3 text-[10px] text-slate-400 font-mono mt-0.5">
+                              <span>EAN: {it.barcode || 'S/N'}</span>
+                              <span>{it.quantity} un × R$ {Number(it.unit_price).toFixed(2)}</span>
+                              {it.cancellation_reason && (
+                                <span className="text-rose-400 italic">Motivo: {it.cancellation_reason}</span>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-3">
+                            <span className={`font-mono font-bold ${isItemCancelled ? 'line-through text-slate-500' : 'text-emerald-400'}`}>
+                              R$ {Number(it.total_price).toFixed(2)}
+                            </span>
+
+                            {!isItemCancelled && inspectedSaleDetail.status !== 'CANCELADA' && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setItemToCancelInPdv({ saleId: inspectedSaleDetail.id, item: it });
+                                  setItemCancelReasonInPdv('Devolução / Desistência no Balcão');
+                                }}
+                                className="px-2.5 py-1 rounded-lg bg-rose-950/60 hover:bg-rose-900 text-rose-300 border border-rose-800/80 font-bold text-[11px] flex items-center gap-1 cursor-pointer transition shadow-sm"
+                                title="Excluir este item individualmente e devolver estoque (Padrão Digifarma)"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                                Excluir Item
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+
+                {/* Submodal de Confirmação de Exclusão Individual de Item no PDV */}
+                {itemToCancelInPdv && (
+                  <div className="mt-3 p-3.5 bg-rose-950/50 border border-rose-800 rounded-2xl animate-in fade-in duration-150 space-y-2">
+                    <div className="flex items-center justify-between border-b border-rose-900/60 pb-1.5">
+                      <span className="text-xs font-black uppercase tracking-wider text-rose-300 flex items-center gap-1.5">
+                        <Trash2 className="w-4 h-4 text-rose-400" />
+                        Excluir Item: {itemToCancelInPdv.item.product_name}
+                      </span>
+                      <span className="font-mono text-xs font-bold text-rose-300">
+                        R$ {Number(itemToCancelInPdv.item.total_price).toFixed(2)}
+                      </span>
+                    </div>
+
+                    <div className="text-[11px] text-slate-300">
+                      Escolha o motivo da exclusão/devolução:
+                    </div>
+                    <select
+                      value={itemCancelReasonInPdv}
+                      onChange={(e) => setItemCancelReasonInPdv(e.target.value)}
+                      className="w-full px-2.5 py-1.5 rounded-xl bg-slate-900 border border-rose-800 text-xs text-slate-100 focus:outline-none focus:border-rose-500"
+                    >
+                      <option value="Devolução / Desistência no Balcão">Devolução / Desistência no Balcão</option>
+                      <option value="Produto Danificado / Avariado">Produto Danificado / Avariado</option>
+                      <option value="Erro no Lançamento da Quantidade">Erro no Lançamento da Quantidade</option>
+                      <option value="Troca por outro medicamento">Troca por outro medicamento</option>
+                      <option value="Outro">Outro Motivo</option>
+                    </select>
+
+                    <div className="flex justify-end gap-2 pt-2 border-t border-rose-900/60">
+                      <button
+                        onClick={() => setItemToCancelInPdv(null)}
+                        className="px-3 py-1 rounded-lg text-xs font-bold text-slate-400 hover:bg-slate-800"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        onClick={handleConfirmCancelItemInPdv}
+                        disabled={isCancellingItemInPdv}
+                        className="px-4 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 disabled:opacity-40 text-white font-black text-xs flex items-center gap-1.5 shadow-md transition cursor-pointer"
+                      >
+                        {isCancellingItemInPdv ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                        <span>Confirmar Exclusão e Estornar</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+                {isLoadingRecent ? (
+                  <div className="text-center py-10 text-slate-500 text-xs">Carregando histórico do dia...</div>
+                ) : recentSales.length === 0 ? (
+                  <div className="text-center py-10 text-slate-500 text-xs">Nenhuma venda realizada hoje até o momento.</div>
+                ) : (
+                  recentSales.map((s) => (
+                    <div
+                      key={s.id}
+                      className={`p-3 rounded-2xl border flex items-center justify-between gap-3 ${
+                        s.status === 'CANCELADA'
+                          ? 'bg-rose-950/20 border-rose-900/40 opacity-75'
+                          : 'bg-slate-950 border-slate-800'
+                      }`}
+                    >
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono font-bold text-xs text-slate-200">
+                            #{s.id}
                           </span>
-                        ) : (
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                            s.status === 'CANCELADA'
+                              ? 'bg-rose-900/60 text-rose-300'
+                              : 'bg-emerald-950/60 text-emerald-300'
+                          }`}>
+                            {s.status}
+                          </span>
+                          <span className="text-[11px] text-slate-400">
+                            {s.sale_time}
+                          </span>
+                          {s.digifarma_sync_status === 'SINCRONIZADO' ? (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-sky-950/70 text-sky-400 border border-sky-800/70 flex items-center gap-1">
+                              Digifarma #{s.digifarma_venda_id || 'OK'}
+                            </span>
+                          ) : (
+                            <button
+                              title={s.digifarma_sync_error ? `Erro Digifarma: ${s.digifarma_sync_error}` : 'Pendente de envio ao Digifarma (Clique para tentar sincronizar agora)'}
+                              onClick={() => handleSyncSingleSale(s.id)}
+                              className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-950/70 text-amber-300 border border-amber-800/70 hover:bg-amber-900 flex items-center gap-1 cursor-pointer transition-colors"
+                            >
+                              Digifarma: Pendente <RefreshCw className="w-2.5 h-2.5" />
+                            </button>
+                          )}
+                        </div>
+                        <div className="text-xs text-slate-400 mt-0.5">
+                          {s.total_items} item(s) • Pagto: <strong className="text-slate-300">{s.payment_methods}</strong>
+                          {s.customer_name ? ` • Cliente: ${s.customer_name}` : ''}
+                        </div>
+                        {s.cancellation_reason && (
+                          <div className="text-[10px] text-rose-400 mt-0.5 italic">
+                            Motivo: {s.cancellation_reason}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <span className="text-base font-black font-mono text-emerald-400 mr-1">
+                          R$ {Number(s.total_value).toFixed(2)}
+                        </span>
+                        
+                        <button
+                          onClick={() => handleInspectSale(s.id)}
+                          className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs flex items-center gap-1 border border-slate-700 shadow-sm transition-colors cursor-pointer"
+                          title="Ver itens e excluir item individual (Padrão Digifarma)"
+                        >
+                          <Receipt className="w-3.5 h-3.5 text-sky-400" />
+                          Itens
+                        </button>
+
+                        {s.status !== 'CANCELADA' && (
                           <button
-                            title={s.digifarma_sync_error ? `Erro Digifarma: ${s.digifarma_sync_error}` : 'Pendente de envio ao Digifarma (Clique para tentar sincronizar agora)'}
-                            onClick={() => handleSyncSingleSale(s.id)}
-                            className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-950/70 text-amber-300 border border-amber-800/70 hover:bg-amber-900 flex items-center gap-1 cursor-pointer transition-colors"
+                            onClick={() => setSaleToCancel(s)}
+                            className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center gap-1 shadow-sm transition-colors cursor-pointer"
+                            title="Cancelar toda a venda e estornar estoque completo"
                           >
-                            Digifarma: Pendente <RefreshCw className="w-2.5 h-2.5" />
+                            <RotateCcw className="w-3.5 h-3.5" />
+                            Cancelar Venda
                           </button>
                         )}
                       </div>
-                      <div className="text-xs text-slate-400 mt-0.5">
-                        {s.total_items} item(s) • Pagto: <strong className="text-slate-300">{s.payment_methods}</strong>
-                        {s.customer_name ? ` • Cliente: ${s.customer_name}` : ''}
-                      </div>
-                      {s.cancellation_reason && (
-                        <div className="text-[10px] text-rose-400 mt-0.5 italic">
-                          Motivo: {s.cancellation_reason}
-                        </div>
-                      )}
                     </div>
-
-                    <div className="flex items-center gap-3">
-                      <span className="text-base font-black font-mono text-emerald-400">
-                        R$ {Number(s.total_value).toFixed(2)}
-                      </span>
-                      {s.status !== 'CANCELADA' && (
-                        <button
-                          onClick={() => setSaleToCancel(s)}
-                          className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center gap-1 shadow-sm transition-colors cursor-pointer"
-                        >
-                          <RotateCcw className="w-3.5 h-3.5" />
-                          Cancelar
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
+                  ))
+                )}
+              </div>
+            )}
 
             {/* Submodal de Confirmação de Cancelamento com Regras Fiscais SEFAZ & Digifarma */}
             {saleToCancel && (() => {

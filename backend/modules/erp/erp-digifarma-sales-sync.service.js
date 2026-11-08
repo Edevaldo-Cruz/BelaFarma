@@ -660,12 +660,119 @@ async function estornarVendaDigifarma(digifarmaVendaId, motivo = '') {
   }
 }
 
+/**
+ * Estorna/Cancela individualmente um item de uma venda no Digifarma
+ * - Marca ITEM_VENDAS.CANCELADO = 'S'
+ * - Restaura estoque em PRODUTOS.PROD_SALDO += quantidade
+ * - Incrementa CAB_VENDAS.VALOR_DEVOLUCAO += valor_item
+ * - Se todos os itens da venda forem cancelados, marca CAB_VENDAS.CANCELADO = 'S'
+ */
+async function estornarItemVendaDigifarma({
+  digifarmaVendaId,
+  produtoId,
+  quantidade = 1,
+  valorItem = 0,
+  digifarmaItemId = null
+}) {
+  const vId = parseInt(digifarmaVendaId, 10);
+  const pId = parseInt(produtoId, 10);
+  const qtd = parseFloat(quantidade) || 1;
+  const val = parseFloat(valorItem) || 0;
+
+  if (isNaN(vId) || vId <= 0) {
+    return { success: false, error: 'ID de venda Digifarma inválido.' };
+  }
+
+  console.log(`[Digifarma Estorno Item] ↩️ Estornando Produto #${pId} (Qtd: ${qtd}, R$ ${val.toFixed(2)}) da Venda #${vId}...`);
+
+  try {
+    // 1. Localiza o item em ITEM_VENDAS
+    let itemCondition = "VENDA_NOTA_ID = ? AND (CANCELADO IS NULL OR CANCELADO <> 'S')";
+    const params = [vId];
+
+    if (digifarmaItemId) {
+      itemCondition += ' AND ITEM_VENDA_ID = ?';
+      params.push(parseInt(digifarmaItemId, 10));
+    } else if (pId > 0) {
+      itemCondition += ' AND PRODUTO_ID = ?';
+      params.push(pId);
+    }
+
+    const itemRows = await queryDigifarma(`
+      SELECT FIRST 1 ITEM_VENDA_ID, VENDA_NOTA_ID, PRODUTO_ID, ITEMVEND_QUANT, ITEMVEND_PRVENDA, CANCELADO
+      FROM ITEM_VENDAS
+      WHERE ${itemCondition}
+    `, params, 10000);
+
+    if (itemRows && itemRows.length > 0) {
+      const it = itemRows[0];
+      await queryDigifarma(`
+        UPDATE ITEM_VENDAS
+        SET CANCELADO = 'S'
+        WHERE ITEM_VENDA_ID = ? AND VENDA_NOTA_ID = ?
+      `, [it.ITEM_VENDA_ID, vId], 10000);
+
+      await queryDigifarma(`
+        UPDATE PRODUTOS
+        SET PROD_SALDO = COALESCE(PROD_SALDO, 0) + ?
+        WHERE PRODUTO_ID = ?
+      `, [qtd, it.PRODUTO_ID], 10000);
+
+      console.log(`[Digifarma Estorno Item] ✅ Estoque do produto #${it.PRODUTO_ID} devolvido (+${qtd}) e item marcado como CANCELADO.`);
+    } else if (pId > 0) {
+      await queryDigifarma(`
+        UPDATE PRODUTOS
+        SET PROD_SALDO = COALESCE(PROD_SALDO, 0) + ?
+        WHERE PRODUTO_ID = ?
+      `, [qtd, pId], 10000);
+    }
+
+    // 2. Atualiza CAB_VENDAS (VALOR_DEVOLUCAO)
+    await queryDigifarma(`
+      UPDATE CAB_VENDAS
+      SET VALOR_DEVOLUCAO = COALESCE(VALOR_DEVOLUCAO, 0) + ?,
+          LASTUPDATE = CURRENT_TIMESTAMP
+      WHERE VENDA_NOTA_ID = ?
+    `, [val, vId], 10000);
+
+    // 3. Verifica se todos os itens da venda foram cancelados
+    const ativosRestantes = await queryDigifarma(`
+      SELECT COUNT(*) AS ATIVOS
+      FROM ITEM_VENDAS
+      WHERE VENDA_NOTA_ID = ? AND (CANCELADO IS NULL OR CANCELADO <> 'S')
+    `, [vId], 10000);
+
+    let vendaInteiraCancelada = false;
+    if (ativosRestantes && ativosRestantes[0] && parseInt(ativosRestantes[0].ATIVOS, 10) === 0) {
+      await queryDigifarma(`
+        UPDATE CAB_VENDAS
+        SET CANCELADO = 'S'
+        WHERE VENDA_NOTA_ID = ?
+      `, [vId], 10000);
+      vendaInteiraCancelada = true;
+      console.log(`[Digifarma Estorno Item] ℹ️ Todos os itens foram cancelados: Venda #${vId} marcada como cancelada.`);
+    }
+
+    return {
+      success: true,
+      venda_nota_id: vId,
+      produto_id: pId,
+      venda_inteira_cancelada: vendaInteiraCancelada
+    };
+
+  } catch (err) {
+    console.error(`[Digifarma Estorno Item] ⚠️ Erro no estorno do item da Venda #${vId}:`, err.message);
+    return { success: false, error: err.message };
+  }
+}
+
 module.exports = {
   obterCaixaAbertoDigifarma,
   sincronizarVendaDigifarma,
   atualizarNfceAutorizadaDigifarma,
   reprocessarVendasPendentesDigifarma,
   sincronizarMovimentacaoCaixaDigifarma,
-  estornarVendaDigifarma
+  estornarVendaDigifarma,
+  estornarItemVendaDigifarma
 };
 

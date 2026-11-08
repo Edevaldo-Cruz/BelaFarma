@@ -20,7 +20,9 @@ import {
   ShieldCheck,
   Printer,
   ChevronRight,
-  Filter
+  Filter,
+  Trash2,
+  AlertCircle
 } from 'lucide-react';
 import { useToast } from '../ToastContext';
 import { DanfeNfceModal } from './DanfeNfceModal';
@@ -108,10 +110,40 @@ export const SalesHistory: React.FC = () => {
   const [isEmittingFiscal, setIsEmittingFiscal] = useState<string | null>(null);
   const [isRetransmittingBatch, setIsRetransmittingBatch] = useState(false);
 
-  // Modal de Cancelamento
+  // Modal de Cancelamento de Venda Total
   const [saleToCancel, setSaleToCancel] = useState<SaleSummary | null>(null);
   const [cancelReason, setCancelReason] = useState('');
   const [isCancelling, setIsCancelling] = useState(false);
+
+  // Exclusão / Estorno Individual de Item (Padrão Digifarma)
+  const [itemToCancel, setItemToCancel] = useState<{ saleId: string; item: any } | null>(null);
+  const [itemCancelReason, setItemCancelReason] = useState('Devolução / Desistência no Balcão');
+  const [cancellingItemId, setCancellingItemId] = useState<string | null>(null);
+
+  const handleConfirmCancelItem = async () => {
+    if (!itemToCancel) return;
+    setCancellingItemId(itemToCancel.item.id);
+    try {
+      const res = await fetch(`/api/erp/sales/${itemToCancel.saleId}/items/${itemToCancel.item.id}/cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: itemCancelReason })
+      });
+      const json = await res.json();
+      if (res.ok && json.success) {
+        addToast(`✅ Item "${itemToCancel.item.product_name}" excluído e estoque estornado com sucesso!`, 'success', 3500);
+        setItemToCancel(null);
+        await handleOpenDetail(itemToCancel.saleId);
+        fetchSales();
+      } else {
+        addToast(json.error || 'Erro ao excluir item da venda.', 'error');
+      }
+    } catch {
+      addToast('Erro na comunicação com o servidor.', 'error');
+    } finally {
+      setCancellingItemId(null);
+    }
+  };
 
   // Datas de atalho
   const getTodayStr = () => getLocalDateStr();
@@ -970,19 +1002,63 @@ export const SalesHistory: React.FC = () => {
             {/* Lista de Itens */}
             <div className="mb-4">
               <p className="font-black text-slate-500 uppercase text-[10px] mb-1.5">Itens Vendidos:</p>
-              <div className="max-h-56 overflow-y-auto border border-slate-200 dark:border-slate-800 rounded-xl divide-y divide-slate-100 dark:divide-slate-800 text-xs">
-                {activeSaleDetail.items?.map((it: any, i: number) => (
-                  <div key={i} className="p-2.5 flex justify-between items-center hover:bg-slate-50 dark:hover:bg-slate-800/40">
-                    <div>
-                      <p className="font-bold text-slate-900 dark:text-white">{it.product_name}</p>
-                      <p className="font-mono text-[10px] text-slate-400">EAN: {it.barcode || 'S/N'}</p>
+              <div className="max-h-64 overflow-y-auto border border-slate-200 dark:border-slate-800 rounded-xl divide-y divide-slate-100 dark:divide-slate-800 text-xs">
+                {activeSaleDetail.items?.map((it: any, i: number) => {
+                  const isItemCancelled = it.is_cancelled === 1;
+                  return (
+                    <div 
+                      key={i} 
+                      className={`p-2.5 flex justify-between items-center transition-colors ${
+                        isItemCancelled 
+                          ? 'bg-rose-950/20 opacity-70' 
+                          : 'hover:bg-slate-50 dark:hover:bg-slate-800/40'
+                      }`}
+                    >
+                      <div className="flex-1 pr-3">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className={`font-bold ${isItemCancelled ? 'line-through text-slate-500' : 'text-slate-900 dark:text-white'}`}>
+                            {it.product_name}
+                          </p>
+                          {isItemCancelled && (
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase bg-rose-900/60 text-rose-300 border border-rose-700/60">
+                              Item Excluído / Devolvido
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 text-[10px] text-slate-400 font-mono mt-0.5">
+                          <span>EAN: {it.barcode || 'S/N'}</span>
+                          {it.cancellation_reason && (
+                            <span className="text-rose-400 italic">• Motivo: {it.cancellation_reason}</span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-3">
+                        <div className="text-right">
+                          <p className="font-mono text-slate-500">{it.quantity}x R$ {Number(it.unit_price).toFixed(2)}</p>
+                          <p className={`font-mono font-bold ${isItemCancelled ? 'line-through text-slate-500' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                            R$ {Number(it.total_price).toFixed(2)}
+                          </p>
+                        </div>
+
+                        {!isItemCancelled && activeSaleDetail.status !== 'CANCELADA' && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setItemToCancel({ saleId: activeSaleDetail.id, item: it });
+                              setItemCancelReason('Devolução / Desistência no Balcão');
+                            }}
+                            disabled={cancellingItemId === it.id}
+                            className="p-1.5 rounded-lg bg-rose-50 dark:bg-rose-950/50 hover:bg-rose-100 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/60 transition-colors cursor-pointer"
+                            title="Excluir este item da venda e estornar estoque no Digifarma"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
                     </div>
-                    <div className="text-right">
-                      <p className="font-mono text-slate-500">{it.quantity}x R$ {it.unit_price.toFixed(2)}</p>
-                      <p className="font-mono font-bold text-emerald-600 dark:text-emerald-400">R$ {it.total_price.toFixed(2)}</p>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 
@@ -1031,7 +1107,7 @@ export const SalesHistory: React.FC = () => {
         </div>
       )}
 
-      {/* 6. MODAL: CANCELAMENTO DE VENDA */}
+      {/* 6. MODAL: CANCELAMENTO DE VENDA TOTAL */}
       {saleToCancel && (
         <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl max-w-md w-full p-6 animate-in fade-in zoom-in-95 duration-200">
@@ -1074,6 +1150,81 @@ export const SalesHistory: React.FC = () => {
               >
                 {isCancelling ? <RefreshCw className="w-4 h-4 animate-spin" /> : <XCircle className="w-4 h-4" />}
                 Confirmar Estorno
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 6.1 MODAL: EXCLUSÃO INDIVIDUAL DE ITEM (PADRÃO DIGIFARMA) */}
+      {itemToCancel && (
+        <div className="fixed inset-0 z-50 bg-slate-900/75 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl max-w-md w-full p-6 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center gap-3 text-rose-500 mb-3">
+              <div className="p-3 bg-rose-500/10 rounded-2xl">
+                <Trash2 className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="font-black text-base text-slate-900 dark:text-white">Excluir Item da Venda?</h3>
+                <p className="text-xs text-slate-400">Padrão Digifarma: Devolução e estorno imediato de estoque</p>
+              </div>
+            </div>
+
+            <div className="bg-slate-50 dark:bg-slate-800/60 p-3 rounded-2xl border border-slate-200 dark:border-slate-700/60 my-3 text-xs">
+              <div className="font-black text-slate-900 dark:text-white">
+                {itemToCancel.item.product_name}
+              </div>
+              <div className="flex justify-between items-center mt-1 text-slate-500 dark:text-slate-400 font-mono">
+                <span>Qtd: {itemToCancel.item.quantity}x R$ {Number(itemToCancel.item.unit_price).toFixed(2)}</span>
+                <span className="font-bold text-rose-600 dark:text-rose-400">Total: R$ {Number(itemToCancel.item.total_price).toFixed(2)}</span>
+              </div>
+            </div>
+
+            <div className="my-3 space-y-2">
+              <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                Motivo da Devolução / Exclusão:
+              </label>
+              <select
+                value={itemCancelReason}
+                onChange={e => setItemCancelReason(e.target.value)}
+                className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-rose-500 mb-2"
+              >
+                <option value="Devolução / Desistência no Balcão">Devolução / Desistência no Balcão</option>
+                <option value="Produto Danificado / Vencido">Produto Danificado / Vencido</option>
+                <option value="Erro de Operador / Quantidade Incorreta">Erro de Operador / Quantidade Incorreta</option>
+                <option value="Troca por outro produto">Troca por outro produto</option>
+                <option value="Outro">Outro</option>
+              </select>
+              {itemCancelReason === 'Outro' && (
+                <input
+                  type="text"
+                  placeholder="Especifique o motivo..."
+                  onChange={e => setItemCancelReason(e.target.value)}
+                  className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-rose-500"
+                />
+              )}
+            </div>
+
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed mb-4">
+              ℹ️ O item será marcado como cancelado na venda, a quantidade retornará ao estoque físico no BelaFarma e no Digifarma, e o valor será lançado em devoluções.
+            </p>
+
+            <div className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setItemToCancel(null)}
+                className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-300 text-xs font-bold"
+              >
+                Voltar
+              </button>
+              <button
+                type="button"
+                disabled={Boolean(cancellingItemId)}
+                onClick={handleConfirmCancelItem}
+                className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-all shadow-md flex items-center gap-1.5"
+              >
+                {cancellingItemId ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                Confirmar Exclusão do Item
               </button>
             </div>
           </div>

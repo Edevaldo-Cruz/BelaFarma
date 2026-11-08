@@ -146,6 +146,13 @@ function initErpDatabase() {
     if (!siCols.includes('total_cost')) db.prepare(`ALTER TABLE sale_items ADD COLUMN total_cost REAL DEFAULT 0`).run();
     if (!siCols.includes('profit')) db.prepare(`ALTER TABLE sale_items ADD COLUMN profit REAL DEFAULT 0`).run();
     if (!siCols.includes('is_unregistered')) db.prepare(`ALTER TABLE sale_items ADD COLUMN is_unregistered INTEGER DEFAULT 0`).run();
+    if (!siCols.includes('is_cancelled')) db.prepare(`ALTER TABLE sale_items ADD COLUMN is_cancelled INTEGER DEFAULT 0`).run();
+    if (!siCols.includes('cancelled_at')) db.prepare(`ALTER TABLE sale_items ADD COLUMN cancelled_at TEXT`).run();
+    if (!siCols.includes('cancellation_reason')) db.prepare(`ALTER TABLE sale_items ADD COLUMN cancellation_reason TEXT`).run();
+    if (!siCols.includes('digifarma_item_id')) db.prepare(`ALTER TABLE sale_items ADD COLUMN digifarma_item_id INTEGER`).run();
+
+    const sCols = db.pragma('table_info(sales)').map(c => c.name);
+    if (!sCols.includes('returned_value')) db.prepare(`ALTER TABLE sales ADD COLUMN returned_value REAL DEFAULT 0`).run();
   } catch (err) {
     console.warn('[Belinha ERP DB] Aviso ao verificar colunas sale_items:', err.message);
   }
