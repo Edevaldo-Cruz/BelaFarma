@@ -30,12 +30,14 @@ import {
   AlertTriangle,
   FileText,
   Percent,
-  Key
+  Key,
+  Sparkles
 } from 'lucide-react';
 import { useToast } from '../ToastContext';
 import { BelaFarmaLogo } from '../BelaFarmaLogo';
 import { DanfeNfceModal } from './DanfeNfceModal';
 import { FiscalSettingsModal } from './FiscalSettingsModal';
+import { PromotionsManagementModal } from './PromotionsManagementModal';
 import { imprimirCupomVenda, imprimirDanfeNfce, imprimirComprovanteMovimentacaoCaixa } from '../../utils/thermalPrinter';
 import { ControlledRecipeModal, ControlledProductItem, ControlledRecipeData } from './ControlledRecipeModal';
 import { useThermalPrintSpooler } from './useThermalPrintSpooler';
@@ -254,6 +256,9 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
   const [itemToCancelInPdv, setItemToCancelInPdv] = useState<{ saleId: string; item: any } | null>(null);
   const [itemCancelReasonInPdv, setItemCancelReasonInPdv] = useState<string>('Devolução / Desistência no Balcão');
   const [isCancellingItemInPdv, setIsCancellingItemInPdv] = useState<boolean>(false);
+
+  // Central de Promoções e Validade
+  const [isPromotionsModalOpen, setIsPromotionsModalOpen] = useState<boolean>(false);
 
   // Movimentações de Caixa (Sangria e Suprimento) [F4]
   const [isCashMovementModalOpen, setIsCashMovementModalOpen] = useState<boolean>(false);
@@ -644,7 +649,8 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
       }
       // ESC -> Fechar qualquer modal aberta ou limpar cupom
       else if (e.key === 'Escape') {
-        if (isCashMovementModalOpen) setIsCashMovementModalOpen(false);
+        if (isPromotionsModalOpen) setIsPromotionsModalOpen(false);
+        else if (isCashMovementModalOpen) setIsCashMovementModalOpen(false);
         else if (isPreSaleModalOpen) setIsPreSaleModalOpen(false);
         else if (isUnregisteredModalOpen) setIsUnregisteredModalOpen(false);
         else if (isSellerModalOpen) {
@@ -1733,6 +1739,15 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
               <span>Vendas do Dia</span>
             </button>
           )}
+
+          <button
+            onClick={() => setIsPromotionsModalOpen(true)}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 text-xs font-bold transition-all shadow-sm cursor-pointer"
+            title="Central de Promoções com Validade e Preços Escalonados"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+            <span>Promoções & Validade</span>
+          </button>
 
           <button
             onClick={() => setIsFiscalSettingsOpen(true)}
@@ -4034,6 +4049,22 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
             </div>
           </div>
         </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL: CENTRAL DE PROMOÇÕES & PREÇOS ESCALONADOS COM VALIDADE */}
+      {/* ========================================================================= */}
+      {isPromotionsModalOpen && (
+        <PromotionsManagementModal
+          isOpen={isPromotionsModalOpen}
+          onClose={() => {
+            setIsPromotionsModalOpen(false);
+            focusBarcodeInput();
+          }}
+          onPromotionUpdated={() => {
+            fetchTieredRules();
+          }}
+        />
       )}
     </div>
   );

@@ -302,16 +302,21 @@ async function sincronizarPrecosEscalonadosDigifarma() {
 }
 
 /**
- * Obtém todas as regras ativas de preços escalonados para uso no PDV
+ * Obtém todas as regras ativas de preços escalonados para uso no PDV dentro da vigência
  * @returns {Array} Regras ativas
  */
 function obterPrecosEscalonados() {
   initErpDatabase();
+  const d = new Date();
+  const hoje = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
   return db.prepare(`
     SELECT * FROM tiered_pricing 
     WHERE active = 1 
+      AND (is_permanent = 1 OR end_date IS NULL OR end_date >= ?)
+      AND (start_date IS NULL OR start_date <= ?)
     ORDER BY product_id ASC, quantity DESC
-  `).all();
+  `).all(hoje, hoje);
 }
 
 /**

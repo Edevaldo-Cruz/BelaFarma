@@ -14,9 +14,11 @@ import {
   AlertTriangle,
   X,
   Database,
-  ArrowUpDown
+  ArrowUpDown,
+  Sparkles
 } from 'lucide-react';
 import { useToast } from '../ToastContext';
+import { PromotionsManagementModal } from './PromotionsManagementModal';
 
 interface ProductItem {
   code: string;
@@ -58,6 +60,9 @@ export const ProductsCatalog: React.FC = () => {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalItems, setTotalItems] = useState(0);
+
+  // Central de Promoções e Validade
+  const [isPromotionsOpen, setIsPromotionsOpen] = useState(false);
 
   // Filtros
   const [search, setSearch] = useState('');
@@ -275,6 +280,15 @@ export const ProductsCatalog: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setIsPromotionsOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 dark:text-amber-400 border border-amber-500/30 text-xs font-bold transition-all shadow-sm cursor-pointer"
+            title="Gerenciar Promoções Comuns e Preços Escalonados com Validade"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            Promoções & Validade
+          </button>
+
           <button
             onClick={() => setIsSyncModalOpen(true)}
             className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-bold transition-all shadow-sm"
@@ -849,6 +863,14 @@ export const ProductsCatalog: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+      {/* 8. CENTRAL DE PROMOÇÕES E VALIDADES */}
+      {isPromotionsOpen && (
+        <PromotionsManagementModal
+          isOpen={isPromotionsOpen}
+          onClose={() => setIsPromotionsOpen(false)}
+          onPromotionUpdated={() => fetchProducts(page)}
+        />
       )}
     </div>
   );

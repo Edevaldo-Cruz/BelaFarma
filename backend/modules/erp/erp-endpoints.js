@@ -88,6 +88,15 @@ const {
   NCMS_PROVISORIOS
 } = require('./erp-express-product.service');
 
+const {
+  listarPromocoesComuns,
+  salvarPromocaoComum,
+  removerPromocaoComum,
+  listarPromocoesEscalonadas,
+  salvarPromocaoEscalonada,
+  removerPromocaoEscalonada
+} = require('./erp-promotions.service');
+
 // ==========================================
 
 // 1. ROTAS DE PRODUTOS & ESTOQUE
@@ -524,7 +533,7 @@ router.post('/sanitization/tasks/:id/resolve', async (req, res) => {
 });
 
 // ==========================================
-// PREÇOS ESCALONADOS (DESCONTO_ESCALONADO)
+// PREÇOS ESCALONADOS (DESCONTO_ESCALONADO) & PROMOÇÕES
 // ==========================================
 router.get('/pos/tiered-pricing', (req, res) => {
   try {
@@ -541,6 +550,68 @@ router.post('/pos/sync-tiered-pricing', async (req, res) => {
     res.json(result);
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// --- Gestão Centralizada de Promoções com Validade ---
+
+// Promoções Comuns (Preço De / Por)
+router.get('/promotions/common', (req, res) => {
+  try {
+    const apenasAtivas = req.query.ativas === 'true' || req.query.ativas === '1';
+    const busca = req.query.q || '';
+    const items = listarPromocoesComuns({ apenasAtivas, busca });
+    res.json({ success: true, count: items.length, items });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+router.post('/promotions/common', async (req, res) => {
+  try {
+    const result = await salvarPromocaoComum(req.body);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+router.delete('/promotions/common/:code', async (req, res) => {
+  try {
+    const result = await removerPromocaoComum(req.params.code);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// Promoções Escalonadas (Leve X por R$ Y)
+router.get('/promotions/tiered', (req, res) => {
+  try {
+    const apenasAtivas = req.query.ativas === 'true' || req.query.ativas === '1';
+    const busca = req.query.q || '';
+    const items = listarPromocoesEscalonadas({ apenasAtivas, busca });
+    res.json({ success: true, count: items.length, items });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+router.post('/promotions/tiered', async (req, res) => {
+  try {
+    const result = await salvarPromocaoEscalonada(req.body);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+router.delete('/promotions/tiered/:id', async (req, res) => {
+  try {
+    const result = await removerPromocaoEscalonada(parseInt(req.params.id, 10));
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
   }
 });
 

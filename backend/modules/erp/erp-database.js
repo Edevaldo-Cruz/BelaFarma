@@ -483,12 +483,32 @@ function initErpDatabase() {
       package_price REAL NOT NULL,
       unit_effective_price REAL NOT NULL,
       active INTEGER DEFAULT 1,
+      start_date TEXT,
+      end_date TEXT,
+      is_permanent INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT (datetime('now', 'localtime')),
       synced_at TEXT DEFAULT (datetime('now', 'localtime'))
     )
   `).run();
   db.prepare(`CREATE INDEX IF NOT EXISTS idx_tiered_prod_id ON tiered_pricing (product_id)`).run();
   db.prepare(`CREATE INDEX IF NOT EXISTS idx_tiered_barcode ON tiered_pricing (barcode)`).run();
   db.prepare(`CREATE INDEX IF NOT EXISTS idx_tiered_prod_code ON tiered_pricing (product_code)`).run();
+
+  // Migração dinâmica de colunas para tiered_pricing e products (validade de promoções)
+  try {
+    const tpCols = db.pragma('table_info(tiered_pricing)').map(c => c.name);
+    if (!tpCols.includes('start_date')) db.prepare(`ALTER TABLE tiered_pricing ADD COLUMN start_date TEXT`).run();
+    if (!tpCols.includes('end_date')) db.prepare(`ALTER TABLE tiered_pricing ADD COLUMN end_date TEXT`).run();
+    if (!tpCols.includes('is_permanent')) db.prepare(`ALTER TABLE tiered_pricing ADD COLUMN is_permanent INTEGER DEFAULT 1`).run();
+    if (!tpCols.includes('created_at')) db.prepare(`ALTER TABLE tiered_pricing ADD COLUMN created_at TEXT DEFAULT (datetime('now', 'localtime'))`).run();
+
+    const pCols = db.pragma('table_info(products)').map(c => c.name);
+    if (!pCols.includes('promo_start_date')) db.prepare(`ALTER TABLE products ADD COLUMN promo_start_date TEXT`).run();
+    if (!pCols.includes('promo_end_date')) db.prepare(`ALTER TABLE products ADD COLUMN promo_end_date TEXT`).run();
+    if (!pCols.includes('promo_permanent')) db.prepare(`ALTER TABLE products ADD COLUMN promo_permanent INTEGER DEFAULT 0`).run();
+  } catch (err) {
+    console.warn('[Belinha ERP DB] Aviso ao migrar colunas de validade de promoções:', err.message);
+  }
 
   console.log('[Belinha ERP DB] ✅ Schema limpo do ERP verificado e pronto!');
   return true;
