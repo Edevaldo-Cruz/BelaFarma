@@ -391,6 +391,69 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
   const totalFinal = useMemo(() => Math.max(0, Math.round((subtotal - totalDiscount) * 100) / 100), [subtotal, totalDiscount]);
   const totalQuantity = useMemo(() => cart.reduce((acc, it) => acc + it.quantity, 0), [cart]);
 
+  // Cálculo de Margem e Desconto Seguro Anti-Prejuízo (Piso: Custo + 10%)
+  const safeDiscountSummary = useMemo(() => {
+    let totalCost = 0;
+    let totalSafeFloor = 0;
+    let maxSafeDiscount = 0;
+
+    cart.forEach(it => {
+      const cost = it.unit_cost || 0;
+      const qtd = it.quantity || 1;
+      totalCost += cost * qtd;
+
+      if (cost > 0) {
+        const floor = cost * 1.10; // Custo + 10%
+        totalSafeFloor += floor * qtd;
+        const itemMargin = Math.max(0, it.unit_price - floor);
+        maxSafeDiscount += itemMargin * qtd;
+      } else {
+        totalSafeFloor += it.unit_price * qtd;
+      }
+    });
+
+    maxSafeDiscount = Math.max(0, Math.round(maxSafeDiscount * 100) / 100);
+
+    return {
+      totalCost: Math.round(totalCost * 100) / 100,
+      totalSafeFloor: Math.round(totalSafeFloor * 100) / 100,
+      maxSafeDiscount,
+      hasMargin: maxSafeDiscount > 0
+    };
+  }, [cart]);
+
+  // Helper para obter margem segura de um item individual
+  const getSafeItemDiscount = useCallback((it: CartItem) => {
+    const cost = it.unit_cost || 0;
+    if (cost <= 0) {
+      return { safeUnitDiscount: 0, safeTotalDiscount: 0, cost: 0, floorPrice: it.unit_price };
+    }
+    const floorPrice = Math.round(cost * 1.10 * 100) / 100;
+    const safeUnitDiscount = Math.max(0, Math.round((it.unit_price - floorPrice) * 100) / 100);
+    const safeTotalDiscount = Math.round(safeUnitDiscount * it.quantity * 100) / 100;
+    return { safeUnitDiscount, safeTotalDiscount, cost, floorPrice };
+  }, []);
+
+  // Modal / Menu Rápido de Desconto Seguro
+  const [isSafeDiscountModalOpen, setIsSafeDiscountModalOpen] = useState(false);
+
+  // Aplicação segura de desconto individual em um item do carrinho
+  const handleApplyItemSafeDiscount = useCallback((index: number, ratio: number = 1.0) => {
+    setCart(prev => {
+      const copy = [...prev];
+      if (!copy[index]) return prev;
+      const it = copy[index];
+      const safeInfo = getSafeItemDiscount(it);
+      const discUnit = Math.round(safeInfo.safeUnitDiscount * ratio * 100) / 100;
+      copy[index] = {
+        ...it,
+        discount: discUnit,
+        total_price: Math.round(it.quantity * (it.unit_price - discUnit) * 100) / 100
+      };
+      return copy;
+    });
+  }, [getSafeItemDiscount]);
+
   // Troco em dinheiro
   const isCashValueEntered = cashReceived.trim() !== '';
   const cashNum = isCashValueEntered ? (parseFloat(cashReceived.replace(',', '.')) || 0) : totalFinal;
@@ -649,7 +712,8 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
       }
       // ESC -> Fechar qualquer modal aberta ou limpar cupom
       else if (e.key === 'Escape') {
-        if (isPromotionsModalOpen) setIsPromotionsModalOpen(false);
+        if (isSafeDiscountModalOpen) setIsSafeDiscountModalOpen(false);
+        else if (isPromotionsModalOpen) setIsPromotionsModalOpen(false);
         else if (isCashMovementModalOpen) setIsCashMovementModalOpen(false);
         else if (isPreSaleModalOpen) setIsPreSaleModalOpen(false);
         else if (isUnregisteredModalOpen) setIsUnregisteredModalOpen(false);
@@ -1532,7 +1596,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
       <header className="bg-slate-950 border-b border-slate-800 px-3 sm:px-4 py-2 sm:py-2.5 flex flex-wrap items-center justify-between gap-3 text-xs sm:text-sm shrink-0">
         {/* Logo Oficial Bela Farma Sul & Status do Caixa */}
         <div className="flex items-center space-x-3 sm:space-x-4">
-          <BelaFarmaLogo size="sm" lightMode showSubtext={true} className="shrink-0" />
+          <BelaFarmaLogo size="md" lightMode showSubtext={true} className="shrink-0 drop-shadow-sm" />
           
           <div className="h-6 w-[1px] bg-slate-800 hidden sm:block" />
 
@@ -1880,11 +1944,17 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
           {/* TABELA DE ITENS NO CARRINHO */}
           <div className="flex-1 overflow-y-auto p-2 bg-slate-950/40 min-h-0">
             {cart.length === 0 ? (
-              <div className="h-full flex flex-col items-center justify-center text-slate-600 p-8 text-center">
-                <ShoppingCart className="w-16 h-16 stroke-1 mb-3 opacity-30 text-slate-500 animate-pulse" />
-                <p className="text-base font-semibold text-slate-400">Caixa Livre • Nenhum produto no cupom</p>
-                <p className="text-xs text-slate-500 mt-1 max-w-sm">
-                  Passe o leitor de código de barras ou pressione <strong className="text-emerald-400">F1</strong> para pesquisar no catálogo.
+              <div className="h-full flex flex-col items-center justify-center p-8 text-center space-y-4 animate-in fade-in duration-200">
+                <div className="p-5 rounded-3xl bg-slate-900/60 border border-slate-800 shadow-2xl backdrop-blur-sm flex flex-col items-center">
+                  <BelaFarmaLogo size="lg" lightMode showSubtext={true} className="mb-2" />
+                  <div className="h-[1px] w-52 bg-gradient-to-r from-transparent via-slate-700 to-transparent my-2" />
+                  <div className="flex items-center gap-2 text-xs font-bold text-emerald-400 bg-emerald-950/60 px-3 py-1 rounded-full border border-emerald-800/60 shadow-sm">
+                    <Zap className="w-3.5 h-3.5 animate-pulse text-amber-400" />
+                    <span>Caixa Livre • Pronto para Venda</span>
+                  </div>
+                </div>
+                <p className="text-xs text-slate-400 mt-2 max-w-sm">
+                  Passe o leitor de código de barras ou pressione <kbd className="text-emerald-400 font-bold bg-slate-900 px-1.5 py-0.5 rounded border border-slate-800">F1</kbd> para pesquisar no catálogo.
                 </p>
               </div>
             ) : (
@@ -2051,7 +2121,27 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
                           {(() => {
                             const tiered = getTieredDiscount(item);
                             const totalItemDiscount = (item.discount * item.quantity) + (tiered ? tiered.savings : 0);
-                            return totalItemDiscount > 0 ? `-${totalItemDiscount.toFixed(2)}` : '0.00';
+                            const safeItem = getSafeItemDiscount(item);
+                            return (
+                              <div className="flex flex-col items-end">
+                                <span>{totalItemDiscount > 0 ? `-${totalItemDiscount.toFixed(2)}` : '0.00'}</span>
+                                {safeItem.safeUnitDiscount > 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleApplyItemSafeDiscount(index, item.discount > 0 ? 0 : 1.0)}
+                                    className={`mt-1 text-[9px] font-bold px-1.5 py-0.5 rounded border flex items-center gap-1 transition cursor-pointer ${
+                                      item.discount > 0 
+                                        ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700/80' 
+                                        : 'bg-amber-950/80 hover:bg-amber-900 text-amber-300 border-amber-800'
+                                    }`}
+                                    title={item.discount > 0 ? "Clique para zerar desconto deste item" : `Margem segura: R$ ${safeItem.safeUnitDiscount.toFixed(2)} / un (Piso: Custo + 10%)`}
+                                  >
+                                    <ShieldCheck className="w-2.5 h-2.5 text-emerald-400" />
+                                    <span>{item.discount > 0 ? 'Margem Ativa' : `+R$ ${safeItem.safeUnitDiscount.toFixed(2)}`}</span>
+                                  </button>
+                                )}
+                              </div>
+                            );
                           })()}
                         </td>
                         <td className="py-2 px-2.5 text-right font-bold text-emerald-400 text-xs sm:text-sm">
@@ -2218,6 +2308,28 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
                     <span>(Inclui {discountPercent}% desc. geral)</span>
                   </div>
                 )}
+
+                {/* BOTÃO DESCONTO SEGURO ANTI-PREJUÍZO */}
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsSafeDiscountModalOpen(true)}
+                    disabled={cart.length === 0}
+                    className="w-full py-2 px-3 rounded-xl bg-gradient-to-r from-amber-950/70 via-slate-900 to-emerald-950/70 hover:from-amber-900 hover:to-emerald-900 border border-amber-600/40 hover:border-amber-400 text-xs font-bold flex items-center justify-between transition-all shadow-md cursor-pointer disabled:opacity-40"
+                    title="Aplicar desconto seguro sem virar prejuízo (Margem mínima de 10% do custo)"
+                  >
+                    <div className="flex items-center gap-1.5 text-slate-200">
+                      <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span>Desconto Seguro (Max):</span>
+                    </div>
+                    <div className="flex items-center gap-1 font-mono">
+                      <span className="text-emerald-400 font-black text-sm">
+                        R$ {safeDiscountSummary.maxSafeDiscount.toFixed(2)}
+                      </span>
+                      <ChevronRight className="w-3.5 h-3.5 text-amber-400" />
+                    </div>
+                  </button>
+                </div>
               </div>
 
               {/* CARD GIGANTE DO TOTAL A PAGAR */}
@@ -2605,6 +2717,22 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
               </button>
             </div>
 
+            {/* BARRA INFORMATIVA DE LIMITE SEGURO ANTI-PREJUÍZO */}
+            <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs space-y-1">
+              <div className="flex justify-between items-center text-slate-400">
+                <span className="flex items-center gap-1.5 font-bold text-slate-300">
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                  Limite Seguro (Custo + 10%):
+                </span>
+                <span className="font-mono font-black text-emerald-400">
+                  R$ {safeDiscountSummary.maxSafeDiscount.toFixed(2)}
+                </span>
+              </div>
+              <div className="text-[10px] text-slate-500 leading-tight">
+                Qualquer desconto acima deste valor causaria prejuízo e será bloqueado rigidamente.
+              </div>
+            </div>
+
             <div className="flex gap-2">
               <button
                 type="button"
@@ -2631,9 +2759,22 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-400 mb-1">
-                {discountInputType === 'PERCENT' ? 'Porcentagem de Desconto (%):' : 'Valor do Desconto (R$):'}
-              </label>
+              <div className="flex justify-between items-center mb-1">
+                <label className="text-xs font-bold text-slate-400">
+                  {discountInputType === 'PERCENT' ? 'Porcentagem de Desconto (%):' : 'Valor do Desconto (R$):'}
+                </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDiscountInputType('VALUE');
+                    setDiscountInputVal(safeDiscountSummary.maxSafeDiscount.toFixed(2));
+                  }}
+                  className="text-[10px] text-emerald-400 hover:text-emerald-300 underline font-mono"
+                >
+                  Usar Máx Seguro (R$ {safeDiscountSummary.maxSafeDiscount.toFixed(2)})
+                </button>
+              </div>
+
               <input
                 type="number"
                 min="0"
@@ -2644,7 +2785,17 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
                 autoFocus
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
-                    const val = parseFloat(discountInputVal) || 0;
+                    const val = parseFloat(discountInputVal.replace(',', '.')) || 0;
+                    let requestedReais = val;
+                    if (discountInputType === 'PERCENT') {
+                      requestedReais = Math.round((subtotal - itemDiscounts) * (val / 100) * 100) / 100;
+                    }
+
+                    if (requestedReais > safeDiscountSummary.maxSafeDiscount) {
+                      addToast(`⛔ Desconto Bloqueado! O valor de R$ ${requestedReais.toFixed(2)} excede o limite seguro de R$ ${safeDiscountSummary.maxSafeDiscount.toFixed(2)} (Custo + 10%).`, 'warning', 6000);
+                      return;
+                    }
+
                     if (discountInputType === 'PERCENT') {
                       setDiscountPercent(val);
                       setDiscount(0);
@@ -2654,6 +2805,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
                     }
                     setIsDiscountModalOpen(false);
                     focusBarcodeInput();
+                    addToast(`Desconto de R$ ${requestedReais.toFixed(2)} aplicado!`, 'success', 3000);
                   }
                 }}
                 className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl font-mono text-base font-bold text-amber-300 focus:outline-none focus:border-amber-500"
@@ -2677,7 +2829,17 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
               <button
                 type="button"
                 onClick={() => {
-                  const val = parseFloat(discountInputVal) || 0;
+                  const val = parseFloat(discountInputVal.replace(',', '.')) || 0;
+                  let requestedReais = val;
+                  if (discountInputType === 'PERCENT') {
+                    requestedReais = Math.round((subtotal - itemDiscounts) * (val / 100) * 100) / 100;
+                  }
+
+                  if (requestedReais > safeDiscountSummary.maxSafeDiscount) {
+                    addToast(`⛔ Desconto Bloqueado! O valor de R$ ${requestedReais.toFixed(2)} ultrapassa o limite seguro de R$ ${safeDiscountSummary.maxSafeDiscount.toFixed(2)} (Custo + 10%).`, 'warning', 6000);
+                    return;
+                  }
+
                   if (discountInputType === 'PERCENT') {
                     setDiscountPercent(val);
                     setDiscount(0);
@@ -2687,8 +2849,9 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
                   }
                   setIsDiscountModalOpen(false);
                   focusBarcodeInput();
+                  addToast(`Desconto de R$ ${requestedReais.toFixed(2)} aplicado com sucesso!`, 'success', 3000);
                 }}
-                className="flex-1 py-2 bg-amber-600 hover:bg-amber-500 text-slate-950 text-xs font-black rounded-xl shadow-md"
+                className="flex-1 py-2 bg-amber-600 hover:bg-amber-500 text-slate-950 text-xs font-black rounded-xl shadow-md cursor-pointer"
               >
                 Aplicar
               </button>
@@ -4045,6 +4208,157 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
                 className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-xl"
               >
                 Fechar [ESC]
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL: MINI-MENU DE DESCONTO SEGURO ANTI-PREJUÍZO (PISO CUSTO + 10%) */}
+      {/* ========================================================================= */}
+      {isSafeDiscountModalOpen && (
+        <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center justify-center font-bold">
+                  <ShieldCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-black text-sm text-slate-100">Desconto Seguro Anti-Prejuízo</h3>
+                  <p className="text-[11px] text-slate-400">Piso mínimo garantido: Custo dos produtos + 10%</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => {
+                  setIsSafeDiscountModalOpen(false);
+                  focusBarcodeInput();
+                }}
+                className="text-slate-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Diagnóstico da Margem do Carrinho */}
+            <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-2 text-xs">
+              <div className="flex justify-between items-center text-slate-400">
+                <span>Subtotal da Venda:</span>
+                <span className="font-mono text-slate-200 font-bold">R$ {subtotal.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between items-center text-slate-400">
+                <span>Custo Total dos Itens:</span>
+                <span className="font-mono text-slate-300">R$ {safeDiscountSummary.totalCost.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between items-center text-slate-400">
+                <span>Piso de Segurança (Custo + 10%):</span>
+                <span className="font-mono text-amber-300">R$ {safeDiscountSummary.totalSafeFloor.toFixed(2)}</span>
+              </div>
+              <div className="pt-2 border-t border-slate-800 flex justify-between items-center">
+                <span className="font-bold text-slate-200">Margem Máxima de Desconto:</span>
+                <span className="font-mono font-black text-base text-emerald-400">
+                  R$ {safeDiscountSummary.maxSafeDiscount.toFixed(2)}
+                </span>
+              </div>
+            </div>
+
+            {/* Botões de Atalho Rápido em 1 Clique */}
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-slate-300 block">
+                Escolha o nível de desconto seguro a aplicar:
+              </label>
+
+              <button
+                type="button"
+                disabled={safeDiscountSummary.maxSafeDiscount <= 0}
+                onClick={() => {
+                  setDiscount(safeDiscountSummary.maxSafeDiscount);
+                  setDiscountPercent(0);
+                  setIsSafeDiscountModalOpen(false);
+                  focusBarcodeInput();
+                  addToast(`🎯 Desconto máximo seguro de R$ ${safeDiscountSummary.maxSafeDiscount.toFixed(2)} (100% da margem) aplicado!`, 'success', 3500);
+                }}
+                className="w-full p-2.5 rounded-xl bg-emerald-950/70 hover:bg-emerald-900 border border-emerald-700/80 text-emerald-200 text-xs font-black flex items-center justify-between transition cursor-pointer disabled:opacity-40"
+              >
+                <div className="flex items-center gap-2">
+                  <span>🎯</span>
+                  <span>100% da Margem Segura (Máximo sem Prejuízo)</span>
+                </div>
+                <span className="font-mono text-emerald-300 font-bold">
+                  - R$ {safeDiscountSummary.maxSafeDiscount.toFixed(2)}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                disabled={safeDiscountSummary.maxSafeDiscount <= 0}
+                onClick={() => {
+                  const metade = Math.round(safeDiscountSummary.maxSafeDiscount * 0.5 * 100) / 100;
+                  setDiscount(metade);
+                  setDiscountPercent(0);
+                  setIsSafeDiscountModalOpen(false);
+                  focusBarcodeInput();
+                  addToast(`⚡ Desconto seguro de R$ ${metade.toFixed(2)} (50% da margem) aplicado!`, 'success', 3500);
+                }}
+                className="w-full p-2.5 rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-200 text-xs font-bold flex items-center justify-between transition cursor-pointer disabled:opacity-40"
+              >
+                <div className="flex items-center gap-2">
+                  <span>⚡</span>
+                  <span>50% da Margem Segura (Metade)</span>
+                </div>
+                <span className="font-mono text-amber-400 font-bold">
+                  - R$ {(Math.round(safeDiscountSummary.maxSafeDiscount * 0.5 * 100) / 100).toFixed(2)}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                disabled={safeDiscountSummary.maxSafeDiscount <= 0}
+                onClick={() => {
+                  const quarto = Math.round(safeDiscountSummary.maxSafeDiscount * 0.25 * 100) / 100;
+                  setDiscount(quarto);
+                  setDiscountPercent(0);
+                  setIsSafeDiscountModalOpen(false);
+                  focusBarcodeInput();
+                  addToast(`🔹 Desconto de R$ ${quarto.toFixed(2)} (25% da margem) aplicado!`, 'success', 3500);
+                }}
+                className="w-full p-2.5 rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-200 text-xs font-bold flex items-center justify-between transition cursor-pointer disabled:opacity-40"
+              >
+                <div className="flex items-center gap-2">
+                  <span>🔹</span>
+                  <span>25% da Margem Segura</span>
+                </div>
+                <span className="font-mono text-slate-300 font-bold">
+                  - R$ {(Math.round(safeDiscountSummary.maxSafeDiscount * 0.25 * 100) / 100).toFixed(2)}
+                </span>
+              </button>
+            </div>
+
+            {/* Ações Inferiores */}
+            <div className="flex gap-2 pt-2 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => {
+                  setDiscount(0);
+                  setDiscountPercent(0);
+                  setIsSafeDiscountModalOpen(false);
+                  focusBarcodeInput();
+                  addToast('Desconto geral zerado.', 'info', 2500);
+                }}
+                className="flex-1 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-xl"
+              >
+                Zerar Desconto
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsSafeDiscountModalOpen(false);
+                  setIsDiscountModalOpen(true);
+                }}
+                className="flex-1 py-2 bg-amber-600 hover:bg-amber-500 text-slate-950 text-xs font-black rounded-xl shadow-md cursor-pointer"
+              >
+                Digitar Outro Valor
               </button>
             </div>
           </div>
