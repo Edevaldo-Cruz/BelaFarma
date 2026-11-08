@@ -23,7 +23,9 @@ import {
   Archive,
   ChevronDown,
   ChevronUp,
-  FileText
+  FileText,
+  Zap,
+  Tag
 } from 'lucide-react';
 import { TaxClosingReport, FiscalAuditIssue } from '../types';
 
@@ -59,6 +61,19 @@ export const FiscalAccountingView: React.FC = () => {
   const [isAuditing, setIsAuditing] = useState(false);
   const [isSyncingDigifarma, setIsSyncingDigifarma] = useState(false);
   const [showAuditDetails, setShowAuditDetails] = useState(false);
+
+  // Saneamento Fiscal de Produtos Provisórios (Cadastro Expresso no PDV)
+  const [sanitizationTasks, setSanitizationTasks] = useState<any[]>([]);
+  const [isSanitizationModalOpen, setIsSanitizationModalOpen] = useState(false);
+  const [editingTask, setEditingTask] = useState<any | null>(null);
+  const [taskNcmDef, setTaskNcmDef] = useState('');
+  const [taskCestDef, setTaskCestDef] = useState('');
+  const [taskCostPrice, setTaskCostPrice] = useState('');
+  const [taskSyncDigi, setTaskSyncDigi] = useState(true);
+  const [isResolvingTask, setIsResolvingTask] = useState(false);
+
+  // Sincronização de Preços Escalonados (DESCONTO_ESCALONADO Digifarma)
+  const [isSyncingTiered, setIsSyncingTiered] = useState(false);
 
   // Modal de Configurações do Contador (SPED Registro 0100)
   const [isContadorModalOpen, setIsContadorModalOpen] = useState(false);
@@ -172,7 +187,82 @@ export const FiscalAccountingView: React.FC = () => {
   useEffect(() => {
     carregarApuracao();
     handleAudit();
+    carregarTarefasSaneamento();
   }, [competencia]);
+
+  const carregarTarefasSaneamento = async () => {
+    try {
+      const res = await fetch('/api/erp/sanitization/tasks?status=PENDENTE');
+      if (res.ok) {
+        const json = await res.json();
+        setSanitizationTasks(json.tasks || []);
+      }
+    } catch (e) {
+      console.warn('Erro ao carregar tarefas de saneamento:', e);
+    }
+  };
+
+  const handleSyncTieredPricing = async () => {
+    setIsSyncingTiered(true);
+    try {
+      const res = await fetch('/api/erp/pos/sync-tiered-pricing', { method: 'POST' });
+      const json = await res.json();
+      if (res.ok && json.success) {
+        showToast(`⚡ ${json.total_regras} regras de Preço Escalonado sincronizadas com o Digifarma!`);
+      } else {
+        showToast(json.error || 'Erro ao sincronizar preços escalonados.');
+      }
+    } catch {
+      showToast('Falha na comunicação com o servidor.');
+    } finally {
+      setIsSyncingTiered(false);
+    }
+  };
+
+  const handleOpenSanitizeModal = (task: any) => {
+    setEditingTask(task);
+    setTaskNcmDef(task.ncm_provisional || '');
+    setTaskCestDef(task.cest_definitive || '');
+    setTaskCostPrice(task.cost_price ? String(task.cost_price) : '');
+    setTaskSyncDigi(true);
+    setIsSanitizationModalOpen(true);
+  };
+
+  const handleResolveTask = async () => {
+    if (!editingTask) return;
+    const ncmClean = taskNcmDef.replace(/\D/g, '');
+    if (ncmClean.length !== 8) {
+      showToast('O NCM definitivo deve ter exatamente 8 dígitos numéricos.');
+      return;
+    }
+
+    setIsResolvingTask(true);
+    try {
+      const res = await fetch(`/api/erp/sanitization/tasks/${editingTask.id}/resolve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ncm_definitive: ncmClean,
+          cest_definitive: taskCestDef,
+          cost_price: parseFloat(taskCostPrice.replace(',', '.')) || 0,
+          sync_to_digifarma: taskSyncDigi
+        })
+      });
+      const json = await res.json();
+      if (res.ok && json.success) {
+        showToast(`✅ Produto #${editingTask.product_code} saneado com sucesso!`);
+        setEditingTask(null);
+        await carregarTarefasSaneamento();
+        await handleAudit();
+      } else {
+        showToast(json.error || 'Erro ao sanear produto.');
+      }
+    } catch {
+      showToast('Falha ao comunicar com o servidor.');
+    } finally {
+      setIsResolvingTask(false);
+    }
+  };
 
   const handleAudit = async () => {
     setIsAuditing(true);
@@ -316,6 +406,29 @@ export const FiscalAccountingView: React.FC = () => {
 
           {/* Ações de Download e Recálculo */}
           <div className="flex flex-wrap items-center gap-2.5">
+            <button
+              onClick={() => setIsSanitizationModalOpen(true)}
+              className={`inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold rounded-lg transition-all shadow-sm ${
+                sanitizationTasks.length > 0 
+                  ? 'bg-amber-600 hover:bg-amber-500 text-white ring-2 ring-amber-400/50' 
+                  : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700'
+              }`}
+              title="Gerenciar fila de tarefas de saneamento de produtos cadastrados expressamente no PDV"
+            >
+              <ShieldCheck className="w-3.5 h-3.5 text-amber-200" />
+              Saneamento ({sanitizationTasks.length})
+            </button>
+
+            <button
+              onClick={handleSyncTieredPricing}
+              disabled={isSyncingTiered}
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg bg-emerald-700/80 hover:bg-emerald-600 active:scale-95 text-white transition-all shadow-sm"
+              title="Sincronizar tabela DESCONTO_ESCALONADO do Digifarma para aplicação automática no PDV"
+            >
+              <Zap className={`w-3.5 h-3.5 ${isSyncingTiered ? 'animate-spin' : 'text-amber-300'}`} />
+              {isSyncingTiered ? 'Sincronizando...' : 'Preços Escalonados'}
+            </button>
+
             <button
               onClick={handleSyncDigifarma}
               disabled={isSyncingDigifarma || loading}
@@ -1103,6 +1216,171 @@ export const FiscalAccountingView: React.FC = () => {
                 {savingContador ? 'Salvando...' : 'Salvar Dados do Contador'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE SANEAMENTO FISCAL DE PRODUTOS PROVISÓRIOS */}
+      {isSanitizationModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full p-5 space-y-4 shadow-2xl animate-fade-in max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-amber-500/10 rounded-lg text-amber-400 border border-amber-500/20">
+                  <ShieldCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white tracking-tight">
+                    Fila de Saneamento Fiscal • Produtos Provisórios
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Produtos cadastrados no PDV com emissão 'SEM GTIN' que necessitam de NCM definitivo e custo.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setIsSanitizationModalOpen(false);
+                  setEditingTask(null);
+                }}
+                className="text-slate-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Listagem das Tarefas Pendentes */}
+            {sanitizationTasks.length === 0 ? (
+              <div className="p-8 text-center bg-slate-950/40 rounded-xl border border-slate-800 text-slate-400">
+                <CheckCircle2 className="w-8 h-8 text-emerald-400 mx-auto mb-2" />
+                <p className="text-sm font-semibold text-slate-200">Nenhum produto pendente de saneamento fiscal!</p>
+                <p className="text-xs text-slate-500 mt-1">Todos os produtos provisórios já foram validados e integrados.</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="overflow-x-auto border border-slate-800 rounded-xl">
+                  <table className="w-full text-xs text-left">
+                    <thead className="bg-slate-950 text-slate-400 font-semibold border-b border-slate-800">
+                      <tr>
+                        <th className="py-2.5 px-3 whitespace-nowrap">Código</th>
+                        <th className="py-2.5 px-3">Produto</th>
+                        <th className="py-2.5 px-3 whitespace-nowrap">Valor</th>
+                        <th className="py-2.5 px-3 whitespace-nowrap">NCM Prov.</th>
+                        <th className="py-2.5 px-3 text-right whitespace-nowrap">Ação</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60">
+                      {sanitizationTasks.map((t: any) => (
+                        <tr key={t.id} className="hover:bg-slate-800/40 transition-colors">
+                          <td className="py-2.5 px-3 font-mono font-bold text-amber-300 whitespace-nowrap">
+                            {t.product_code}
+                          </td>
+                          <td className="py-2.5 px-3 text-slate-200 font-medium">
+                            <div>{t.product_name}</div>
+                            {t.barcode_read && (
+                              <div className="text-[10px] text-slate-500 font-mono">Bipado: {t.barcode_read}</div>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-3 font-mono text-emerald-400 font-semibold whitespace-nowrap">
+                            R$ {Number(t.sale_price).toFixed(2)}
+                          </td>
+                          <td className="py-2.5 px-3 font-mono text-slate-400 whitespace-nowrap">
+                            {t.ncm_provisional}
+                          </td>
+                          <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                            <button
+                              onClick={() => handleOpenSanitizeModal(t)}
+                              className="px-2.5 py-1 rounded bg-amber-600 hover:bg-amber-500 text-white font-bold text-[11px] shadow-sm transition-all"
+                            >
+                              Sanear
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Painel de Edição do Produto Selecionado */}
+                {editingTask && (
+                  <div className="p-4 rounded-xl bg-slate-950 border-2 border-amber-500/60 space-y-3 animate-fade-in">
+                    <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                      <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                        <Tag className="w-3.5 h-3.5 text-amber-400" />
+                        Validando: <span className="text-amber-300">{editingTask.product_name}</span>
+                      </span>
+                      <button onClick={() => setEditingTask(null)} className="text-slate-400 hover:text-white">
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1">
+                          NCM Definitivo (8 dígitos) *
+                        </label>
+                        <input
+                          type="text"
+                          maxLength={8}
+                          value={taskNcmDef}
+                          onChange={(e) => setTaskNcmDef(e.target.value.replace(/\D/g, ''))}
+                          placeholder="Ex: 33049990"
+                          className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono focus:outline-none focus:border-amber-400"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1">
+                          CEST (Opcional)
+                        </label>
+                        <input
+                          type="text"
+                          maxLength={7}
+                          value={taskCestDef}
+                          onChange={(e) => setTaskCestDef(e.target.value.replace(/\D/g, ''))}
+                          placeholder="Ex: 2004800"
+                          className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono focus:outline-none focus:border-amber-400"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1">
+                          Preço de Custo (R$)
+                        </label>
+                        <input
+                          type="text"
+                          value={taskCostPrice}
+                          onChange={(e) => setTaskCostPrice(e.target.value)}
+                          placeholder="0,00"
+                          className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono focus:outline-none focus:border-amber-400"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-2">
+                      <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={taskSyncDigi}
+                          onChange={(e) => setTaskSyncDigi(e.target.checked)}
+                          className="rounded bg-slate-900 border-slate-700 text-amber-500 focus:ring-0"
+                        />
+                        <span>Cadastrar este produto na tabela <strong>PRODUTOS</strong> do Digifarma (Firebird)</span>
+                      </label>
+
+                      <button
+                        onClick={handleResolveTask}
+                        disabled={isResolvingTask || !taskNcmDef.trim()}
+                        className="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold text-xs disabled:opacity-50 transition-all shadow-md flex items-center gap-1.5"
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        {isResolvingTask ? 'Salvando...' : 'Salvar & Concluir'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}

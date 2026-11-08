@@ -339,8 +339,10 @@ async function emitirCupomFiscal(saleId, options = {}) {
     const cfop = (it.tributacao_monofasica === 'S' || it.aliquota_st > 0) ? '5405' : '5102';
     const ncm = it.ncm || '30049099'; // Medicamentos padrão se não informado
 
-    // Validação estrita de GTIN conforme regra do XSD da SEFAZ
-    const isGtinValido = it.barcode && /^\d{8}$|^\d{12,14}$/.test(String(it.barcode).trim());
+    // Validação estrita de GTIN conforme regra da Nota Técnica 2021.003 da SEFAZ
+    // Produtos provisórios, importados ou sem código de barras válido recebem o literal oficial 'SEM GTIN'
+    const isProvisorioOuSemGtin = it.sem_gtin || it.is_provisional || String(it.product_code || '').startsWith('EXP');
+    const isGtinValido = !isProvisorioOuSemGtin && it.barcode && /^\d{8}$|^\d{12,14}$/.test(String(it.barcode).trim());
     const gtin = isGtinValido ? String(it.barcode).trim() : 'SEM GTIN';
 
     // Em ambiente de Homologação, a SEFAZ exige que a descrição do 1º item seja essa frase literal

@@ -1,7 +1,7 @@
 const firebird = require('node-firebird');
 
 const options = {
-    host: process.env.DIGIFARMA_HOST || '192.168.1.10',
+    host: process.env.DIGIFARMA_HOST || '192.168.1.7',
     port: parseInt(process.env.DIGIFARMA_PORT || '3050', 10),
     database: process.env.DIGIFARMA_DB_PATH || 'C:\\Digifarma\\Dados\\digifarma6.fdb',
     user: process.env.DIGIFARMA_USER || 'SYSDBA',

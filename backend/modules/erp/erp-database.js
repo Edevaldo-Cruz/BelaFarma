@@ -435,6 +435,54 @@ function initErpDatabase() {
     console.warn('[Belinha ERP DB] Aviso ao verificar colunas fiscais de invoices/invoice_items:', err.message);
   }
 
+  // 13. Fila de Saneamento Fiscal de Produtos Provisórios (Cadastro Expresso no PDV)
+  db.prepare(`
+    CREATE TABLE IF NOT EXISTS product_sanitization_tasks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      product_code TEXT NOT NULL UNIQUE,
+      barcode_read TEXT,
+      product_name TEXT NOT NULL,
+      sale_price REAL NOT NULL,
+      cost_price REAL DEFAULT 0,
+      ncm_provisional TEXT DEFAULT '33049990',
+      ncm_definitive TEXT,
+      cest_definitive TEXT,
+      category TEXT DEFAULT 'Perfumaria / Acessório',
+      status TEXT DEFAULT 'PENDENTE', -- 'PENDENTE', 'SANEADO', 'IGNORADO'
+      digifarma_synced INTEGER DEFAULT 0,
+      digifarma_product_id INTEGER,
+      sale_id TEXT,
+      created_at TEXT DEFAULT (datetime('now', 'localtime')),
+      updated_at TEXT DEFAULT (datetime('now', 'localtime')),
+      validated_at TEXT,
+      validated_by TEXT,
+      notes TEXT
+    )
+  `).run();
+  db.prepare(`CREATE INDEX IF NOT EXISTS idx_sanitization_status ON product_sanitization_tasks (status)`).run();
+  db.prepare(`CREATE INDEX IF NOT EXISTS idx_sanitization_code ON product_sanitization_tasks (product_code)`).run();
+  db.prepare(`CREATE INDEX IF NOT EXISTS idx_sanitization_barcode ON product_sanitization_tasks (barcode_read)`).run();
+
+  // 14. Tabela de Preços Escalonados (Cache e Regras Locais sincronizadas com Digifarma DESCONTO_ESCALONADO)
+  db.prepare(`
+    CREATE TABLE IF NOT EXISTS tiered_pricing (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      digifarma_id INTEGER UNIQUE,
+      product_id INTEGER NOT NULL,
+      product_code TEXT,
+      barcode TEXT,
+      product_name TEXT,
+      quantity INTEGER NOT NULL,
+      package_price REAL NOT NULL,
+      unit_effective_price REAL NOT NULL,
+      active INTEGER DEFAULT 1,
+      synced_at TEXT DEFAULT (datetime('now', 'localtime'))
+    )
+  `).run();
+  db.prepare(`CREATE INDEX IF NOT EXISTS idx_tiered_prod_id ON tiered_pricing (product_id)`).run();
+  db.prepare(`CREATE INDEX IF NOT EXISTS idx_tiered_barcode ON tiered_pricing (barcode)`).run();
+  db.prepare(`CREATE INDEX IF NOT EXISTS idx_tiered_prod_code ON tiered_pricing (product_code)`).run();
+
   console.log('[Belinha ERP DB] ✅ Schema limpo do ERP verificado e pronto!');
   return true;
 }

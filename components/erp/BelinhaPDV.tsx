@@ -127,14 +127,34 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
   const [isPendingCheckout, setIsPendingCheckout] = useState(false);
   const sellerKeyInputRef = useRef<HTMLInputElement>(null);
 
-  // Modal de Produto Não Cadastrado / Sem Código de Barras (*123)
+  // Modal de Produto Não Cadastrado / Cadastro Expresso Provisório [F7 / Bip não encontrado]
   const [isUnregisteredModalOpen, setIsUnregisteredModalOpen] = useState(false);
   const [unregisteredBarcode, setUnregisteredBarcode] = useState('');
   const [unregisteredName, setUnregisteredName] = useState('');
   const [unregisteredPrice, setUnregisteredPrice] = useState('');
   const [unregisteredQuantity, setUnregisteredQuantity] = useState(1);
+  const [unregisteredCategory, setUnregisteredCategory] = useState<'cosmetico' | 'acessorio' | 'medicamento'>('cosmetico');
   const unregisteredPriceInputRef = useRef<HTMLInputElement>(null);
   const unregisteredNameInputRef = useRef<HTMLInputElement>(null);
+
+  // Preços Escalonados por Quantidade (DESCONTO_ESCALONADO Digifarma)
+  const [tieredRules, setTieredRules] = useState<any[]>([]);
+
+  const fetchTieredRules = useCallback(async () => {
+    try {
+      const res = await fetch('/api/erp/pos/tiered-pricing');
+      if (res.ok) {
+        const json = await res.json();
+        setTieredRules(json.rules || []);
+      }
+    } catch (e) {
+      console.warn('Erro ao carregar regras de preço escalonado:', e);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchTieredRules();
+  }, [fetchTieredRules]);
 
   // Estados do Carrinho
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -304,6 +324,47 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
     };
   }, [controlledItemsInCart]);
 
+  // Helper para calcular desconto escalonado (faixa por quantidade)
+  const getTieredDiscount = useCallback((it: CartItem) => {
+    if (!it || !tieredRules || tieredRules.length === 0 || it.quantity <= 1) return null;
+    const barcodeItem = it.barcode ? String(it.barcode).trim() : null;
+    const codeItem = it.code ? String(it.code).trim() : null;
+    const qtdItem = it.quantity;
+
+    const matches = tieredRules.filter(r => 
+      (barcodeItem && r.barcode === barcodeItem) ||
+      (codeItem && String(r.product_id) === codeItem)
+    );
+
+    if (matches.length === 0) return null;
+    matches.sort((a, b) => b.quantity - a.quantity);
+    const applicable = matches.find(r => qtdItem >= r.quantity);
+    if (!applicable) return null;
+
+    const fullPacks = Math.floor(qtdItem / applicable.quantity);
+    const remainder = qtdItem % applicable.quantity;
+    const promoTotal = (fullPacks * applicable.package_price) + (remainder * it.unit_price);
+    const normalTotal = it.unit_price * qtdItem;
+    const savings = Math.max(0, normalTotal - promoTotal);
+
+    if (savings <= 0.009) return null;
+
+    return {
+      rule: applicable,
+      promoTotal: Math.round(promoTotal * 100) / 100,
+      savings: Math.round(savings * 100) / 100,
+      label: `${applicable.quantity} un por R$ ${applicable.package_price.toFixed(2)}`
+    };
+  }, [tieredRules]);
+
+  // Economia total de preços escalonados no carrinho
+  const tieredSavingsTotal = useMemo(() => {
+    return cart.reduce((acc, it) => {
+      const td = getTieredDiscount(it);
+      return acc + (td ? td.savings : 0);
+    }, 0);
+  }, [cart, getTieredDiscount]);
+
   // Totais calculados
   const subtotal = useMemo(() => cart.reduce((acc, it) => acc + (it.unit_price * it.quantity), 0), [cart]);
   const itemDiscounts = useMemo(() => cart.reduce((acc, it) => acc + ((it.discount || 0) * it.quantity), 0), [cart]);
@@ -314,7 +375,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
     return discount;
   }, [subtotal, itemDiscounts, discountPercent, discount]);
 
-  const totalDiscount = useMemo(() => itemDiscounts + generalDiscountAmount, [itemDiscounts, generalDiscountAmount]);
+  const totalDiscount = useMemo(() => itemDiscounts + generalDiscountAmount + tieredSavingsTotal, [itemDiscounts, generalDiscountAmount, tieredSavingsTotal]);
   const totalFinal = useMemo(() => Math.max(0, Math.round((subtotal - totalDiscount) * 100) / 100), [subtotal, totalDiscount]);
   const totalQuantity = useMemo(() => cart.reduce((acc, it) => acc + it.quantity, 0), [cart]);
 
@@ -364,7 +425,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
     }, 100);
   }, []);
 
-  // Confirmação de inclusão do produto não cadastrado
+  // Confirmação de inclusão do produto expresso provisório (Blindagem Fiscal SEFAZ + Fila de Saneamento)
   const handleConfirmUnregisteredProduct = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     const cleanPrice = unregisteredPrice.replace(',', '.').trim();
@@ -376,70 +437,81 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
       return;
     }
 
-    const name = unregisteredName.trim() || `Item Avulso (${unregisteredBarcode})`;
+    const name = unregisteredName.trim() || `Produto Expresso (${unregisteredBarcode || 'S/ Código'})`;
     const isAvulsoShortcut = unregisteredBarcode.startsWith('*');
-    const finalBarcode = unregisteredBarcode || (isAvulsoShortcut ? unregisteredBarcode : 'SEM GTIN');
-    const finalCode = isAvulsoShortcut 
-      ? `AVULSO-${unregisteredBarcode.replace(/\*/g, '') || Date.now()}` 
-      : (unregisteredBarcode || `AVULSO-${Date.now()}`);
 
-    const newItem: CartItem = {
-      code: finalCode,
-      barcode: finalBarcode,
-      name: name,
-      unit_price: priceNum,
-      unit_cost: 0,
-      quantity: unregisteredQuantity,
-      discount: 0,
-      total_price: Math.round(unregisteredQuantity * priceNum * 100) / 100,
-      recipe_type: null,
-      recipe_label: null,
-      is_controlado: false,
-      category: 'Avulso',
-      generic: false,
-      is_unregistered: true
-    };
-
-    setCart(prev => [...prev, newItem]);
-    setIsUnregisteredModalOpen(false);
-    addToast(`${unregisteredQuantity}x ${name.substring(0, 24)} adicionado!`, 'success', 2000);
-
-    // CRIAÇÃO AUTOMÁTICA DE TAREFA PARA CADASTRO DO PRODUTO
     try {
-      const taskId = `task-${Date.now()}`;
-      const taskTitle = isAvulsoShortcut 
-        ? `Cadastrar Produto Avulso: ${name}` 
-        : `Cadastrar Produto: ${name} (EAN: ${unregisteredBarcode})`;
-      
-      const taskDesc = `Item vendido no BelinhaPDV pelo vendedor ${currentSeller?.name || 'Caixa'}.\n` +
-        `• Valor de venda informado: R$ ${priceNum.toFixed(2)}\n` +
-        `• Código / EAN: ${unregisteredBarcode}\n` +
-        `• Data/Hora: ${new Date().toLocaleString('pt-BR')}\n\n` +
-        `Ação necessária: Cadastrar produto no sistema com NCM, preço de custo, tributação e estoque para emissão na SEFAZ.`;
+      // 1. Cadastra formalmente como produto expresso no ERP e gera tarefa de saneamento fiscal
+      const res = await fetch('/api/erp/pos/quick-product', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-user-name': currentSeller?.name || 'Caixa'
+        },
+        body: JSON.stringify({
+          name,
+          sale_price: priceNum,
+          barcode_read: isAvulsoShortcut ? '' : unregisteredBarcode,
+          category: unregisteredCategory,
+          user_name: currentSeller?.name || 'Caixa'
+        })
+      });
 
-      const creatorId = currentSeller?.id || 'caixa';
-      const taskPayload = {
-        id: taskId,
-        title: taskTitle,
-        description: taskDesc,
-        assignedUser: 'all_users',
-        creator: creatorId,
-        priority: 'Urgente',
-        status: 'A Fazer',
-        dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-        creationDate: new Date().toISOString(),
-        color: 'red'
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        throw new Error(json.error || 'Erro ao registrar produto provisório.');
+      }
+
+      const prod = json.product;
+
+      const newItem: CartItem = {
+        code: prod.code,
+        barcode: prod.barcode,
+        name: prod.name,
+        unit_price: prod.sale_price,
+        unit_cost: 0,
+        quantity: unregisteredQuantity,
+        discount: 0,
+        total_price: Math.round(unregisteredQuantity * prod.sale_price * 100) / 100,
+        recipe_type: null,
+        recipe_label: null,
+        is_controlado: false,
+        category: prod.category || 'Expresso Provisório',
+        generic: false,
+        is_unregistered: false // VÁLIDO FISCALMENTE COM REGRA 'SEM GTIN'
       };
 
-      fetch(`/api/tasks?userId=${creatorId}&userRole=Vendedor`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(taskPayload)
-      }).catch(err => console.warn('Erro ao criar tarefa de produto não cadastrado:', err));
+      setCart(prev => [...prev, newItem]);
+      setIsUnregisteredModalOpen(false);
+      addToast(`⚡ ${unregisteredQuantity}x ${name.substring(0, 24)} adicionado! Tarefa de saneamento fiscal gerada.`, 'success', 3000);
 
-      addToast(`📋 Tarefa de cadastro criada automaticamente no sistema!`, 'info', 3000);
-    } catch (taskErr) {
-      console.warn('Falha ao disparar criação de tarefa:', taskErr);
+      // 2. Cria também a tarefa geral do sistema para alerta no quadro
+      try {
+        const creatorId = currentSeller?.id || 'caixa';
+        fetch(`/api/tasks?userId=${creatorId}&userRole=Vendedor`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: `task-${Date.now()}`,
+            title: `Saneamento Fiscal: ${name}`,
+            description: `Produto cadastrado de forma expressa no PDV pelo operador ${currentSeller?.name || 'Caixa'}.\n` +
+              `• Valor: R$ ${priceNum.toFixed(2)}\n` +
+              `• Código Provisório: ${prod.code}\n` +
+              `• Código Lido: ${unregisteredBarcode}\n` +
+              `• NCM Provisório: ${prod.ncm}\n` +
+              `Ação: Preencher NCM definitivo, custo real e sincronizar no Digifarma.`,
+            assignedUser: 'all_users',
+            creator: creatorId,
+            priority: 'Urgente',
+            status: 'A Fazer',
+            dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+            creationDate: new Date().toISOString(),
+            color: 'red'
+          })
+        }).catch(() => {});
+      } catch {}
+    } catch (err: any) {
+      addToast(`Erro ao registrar: ${err.message}`, 'error');
     }
 
     focusBarcodeInput();
@@ -1778,7 +1850,13 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
                             {item.generic && (
                               <span className="text-[9px] bg-amber-950 text-amber-300 font-bold px-1 rounded border border-amber-800">GEN</span>
                             )}
-                            {item.is_unregistered && (
+                            {String(item.code).startsWith('EXP') && (
+                              <span className="text-[9px] bg-emerald-950/80 text-emerald-300 font-bold px-1.5 py-0.5 rounded border border-emerald-700/80 flex items-center gap-1" title="Cadastrado Expressamente no Caixa (SEM GTIN) - Fila de Saneamento Fiscal gerada">
+                                <Zap className="w-2.5 h-2.5 text-amber-400" />
+                                <span>Expresso • SEM GTIN</span>
+                              </span>
+                            )}
+                            {item.is_unregistered && !String(item.code).startsWith('EXP') && (
                               <span className="text-[9px] bg-slate-800 text-amber-300 font-bold px-1.5 py-0.5 rounded border border-slate-700 flex items-center gap-1" title="Item avulso (gerada tarefa para cadastro com NCM)">
                                 <span>🏷️</span>
                                 <span>Item Avulso / Rápido</span>
@@ -1786,6 +1864,16 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
                             )}
                           </div>
                           <div className="flex items-center space-x-2 mt-0.5 flex-wrap">
+                            {(() => {
+                              const tiered = getTieredDiscount(item);
+                              if (!tiered) return null;
+                              return (
+                                <span className="text-[9px] text-amber-300 bg-amber-950/80 px-1.5 py-0.5 rounded border border-amber-700/60 font-bold flex items-center gap-1" title={`Promoção Escalonada: ${tiered.label} (Economia de R$ ${tiered.savings.toFixed(2)})`}>
+                                  <Zap className="w-2.5 h-2.5 text-amber-400" />
+                                  <span>{tiered.label} (-R$ {tiered.savings.toFixed(2)})</span>
+                                </span>
+                              );
+                            })()}
                             {item.recipe_type && (() => {
                               const recipeData = controlledRecipesData?.find(r => r.product_code === item.code);
                               const hasLot = Boolean(recipeData?.batch_lot);
@@ -1888,10 +1976,18 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
                         </td>
                         <td className="py-2 px-2.5 text-right text-slate-300">{item.unit_price.toFixed(2)}</td>
                         <td className="py-2 px-2.5 text-right text-amber-400">
-                          {item.discount > 0 ? `-${(item.discount * item.quantity).toFixed(2)}` : '0.00'}
+                          {(() => {
+                            const tiered = getTieredDiscount(item);
+                            const totalItemDiscount = (item.discount * item.quantity) + (tiered ? tiered.savings : 0);
+                            return totalItemDiscount > 0 ? `-${totalItemDiscount.toFixed(2)}` : '0.00';
+                          })()}
                         </td>
                         <td className="py-2 px-2.5 text-right font-bold text-emerald-400 text-xs sm:text-sm">
-                          {item.total_price.toFixed(2)}
+                          {(() => {
+                            const tiered = getTieredDiscount(item);
+                            const finalItemTotal = tiered ? tiered.promoTotal : item.total_price;
+                            return finalItemTotal.toFixed(2);
+                          })()}
                         </td>
                         <td className="py-2 px-2 text-center">
                           <button 
@@ -2034,6 +2130,16 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
                     </button>
                   </div>
                 </div>
+
+                {tieredSavingsTotal > 0 && (
+                  <div className="flex justify-between text-emerald-400 items-center font-bold bg-emerald-950/40 px-2 py-1 rounded border border-emerald-800/40">
+                    <span className="flex items-center space-x-1 text-[11px]">
+                      <Zap className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Preço Escalonado (Qtd)</span>
+                    </span>
+                    <span className="font-mono text-xs font-black">- R$ {tieredSavingsTotal.toFixed(2)}</span>
+                  </div>
+                )}
 
                 {discountPercent > 0 && (
                   <div className="flex justify-between text-[11px] text-amber-300/80 pl-4 font-mono">
@@ -3275,15 +3381,15 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
       )}
 
       {/* ========================================================================= */}
-      {/* MODAL 11: PRODUTO NÃO CADASTRADO / SEM CÓDIGO (*123)                      */}
+      {/* MODAL 11: CADASTRO EXPRESSO NO CAIXA & SANEAMENTO FISCAL SEFAZ             */}
       {/* ========================================================================= */}
       {isUnregisteredModalOpen && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border-2 border-amber-500/70 rounded-3xl shadow-2xl max-w-md w-full p-6 animate-in fade-in zoom-in-95 duration-150">
+          <div className="bg-slate-900 border-2 border-emerald-500/70 rounded-3xl shadow-2xl max-w-md w-full p-6 animate-in fade-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
               <h3 className="font-black text-sm text-white flex items-center gap-2">
-                <Tag className="w-5 h-5 text-amber-400" />
-                {unregisteredBarcode.startsWith('*') ? 'Produto Sem Código de Barras (*)' : 'Produto Não Cadastrado'}
+                <Zap className="w-5 h-5 text-amber-400" />
+                Cadastro Expresso no Caixa • Blindagem Fiscal
               </h3>
               <button 
                 onClick={() => {
@@ -3296,25 +3402,54 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
               </button>
             </div>
 
-            <div className="mb-4 bg-amber-950/50 border border-amber-600/40 rounded-xl p-3 flex items-start gap-2.5 text-xs text-amber-200/90 leading-relaxed">
-              <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+            <div className="mb-4 bg-emerald-950/40 border border-emerald-600/40 rounded-xl p-3 flex items-start gap-2.5 text-xs text-emerald-200/90 leading-relaxed">
+              <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
               <span>
-                Este produto entrará na venda atual e gerará automaticamente uma <strong>tarefa de cadastro</strong>. Por não ter tributação cadastrada, <strong>não será enviado à SEFAZ</strong>.
+                Item emitido na SEFAZ com regra oficial <strong>SEM GTIN</strong> e NCM provisório. Fila de saneamento gerada automaticamente na retaguarda.
               </span>
             </div>
 
             <form onSubmit={handleConfirmUnregisteredProduct} className="space-y-3.5">
+              {/* Seleção de Categoria Rápida / NCM Provisório */}
               <div>
-                <label className="block text-[11px] font-bold text-slate-400 uppercase mb-1">
-                  Código / Referência:
+                <label className="block text-[11px] font-bold text-slate-400 uppercase mb-1.5">
+                  Classificação Rápida:
                 </label>
-                <input
-                  type="text"
-                  value={unregisteredBarcode}
-                  onChange={(e) => setUnregisteredBarcode(e.target.value)}
-                  placeholder="Código de barras ou referência"
-                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-slate-200 font-mono text-xs focus:outline-none focus:border-amber-400"
-                />
+                <div className="grid grid-cols-3 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setUnregisteredCategory('cosmetico')}
+                    className={`py-1.5 px-2 rounded-lg text-[11px] font-bold transition-all border ${
+                      unregisteredCategory === 'cosmetico'
+                        ? 'bg-purple-950 border-purple-500 text-purple-200 shadow-sm'
+                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    Cosméticos
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setUnregisteredCategory('acessorio')}
+                    className={`py-1.5 px-2 rounded-lg text-[11px] font-bold transition-all border ${
+                      unregisteredCategory === 'acessorio'
+                        ? 'bg-blue-950 border-blue-500 text-blue-200 shadow-sm'
+                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    Acessórios
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setUnregisteredCategory('medicamento')}
+                    className={`py-1.5 px-2 rounded-lg text-[11px] font-bold transition-all border ${
+                      unregisteredCategory === 'medicamento'
+                        ? 'bg-emerald-950 border-emerald-500 text-emerald-200 shadow-sm'
+                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    Medicamentos
+                  </button>
+                </div>
               </div>
 
               <div>
@@ -3326,7 +3461,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
                   type="text"
                   value={unregisteredName}
                   onChange={(e) => setUnregisteredName(e.target.value)}
-                  placeholder="Ex: Xarope Mel e Própolis 150ml"
+                  placeholder="Ex: Pinça Anatômica Ponta Fina"
                   required
                   className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-slate-100 text-sm font-semibold focus:outline-none focus:border-amber-400"
                 />
@@ -3335,7 +3470,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[11px] font-bold text-slate-400 uppercase mb-1">
-                    Valor Unitário (R$):
+                    Valor de Venda (R$):
                   </label>
                   <input
                     ref={unregisteredPriceInputRef}
@@ -3379,6 +3514,13 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
                 </div>
               </div>
 
+              {unregisteredBarcode && !unregisteredBarcode.startsWith('*') && (
+                <div className="text-[11px] font-mono text-slate-400 flex items-center justify-between px-1">
+                  <span>Código Lido:</span>
+                  <span className="text-slate-300 font-bold">{unregisteredBarcode}</span>
+                </div>
+              )}
+
               <div className="flex gap-2 pt-2">
                 <button
                   type="button"
@@ -3392,7 +3534,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-black transition-all shadow-md flex items-center justify-center gap-1.5"
+                  className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black transition-all shadow-md flex items-center justify-center gap-1.5"
                 >
                   <CheckCircle2 className="w-4 h-4" />
                   Incluir no Caixa [ENTER]

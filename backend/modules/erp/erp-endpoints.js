@@ -77,6 +77,16 @@ const {
 
 const { gerarArquivoSintegra } = require('./sintegra.service');
 
+const {
+  cadastrarProdutoExpresso,
+  listarTarefasSaneamento,
+  sanearProdutoECadastrarDigifarma,
+  sincronizarPrecosEscalonadosDigifarma,
+  obterPrecosEscalonados,
+  calcularDescontoEscalonado,
+  NCMS_PROVISORIOS
+} = require('./erp-express-product.service');
+
 // ==========================================
 
 // 1. ROTAS DE PRODUTOS & ESTOQUE
@@ -443,6 +453,66 @@ router.post('/pos/pre-sales/:id/consume', (req, res) => {
     res.json(resultado);
   } catch (err) {
     res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// ==========================================
+// CADASTRO EXPRESSO & SANEAMENTO FISCAL (PDV)
+// ==========================================
+router.post('/pos/quick-product', (req, res) => {
+  try {
+    const userName = req.headers['x-user-name'] || req.body.user_name || 'Caixa';
+    const prod = cadastrarProdutoExpresso({
+      ...req.body,
+      user_name: userName
+    });
+    res.status(201).json({ success: true, product: prod });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+router.get('/sanitization/tasks', (req, res) => {
+  try {
+    const { status } = req.query;
+    const tasks = listarTarefasSaneamento(status);
+    res.json({ success: true, tasks });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+router.post('/sanitization/tasks/:id/resolve', async (req, res) => {
+  try {
+    const userName = req.headers['x-user-name'] || req.body.user_name || 'Gerente';
+    const result = await sanearProdutoECadastrarDigifarma(parseInt(req.params.id, 10), {
+      ...req.body,
+      user_name: userName
+    });
+    res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// ==========================================
+// PREÇOS ESCALONADOS (DESCONTO_ESCALONADO)
+// ==========================================
+router.get('/pos/tiered-pricing', (req, res) => {
+  try {
+    const rules = obterPrecosEscalonados();
+    res.json({ success: true, rules });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+router.post('/pos/sync-tiered-pricing', async (req, res) => {
+  try {
+    const result = await sincronizarPrecosEscalonadosDigifarma();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 

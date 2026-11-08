@@ -1,9 +1,14 @@
 {
   "version": "1.2.4",
-  "commitHash": "7a611a7",
-  "commitMessage": "feat(fiscal): Fase 2 - Cancelamento Bidirecional Rigoroso SEFAZ MG (tpEvento 110111) e Estorno Digifarma",
-  "buildTime": "08/11/2026, 14:24:10",
+  "commitHash": "6d584f3",
+  "commitMessage": "feat(fiscal): Fase 3 e 4 - Sincronizacao Compras Digifarma, Auditoria Previa e Pacote Contabil (.ZIP)",
+  "buildTime": "08/11/2026, 15:08:16",
   "recentCommits": [
+    {
+      "hash": "6d584f3",
+      "date": "08/11/2026",
+      "message": "feat(fiscal): Fase 3 e 4 - Sincronizacao Compras Digifarma, Auditoria Previa e Pacote Contabil (.ZIP)"
+    },
     {
       "hash": "7a611a7",
       "date": "08/11/2026",
@@ -58,11 +63,6 @@
       "hash": "6c196ea",
       "date": "03/11/2026",
       "message": "fix(digifarma): conectar no IP real 192.168.1.10, vendas estritamente CURRENT_DATE e reativar liquidação 118 itens"
-    },
-    {
-      "hash": "14d0f24",
-      "date": "03/11/2026",
-      "message": "fix(sales): restringir faturamento de vendas 100% exclusivamente ao Digifarma"
     }
   ]
 }
