@@ -1,9 +1,14 @@
 {
   "version": "1.2.4",
-  "commitHash": "9cc4365",
-  "commitMessage": "feat(pdv): Desconto seguro anti-prejuizo com piso de 10% do custo e destaque da logo Bela Farma",
-  "buildTime": "09/11/2026, 00:18:18",
+  "commitHash": "ac1e51a",
+  "commitMessage": "refactor(pdv): Unificacao do desconto e margem segura sobre os itens bipados do cupom",
+  "buildTime": "09/11/2026, 06:00:51",
   "recentCommits": [
+    {
+      "hash": "ac1e51a",
+      "date": "09/11/2026",
+      "message": "refactor(pdv): Unificacao do desconto e margem segura sobre os itens bipados do cupom"
+    },
     {
       "hash": "9cc4365",
       "date": "08/11/2026",
@@ -58,11 +63,6 @@
       "hash": "071ce86",
       "date": "04/11/2026",
       "message": "fix(belaped): efeito cascata na reposicao semanal e recalculo automatico de opcoes"
-    },
-    {
-      "hash": "e410460",
-      "date": "04/11/2026",
-      "message": "fix(belaped): persistir produtos ja pedidos por 7 dias no banco e filtrar na lista semanal"
     }
   ]
 }
