@@ -91,6 +91,7 @@ interface ProductSearchResult {
   recipe_type?: 'AMARELA' | 'AZUL' | 'BRANCA' | 'CREME' | null;
   recipe_label?: string | null;
   is_controlado?: boolean;
+  tiered_rules?: any[];
 }
 
 interface CustomerOption {
@@ -422,12 +423,13 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
   }, [controlledItemsInCart]);
 
   // Helper para buscar regra de desconto escalonado de um produto (normalizando code e barcode)
-  const findTieredRuleForProduct = useCallback((code?: string | number | null, barcode?: string | null) => {
-    if (!tieredRules || tieredRules.length === 0) return null;
+  const findTieredRuleForProduct = useCallback((code?: string | number | null, barcode?: string | null, productRules?: any[]) => {
+    const rulesList = (productRules && productRules.length > 0) ? productRules : tieredRules;
+    if (!rulesList || rulesList.length === 0) return null;
     const normCode = normalizeProductCode(code);
     const normBarcode = normalizeProductBarcode(barcode);
 
-    const matches = tieredRules.filter(r => {
+    const matches = rulesList.filter(r => {
       if (!r) return false;
       const rCode = normalizeProductCode(r.product_id);
       const rBarcode = normalizeProductBarcode(r.barcode);
@@ -438,7 +440,16 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
     });
 
     if (matches.length === 0) return null;
-    matches.sort((a, b) => b.quantity - a.quantity);
+
+    // Prioriza regras de varejo de balcão (quantidade entre 2 e 12 unidades)
+    // Exemplo: Oferecer "Leve 3 por R$ 15" e NUNCA fardo de atacado de 60 caixas!
+    const retailMatches = matches.filter(r => r.quantity >= 2 && r.quantity <= 12);
+    if (retailMatches.length > 0) {
+      retailMatches.sort((a, b) => a.quantity - b.quantity);
+      return retailMatches[0];
+    }
+
+    matches.sort((a, b) => a.quantity - b.quantity);
     return matches[0];
   }, [tieredRules]);
 
@@ -1064,10 +1075,14 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
       if (res.ok) {
         const json = await res.json();
         if (json.success && json.data) {
+          const ruleFound = findTieredRuleForProduct(json.data.code, json.data.barcode, json.data.tiered_rules);
+          const hasOffer = Boolean(ruleFound && multiplier < ruleFound.quantity);
           addItemToCart(json.data, multiplier);
           setBarcodeInput('');
           setAutocompleteResults([]);
-          focusBarcodeInput();
+          if (!hasOffer) {
+            focusBarcodeInput();
+          }
           return;
         }
       }
@@ -1077,10 +1092,14 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
       if (searchRes.ok) {
         const searchJson = await searchRes.json();
         if (searchJson.success && searchJson.data && searchJson.data.length > 0) {
+          const ruleFound = findTieredRuleForProduct(searchJson.data[0].code, searchJson.data[0].barcode, searchJson.data[0].tiered_rules);
+          const hasOffer = Boolean(ruleFound && multiplier < ruleFound.quantity);
           addItemToCart(searchJson.data[0], multiplier);
           setBarcodeInput('');
           setAutocompleteResults([]);
-          focusBarcodeInput();
+          if (!hasOffer) {
+            focusBarcodeInput();
+          }
           return;
         }
       }
@@ -1165,7 +1184,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
       addToast(`${qty}x ${prod.name.substring(0, 24)}... adicionado!`, 'success', 1800);
 
       // Verificação instantânea de regra de Desconto Escalonado ("Leve 3 por tanto")
-      const tieredRule = findTieredRuleForProduct(prod.code, prod.barcode);
+      const tieredRule = findTieredRuleForProduct(prod.code, prod.barcode, prod.tiered_rules);
       if (tieredRule && qty < tieredRule.quantity) {
         const normalTotal = effectivePrice * tieredRule.quantity;
         const savings = Math.max(0, normalTotal - tieredRule.package_price);

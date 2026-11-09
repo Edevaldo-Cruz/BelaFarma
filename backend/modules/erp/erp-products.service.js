@@ -9,13 +9,31 @@ const { classifyProduct } = require('./controlled-medications.service');
 function enrichProduct(p) {
   if (!p) return null;
   const classification = classifyProduct(p);
+
+  // Regras de Preço Escalonado ativas vinculadas ao produto
+  let tieredRules = [];
+  try {
+    const normCode = p.code ? String(p.code).trim().replace(/\.0+$/, '') : null;
+    tieredRules = db.prepare(`
+      SELECT id, product_id, barcode, product_name, quantity, package_price, unit_effective_price
+      FROM tiered_pricing
+      WHERE active = 1
+        AND (
+          (? IS NOT NULL AND barcode = ?) OR
+          (? IS NOT NULL AND product_id = ?)
+        )
+      ORDER BY quantity ASC
+    `).all(p.barcode, p.barcode, normCode, normCode);
+  } catch (e) {}
+
   return {
     ...p,
     is_controlado: classification.is_controlado,
     recipe_type: classification.recipe_type,
     recipe_label: classification.label,
     recipe_color_theme: classification.color_theme,
-    substancia_classe: classification.substancia_classe
+    substancia_classe: classification.substancia_classe,
+    tiered_rules: tieredRules
   };
 }
 

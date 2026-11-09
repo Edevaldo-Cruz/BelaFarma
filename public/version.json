@@ -1,9 +1,14 @@
 {
   "version": "1.2.4",
-  "commitHash": "d64f6e1",
-  "commitMessage": "feat(pdv): transformar Belinha PDV em aplicacao tela cheia estilo executavel nativo com tema clinico claro",
-  "buildTime": "09/11/2026, 15:46:46",
+  "commitHash": "c7ff84a",
+  "commitMessage": "feat(pdv): modal instantanea de oferta escalonada e correcao de correspondencia de regras",
+  "buildTime": "09/11/2026, 16:01:19",
   "recentCommits": [
+    {
+      "hash": "c7ff84a",
+      "date": "09/11/2026",
+      "message": "feat(pdv): modal instantanea de oferta escalonada e correcao de correspondencia de regras"
+    },
     {
       "hash": "d64f6e1",
       "date": "09/11/2026",
@@ -58,11 +63,6 @@
       "hash": "5645c35",
       "date": "09/11/2026",
       "message": "fix(finance): zerar vendas na virada do dia e impedir vazamento de cache de ontem no fechamento"
-    },
-    {
-      "hash": "c34724d",
-      "date": "09/11/2026",
-      "message": "fix(sync): sincronizar saldo em compras_estoque_cache, dar baixa em faltas atendidas e ignorar pedidos pendentes"
     }
   ]
 }
