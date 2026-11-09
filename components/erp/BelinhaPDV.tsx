@@ -2116,32 +2116,12 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
                             </button>
                           </div>
                         </td>
-                        <td className="py-2 px-2.5 text-right text-slate-300">{item.unit_price.toFixed(2)}</td>
-                        <td className="py-2 px-2.5 text-right text-amber-400">
+                        <td className="py-2 px-2.5 text-right font-mono text-slate-300">{item.unit_price.toFixed(2)}</td>
+                        <td className="py-2 px-2.5 text-right font-mono text-amber-400 whitespace-nowrap">
                           {(() => {
                             const tiered = getTieredDiscount(item);
                             const totalItemDiscount = (item.discount * item.quantity) + (tiered ? tiered.savings : 0);
-                            const safeItem = getSafeItemDiscount(item);
-                            return (
-                              <div className="flex flex-col items-end">
-                                <span>{totalItemDiscount > 0 ? `-${totalItemDiscount.toFixed(2)}` : '0.00'}</span>
-                                {safeItem.safeUnitDiscount > 0 && (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleApplyItemSafeDiscount(index, item.discount > 0 ? 0 : 1.0)}
-                                    className={`mt-1 text-[9px] font-bold px-1.5 py-0.5 rounded border flex items-center gap-1 transition cursor-pointer ${
-                                      item.discount > 0 
-                                        ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700/80' 
-                                        : 'bg-amber-950/80 hover:bg-amber-900 text-amber-300 border-amber-800'
-                                    }`}
-                                    title={item.discount > 0 ? "Clique para zerar desconto deste item" : `Margem segura: R$ ${safeItem.safeUnitDiscount.toFixed(2)} / un (Piso: Custo + 10%)`}
-                                  >
-                                    <ShieldCheck className="w-2.5 h-2.5 text-emerald-400" />
-                                    <span>{item.discount > 0 ? 'Margem Ativa' : `+R$ ${safeItem.safeUnitDiscount.toFixed(2)}`}</span>
-                                  </button>
-                                )}
-                              </div>
-                            );
+                            return totalItemDiscount > 0 ? `-${totalItemDiscount.toFixed(2)}` : '0.00';
                           })()}
                         </td>
                         <td className="py-2 px-2.5 text-right font-bold text-emerald-400 text-xs sm:text-sm">
@@ -2276,57 +2256,66 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
                   <span className="font-mono text-slate-200 font-semibold">R$ {subtotal.toFixed(2)}</span>
                 </div>
 
+                {/* LINHA DE DESCONTO UNIFICADO */}
                 <div className="flex justify-between text-slate-400 items-center">
                   <span className="flex items-center space-x-1">
                     <Tag className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Descontos (Fidelidade / Geral)</span>
+                    <span>Desconto Unificado</span>
                   </span>
                   <div className="flex items-center gap-1.5 font-mono">
-                    <span className="text-amber-400 font-semibold">- R$ {totalDiscount.toFixed(2)}</span>
+                    <span className={`font-semibold ${totalDiscount > 0 ? 'text-amber-400' : 'text-slate-500'}`}>
+                      {totalDiscount > 0 ? `- R$ ${totalDiscount.toFixed(2)}` : 'R$ 0.00'}
+                    </span>
                     <button
                       onClick={() => setIsDiscountModalOpen(true)}
-                      className="text-[10px] bg-slate-800 hover:bg-slate-700 px-1.5 py-0.5 rounded border border-slate-700 text-amber-300"
-                      title="Editar desconto geral (F2)"
+                      className="text-[10px] bg-slate-800 hover:bg-slate-700 px-1.5 py-0.5 rounded border border-slate-700 text-amber-300 font-bold"
+                      title="Editar desconto da venda (F7)"
                     >
-                      F2
+                      F7
                     </button>
                   </div>
                 </div>
 
-                {tieredSavingsTotal > 0 && (
-                  <div className="flex justify-between text-emerald-400 items-center font-bold bg-emerald-950/40 px-2 py-1 rounded border border-emerald-800/40">
-                    <span className="flex items-center space-x-1 text-[11px]">
-                      <Zap className="w-3.5 h-3.5 text-amber-400" />
-                      <span>Preço Escalonado (Qtd)</span>
+                {/* Composição sutil dos descontos unificados dos itens bipados */}
+                {(tieredSavingsTotal > 0 || generalDiscountAmount > 0 || itemDiscounts > 0) && (
+                  <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono px-2 py-1 bg-slate-950/70 rounded-lg border border-slate-800/80">
+                    <span className="text-slate-500">Composição Bipada:</span>
+                    <span className="text-amber-300/90 font-medium">
+                      {[
+                        generalDiscountAmount > 0 ? `R$ ${generalDiscountAmount.toFixed(2)} geral` : null,
+                        tieredSavingsTotal > 0 ? `R$ ${tieredSavingsTotal.toFixed(2)} escalonado` : null,
+                        itemDiscounts > 0 ? `R$ ${itemDiscounts.toFixed(2)} convênio` : null
+                      ].filter(Boolean).join(' + ')}
                     </span>
-                    <span className="font-mono text-xs font-black">- R$ {tieredSavingsTotal.toFixed(2)}</span>
                   </div>
                 )}
 
-                {discountPercent > 0 && (
-                  <div className="flex justify-between text-[11px] text-amber-300/80 pl-4 font-mono">
-                    <span>(Inclui {discountPercent}% desc. geral)</span>
-                  </div>
-                )}
-
-                {/* BOTÃO DESCONTO SEGURO ANTI-PREJUÍZO */}
+                {/* BOTÃO DE DESCONTO SEGURO UNIFICADO (BASEADO NOS ITENS BIPADOS) */}
                 <div className="pt-2">
                   <button
                     type="button"
                     onClick={() => setIsSafeDiscountModalOpen(true)}
                     disabled={cart.length === 0}
-                    className="w-full py-2 px-3 rounded-xl bg-gradient-to-r from-amber-950/70 via-slate-900 to-emerald-950/70 hover:from-amber-900 hover:to-emerald-900 border border-amber-600/40 hover:border-amber-400 text-xs font-bold flex items-center justify-between transition-all shadow-md cursor-pointer disabled:opacity-40"
-                    title="Aplicar desconto seguro sem virar prejuízo (Margem mínima de 10% do custo)"
+                    className="w-full py-2 px-3 rounded-xl bg-gradient-to-r from-amber-950/80 via-slate-900 to-emerald-950/80 hover:from-amber-900 hover:to-emerald-900 border border-amber-500/40 hover:border-amber-400 text-xs font-bold flex items-center justify-between transition-all shadow-md cursor-pointer disabled:opacity-40"
+                    title="Aplicar desconto seguro unificado baseado nos itens bipados (Piso: Custo + 10%)"
                   >
-                    <div className="flex items-center gap-1.5 text-slate-200">
+                    <div className="flex items-center gap-2 text-slate-200">
                       <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <span>Desconto Seguro (Max):</span>
+                      <div className="text-left">
+                        <div className="leading-tight">Desconto Seguro Unificado:</div>
+                        <div className="text-[10px] text-slate-400 font-normal">
+                          {cart.length} {cart.length === 1 ? 'item bipado' : 'itens bipados'} ({totalQuantity} un)
+                        </div>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1 font-mono">
-                      <span className="text-emerald-400 font-black text-sm">
-                        R$ {safeDiscountSummary.maxSafeDiscount.toFixed(2)}
-                      </span>
-                      <ChevronRight className="w-3.5 h-3.5 text-amber-400" />
+                    <div className="flex items-center gap-1 font-mono text-right">
+                      <div>
+                        <div className="text-emerald-400 font-black text-sm">
+                          R$ {safeDiscountSummary.maxSafeDiscount.toFixed(2)}
+                        </div>
+                        <div className="text-[9px] text-slate-400 uppercase font-sans">Margem Máx</div>
+                      </div>
+                      <ChevronRight className="w-3.5 h-3.5 text-amber-400 ml-1" />
                     </div>
                   </button>
                 </div>
@@ -4226,8 +4215,8 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
                   <ShieldCheck className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="font-black text-sm text-slate-100">Desconto Seguro Anti-Prejuízo</h3>
-                  <p className="text-[11px] text-slate-400">Piso mínimo garantido: Custo dos produtos + 10%</p>
+                  <h3 className="font-black text-sm text-slate-100">Desconto Seguro Unificado</h3>
+                  <p className="text-[11px] text-slate-400">Calculado sobre todos os itens bipados no cupom (Piso: Custo + 10%)</p>
                 </div>
               </div>
               <button 
@@ -4241,22 +4230,26 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
               </button>
             </div>
 
-            {/* Diagnóstico da Margem do Carrinho */}
+            {/* Diagnóstico da Margem Consolidada dos Itens Bipados */}
             <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-2 text-xs">
               <div className="flex justify-between items-center text-slate-400">
-                <span>Subtotal da Venda:</span>
+                <span>Itens Bipados no Cupom:</span>
+                <span className="font-mono text-slate-200 font-bold">{cart.length} produtos ({totalQuantity} volumes)</span>
+              </div>
+              <div className="flex justify-between items-center text-slate-400">
+                <span>Subtotal Bruto:</span>
                 <span className="font-mono text-slate-200 font-bold">R$ {subtotal.toFixed(2)}</span>
               </div>
               <div className="flex justify-between items-center text-slate-400">
-                <span>Custo Total dos Itens:</span>
+                <span>Custo Total Consolidado:</span>
                 <span className="font-mono text-slate-300">R$ {safeDiscountSummary.totalCost.toFixed(2)}</span>
               </div>
               <div className="flex justify-between items-center text-slate-400">
-                <span>Piso de Segurança (Custo + 10%):</span>
+                <span>Piso Mínimo dos Itens (Custo + 10%):</span>
                 <span className="font-mono text-amber-300">R$ {safeDiscountSummary.totalSafeFloor.toFixed(2)}</span>
               </div>
               <div className="pt-2 border-t border-slate-800 flex justify-between items-center">
-                <span className="font-bold text-slate-200">Margem Máxima de Desconto:</span>
+                <span className="font-bold text-slate-200">Margem Segura Unificada Disponível:</span>
                 <span className="font-mono font-black text-base text-emerald-400">
                   R$ {safeDiscountSummary.maxSafeDiscount.toFixed(2)}
                 </span>

@@ -1,9 +1,14 @@
 {
   "version": "1.2.4",
-  "commitHash": "94d753a",
-  "commitMessage": "feat(erp): Central de Gestao de Promocoes e Precos Escalonados com controle de validade e sincronizacao Digifarma",
-  "buildTime": "08/11/2026, 19:11:12",
+  "commitHash": "9cc4365",
+  "commitMessage": "feat(pdv): Desconto seguro anti-prejuizo com piso de 10% do custo e destaque da logo Bela Farma",
+  "buildTime": "09/11/2026, 00:18:18",
   "recentCommits": [
+    {
+      "hash": "9cc4365",
+      "date": "08/11/2026",
+      "message": "feat(pdv): Desconto seguro anti-prejuizo com piso de 10% do custo e destaque da logo Bela Farma"
+    },
     {
       "hash": "94d753a",
       "date": "08/11/2026",
@@ -58,11 +63,6 @@
       "hash": "e410460",
       "date": "04/11/2026",
       "message": "fix(belaped): persistir produtos ja pedidos por 7 dias no banco e filtrar na lista semanal"
-    },
-    {
-      "hash": "8b91dd3",
-      "date": "04/11/2026",
-      "message": "feat(belaped): adicionar modo de cards menores (compactos) para varios produtos na tela"
     }
   ]
 }
