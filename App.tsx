@@ -113,18 +113,6 @@ const App: React.FC = () => {
         console.error("Erro ao carregar usuário da sessão", e);
       }
     }
-    if (typeof window !== "undefined") {
-      const isTauriEnv = "__TAURI_INTERNALS__" in window || "__TAURI__" in window;
-      const search = window.location.search.toLowerCase();
-      const hash = window.location.hash.toLowerCase();
-      if (isTauriEnv || search.includes("app=pdv") || search.includes("view=belinha-pdv") || hash.includes("pdv")) {
-        return {
-          id: "caixa-terminal",
-          name: "Caixa",
-          role: UserRole.ADM,
-        } as User;
-      }
-    }
     return null;
   });
   const [isMobile, setIsMobile] = useState(false);
@@ -1311,15 +1299,6 @@ const App: React.FC = () => {
         }}
       />
     );
-
-  if (currentView === "belinha-pdv") {
-    return (
-      <div className="h-screen w-screen overflow-hidden flex flex-col bg-[#e8eef5]">
-        <PwaUpdater />
-        <BelinhaPDV currentUser={user} onNavigate={handleNavigate} />
-      </div>
-    );
-  }
 
   if (isTauri && window.location.search.toLowerCase().includes("app=whatsapp")) {
     return (

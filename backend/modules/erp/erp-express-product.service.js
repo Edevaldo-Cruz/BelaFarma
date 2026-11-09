@@ -301,6 +301,8 @@ async function sincronizarPrecosEscalonadosDigifarma() {
   };
 }
 
+let hasTriggeredAutoSyncTiered = false;
+
 /**
  * Obtém todas as regras ativas de preços escalonados para uso no PDV dentro da vigência
  * @returns {Array} Regras ativas
@@ -310,13 +312,56 @@ function obterPrecosEscalonados() {
   const d = new Date();
   const hoje = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
-  return db.prepare(`
+  let rows = db.prepare(`
     SELECT * FROM tiered_pricing 
     WHERE active = 1 
       AND (is_permanent = 1 OR end_date IS NULL OR end_date >= ?)
       AND (start_date IS NULL OR start_date <= ?)
     ORDER BY product_id ASC, quantity DESC
   `).all(hoje, hoje);
+
+  if (rows.length === 0) {
+    try {
+      const seedRules = require('./tiered-pricing-seed.json');
+      if (Array.isArray(seedRules) && seedRules.length > 0) {
+        const stmt = db.prepare(`
+          INSERT OR REPLACE INTO tiered_pricing (
+            digifarma_id, product_id, barcode, product_name,
+            quantity, package_price, unit_effective_price, active, is_permanent, synced_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, datetime('now', 'localtime'))
+        `);
+        const tx = db.transaction((list) => {
+          for (const r of list) {
+            stmt.run(
+              r.digifarma_id,
+              r.product_id,
+              r.barcode,
+              r.product_name,
+              r.quantity,
+              r.package_price,
+              r.unit_effective_price
+            );
+          }
+        });
+        tx(seedRules);
+        rows = db.prepare(`
+          SELECT * FROM tiered_pricing 
+          WHERE active = 1 
+          ORDER BY product_id ASC, quantity DESC
+        `).all();
+        console.log(`[Preços Escalonados] 🌱 ${rows.length} regras carregadas via seed automático.`);
+      }
+    } catch (e) {
+      console.warn('[Preços Escalonados] Erro ao carregar seed:', e.message);
+    }
+  }
+
+  if (!hasTriggeredAutoSyncTiered) {
+    hasTriggeredAutoSyncTiered = true;
+    sincronizarPrecosEscalonadosDigifarma().catch(() => {});
+  }
+
+  return rows;
 }
 
 /**

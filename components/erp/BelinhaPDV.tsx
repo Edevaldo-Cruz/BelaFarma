@@ -48,6 +48,7 @@ import { PromotionsManagementModal } from './PromotionsManagementModal';
 import { imprimirCupomVenda, imprimirDanfeNfce, imprimirComprovanteMovimentacaoCaixa } from '../../utils/thermalPrinter';
 import { ControlledRecipeModal, ControlledProductItem, ControlledRecipeData } from './ControlledRecipeModal';
 import { useThermalPrintSpooler } from './useThermalPrintSpooler';
+import { TIERED_PRICING_SEED } from './tieredPricingSeed';
 
 interface CartItem {
   code: string;
@@ -214,7 +215,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
   const unregisteredNameInputRef = useRef<HTMLInputElement>(null);
 
   // Preços Escalonados por Quantidade (DESCONTO_ESCALONADO Digifarma)
-  const [tieredRules, setTieredRules] = useState<any[]>([]);
+  const [tieredRules, setTieredRules] = useState<any[]>(TIERED_PRICING_SEED);
   const [tieredOfferModal, setTieredOfferModal] = useState<TieredOfferModalState>({
     isOpen: false,
     productCode: '',
@@ -233,7 +234,9 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
       const res = await fetch('/api/erp/pos/tiered-pricing');
       if (res.ok) {
         const json = await res.json();
-        setTieredRules(json.rules || []);
+        if (Array.isArray(json.rules) && json.rules.length > 0) {
+          setTieredRules(json.rules);
+        }
       }
     } catch (e) {
       console.warn('Erro ao carregar regras de preço escalonado:', e);
@@ -424,8 +427,12 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
 
   // Helper para buscar regra de desconto escalonado de um produto (normalizando code e barcode)
   const findTieredRuleForProduct = useCallback((code?: string | number | null, barcode?: string | null, productRules?: any[]) => {
-    const rulesList = (productRules && productRules.length > 0) ? productRules : tieredRules;
-    if (!rulesList || rulesList.length === 0) return null;
+    const rulesList = [
+      ...(productRules || []),
+      ...(tieredRules || []),
+      ...TIERED_PRICING_SEED
+    ];
+    if (rulesList.length === 0) return null;
     const normCode = normalizeProductCode(code);
     const normBarcode = normalizeProductBarcode(barcode);
 
@@ -455,12 +462,17 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
 
   // Helper para calcular desconto escalonado (faixa por quantidade)
   const getTieredDiscount = useCallback((it: CartItem) => {
-    if (!it || !tieredRules || tieredRules.length === 0 || it.quantity <= 1) return null;
+    if (!it || it.quantity <= 1) return null;
+    const rulesList = [
+      ...(tieredRules || []),
+      ...TIERED_PRICING_SEED
+    ];
+    if (rulesList.length === 0) return null;
     const normCode = normalizeProductCode(it.code);
     const normBarcode = normalizeProductBarcode(it.barcode);
     const qtdItem = it.quantity;
 
-    const matches = tieredRules.filter(r => {
+    const matches = rulesList.filter(r => {
       if (!r) return false;
       const rCode = normalizeProductCode(r.product_id);
       const rBarcode = normalizeProductBarcode(r.barcode);
@@ -1835,7 +1847,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
   const isTauriWindow = typeof window !== 'undefined' && ('__TAURI_INTERNALS__' in window || '__TAURI__' in window);
 
   return (
-    <div className="flex flex-col h-screen w-screen bg-[#e8eef5] text-slate-800 font-sans select-none overflow-hidden">
+    <div className="flex flex-col h-[calc(100vh-4.25rem)] sm:h-[calc(100vh-4.5rem)] w-full bg-[#e8eef5] text-slate-800 font-sans select-none overflow-hidden rounded-xl border border-slate-300 shadow-xl">
       
       {/* 1. CABEÇALHO SUPERIOR ESTILO SOFTWARE NATIVO DE FARMÁCIA */}
       <header className="bg-gradient-to-r from-[#0b2545] via-[#0f3460] to-[#0b2e26] border-b-2 border-emerald-500 px-3 sm:px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-xs text-white shadow-md shrink-0">
