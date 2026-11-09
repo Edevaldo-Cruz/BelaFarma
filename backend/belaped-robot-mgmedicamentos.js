@@ -88,73 +88,81 @@ class MgMedicamentosRobot {
    * Inicia sessão e carrega catálogo completo de produtos na memória (Modo Turbo)
    */
   async iniciar() {
-    try {
-      console.log('[MG-Medicamentos] Iniciando sessão e autenticação...');
+    let ultimoErro = null;
+    for (let tentativa = 1; tentativa <= 2; tentativa++) {
+      try {
+        console.log(`[MG-Medicamentos] Iniciando sessão e autenticação (tentativa ${tentativa}/2)...`);
 
-      // 1. Obtém sessão inicial
-      const resInit = await this._request({
-        path: '/portal/',
-        method: 'GET'
-      });
+        // 1. Obtém sessão inicial
+        await this._request({
+          path: '/portal/',
+          method: 'GET'
+        });
 
-      // 2. Realiza login POST
-      const postBody = querystring.stringify({
-        r: '/pedido/criar/az/00',
-        usuario: this.usuario,
-        senha: this.senha
-      });
+        // 2. Realiza login POST
+        const postBody = querystring.stringify({
+          r: '/pedido/criar/az/00',
+          usuario: this.usuario,
+          senha: this.senha
+        });
 
-      const resLogin = await this._request({
-        path: '/login',
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'Content-Length': Buffer.byteLength(postBody),
-          'Referer': `${this.baseUrl}/portal/`
+        await this._request({
+          path: '/login',
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Content-Length': Buffer.byteLength(postBody),
+            'Referer': `${this.baseUrl}/portal/`
+          }
+        }, postBody);
+
+        // 3. Acessa tela de pedido e catálogo geral
+        const resCatalogo = await this._request({
+          path: '/pedido/criar/az/00',
+          method: 'GET'
+        });
+
+        if (resCatalogo.statusCode !== 200) {
+          throw new Error(`Falha ao acessar catálogo de MG Medicamentos: Status ${resCatalogo.statusCode}`);
         }
-      }, postBody);
 
-      // 3. Acessa tela de pedido e catálogo geral
-      const resCatalogo = await this._request({
-        path: '/pedido/criar/az/00',
-        method: 'GET'
-      });
+        // 4. Extrai produtos da variável "var itens = [...]"
+        const matchItens = resCatalogo.body.match(/var itens = (\[[\s\S]*?\]);/);
+        if (!matchItens) {
+          throw new Error('Não foi possível extrair a lista de produtos de MG Medicamentos');
+        }
 
-      if (resCatalogo.statusCode !== 200) {
-        throw new Error(`Falha ao acessar catálogo de MG Medicamentos: Status ${resCatalogo.statusCode}`);
-      }
+        const listaItens = JSON.parse(matchItens[1]);
+        this.catalogoPorEan.clear();
 
-      // 4. Extrai produtos da variável "var itens = [...]"
-      const matchItens = resCatalogo.body.match(/var itens = (\[[\s\S]*?\]);/);
-      if (!matchItens) {
-        throw new Error('Não foi possível extrair a lista de produtos de MG Medicamentos');
-      }
+        for (const item of listaItens) {
+          if (item.EAN13) {
+            const eanLimpo = String(item.EAN13).trim().replace(/^0+/, '');
+            this.catalogoPorEan.set(eanLimpo, item);
+            this.catalogoPorEan.set(String(item.EAN13).trim(), item);
+          }
+        }
 
-      const listaItens = JSON.parse(matchItens[1]);
-      this.catalogoPorEan.clear();
+        // Extrai número do pedido em andamento caso exista
+        const matchPedido = resCatalogo.body.match(/id=["']numero_do_pedido["'][^>]*>([^<]*)/i);
+        if (matchPedido && matchPedido[1] && matchPedido[1].trim()) {
+          this.numeroDoPedido = matchPedido[1].trim();
+        }
 
-      for (const item of listaItens) {
-        if (item.EAN13) {
-          const eanLimpo = String(item.EAN13).trim().replace(/^0+/, '');
-          this.catalogoPorEan.set(eanLimpo, item);
-          this.catalogoPorEan.set(String(item.EAN13).trim(), item);
+        this.iniciado = true;
+        console.log(`[MG-Medicamentos] Sessão iniciada com sucesso! ${this.catalogoPorEan.size} EANs indexados na memória.`);
+        return { sucesso: true, itensIndexados: this.catalogoPorEan.size };
+      } catch (error) {
+        ultimoErro = error;
+        console.warn(`[MG-Medicamentos] Tentativa ${tentativa} falhou:`, error.message);
+        if (tentativa < 2) {
+          await new Promise(r => setTimeout(r, 1500));
         }
       }
-
-      // Extrai número do pedido em andamento caso exista
-      const matchPedido = resCatalogo.body.match(/id=["']numero_do_pedido["'][^>]*>([^<]*)/i);
-      if (matchPedido && matchPedido[1] && matchPedido[1].trim()) {
-        this.numeroDoPedido = matchPedido[1].trim();
-      }
-
-      this.iniciado = true;
-      console.log(`[MG-Medicamentos] Sessão iniciada com sucesso! ${this.catalogoPorEan.size} EANs indexados na memória.`);
-      return { sucesso: true, itensIndexados: this.catalogoPorEan.size };
-    } catch (error) {
-      console.error('[MG-Medicamentos] Erro ao iniciar robô:', error.message);
-      this.iniciado = false;
-      return { sucesso: false, erro: error.message };
     }
+    console.error('[MG-Medicamentos] Erro ao iniciar robô após tentativas:', ultimoErro.message);
+    this.iniciado = false;
+    return { sucesso: false, erro: ultimoErro.message };
   }
 
   /**
