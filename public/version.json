@@ -1,9 +1,34 @@
 {
   "version": "1.2.4",
-  "commitHash": "ac1e51a",
-  "commitMessage": "refactor(pdv): Unificacao do desconto e margem segura sobre os itens bipados do cupom",
-  "buildTime": "09/11/2026, 06:00:51",
+  "commitHash": "2b4b9bb",
+  "commitMessage": "fix(sync): usar VENDA_RECEBIDO (Preco de Venda real) em vez de VENDA_TOTAL (Tabela) e apontar host correto",
+  "buildTime": "09/11/2026, 08:47:08",
   "recentCommits": [
+    {
+      "hash": "2b4b9bb",
+      "date": "09/11/2026",
+      "message": "fix(sync): usar VENDA_RECEBIDO (Preco de Venda real) em vez de VENDA_TOTAL (Tabela) e apontar host correto"
+    },
+    {
+      "hash": "c112529",
+      "date": "09/11/2026",
+      "message": "build: atualizar bundle de producao com correcoes do fechamento"
+    },
+    {
+      "hash": "5645c35",
+      "date": "09/11/2026",
+      "message": "fix(finance): zerar vendas na virada do dia e impedir vazamento de cache de ontem no fechamento"
+    },
+    {
+      "hash": "c34724d",
+      "date": "09/11/2026",
+      "message": "fix(sync): sincronizar saldo em compras_estoque_cache, dar baixa em faltas atendidas e ignorar pedidos pendentes"
+    },
+    {
+      "hash": "d15b3bf",
+      "date": "09/11/2026",
+      "message": "fix(finance): remover filtro indevido de vendedor 9 no fechamento e corrigir migracao de schema"
+    },
     {
       "hash": "ac1e51a",
       "date": "09/11/2026",
@@ -38,31 +63,6 @@
       "hash": "7a611a7",
       "date": "08/11/2026",
       "message": "feat(fiscal): Fase 2 - Cancelamento Bidirecional Rigoroso SEFAZ MG (tpEvento 110111) e Estorno Digifarma"
-    },
-    {
-      "hash": "813de47",
-      "date": "08/11/2026",
-      "message": "feat(pdv): Fase 1 - Atalhos estilo Digifarma, Sangria/Suprimento de Caixa, Pré-Vendas e Crediário"
-    },
-    {
-      "hash": "b210c67",
-      "date": "08/11/2026",
-      "message": "fix(belaped): corrige verificacao de login, url de busca e seletores do robo Martins"
-    },
-    {
-      "hash": "1cfdd77",
-      "date": "05/11/2026",
-      "message": "feat(compras): processar historico/imagens 48h ao reconectar WhatsApp e robo RPA para ofertas do dia"
-    },
-    {
-      "hash": "ac9dcba",
-      "date": "04/11/2026",
-      "message": "feat(belaped): simplifica interface e adiciona filtros rapidos por fornecedor e categoria"
-    },
-    {
-      "hash": "071ce86",
-      "date": "04/11/2026",
-      "message": "fix(belaped): efeito cascata na reposicao semanal e recalculo automatico de opcoes"
     }
   ]
 }

@@ -31,7 +31,8 @@ import {
   FileText,
   Percent,
   Key,
-  Sparkles
+  Sparkles,
+  ChevronRight
 } from 'lucide-react';
 import { useToast } from '../ToastContext';
 import { BelaFarmaLogo } from '../BelaFarmaLogo';
