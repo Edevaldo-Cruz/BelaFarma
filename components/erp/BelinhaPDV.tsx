@@ -9,6 +9,7 @@ import {
   QrCode, 
   BookOpen, 
   CheckCircle2, 
+  Check,
   X, 
   Printer, 
   AlertCircle,
@@ -98,6 +99,29 @@ interface CustomerOption {
   phone: string;
   cpf?: string;
 }
+
+interface TieredOfferModalState {
+  isOpen: boolean;
+  productCode: string;
+  productBarcode?: string | null;
+  productName: string;
+  unitPrice: number;
+  promoQuantity: number;
+  packagePrice: number;
+  unitEffectivePrice: number;
+  savings: number;
+  rule: any;
+}
+
+const normalizeProductCode = (val: any): string => {
+  if (val === null || val === undefined) return '';
+  return String(val).trim().replace(/\.0+$/, '');
+};
+
+const normalizeProductBarcode = (val: any): string => {
+  if (val === null || val === undefined) return '';
+  return String(val).trim().replace(/^0+/, '');
+};
 
 interface BelinhaPDVProps {
   currentUser?: any;
@@ -190,6 +214,18 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
 
   // Preços Escalonados por Quantidade (DESCONTO_ESCALONADO Digifarma)
   const [tieredRules, setTieredRules] = useState<any[]>([]);
+  const [tieredOfferModal, setTieredOfferModal] = useState<TieredOfferModalState>({
+    isOpen: false,
+    productCode: '',
+    productBarcode: null,
+    productName: '',
+    unitPrice: 0,
+    promoQuantity: 0,
+    packagePrice: 0,
+    unitEffectivePrice: 0,
+    savings: 0,
+    rule: null
+  });
 
   const fetchTieredRules = useCallback(async () => {
     try {
@@ -385,17 +421,43 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
     };
   }, [controlledItemsInCart]);
 
+  // Helper para buscar regra de desconto escalonado de um produto (normalizando code e barcode)
+  const findTieredRuleForProduct = useCallback((code?: string | number | null, barcode?: string | null) => {
+    if (!tieredRules || tieredRules.length === 0) return null;
+    const normCode = normalizeProductCode(code);
+    const normBarcode = normalizeProductBarcode(barcode);
+
+    const matches = tieredRules.filter(r => {
+      if (!r) return false;
+      const rCode = normalizeProductCode(r.product_id);
+      const rBarcode = normalizeProductBarcode(r.barcode);
+
+      const matchByCode = Boolean(normCode && rCode && (normCode === rCode || parseInt(normCode, 10) === parseInt(rCode, 10)));
+      const matchByBarcode = Boolean(normBarcode && rBarcode && normBarcode === rBarcode);
+      return matchByCode || matchByBarcode;
+    });
+
+    if (matches.length === 0) return null;
+    matches.sort((a, b) => b.quantity - a.quantity);
+    return matches[0];
+  }, [tieredRules]);
+
   // Helper para calcular desconto escalonado (faixa por quantidade)
   const getTieredDiscount = useCallback((it: CartItem) => {
     if (!it || !tieredRules || tieredRules.length === 0 || it.quantity <= 1) return null;
-    const barcodeItem = it.barcode ? String(it.barcode).trim() : null;
-    const codeItem = it.code ? String(it.code).trim() : null;
+    const normCode = normalizeProductCode(it.code);
+    const normBarcode = normalizeProductBarcode(it.barcode);
     const qtdItem = it.quantity;
 
-    const matches = tieredRules.filter(r => 
-      (barcodeItem && r.barcode === barcodeItem) ||
-      (codeItem && String(r.product_id) === codeItem)
-    );
+    const matches = tieredRules.filter(r => {
+      if (!r) return false;
+      const rCode = normalizeProductCode(r.product_id);
+      const rBarcode = normalizeProductBarcode(r.barcode);
+
+      const matchByCode = Boolean(normCode && rCode && (normCode === rCode || parseInt(normCode, 10) === parseInt(rCode, 10)));
+      const matchByBarcode = Boolean(normBarcode && rBarcode && normBarcode === rBarcode);
+      return matchByCode || matchByBarcode;
+    });
 
     if (matches.length === 0) return null;
     matches.sort((a, b) => b.quantity - a.quantity);
@@ -417,6 +479,59 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
       label: `${applicable.quantity} un por R$ ${applicable.package_price.toFixed(2)}`
     };
   }, [tieredRules]);
+
+  // Aplicação da oferta escalonada a partir da modal instantânea
+  const handleConfirmTieredOffer = useCallback(() => {
+    setTieredOfferModal(prev => {
+      if (!prev.isOpen) return prev;
+      const targetCode = prev.productCode;
+      const targetQty = prev.promoQuantity;
+      const offerInfo = { ...prev };
+
+      setCart(cartPrev => {
+        return cartPrev.map(item => {
+          if (normalizeProductCode(item.code) === normalizeProductCode(targetCode)) {
+            const itemDisc = item.discount || 0;
+            return {
+              ...item,
+              quantity: targetQty,
+              total_price: Math.round(targetQty * (item.unit_price - itemDisc) * 100) / 100
+            };
+          }
+          return item;
+        });
+      });
+
+      addToast(`🎉 Promoção Aplicada! Leve ${offerInfo.promoQuantity} por R$ ${offerInfo.packagePrice.toFixed(2)} (Economia de R$ ${offerInfo.savings.toFixed(2)})`, 'success', 3500);
+      return { ...prev, isOpen: false };
+    });
+    setTimeout(() => barcodeInputRef.current?.focus(), 80);
+  }, [addToast]);
+
+  // Dispensar modal de oferta escalonada
+  const handleDismissTieredOffer = useCallback(() => {
+    setTieredOfferModal(prev => ({ ...prev, isOpen: false }));
+    setTimeout(() => barcodeInputRef.current?.focus(), 80);
+  }, []);
+
+  // Atalho para aplicar oferta diretamente da linha do carrinho
+  const handleApplyTieredOffer = useCallback((code: string, targetQty: number, packagePrice: number) => {
+    setCart(prev => {
+      return prev.map(item => {
+        if (normalizeProductCode(item.code) === normalizeProductCode(code)) {
+          const itemDisc = item.discount || 0;
+          return {
+            ...item,
+            quantity: targetQty,
+            total_price: Math.round(targetQty * (item.unit_price - itemDisc) * 100) / 100
+          };
+        }
+        return item;
+      });
+    });
+    addToast(`🎉 Promoção ativada: ${targetQty} un no cupom por R$ ${packagePrice.toFixed(2)}!`, 'success', 2500);
+    setTimeout(() => barcodeInputRef.current?.focus(), 80);
+  }, [addToast]);
 
   // Economia total de preços escalonados no carrinho
   const tieredSavingsTotal = useMemo(() => {
@@ -521,10 +636,10 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
 
   // Foco automático no input de bipagem
   const focusBarcodeInput = useCallback(() => {
-    if (!isSearchOpen && !isSellerModalOpen && !isUnregisteredModalOpen && !isControlledRecipeOpen && !isDiscountModalOpen && !isCustomerModalOpen && !isRecentSalesOpen && !isClearCartModalOpen && !completedSale) {
+    if (!isSearchOpen && !isSellerModalOpen && !isUnregisteredModalOpen && !isControlledRecipeOpen && !isDiscountModalOpen && !isCustomerModalOpen && !isRecentSalesOpen && !isClearCartModalOpen && !completedSale && !tieredOfferModal.isOpen) {
       setTimeout(() => barcodeInputRef.current?.focus(), 50);
     }
-  }, [isSearchOpen, isSellerModalOpen, isUnregisteredModalOpen, isControlledRecipeOpen, isDiscountModalOpen, isCustomerModalOpen, isRecentSalesOpen, isClearCartModalOpen, completedSale]);
+  }, [isSearchOpen, isSellerModalOpen, isUnregisteredModalOpen, isControlledRecipeOpen, isDiscountModalOpen, isCustomerModalOpen, isRecentSalesOpen, isClearCartModalOpen, completedSale, tieredOfferModal.isOpen]);
 
   // Foco inicial ao abrir o PDV (ou solicitação única do vendedor se não definido)
   const hasPromptedInitialSellerRef = useRef(false);
@@ -708,6 +823,20 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
   // Atalhos de teclado globais do PDV
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Se estiver com modal de oferta escalonada aberta ("Leve X por Y")
+      if (tieredOfferModal.isOpen) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          handleConfirmTieredOffer();
+          return;
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          handleDismissTieredOffer();
+          return;
+        }
+      }
+
       // Se estiver na tela de cupom concluído, ENTER ou ESC retorna imediatamente ao caixa
       if (completedSale && (e.key === 'Enter' || e.key === 'Escape')) {
         e.preventDefault();
@@ -766,7 +895,8 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
       }
       // ESC -> Fechar qualquer modal aberta ou limpar cupom
       else if (e.key === 'Escape') {
-        if (isSafeDiscountModalOpen) setIsSafeDiscountModalOpen(false);
+        if (tieredOfferModal.isOpen) handleDismissTieredOffer();
+        else if (isSafeDiscountModalOpen) setIsSafeDiscountModalOpen(false);
         else if (isPromotionsModalOpen) setIsPromotionsModalOpen(false);
         else if (isCashMovementModalOpen) setIsCashMovementModalOpen(false);
         else if (isPreSaleModalOpen) setIsPreSaleModalOpen(false);
@@ -814,7 +944,10 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
     completedSale, 
     autocompleteResults, 
     focusBarcodeInput,
-    handleOpenSellerModal
+    handleOpenSellerModal,
+    tieredOfferModal,
+    handleConfirmTieredOffer,
+    handleDismissTieredOffer
   ]);
 
   // Autocomplete ao vivo ao digitar na barra de produto
@@ -1030,6 +1163,28 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
       addToast(`⚠️ Medicamento Controlado (${prod.recipe_label || prod.recipe_type}): Preencha os dados da receita retida conforme a legislação.`, 'warning', 4000);
     } else {
       addToast(`${qty}x ${prod.name.substring(0, 24)}... adicionado!`, 'success', 1800);
+
+      // Verificação instantânea de regra de Desconto Escalonado ("Leve 3 por tanto")
+      const tieredRule = findTieredRuleForProduct(prod.code, prod.barcode);
+      if (tieredRule && qty < tieredRule.quantity) {
+        const normalTotal = effectivePrice * tieredRule.quantity;
+        const savings = Math.max(0, normalTotal - tieredRule.package_price);
+        if (savings > 0.009) {
+          const unitEffective = Math.round((tieredRule.package_price / tieredRule.quantity) * 100) / 100;
+          setTieredOfferModal({
+            isOpen: true,
+            productCode: String(prod.code),
+            productBarcode: prod.barcode || null,
+            productName: prod.name,
+            unitPrice: effectivePrice,
+            promoQuantity: tieredRule.quantity,
+            packagePrice: tieredRule.package_price,
+            unitEffectivePrice: unitEffective,
+            savings: Math.round(savings * 100) / 100,
+            rule: tieredRule
+          });
+        }
+      }
     }
   };
 
@@ -2080,13 +2235,33 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
                             <div className="flex items-center space-x-2 mt-0.5 flex-wrap">
                               {(() => {
                                 const tiered = getTieredDiscount(item);
-                                if (!tiered) return null;
-                                return (
-                                  <span className="text-[10px] text-amber-900 bg-amber-100 px-1.5 py-0.5 rounded border border-amber-300 font-bold flex items-center gap-1">
-                                    <Zap className="w-2.5 h-2.5 text-amber-600" />
-                                    <span>{tiered.label} (-R$ {tiered.savings.toFixed(2)})</span>
-                                  </span>
-                                );
+                                if (tiered) {
+                                  return (
+                                    <span className="text-[10px] text-amber-900 bg-amber-100 px-1.5 py-0.5 rounded border border-amber-300 font-bold flex items-center gap-1">
+                                      <Zap className="w-2.5 h-2.5 text-amber-600" />
+                                      <span>{tiered.label} (-R$ {tiered.savings.toFixed(2)})</span>
+                                    </span>
+                                  );
+                                }
+                                const availableRule = findTieredRuleForProduct(item.code, item.barcode);
+                                if (availableRule && item.quantity < availableRule.quantity) {
+                                  const normalTotalForPromo = item.unit_price * availableRule.quantity;
+                                  const promoSavings = Math.max(0, normalTotalForPromo - availableRule.package_price);
+                                  if (promoSavings > 0.009) {
+                                    return (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleApplyTieredOffer(item.code, availableRule.quantity, availableRule.package_price)}
+                                        className="text-[10px] bg-emerald-600 hover:bg-emerald-700 text-white px-2 py-0.5 rounded-md font-bold flex items-center gap-1 shadow-sm transition-all hover:scale-105 cursor-pointer"
+                                        title={`Clique para aplicar: Leve ${availableRule.quantity} por R$ ${availableRule.package_price.toFixed(2)}`}
+                                      >
+                                        <span>🎁</span>
+                                        <span>Leve {availableRule.quantity} por R$ ${availableRule.package_price.toFixed(2)} (Economize R$ {promoSavings.toFixed(2)})</span>
+                                      </button>
+                                    );
+                                  }
+                                }
+                                return null;
                               })()}
                               {item.recipe_type && (() => {
                                 const recipeData = controlledRecipesData?.find(r => r.product_code === item.code);
@@ -3117,6 +3292,101 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
                 className="px-4 py-1.5 bg-rose-600 hover:bg-rose-500 text-white text-xs font-black rounded-xl shadow-md"
               >
                 Sim, Limpar Cupom
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL OFERTA ESCALONADA INSTANTÂNEA: "LEVE X POR R$ Y" */}
+      {/* ========================================================================= */}
+      {tieredOfferModal.isOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div className="bg-gradient-to-b from-slate-900 to-slate-950 border-2 border-emerald-500/70 rounded-3xl shadow-[0_0_50px_rgba(16,185,129,0.3)] max-w-md w-full p-6 space-y-4 animate-in zoom-in-95 duration-200">
+            {/* Cabeçalho */}
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center shadow-inner">
+                  <Zap className="w-6 h-6 text-emerald-400 animate-pulse" />
+                </div>
+                <div>
+                  <span className="text-[10px] font-black tracking-wider uppercase text-emerald-400 bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-800">
+                    Oportunidade de Venda
+                  </span>
+                  <h3 className="font-black text-base text-white mt-0.5">Desconto Escalonado Ativo!</h3>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleDismissTieredOffer}
+                className="text-slate-400 hover:text-white px-2 py-1 rounded-lg hover:bg-slate-800 transition-colors text-xs font-mono border border-slate-700/60"
+                title="Pressione ESC para fechar"
+              >
+                ✕ ESC
+              </button>
+            </div>
+
+            {/* Nome do Produto */}
+            <div className="bg-slate-800/60 rounded-2xl p-3 border border-slate-700/60">
+              <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">Produto bipado</div>
+              <div className="font-bold text-slate-100 text-sm line-clamp-2 mt-0.5">
+                {tieredOfferModal.productName}
+              </div>
+            </div>
+
+            {/* Card Principal da Oferta */}
+            <div className="bg-gradient-to-r from-emerald-950/70 via-emerald-900/40 to-slate-900 border border-emerald-500/50 rounded-2xl p-4 text-center space-y-2 relative overflow-hidden">
+              <div className="text-xs uppercase tracking-wider font-extrabold text-emerald-300">
+                OFERTA ESPECIAL BELAFARMA
+              </div>
+              
+              <div className="text-2xl sm:text-3xl font-black text-white tracking-tight flex items-baseline justify-center gap-1.5">
+                <span>Leve</span>
+                <span className="text-emerald-400 text-3xl sm:text-4xl">{tieredOfferModal.promoQuantity}</span>
+                <span>por</span>
+                <span className="text-emerald-300 text-3xl sm:text-4xl font-extrabold">
+                  R$ {tieredOfferModal.packagePrice.toFixed(2)}
+                </span>
+              </div>
+
+              <div className="inline-flex items-center gap-2 bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 px-3 py-1 rounded-full text-xs font-black shadow-sm">
+                <span>⚡ Sai a R$ {tieredOfferModal.unitEffectivePrice.toFixed(2)} cada</span>
+                <span>•</span>
+                <span>Economiza R$ {tieredOfferModal.savings.toFixed(2)}!</span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 pt-2 border-t border-emerald-800/40 text-[11px] text-slate-300">
+                <div className="text-left bg-slate-900/50 p-2 rounded-xl">
+                  <div className="text-slate-400 text-[10px]">Preço avulso (1 un):</div>
+                  <div className="font-bold text-slate-200">R$ {tieredOfferModal.unitPrice.toFixed(2)}</div>
+                </div>
+                <div className="text-right bg-slate-900/50 p-2 rounded-xl">
+                  <div className="text-slate-400 text-[10px]">{tieredOfferModal.promoQuantity} un normais:</div>
+                  <div className="font-semibold text-slate-400 line-through">
+                    R$ {(tieredOfferModal.unitPrice * tieredOfferModal.promoQuantity).toFixed(2)}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Ações / Atalhos */}
+            <div className="space-y-2 pt-1">
+              <button
+                type="button"
+                onClick={handleConfirmTieredOffer}
+                className="w-full py-3 px-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-sm rounded-2xl shadow-lg shadow-emerald-900/40 flex items-center justify-center gap-2 transition-all hover:scale-[1.01] active:scale-[0.99] cursor-pointer"
+              >
+                <Check className="w-5 h-5" />
+                <span>[ENTER] Sim, Levar {tieredOfferModal.promoQuantity} un (R$ {tieredOfferModal.packagePrice.toFixed(2)})</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleDismissTieredOffer}
+                className="w-full py-2.5 px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-2xl border border-slate-700 flex items-center justify-center gap-2 transition-colors cursor-pointer"
+              >
+                <span>[ESC] Manter apenas 1 unidade normal (R$ {tieredOfferModal.unitPrice.toFixed(2)})</span>
               </button>
             </div>
           </div>

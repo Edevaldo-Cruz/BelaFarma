@@ -1,9 +1,29 @@
 {
   "version": "1.2.4",
-  "commitHash": "67afbbf",
-  "commitMessage": "fix(fiscal): corrige fuso horario dhEvento no cancelamento SEFAZ (Rejeicao 578) e parseTagValue",
-  "buildTime": "09/11/2026, 11:19:28",
+  "commitHash": "d64f6e1",
+  "commitMessage": "feat(pdv): transformar Belinha PDV em aplicacao tela cheia estilo executavel nativo com tema clinico claro",
+  "buildTime": "09/11/2026, 15:46:46",
   "recentCommits": [
+    {
+      "hash": "d64f6e1",
+      "date": "09/11/2026",
+      "message": "feat(pdv): transformar Belinha PDV em aplicacao tela cheia estilo executavel nativo com tema clinico claro"
+    },
+    {
+      "hash": "a6e1adb",
+      "date": "09/11/2026",
+      "message": "fix(belaped-mg): adiciona retry com delay na inicializacao de sessao da MG Medicamentos"
+    },
+    {
+      "hash": "e364a9a",
+      "date": "09/11/2026",
+      "message": "fix(belaped-dpc): corrige seletores de titulo e adicao ao carrinho (.btn-addItem e input.qty)"
+    },
+    {
+      "hash": "4d4faa7",
+      "date": "09/11/2026",
+      "message": "fix(security): restringe acesso e visualizacao de dados financeiros exclusivamente para administradores"
+    },
     {
       "hash": "67afbbf",
       "date": "09/11/2026",
@@ -43,26 +63,6 @@
       "hash": "c34724d",
       "date": "09/11/2026",
       "message": "fix(sync): sincronizar saldo em compras_estoque_cache, dar baixa em faltas atendidas e ignorar pedidos pendentes"
-    },
-    {
-      "hash": "d15b3bf",
-      "date": "09/11/2026",
-      "message": "fix(finance): remover filtro indevido de vendedor 9 no fechamento e corrigir migracao de schema"
-    },
-    {
-      "hash": "ac1e51a",
-      "date": "09/11/2026",
-      "message": "refactor(pdv): Unificacao do desconto e margem segura sobre os itens bipados do cupom"
-    },
-    {
-      "hash": "9cc4365",
-      "date": "08/11/2026",
-      "message": "feat(pdv): Desconto seguro anti-prejuizo com piso de 10% do custo e destaque da logo Bela Farma"
-    },
-    {
-      "hash": "94d753a",
-      "date": "08/11/2026",
-      "message": "feat(erp): Central de Gestao de Promocoes e Precos Escalonados com controle de validade e sincronizacao Digifarma"
     }
   ]
 }
