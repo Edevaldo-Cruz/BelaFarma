@@ -113,6 +113,18 @@ const App: React.FC = () => {
         console.error("Erro ao carregar usuário da sessão", e);
       }
     }
+    if (typeof window !== "undefined") {
+      const isTauriEnv = "__TAURI_INTERNALS__" in window || "__TAURI__" in window;
+      const search = window.location.search.toLowerCase();
+      const hash = window.location.hash.toLowerCase();
+      if (isTauriEnv || search.includes("app=pdv") || search.includes("view=belinha-pdv") || hash.includes("pdv")) {
+        return {
+          id: "caixa-terminal",
+          name: "Caixa",
+          role: UserRole.ADM,
+        } as User;
+      }
+    }
     return null;
   });
   const [isMobile, setIsMobile] = useState(false);
@@ -149,6 +161,10 @@ const App: React.FC = () => {
       const host = window.location.hostname.toLowerCase();
       const hash = window.location.hash.toLowerCase();
       const search = window.location.search.toLowerCase();
+      const isTauriEnv = '__TAURI_INTERNALS__' in window || '__TAURI__' in window;
+      if (isTauriEnv || search.includes('app=pdv') || search.includes('view=belinha-pdv') || hash.includes('pdv')) {
+        return 'belinha-pdv';
+      }
       if (host.startsWith('ia.') || hash.includes('ia') || search.includes('view=ia') || search.includes('view=belafarma-ia')) {
         return 'belafarma-ia';
       }
@@ -1296,7 +1312,16 @@ const App: React.FC = () => {
       />
     );
 
-  if (isTauri) {
+  if (currentView === "belinha-pdv") {
+    return (
+      <div className="h-screen w-screen overflow-hidden flex flex-col bg-[#e8eef5]">
+        <PwaUpdater />
+        <BelinhaPDV currentUser={user} onNavigate={handleNavigate} />
+      </div>
+    );
+  }
+
+  if (isTauri && window.location.search.toLowerCase().includes("app=whatsapp")) {
     return (
       <div className="h-screen bg-slate-50 dark:bg-slate-950 overflow-y-auto">
         <div className="max-w-7xl mx-auto p-4">

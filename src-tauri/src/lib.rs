@@ -9,15 +9,11 @@ pub fn run() {
       tauri_plugin_global_shortcut::Builder::new()
         .with_handler(|app, shortcut, event| {
           if event.state() == ShortcutState::Pressed {
-            let ctrl_shift_a = Shortcut::from_str("CommandOrControl+Shift+A").unwrap();
-            if shortcut == &ctrl_shift_a {
+            let f11 = Shortcut::from_str("F11").unwrap();
+            if shortcut == &f11 {
               if let Some(window) = app.get_webview_window("main") {
-                if window.is_visible().unwrap_or(false) {
-                  let _ = window.hide();
-                } else {
-                  let _ = window.show();
-                  let _ = window.set_focus();
-                }
+                let is_fs = window.is_fullscreen().unwrap_or(false);
+                let _ = window.set_fullscreen(!is_fs);
               }
             }
           }
@@ -25,8 +21,9 @@ pub fn run() {
         .build(),
     )
     .setup(|app| {
-      let ctrl_shift_a = Shortcut::from_str("CommandOrControl+Shift+A").unwrap();
-      app.global_shortcut().register(ctrl_shift_a)?;
+      if let Ok(f11) = Shortcut::from_str("F11") {
+        let _ = app.global_shortcut().register(f11);
+      }
 
       if cfg!(debug_assertions) {
         app.handle().plugin(

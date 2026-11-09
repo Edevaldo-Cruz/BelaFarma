@@ -32,7 +32,12 @@ import {
   Percent,
   Key,
   Sparkles,
-  ChevronRight
+  ChevronRight,
+  Maximize2,
+  Minimize2,
+  LogOut,
+  Database,
+  Package
 } from 'lucide-react';
 import { useToast } from '../ToastContext';
 import { BelaFarmaLogo } from '../BelaFarmaLogo';
@@ -110,6 +115,49 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
+  }, []);
+
+  // Controle de Tela Cheia (Browser Fullscreen API + Tauri Window)
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+  useEffect(() => {
+    const handleFsChange = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+    };
+    document.addEventListener('fullscreenchange', handleFsChange);
+    return () => document.removeEventListener('fullscreenchange', handleFsChange);
+  }, []);
+
+  const toggleFullscreen = useCallback(async () => {
+    try {
+      const isTauriEnv = typeof window !== 'undefined' && ('__TAURI_INTERNALS__' in window || '__TAURI__' in window);
+      if (isTauriEnv) {
+        try {
+          const { getCurrentWindow } = await import('@tauri-apps/api/window');
+          const win = getCurrentWindow();
+          const currentFs = await win.isFullscreen();
+          await win.setFullscreen(!currentFs);
+          setIsFullscreen(!currentFs);
+          return;
+        } catch {}
+      }
+      if (!document.fullscreenElement) {
+        await document.documentElement.requestFullscreen();
+        setIsFullscreen(true);
+      } else {
+        await document.exitFullscreen();
+        setIsFullscreen(false);
+      }
+    } catch {}
+  }, []);
+
+  const handleMinimizeWindow = useCallback(async () => {
+    try {
+      const isTauriEnv = typeof window !== 'undefined' && ('__TAURI_INTERNALS__' in window || '__TAURI__' in window);
+      if (isTauriEnv) {
+        const { getCurrentWindow } = await import('@tauri-apps/api/window');
+        await getCurrentWindow().minimize();
+      }
+    } catch {}
   }, []);
 
   // Identificação do Vendedor por Chave de Acesso do Login
@@ -695,8 +743,8 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
         e.preventDefault();
         setIsDiscountModalOpen(true);
       }
-      // F8 ou F10 -> Finalizar Venda / Pagamento Rápido (Digifarma F8)
-      else if (e.key === 'F8' || e.key === 'F10') {
+      // F8 -> Finalizar Venda / Pagamento Rápido (Digifarma F8)
+      else if (e.key === 'F8') {
         e.preventDefault();
         handleStartCheckout();
       }
@@ -706,10 +754,15 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
         fetchPreSales();
         setIsPreSaleModalOpen(true);
       }
-      // F11 ou Shift+F10 ou F12 -> Cancelar Venda / Consultar Vendas do Dia
-      else if (e.key === 'F11' || e.key === 'F12') {
+      // F10 ou F12 -> Cancelar Venda / Consultar Vendas do Dia
+      else if (e.key === 'F10' || e.key === 'F12') {
         e.preventDefault();
         handleOpenRecentSales();
+      }
+      // F11 -> Alternar Tela Cheia Nativa
+      else if (e.key === 'F11') {
+        e.preventDefault();
+        toggleFullscreen();
       }
       // ESC -> Fechar qualquer modal aberta ou limpar cupom
       else if (e.key === 'Escape') {
@@ -1604,246 +1657,190 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
     }
   };
 
+  const lastScannedItem = cart.length > 0 ? cart[cart.length - 1] : null;
+  const isTauriWindow = typeof window !== 'undefined' && ('__TAURI_INTERNALS__' in window || '__TAURI__' in window);
+
   return (
-    <div className="flex flex-col h-[calc(100vh-4.25rem)] sm:h-[calc(100vh-4.5rem)] bg-slate-950 text-slate-100 font-sans select-none overflow-hidden rounded-xl border border-slate-800 shadow-2xl">
+    <div className="flex flex-col h-screen w-screen bg-[#e8eef5] text-slate-800 font-sans select-none overflow-hidden">
       
-      {/* 1. TOPO: Identidade Visual Bela Farma Sul, Status do Caixa, SNGPC & Impressora */}
-      <header className="bg-slate-950 border-b border-slate-800 px-3 sm:px-4 py-2 sm:py-2.5 flex flex-wrap items-center justify-between gap-3 text-xs sm:text-sm shrink-0">
-        {/* Logo Oficial Bela Farma Sul & Status do Caixa */}
-        <div className="flex items-center space-x-3 sm:space-x-4">
-          <BelaFarmaLogo size="md" lightMode showSubtext={true} className="shrink-0 drop-shadow-sm" />
-          
-          <div className="h-6 w-[1px] bg-slate-800 hidden sm:block" />
-
-          <div className="flex items-center space-x-2 bg-emerald-950/80 text-emerald-400 px-3 py-1 rounded-lg border border-emerald-800/60 font-semibold shadow-sm">
-            <Zap className="w-4 h-4 text-emerald-400 animate-pulse" />
-            <span className="tracking-wide">CAIXA 01 - OPERANDO</span>
+      {/* 1. CABEÇALHO SUPERIOR ESTILO SOFTWARE NATIVO DE FARMÁCIA */}
+      <header className="bg-gradient-to-r from-[#0b2545] via-[#0f3460] to-[#0b2e26] border-b-2 border-emerald-500 px-3 sm:px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-xs text-white shadow-md shrink-0">
+        {/* Identidade Bela Farma Sul, Status do Caixa e Vendedor */}
+        <div className="flex items-center gap-2.5 sm:gap-3 flex-wrap">
+          <div className="flex items-center gap-2.5">
+            <BelaFarmaLogo size="sm" lightMode showSubtext={false} className="shrink-0 drop-shadow" />
+            <div className="leading-tight">
+              <div className="font-black text-sm sm:text-base tracking-tight text-white flex items-center gap-1.5">
+                <span>BELINHA PDV</span>
+                <span className="text-[10px] font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 px-1.5 py-0.5 rounded uppercase">
+                  PRO v5.0
+                </span>
+              </div>
+              <div className="text-[10px] text-slate-300 font-medium tracking-wide uppercase">
+                Frente de Caixa Fiscal • Drogaria Bela Farma Sul
+              </div>
+            </div>
           </div>
 
-          <div className="flex items-center space-x-2 text-slate-300">
-            <span className="text-slate-600">|</span>
-            <button
-              onClick={handleOpenSellerModal}
-              className={`flex items-center gap-1.5 px-3 py-1 rounded-lg border text-xs font-bold transition-all shadow-sm ${
-                currentSeller
-                  ? 'bg-emerald-950/70 border-emerald-600 text-emerald-300 hover:bg-emerald-900/80 ring-1 ring-emerald-500/30'
-                  : 'bg-amber-950/80 border-amber-500 text-amber-300 hover:bg-amber-900 ring-1 ring-amber-500/40 animate-pulse'
-              }`}
-              title="Clique para identificar ou trocar o vendedor (F4)"
-            >
-              <UserCheck className="w-4 h-4 text-emerald-400" />
-              <span>{currentSeller ? `Vendedor: ${currentSeller.name}` : 'Identificar Vendedor'}</span>
-              <span className="text-[10px] bg-slate-900 px-1 py-0.5 rounded text-slate-300 font-mono">F4</span>
-            </button>
+          <div className="h-6 w-[1px] bg-white/15 hidden sm:block" />
+
+          {/* Status do Caixa */}
+          <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md border font-black text-[11px] tracking-wide shadow-sm ${
+            cart.length > 0
+              ? 'bg-amber-500/20 text-amber-300 border-amber-400/50'
+              : 'bg-emerald-500/20 text-emerald-300 border-emerald-400/50'
+          }`}>
+            <Zap className={`w-3.5 h-3.5 ${cart.length > 0 ? 'text-amber-300 animate-bounce' : 'text-emerald-300 animate-pulse'}`} />
+            <span>{cart.length > 0 ? `CAIXA 01 • EM VENDA (${totalQuantity} ITENS)` : 'CAIXA 01 • LIVRE'}</span>
           </div>
+
+          {/* Vendedor em Destaque */}
+          <button
+            onClick={handleOpenSellerModal}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs font-bold transition-all shadow-sm cursor-pointer ${
+              currentSeller
+                ? 'bg-white/10 border-emerald-400/60 text-emerald-200 hover:bg-white/20'
+                : 'bg-amber-500 text-slate-950 border-amber-300 hover:bg-amber-400 animate-pulse font-black'
+            }`}
+            title="Clique para identificar ou trocar o vendedor (F5)"
+          >
+            <UserCheck className="w-3.5 h-3.5" />
+            <span>{currentSeller ? `Vendedor: ${currentSeller.name}` : 'Identificar Vendedor'}</span>
+            <kbd className="text-[10px] bg-black/30 text-white px-1 py-0.5 rounded font-mono">F5</kbd>
+          </button>
         </div>
 
-        {/* Status Conectado (SNGPC / Anvisa), Spooler de Rede & Relógio ao Vivo */}
-        <div className="flex items-center flex-wrap gap-2">
-          <div className="hidden md:flex items-center space-x-1.5 text-slate-400 bg-slate-900 px-2.5 py-1 rounded-lg border border-slate-800 text-xs">
-            <ShieldCheck className="w-4 h-4 text-emerald-400" />
-            <span>SNGPC Conectado (Anvisa)</span>
+        {/* Pílulas Compactas de Status (SEFAZ / Digifarma / SNGPC / Impressora) + Relógio + Controles de Janela */}
+        <div className="flex items-center flex-wrap gap-1.5">
+          {/* Pílula SEFAZ-MG */}
+          <button
+            onClick={() => setIsFiscalSettingsOpen(true)}
+            className="flex items-center gap-1 px-2 py-1 rounded-md bg-white/10 hover:bg-white/20 border border-white/15 text-[11px] font-semibold text-emerald-300 transition cursor-pointer"
+            title="SEFAZ-MG NFC-e Ativa (Online + Contingência Offline com QR-Code). Clique para Configurações Fiscais."
+          >
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+            <span>SEFAZ-MG</span>
+          </button>
+
+          {/* Pílula Digifarma Sync */}
+          <button
+            onClick={handleOpenRecentSales}
+            className="flex items-center gap-1 px-2 py-1 rounded-md bg-white/10 hover:bg-white/20 border border-white/15 text-[11px] font-semibold text-sky-300 transition cursor-pointer"
+            title="Sincronização em Tempo Real com o Banco Firebird do Digifarma"
+          >
+            <Database className="w-3.5 h-3.5 text-sky-400" />
+            <span className="hidden md:inline">Digifarma Sync</span>
+          </button>
+
+          {/* Pílula SNGPC */}
+          <div
+            className="hidden xl:flex items-center gap-1 px-2 py-1 rounded-md bg-white/5 border border-white/10 text-[11px] text-slate-200"
+            title="Controle Sanitário Portaria 344 / SNGPC Anvisa Ativo"
+          >
+            <ShieldCheck className="w-3.5 h-3.5 text-teal-300" />
+            <span>SNGPC</span>
           </div>
 
-          <div className="hidden xl:flex items-center space-x-1.5 text-slate-300 bg-slate-900 px-2.5 py-1 rounded-lg border border-slate-800 text-xs" title="Assistência e Responsabilidade Técnica ativa conforme exigência do CRF-MG">
-            <ShieldCheck className="w-4 h-4 text-teal-400" />
-            <span>RT: CRF-MG Ativo</span>
-          </div>
-
-          {/* Botão Auto-Print Bematech */}
+          {/* Pílula Impressora Bematech Auto/Manual */}
           <button
             onClick={() => toggleAutoPrint(!autoPrintCupom)}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold transition-all shadow-sm border ${
+            className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-bold transition border cursor-pointer ${
               autoPrintCupom
-                ? 'bg-emerald-950/70 text-emerald-300 border-emerald-800'
-                : 'bg-slate-900 text-slate-500 border-slate-800 hover:text-slate-300'
+                ? 'bg-emerald-500/20 text-emerald-200 border-emerald-400/50'
+                : 'bg-white/10 text-slate-300 border-white/15 hover:text-white'
             }`}
             title="Alternar Impressão Automática na Bematech MP-4200 TH ao finalizar venda"
           >
-            <Printer className={`w-3.5 h-3.5 ${autoPrintCupom ? 'text-emerald-400' : 'text-slate-500'}`} />
-            <span>MP-4200: {autoPrintCupom ? 'Auto ON' : 'Manual'}</span>
+            <Printer className={`w-3.5 h-3.5 ${autoPrintCupom ? 'text-emerald-300' : 'text-slate-400'}`} />
+            <span>{autoPrintCupom ? 'MP-4200 Auto' : 'MP-4200 Manual'}</span>
           </button>
 
-          {/* Status da Impressora Térmica em Rede */}
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => togglePrinterStation(!isPrinterStation)}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold transition-all shadow-sm border ${
-                isPrinterStation
-                  ? 'bg-blue-950/60 text-blue-300 border-blue-800'
-                  : 'bg-amber-950/60 text-amber-300 border-amber-800'
-              }`}
-              title={
-                isPrinterStation
-                  ? 'Este computador é a Estação Física da Bematech (recebe e imprime cupons de toda a rede automaticamente). Clique para alterar.'
-                  : 'Este computador imprime na Bematech do Caixa via Rede. Clique para torná-lo a estação física.'
-              }
-            >
-              <span className={`w-2 h-2 rounded-full ${isPrinterStation ? 'bg-blue-400 animate-pulse' : 'bg-amber-400'}`} />
-              <span>{isPrinterStation ? 'Estação Caixa' : 'Imprimir via Rede'}</span>
-            </button>
+          {/* Pílula Estação Caixa / Rede */}
+          <button
+            onClick={() => togglePrinterStation(!isPrinterStation)}
+            className={`hidden sm:flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-bold transition border cursor-pointer ${
+              isPrinterStation
+                ? 'bg-blue-500/25 text-blue-200 border-blue-400/50'
+                : 'bg-amber-500/20 text-amber-200 border-amber-400/40'
+            }`}
+            title={
+              isPrinterStation
+                ? 'Este computador é a Estação Física da Bematech. Clique para alterar.'
+                : 'Este computador envia cupons via Rede para a Bematech do Caixa.'
+            }
+          >
+            <span className={`w-2 h-2 rounded-full ${isPrinterStation ? 'bg-blue-300 animate-pulse' : 'bg-amber-300'}`} />
+            <span>{isPrinterStation ? 'Estação Caixa' : 'Spooler Rede'}</span>
+          </button>
 
-            {!isPrinterStation && (
-              <button
-                onClick={testNetworkPrint}
-                className="px-2 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs font-bold transition-all shadow-sm border border-slate-800"
-                title="Disparar cupom de teste para a Bematech conectada no Caixa"
-              >
-                Testar
-              </button>
-            )}
-          </div>
+          {/* Promoções & Validade */}
+          <button
+            onClick={() => setIsPromotionsModalOpen(true)}
+            className="flex items-center gap-1 px-2 py-1 rounded-md bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-400/40 text-[11px] font-bold transition cursor-pointer"
+            title="Central de Promoções com Validade e Preços Escalonados"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+            <span className="hidden lg:inline">Promoções</span>
+          </button>
+
+          {/* Vendas do Dia */}
+          {onNavigate && (
+            <button
+              onClick={() => onNavigate('erp-vendas')}
+              className="flex items-center gap-1 px-2 py-1 rounded-md bg-white/10 hover:bg-white/20 text-white border border-white/15 text-[11px] font-bold transition cursor-pointer"
+              title="Abrir Conferência de Caixa e Vendas do Dia"
+            >
+              <Receipt className="w-3.5 h-3.5 text-emerald-300" />
+              <span className="hidden md:inline">Vendas do Dia</span>
+            </button>
+          )}
 
           {/* Relógio Digital */}
-          <div className="text-right font-mono text-xs font-medium text-slate-300 bg-slate-900 px-2.5 py-1 rounded-lg border border-slate-800">
-            {currentTime.toLocaleDateString('pt-BR')} <span className="text-emerald-400 font-bold ml-1">{currentTime.toLocaleTimeString('pt-BR')}</span>
+          <div className="font-mono text-[11px] font-bold text-white bg-black/35 px-2.5 py-1 rounded-md border border-white/15">
+            <span>{currentTime.toLocaleDateString('pt-BR')}</span>
+            <span className="text-emerald-300 ml-1.5">{currentTime.toLocaleTimeString('pt-BR')}</span>
+          </div>
+
+          {/* Controles de Janela do Executável (Minimizar, Tela Cheia F11, Voltar ao ERP / Sair) */}
+          <div className="flex items-center gap-1 pl-1 border-l border-white/15">
+            {isTauriWindow && (
+              <button
+                onClick={handleMinimizeWindow}
+                className="p-1.5 rounded-md bg-white/10 hover:bg-white/20 text-slate-200 border border-white/15 transition cursor-pointer"
+                title="Minimizar Janela"
+              >
+                <Minus className="w-3.5 h-3.5" />
+              </button>
+            )}
+
+            <button
+              onClick={toggleFullscreen}
+              className="flex items-center gap-1 px-2 py-1 rounded-md bg-white/10 hover:bg-white/20 text-white border border-white/15 text-[11px] font-bold transition cursor-pointer"
+              title="Alternar Modo Tela Cheia (F11)"
+            >
+              {isFullscreen ? <Minimize2 className="w-3.5 h-3.5 text-amber-300" /> : <Maximize2 className="w-3.5 h-3.5 text-emerald-300" />}
+              <span className="hidden xl:inline">F11</span>
+            </button>
+
+            {onNavigate && (
+              <button
+                onClick={() => onNavigate('dashboard')}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-rose-600/90 hover:bg-rose-500 text-white border border-rose-400/50 text-[11px] font-black transition cursor-pointer shadow-sm"
+                title="Voltar ao Painel Administrativo / Retaguarda BelaFarma"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span>Retaguarda</span>
+              </button>
+            )}
           </div>
         </div>
       </header>
 
-      {/* 2. BARRA DE ATALHOS RÁPIDOS [F1 a F10 - Padrão Balcão Farmácia] */}
-      <nav className="bg-slate-900 border-b border-slate-800 px-3 sm:px-4 py-1.5 flex items-center justify-between text-xs overflow-x-auto gap-2 shrink-0">
-        <div className="flex items-center space-x-2 shrink-0">
-          <button 
-            onClick={() => {
-              setIsSearchOpen(true);
-              setTimeout(() => searchInputRef.current?.focus(), 100);
-            }} 
-            className="flex items-center space-x-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 px-2.5 py-1 rounded-lg transition border border-slate-700"
-            title="Consulta Inteligente de Produtos, Genéricos e Similares (F2)"
-          >
-            <span className="bg-amber-500/20 text-amber-300 font-bold px-1.5 py-0.5 rounded text-[10px]">F2</span>
-            <span>Buscar Produto</span>
-          </button>
-
-          <button 
-            onClick={() => setIsCustomerModalOpen(true)} 
-            className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-lg transition border ${
-              selectedCustomer 
-                ? 'bg-blue-950/80 text-blue-200 border-blue-600'
-                : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
-            }`}
-            title="Identificar Cliente, Convênio e Limite de Crediário (F3)"
-          >
-            <span className="bg-blue-500/20 text-blue-300 font-bold px-1.5 py-0.5 rounded text-[10px]">F3</span>
-            <span>{selectedCustomer ? selectedCustomer.name.split(' ')[0] : 'Cliente / Crediário'}</span>
-          </button>
-
-          <button 
-            onClick={() => {
-              fetchRecentMovements();
-              setIsCashMovementModalOpen(true);
-            }} 
-            className="flex items-center space-x-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 px-2.5 py-1 rounded-lg transition border border-slate-700"
-            title="Lançar Sangria (retirada) ou Suprimento (troco) no Caixa (F4)"
-          >
-            <span className="bg-emerald-500/20 text-emerald-300 font-bold px-1.5 py-0.5 rounded text-[10px]">F4</span>
-            <span>Sangria / Suprimento</span>
-          </button>
-
-          <button 
-            onClick={handleOpenSellerModal} 
-            className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-lg transition border ${
-              currentSeller
-                ? 'bg-emerald-950/60 hover:bg-emerald-900 text-emerald-300 border-emerald-700/60'
-                : 'bg-amber-950/70 hover:bg-amber-900 text-amber-300 border-amber-600 animate-pulse'
-            }`}
-            title="Identificar ou trocar vendedor por chave de acesso (F5)"
-          >
-            <span className="bg-amber-500/20 text-amber-300 font-bold px-1.5 py-0.5 rounded text-[10px]">F5</span>
-            <span>{currentSeller ? currentSeller.name.split(' ')[0] : 'Vendedor'}</span>
-          </button>
-
-          <button 
-            onClick={() => setIsDiscountModalOpen(true)} 
-            className="flex items-center space-x-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 px-2.5 py-1 rounded-lg transition border border-slate-700"
-            title="Aplicar Desconto Geral no Cupom (F7)"
-          >
-            <span className="bg-amber-500/20 text-amber-300 font-bold px-1.5 py-0.5 rounded text-[10px]">F7</span>
-            <span>Desconto</span>
-          </button>
-          
-          <button 
-            onClick={handleStartCheckout} 
-            disabled={cart.length === 0}
-            className="flex items-center space-x-1.5 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-emerald-100 px-2.5 py-1 rounded-lg transition border border-emerald-500/50 font-medium shadow-sm"
-            title="Fechar Venda e Receber Pagamento (F8)"
-          >
-            <span className="bg-emerald-950 text-emerald-300 font-bold px-1.5 py-0.5 rounded text-[10px]">F8</span>
-            <span>Finalizar Venda</span>
-          </button>
-
-          <button 
-            onClick={() => {
-              fetchPreSales();
-              setIsPreSaleModalOpen(true);
-            }} 
-            className="flex items-center space-x-1.5 bg-indigo-950/70 hover:bg-indigo-900 text-indigo-200 px-2.5 py-1 rounded-lg transition border border-indigo-700/60"
-            title="Puxar Pré-Vendas e Orçamentos do Balcão / WhatsApp (F9)"
-          >
-            <span className="bg-indigo-900 text-indigo-300 font-bold px-1.5 py-0.5 rounded text-[10px]">F9</span>
-            <span>Pré-Venda / Balcão</span>
-          </button>
-          
-          <button 
-            onClick={handleOpenRecentSales} 
-            className="flex items-center space-x-1.5 bg-rose-950/60 hover:bg-rose-900 text-rose-300 px-2.5 py-1 rounded-lg transition border border-rose-800/50"
-            title="Ver últimas vendas e cancelar com estorno de estoque (F10)"
-          >
-            <span className="bg-rose-900 text-rose-200 font-bold px-1.5 py-0.5 rounded text-[10px]">F10</span>
-            <span>Cancelar / Histórico</span>
-          </button>
-
-          <button 
-            onClick={() => {
-              if (cart.length > 0) setIsClearCartModalOpen(true);
-            }} 
-            disabled={cart.length === 0}
-            className="flex items-center space-x-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-300 px-2.5 py-1 rounded-lg transition border border-slate-700"
-            title="Cancelar cupom e esvaziar carrinho (ESC)"
-          >
-            <span className="bg-slate-900 text-slate-400 font-bold px-1.5 py-0.5 rounded text-[10px]">ESC</span>
-            <span>Limpar</span>
-          </button>
-        </div>
-
-        <div className="flex items-center space-x-2 shrink-0">
-          {onNavigate && (
-            <button
-              onClick={() => onNavigate('erp-vendas')}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-950/50 hover:bg-emerald-900/60 text-emerald-300 border border-emerald-800/60 text-xs font-bold transition-all shadow-sm"
-              title="Abrir Histórico Completo de Vendas"
-            >
-              <Receipt className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Vendas do Dia</span>
-            </button>
-          )}
-
-          <button
-            onClick={() => setIsPromotionsModalOpen(true)}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 text-xs font-bold transition-all shadow-sm cursor-pointer"
-            title="Central de Promoções com Validade e Preços Escalonados"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-            <span>Promoções & Validade</span>
-          </button>
-
-          <button
-            onClick={() => setIsFiscalSettingsOpen(true)}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-all shadow-sm border border-slate-700"
-            title="Configurações Fiscais e Certificado Digital A1"
-          >
-            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Config. Fiscal</span>
-          </button>
-        </div>
-      </nav>
-
-      {/* 3. BANNER TEMÁTICO DE RETENÇÃO DE RECEITA CONTROLADA (AMARELA / AZUL / BRANCA / CREME) */}
+      {/* 2. BANNER TEMÁTICO DE RETENÇÃO DE RECEITA CONTROLADA (AMARELA / AZUL / BRANCA / CREME) */}
       {dominantRecipe && (
-        <div className={`flex flex-wrap items-center justify-between gap-3 px-4 py-2 font-black transition-all shrink-0 ${dominantRecipe.banner}`}>
+        <div className={`flex flex-wrap items-center justify-between gap-3 px-4 py-1.5 font-black transition-all shrink-0 ${dominantRecipe.banner}`}>
           <div className="flex items-center gap-2.5">
-            <span className="text-xl animate-pulse">⚠️</span>
+            <span className="text-lg animate-pulse">⚠️</span>
             <div>
               <p className="text-[10px] uppercase tracking-wider opacity-90">Controle Sanitário & Retenção de Receita (Portaria 344 / Anvisa)</p>
               <h2 className="text-xs font-black tracking-tight">{dominantRecipe.label}</h2>
@@ -1851,18 +1848,18 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
           </div>
           <div className="flex items-center gap-2">
             {controlledRecipesData ? (
-              <span className="bg-emerald-900/40 text-current px-3 py-1 rounded-xl text-xs font-black uppercase flex items-center gap-1.5 border border-current/20">
+              <span className="bg-emerald-900/40 text-current px-3 py-1 rounded-lg text-xs font-black uppercase flex items-center gap-1.5 border border-current/20">
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-300" />
                 Receita Vinculada ({controlledRecipesData.length} {controlledRecipesData.length === 1 ? 'item' : 'itens'})
               </span>
             ) : (
-              <span className="bg-black/20 text-current px-3 py-1 rounded-xl text-xs font-black uppercase">
-                Médico e Comprador exigidos ao finalizar
+              <span className="bg-black/20 text-current px-3 py-1 rounded-lg text-xs font-black uppercase">
+                Médico, Lote e Comprador exigidos ao finalizar
               </span>
             )}
             <button
               onClick={() => setIsControlledRecipeOpen(true)}
-              className="px-3 py-1 rounded-xl bg-white/20 hover:bg-white/30 text-current text-xs font-black transition-all border border-current/30 shadow-sm"
+              className="px-3 py-1 rounded-lg bg-white/25 hover:bg-white/35 text-current text-xs font-black transition-all border border-current/30 shadow-sm cursor-pointer"
             >
               {controlledRecipesData ? 'Editar Receita' : 'Preencher Receita Agora'}
             </button>
@@ -1870,51 +1867,56 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
         </div>
       )}
 
-      {/* 4. WORKSPACE CENTRAL: 2 COLUNAS DE ALTA DENSIDADE */}
-      <main className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-3 p-3 overflow-hidden bg-slate-950 min-h-0">
+      {/* 3. WORKSPACE CENTRAL EM TELA CHEIA: TEMA CLARO CLÍNICO (ESTILO DIGIFARMA / TRIER) */}
+      <main className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-2.5 p-2.5 overflow-hidden bg-[#e8eef5] min-h-0">
         
-        {/* COLUNA ESQUERDA: BIPAGEM E TABELA DO CARRINHO (Cols 7 ou 8 de 12) */}
-        <section className="lg:col-span-7 xl:col-span-8 flex flex-col bg-slate-900 rounded-xl border border-slate-800 overflow-hidden shadow-lg min-h-0">
+        {/* COLUNA ESQUERDA: LEITOR EAN + VISOR DO ÚLTIMO ITEM BIPADO + TABELA CLÍNICA DO CUPOM (8 de 12 Colunas) */}
+        <section className="lg:col-span-7 xl:col-span-8 flex flex-col gap-2 min-h-0 overflow-hidden">
           
-          {/* BARRA DE BIPAGEM / PESQUISA RÁPIDA COM AUTOCOMPLETE */}
-          <div className="p-3 bg-slate-900 border-b border-slate-800 relative shrink-0">
-            <form onSubmit={handleBarcodeSubmit} className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
-                <Barcode className="h-5 w-5 text-emerald-400" />
+          {/* BLOCO DE BIPAGEM + VISOR DIGITAL DO ÚLTIMO ITEM BIPADO */}
+          <div className="bg-white rounded-xl border border-slate-300 shadow-sm p-2.5 relative shrink-0">
+            <form onSubmit={handleBarcodeSubmit} className="relative flex items-center gap-2">
+              <div className="relative flex-1">
+                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+                  <Barcode className="h-5 w-5 text-[#0f3460]" />
+                </div>
+                <input
+                  ref={barcodeInputRef}
+                  type="text"
+                  value={barcodeInput}
+                  onChange={(e) => setBarcodeInput(e.target.value)}
+                  placeholder="Bipe o código de barras (EAN), digite o nome ou use multiplicador (Ex: 3*789...)"
+                  className="w-full pl-11 pr-24 py-2.5 bg-slate-50 focus:bg-white text-[#0b2545] font-mono text-sm sm:text-base rounded-lg border-2 border-[#0f3460]/30 focus:outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 placeholder-slate-400 font-black transition-all"
+                  autoFocus
+                />
+                <div className="absolute right-1.5 top-1.5 bottom-1.5 flex items-center gap-1">
+                  <button
+                    type="submit"
+                    className="px-3 h-full bg-[#0f3460] hover:bg-[#164985] text-white rounded-md text-xs font-black uppercase tracking-wider transition-all cursor-pointer"
+                  >
+                    Enter
+                  </button>
+                </div>
               </div>
-              <input
-                ref={barcodeInputRef}
-                type="text"
-                value={barcodeInput}
-                onChange={(e) => setBarcodeInput(e.target.value)}
-                placeholder="Escaneie o código de barras (EAN) ou digite... (Ex: 3*789... para multiplicar)"
-                className="w-full pl-11 pr-28 py-2.5 sm:py-3 bg-slate-950 text-emerald-300 font-mono text-sm sm:text-base rounded-lg border border-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 placeholder-slate-500 shadow-inner font-bold"
-                autoFocus
-              />
-              <div className="absolute right-1.5 top-1.5 bottom-1.5 flex items-center gap-1.5">
-                <button
-                  type="submit"
-                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-md text-xs font-black uppercase tracking-wider transition-all"
-                >
-                  Enter
-                </button>
-                <button 
-                  type="button"
-                  onClick={() => {
-                    setIsSearchOpen(true);
-                    setTimeout(() => searchInputRef.current?.focus(), 100);
-                  }}
-                  className="hidden sm:flex px-2 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-md border border-slate-700 items-center space-x-1"
-                >
-                  <span>Catálogo</span>
-                  <kbd className="text-[9px] bg-slate-900 px-1 py-0.5 rounded text-amber-400 border border-slate-700">F1</kbd>
-                </button>
-              </div>
+
+              <button 
+                type="button"
+                onClick={() => {
+                  setIsSearchOpen(true);
+                  setTimeout(() => searchInputRef.current?.focus(), 100);
+                }}
+                className="px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black rounded-lg border border-emerald-700 flex items-center gap-1.5 shadow-sm shrink-0 cursor-pointer transition-all"
+                title="Abrir Catálogo Completo de Produtos (F2)"
+              >
+                <Search className="w-4 h-4" />
+                <span className="hidden sm:inline">Buscar Produto</span>
+                <kbd className="text-[10px] bg-black/25 px-1.5 py-0.5 rounded font-mono">F2</kbd>
+              </button>
             </form>
 
-            {/* Menu Suspenso de Autocomplete ao Vivo */}
+            {/* Menu Suspenso de Autocomplete Clínico ao Vivo */}
             {autocompleteResults.length > 0 && (
-              <div className="absolute left-3 right-3 top-16 z-30 bg-slate-900 border border-slate-700 rounded-b-xl shadow-2xl max-h-72 overflow-y-auto divide-y divide-slate-800 animate-in fade-in zoom-in-95 duration-100">
+              <div className="absolute left-2.5 right-2.5 top-14 z-30 bg-white border-2 border-[#0f3460] rounded-xl shadow-2xl max-h-80 overflow-y-auto divide-y divide-slate-200 animate-in fade-in zoom-in-95 duration-100">
                 {autocompleteResults.map((prod) => (
                   <div
                     key={prod.code}
@@ -1924,165 +1926,173 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
                       setAutocompleteResults([]);
                       focusBarcodeInput();
                     }}
-                    className="p-2.5 hover:bg-emerald-950/50 cursor-pointer flex items-center justify-between transition-colors group"
+                    className="p-2.5 hover:bg-blue-50 cursor-pointer flex items-center justify-between transition-colors group"
                   >
                     <div>
                       <div className="flex items-center space-x-2">
-                        <span className="font-bold text-slate-100 text-xs sm:text-sm group-hover:text-emerald-300">{prod.name}</span>
+                        <span className="font-black text-[#0b2545] text-xs sm:text-sm group-hover:text-emerald-700">{prod.name}</span>
                         {prod.curve === 'A' && (
-                          <span className="bg-emerald-950 text-emerald-300 text-[9px] font-bold px-1.5 py-0.5 rounded border border-emerald-700/60 shrink-0">★ TOP VENDA</span>
+                          <span className="bg-emerald-100 text-emerald-800 text-[9px] font-black px-1.5 py-0.5 rounded border border-emerald-300 shrink-0">★ TOP VENDA</span>
                         )}
                         {prod.generic && (
-                          <span className="bg-amber-950 text-amber-300 text-[9px] font-bold px-1.5 py-0.5 rounded border border-amber-800 shrink-0">GENÉRICO</span>
+                          <span className="bg-amber-100 text-amber-900 text-[9px] font-black px-1.5 py-0.5 rounded border border-amber-300 shrink-0">GENÉRICO</span>
                         )}
                         {(prod.is_controlado || prod.recipe_type) && (
-                          <span className="bg-rose-950 text-rose-300 text-[9px] font-bold px-1.5 py-0.5 rounded border border-rose-800 shrink-0">RECEITA</span>
+                          <span className="bg-rose-100 text-rose-800 text-[9px] font-black px-1.5 py-0.5 rounded border border-rose-300 shrink-0">RECEITA</span>
                         )}
                       </div>
-                      <div className="text-[11px] text-slate-400 font-mono mt-0.5">
-                        Cód: {prod.code} | EAN: {prod.barcode || 'S/N'} | Est: <span className={prod.stock_qty > 0 ? 'text-emerald-400 font-bold' : 'text-rose-400'}>{prod.stock_qty} un</span>
-                        {prod.vendas_30d ? <span className="text-amber-400/90 ml-1.5">| {prod.vendas_30d} vend./mês</span> : null}
+                      <div className="text-[11px] text-slate-600 font-mono mt-0.5">
+                        Cód: <strong>{prod.code}</strong> | EAN: {prod.barcode || 'S/N'} | Estoque: <span className={prod.stock_qty > 0 ? 'text-emerald-700 font-black' : 'text-rose-600 font-bold'}>{prod.stock_qty} un</span>
+                        {prod.vendas_30d ? <span className="text-blue-700 font-bold ml-1.5">| {prod.vendas_30d} vend./mês</span> : null}
                       </div>
                     </div>
                     <div className="text-right pl-3">
-                      <div className="text-emerald-400 font-bold font-mono text-sm sm:text-base">
+                      <div className="text-emerald-700 font-black font-mono text-sm sm:text-base">
                         R$ {(prod.promo_price > 0 ? prod.promo_price : prod.sale_price).toFixed(2)}
                       </div>
-                      <span className="text-[9px] text-slate-400 uppercase font-semibold">Clique para Incluir</span>
+                      <span className="text-[9px] text-slate-500 uppercase font-bold">Clique para Incluir</span>
                     </div>
                   </div>
                 ))}
               </div>
             )}
+
+            {/* VISOR DIGITAL DO ÚLTIMO ITEM BIPADO (ESTILO DIGIFARMA / TRIER) */}
+            <div className={`mt-2 rounded-lg px-3.5 py-2 border flex flex-wrap items-center justify-between gap-2 transition-all ${
+              lastScannedItem
+                ? 'bg-gradient-to-r from-[#f0f5ff] via-white to-[#ecfdf5] border-blue-300 shadow-inner'
+                : 'bg-slate-100 border-slate-200 text-slate-500'
+            }`}>
+              {lastScannedItem ? (
+                <>
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span className="bg-[#0f3460] text-white font-mono font-black text-xs px-2 py-1 rounded shrink-0">
+                      #{String(cart.length).padStart(2, '0')}
+                    </span>
+                    <div className="min-w-0">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-blue-800 flex items-center gap-2">
+                        <span>Último Item Registrado</span>
+                        <span className="font-mono text-slate-500">EAN: {lastScannedItem.barcode || lastScannedItem.code}</span>
+                      </div>
+                      <div className="text-sm sm:text-base font-black text-[#0b2545] truncate">
+                        {lastScannedItem.name}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 font-mono shrink-0 ml-auto">
+                    <div className="text-right">
+                      <div className="text-[10px] text-slate-500 uppercase font-sans font-bold">Qtd × Unitário</div>
+                      <div className="text-xs sm:text-sm font-bold text-slate-700">
+                        {lastScannedItem.quantity} un × R$ {lastScannedItem.unit_price.toFixed(2)}
+                      </div>
+                    </div>
+                    <div className="h-7 w-[1px] bg-slate-300" />
+                    <div className="text-right">
+                      <div className="text-[10px] text-emerald-700 uppercase font-sans font-black">Subtotal Item</div>
+                      <div className="text-base sm:text-lg font-black text-emerald-700">
+                        R$ {(() => {
+                          const td = getTieredDiscount(lastScannedItem);
+                          return (td ? td.promoTotal : lastScannedItem.total_price).toFixed(2);
+                        })()}
+                      </div>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="w-full flex items-center justify-between text-xs font-bold text-slate-500 py-0.5">
+                  <span className="flex items-center gap-2">
+                    <Package className="w-4 h-4 text-[#0f3460]" />
+                    <span>CAIXA LIVRE — AGUARDANDO LEITURA DE CÓDIGO DE BARRAS OU BUSCA POR NOME (F2)</span>
+                  </span>
+                  <span className="font-mono text-[11px] text-emerald-700 font-black hidden sm:inline">
+                    PRONTO PARA VENDA
+                  </span>
+                </div>
+              )}
+            </div>
           </div>
 
-          {/* TABELA DE ITENS NO CARRINHO */}
-          <div className="flex-1 overflow-y-auto p-2 bg-slate-950/40 min-h-0">
-            {cart.length === 0 ? (
-              <div className="h-full flex flex-col items-center justify-center p-8 text-center space-y-4 animate-in fade-in duration-200">
-                <div className="p-5 rounded-3xl bg-slate-900/60 border border-slate-800 shadow-2xl backdrop-blur-sm flex flex-col items-center">
-                  <BelaFarmaLogo size="lg" lightMode showSubtext={true} className="mb-2" />
-                  <div className="h-[1px] w-52 bg-gradient-to-r from-transparent via-slate-700 to-transparent my-2" />
-                  <div className="flex items-center gap-2 text-xs font-bold text-emerald-400 bg-emerald-950/60 px-3 py-1 rounded-full border border-emerald-800/60 shadow-sm">
-                    <Zap className="w-3.5 h-3.5 animate-pulse text-amber-400" />
-                    <span>Caixa Livre • Pronto para Venda</span>
+          {/* TABELA CLÍNICA DE ITENS NO CUPOM (FUNDO BRANCO, CABEÇALHO AZUL INSTITUCIONAL) */}
+          <div className="flex-1 bg-white rounded-xl border border-slate-300 shadow-sm overflow-hidden flex flex-col min-h-0">
+            <div className="flex-1 overflow-y-auto min-h-0">
+              {cart.length === 0 ? (
+                <div className="h-full flex flex-col items-center justify-center p-8 text-center space-y-4">
+                  <div className="p-6 rounded-2xl bg-slate-50 border border-slate-200 shadow-sm flex flex-col items-center max-w-md">
+                    <BelaFarmaLogo size="lg" showSubtext={true} className="mb-2" />
+                    <div className="h-[1px] w-48 bg-slate-200 my-2" />
+                    <div className="flex items-center gap-2 text-xs font-black text-emerald-700 bg-emerald-50 px-3.5 py-1.5 rounded-full border border-emerald-200">
+                      <Zap className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>TERMINAL DE CAIXA LIVRE • PRONTO PARA VENDA</span>
+                    </div>
+                    <p className="text-xs text-slate-500 mt-3 leading-relaxed">
+                      Passe o leitor de código de barras ou utilize os botões de função abaixo (<kbd className="text-[#0f3460] font-black bg-white px-1.5 py-0.5 rounded border border-slate-300">F2</kbd> Buscar Produto, <kbd className="text-[#0f3460] font-black bg-white px-1.5 py-0.5 rounded border border-slate-300">F9</kbd> Pré-Venda).
+                    </p>
                   </div>
                 </div>
-                <p className="text-xs text-slate-400 mt-2 max-w-sm">
-                  Passe o leitor de código de barras ou pressione <kbd className="text-emerald-400 font-bold bg-slate-900 px-1.5 py-0.5 rounded border border-slate-800">F1</kbd> para pesquisar no catálogo.
-                </p>
-              </div>
-            ) : (
-              <table className="w-full text-left text-xs border-collapse">
-                <thead className="sticky top-0 bg-slate-900/95 backdrop-blur-sm text-slate-400 border-b border-slate-700 font-mono uppercase tracking-wider z-10">
-                  <tr>
-                    <th className="py-2 px-2.5 text-center w-10">#</th>
-                    <th className="py-2 px-2.5 w-28">Código / EAN</th>
-                    <th className="py-2 px-2.5">Descrição do Produto</th>
-                    <th className="py-2 px-2.5 text-center w-28">Qtd</th>
-                    <th className="py-2 px-2.5 text-right w-24">Unit. (R$)</th>
-                    <th className="py-2 px-2.5 text-right w-20">Desc.</th>
-                    <th className="py-2 px-2.5 text-right w-24">Total (R$)</th>
-                    <th className="py-2 px-2 text-center w-10">Ações</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/70 font-mono">
-                  {cart.map((item, index) => {
-                    return (
-                      <tr 
-                        key={`${item.code}-${index}`} 
-                        className={`hover:bg-slate-850/70 transition-colors group ${
-                          item.recipe_type === 'AMARELA' ? 'bg-amber-950/20 border-l-2 border-amber-500' :
-                          item.recipe_type === 'AZUL' ? 'bg-blue-950/20 border-l-2 border-blue-500' :
-                          item.recipe_type === 'CREME' ? 'bg-amber-950/15 border-l-2 border-amber-400' :
-                          item.recipe_type === 'BRANCA' ? 'bg-slate-900/40 border-l-2 border-slate-500' :
-                          item.is_unregistered ? 'bg-amber-950/15 border-l-2 border-amber-500/80' : ''
-                        }`}
-                      >
-                        <td className="py-2 px-2.5 text-center text-slate-500">{String(index + 1).padStart(2, '0')}</td>
-                        <td className="py-2 px-2.5 text-slate-400 font-mono text-[11px]">{item.barcode || item.code}</td>
-                        <td className="py-2 px-2.5 font-sans">
-                          <div className="font-semibold text-slate-100 flex items-center gap-1.5 flex-wrap">
-                            <span>{item.name}</span>
-                            {item.generic && (
-                              <span className="text-[9px] bg-amber-950 text-amber-300 font-bold px-1 rounded border border-amber-800">GEN</span>
-                            )}
-                            {String(item.code).startsWith('EXP') && (
-                              <span className="text-[9px] bg-emerald-950/80 text-emerald-300 font-bold px-1.5 py-0.5 rounded border border-emerald-700/80 flex items-center gap-1" title="Cadastrado Expressamente no Caixa (SEM GTIN) - Fila de Saneamento Fiscal gerada">
-                                <Zap className="w-2.5 h-2.5 text-amber-400" />
-                                <span>Expresso • SEM GTIN</span>
-                              </span>
-                            )}
-                            {item.is_unregistered && !String(item.code).startsWith('EXP') && (
-                              <span className="text-[9px] bg-slate-800 text-amber-300 font-bold px-1.5 py-0.5 rounded border border-slate-700 flex items-center gap-1" title="Item avulso (gerada tarefa para cadastro com NCM)">
-                                <span>🏷️</span>
-                                <span>Item Avulso / Rápido</span>
-                              </span>
-                            )}
-                          </div>
-                          <div className="flex items-center space-x-2 mt-0.5 flex-wrap">
-                            {(() => {
-                              const tiered = getTieredDiscount(item);
-                              if (!tiered) return null;
-                              return (
-                                <span className="text-[9px] text-amber-300 bg-amber-950/80 px-1.5 py-0.5 rounded border border-amber-700/60 font-bold flex items-center gap-1" title={`Promoção Escalonada: ${tiered.label} (Economia de R$ ${tiered.savings.toFixed(2)})`}>
-                                  <Zap className="w-2.5 h-2.5 text-amber-400" />
-                                  <span>{tiered.label} (-R$ {tiered.savings.toFixed(2)})</span>
+              ) : (
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead className="sticky top-0 bg-[#0f3460] text-white border-b border-[#0b2545] font-sans uppercase tracking-wider z-10 text-[11px]">
+                    <tr>
+                      <th className="py-2.5 px-2.5 text-center w-12 whitespace-nowrap">Item</th>
+                      <th className="py-2.5 px-2.5 w-32 whitespace-nowrap">Código / EAN</th>
+                      <th className="py-2.5 px-2.5 whitespace-nowrap">Descrição do Produto</th>
+                      <th className="py-2.5 px-2.5 text-center w-28 whitespace-nowrap">Quantidade</th>
+                      <th className="py-2.5 px-2.5 text-right w-24 whitespace-nowrap">Vl. Unit (R$)</th>
+                      <th className="py-2.5 px-2.5 text-right w-20 whitespace-nowrap">Desc. (R$)</th>
+                      <th className="py-2.5 px-2.5 text-right w-28 whitespace-nowrap">Subtotal (R$)</th>
+                      <th className="py-2.5 px-2 text-center w-12 whitespace-nowrap">Ação</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200 font-mono text-slate-800">
+                    {cart.map((item, index) => {
+                      return (
+                        <tr 
+                          key={`${item.code}-${index}`} 
+                          className={`odd:bg-white even:bg-slate-50/90 hover:bg-blue-50/80 transition-colors group ${
+                            item.recipe_type === 'AMARELA' ? '!bg-amber-50 border-l-4 border-amber-500' :
+                            item.recipe_type === 'AZUL' ? '!bg-blue-50 border-l-4 border-blue-600' :
+                            item.recipe_type === 'CREME' ? '!bg-orange-50/70 border-l-4 border-amber-400' :
+                            item.recipe_type === 'BRANCA' ? '!bg-slate-100 border-l-4 border-slate-600' :
+                            item.is_unregistered ? '!bg-amber-50/60 border-l-4 border-amber-500' : ''
+                          }`}
+                        >
+                          <td className="py-2 px-2.5 text-center font-bold text-slate-500">{String(index + 1).padStart(2, '0')}</td>
+                          <td className="py-2 px-2.5 text-slate-600 font-mono text-[11px] font-semibold">{item.barcode || item.code}</td>
+                          <td className="py-2 px-2.5 font-sans">
+                            <div className="font-bold text-[#0b2545] flex items-center gap-1.5 flex-wrap text-xs sm:text-[13px]">
+                              <span>{item.name}</span>
+                              {item.generic && (
+                                <span className="text-[9px] bg-amber-100 text-amber-900 font-black px-1.5 py-0.5 rounded border border-amber-300">GEN</span>
+                              )}
+                              {String(item.code).startsWith('EXP') && (
+                                <span className="text-[9px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.5 rounded border border-emerald-300 flex items-center gap-1" title="Cadastrado Expressamente no Caixa (SEM GTIN)">
+                                  <Zap className="w-2.5 h-2.5 text-amber-600" />
+                                  <span>Expresso • SEM GTIN</span>
                                 </span>
-                              );
-                            })()}
-                            {item.recipe_type && (() => {
-                              const recipeData = controlledRecipesData?.find(r => r.product_code === item.code);
-                              const hasLot = Boolean(recipeData?.batch_lot);
-                              return (
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setActiveControlledItem({
-                                        code: item.code,
-                                        barcode: item.barcode,
-                                        name: item.name,
-                                        quantity: item.quantity,
-                                        unit_price: item.unit_price,
-                                        recipe_type: (item.recipe_type || 'BRANCA') as any,
-                                        recipe_label: item.recipe_label || 'Receita de Controle Especial'
-                                      });
-                                      setIsControlledRecipeOpen(true);
-                                    }}
-                                    className={`text-[9px] font-bold px-1.5 py-0.5 rounded cursor-pointer hover:opacity-80 transition-opacity flex items-center gap-1 ${
-                                      item.recipe_type === 'AMARELA' ? 'bg-amber-400 text-amber-950 font-black' :
-                                      item.recipe_type === 'AZUL' ? 'bg-blue-600 text-white font-black' :
-                                      item.recipe_type === 'CREME' ? 'bg-amber-200 text-amber-950 font-black' : 'bg-slate-700 text-white font-bold'
-                                    }`}
-                                    title="Clique para abrir ou editar o formulário da receita retida"
-                                  >
-                                    <span>📋</span>
-                                    <span>{item.recipe_label || 'Receita Retida (SNGPC)'}</span>
-                                  </button>
-
-                                  {hasLot ? (
-                                    <span 
-                                      onClick={() => {
-                                        setActiveControlledItem({
-                                          code: item.code,
-                                          barcode: item.barcode,
-                                          name: item.name,
-                                          quantity: item.quantity,
-                                          unit_price: item.unit_price,
-                                          recipe_type: (item.recipe_type || 'BRANCA') as any,
-                                          recipe_label: item.recipe_label || 'Receita de Controle Especial'
-                                        });
-                                        setIsControlledRecipeOpen(true);
-                                      }}
-                                      className="text-[9px] font-mono font-bold bg-emerald-950/80 text-emerald-300 border border-emerald-700 px-1.5 py-0.5 rounded flex items-center gap-1 cursor-pointer hover:bg-emerald-900"
-                                      title="Lote registrado no formulário. Clique para alterar."
-                                    >
-                                      <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-                                      <span>Lote: {recipeData?.batch_lot}</span>
-                                      {recipeData?.expiry_date && <span className="text-slate-400 font-normal">({recipeData.expiry_date})</span>}
-                                    </span>
-                                  ) : (
+                              )}
+                              {item.is_unregistered && !String(item.code).startsWith('EXP') && (
+                                <span className="text-[9px] bg-amber-100 text-amber-900 font-bold px-1.5 py-0.5 rounded border border-amber-300 flex items-center gap-1">
+                                  <span>🏷️</span>
+                                  <span>Item Avulso</span>
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center space-x-2 mt-0.5 flex-wrap">
+                              {(() => {
+                                const tiered = getTieredDiscount(item);
+                                if (!tiered) return null;
+                                return (
+                                  <span className="text-[10px] text-amber-900 bg-amber-100 px-1.5 py-0.5 rounded border border-amber-300 font-bold flex items-center gap-1">
+                                    <Zap className="w-2.5 h-2.5 text-amber-600" />
+                                    <span>{tiered.label} (-R$ {tiered.savings.toFixed(2)})</span>
+                                  </span>
+                                );
+                              })()}
+                              {item.recipe_type && (() => {
+                                const recipeData = controlledRecipesData?.find(r => r.product_code === item.code);
+                                const hasLot = Boolean(recipeData?.batch_lot);
+                                return (
+                                  <div className="flex items-center gap-1.5 flex-wrap">
                                     <button
                                       type="button"
                                       onClick={() => {
@@ -2097,128 +2107,186 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
                                         });
                                         setIsControlledRecipeOpen(true);
                                       }}
-                                      className="text-[9px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/60 hover:bg-amber-500/30 px-1.5 py-0.5 rounded flex items-center gap-1 animate-pulse"
-                                      title="Obrigatório informar o lote do medicamento"
+                                      className={`text-[9px] font-bold px-1.5 py-0.5 rounded cursor-pointer hover:opacity-80 transition-opacity flex items-center gap-1 ${
+                                        item.recipe_type === 'AMARELA' ? 'bg-amber-400 text-amber-950 font-black' :
+                                        item.recipe_type === 'AZUL' ? 'bg-blue-600 text-white font-black' :
+                                        item.recipe_type === 'CREME' ? 'bg-amber-200 text-amber-950 font-black' : 'bg-slate-700 text-white font-bold'
+                                      }`}
+                                      title="Clique para abrir ou editar o formulário da receita retida"
                                     >
-                                      <AlertTriangle className="w-3 h-3 text-amber-400" />
-                                      <span>Lote Obrigatório</span>
+                                      <span>📋</span>
+                                      <span>{item.recipe_label || 'Receita Retida (SNGPC)'}</span>
                                     </button>
-                                  )}
-                                </div>
-                              );
-                            })()}
-                            {item.discount > 0 && (
-                              <span className="text-[9px] text-emerald-400 bg-emerald-950/80 px-1 rounded border border-emerald-800">
-                                Desconto Fidelidade
-                              </span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="py-2 px-2.5 text-center">
-                          <div className="inline-flex items-center bg-slate-950 border border-slate-700 rounded-md overflow-hidden">
-                            <button 
-                              onClick={() => handleUpdateQuantity(index, -1)}
-                              className="px-1.5 py-0.5 text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
-                            >
-                              <Minus className="w-3 h-3" />
-                            </button>
-                            <span className="px-2 font-bold text-slate-100 text-xs">{item.quantity}</span>
-                            <button 
-                              onClick={() => handleUpdateQuantity(index, 1)}
-                              className="px-1.5 py-0.5 text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
-                            >
-                              <Plus className="w-3 h-3" />
-                            </button>
-                          </div>
-                        </td>
-                        <td className="py-2 px-2.5 text-right font-mono text-slate-300">{item.unit_price.toFixed(2)}</td>
-                        <td className="py-2 px-2.5 text-right font-mono text-amber-400 whitespace-nowrap">
-                          {(() => {
-                            const tiered = getTieredDiscount(item);
-                            const totalItemDiscount = (item.discount * item.quantity) + (tiered ? tiered.savings : 0);
-                            return totalItemDiscount > 0 ? `-${totalItemDiscount.toFixed(2)}` : '0.00';
-                          })()}
-                        </td>
-                        <td className="py-2 px-2.5 text-right font-bold text-emerald-400 text-xs sm:text-sm">
-                          {(() => {
-                            const tiered = getTieredDiscount(item);
-                            const finalItemTotal = tiered ? tiered.promoTotal : item.total_price;
-                            return finalItemTotal.toFixed(2);
-                          })()}
-                        </td>
-                        <td className="py-2 px-2 text-center">
-                          <button 
-                            onClick={() => handleRemoveItem(index)}
-                            className="p-1 text-slate-500 hover:text-rose-400 hover:bg-rose-950/40 rounded transition-colors"
-                            title="Remover Item"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            )}
-          </div>
 
-          {/* RODAPÉ DO CARRINHO */}
-          <div className="bg-slate-900 p-2.5 sm:p-3 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400 shrink-0">
-            <div className="flex items-center space-x-4">
-              <span>Total de Itens: <strong className="text-slate-200">{totalQuantity} un</strong></span>
-              <span>Volume de Produtos: <strong className="text-slate-200">{cart.length} tipos</strong></span>
+                                    {hasLot ? (
+                                      <span 
+                                        onClick={() => {
+                                          setActiveControlledItem({
+                                            code: item.code,
+                                            barcode: item.barcode,
+                                            name: item.name,
+                                            quantity: item.quantity,
+                                            unit_price: item.unit_price,
+                                            recipe_type: (item.recipe_type || 'BRANCA') as any,
+                                            recipe_label: item.recipe_label || 'Receita de Controle Especial'
+                                          });
+                                          setIsControlledRecipeOpen(true);
+                                        }}
+                                        className="text-[9px] font-mono font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 px-1.5 py-0.5 rounded flex items-center gap-1 cursor-pointer hover:bg-emerald-200"
+                                        title="Lote registrado no formulário. Clique para alterar."
+                                      >
+                                        <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                        <span>Lote: {recipeData?.batch_lot}</span>
+                                        {recipeData?.expiry_date && <span className="text-slate-600 font-normal">({recipeData.expiry_date})</span>}
+                                      </span>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setActiveControlledItem({
+                                            code: item.code,
+                                            barcode: item.barcode,
+                                            name: item.name,
+                                            quantity: item.quantity,
+                                            unit_price: item.unit_price,
+                                            recipe_type: (item.recipe_type || 'BRANCA') as any,
+                                            recipe_label: item.recipe_label || 'Receita de Controle Especial'
+                                          });
+                                          setIsControlledRecipeOpen(true);
+                                        }}
+                                        className="text-[9px] font-bold bg-rose-100 text-rose-800 border border-rose-300 hover:bg-rose-200 px-1.5 py-0.5 rounded flex items-center gap-1 animate-pulse cursor-pointer"
+                                        title="Obrigatório informar o lote do medicamento"
+                                      >
+                                        <AlertTriangle className="w-3 h-3 text-rose-600" />
+                                        <span>Lote Obrigatório</span>
+                                      </button>
+                                    )}
+                                  </div>
+                                );
+                              })()}
+                              {item.discount > 0 && (
+                                <span className="text-[9px] text-emerald-800 bg-emerald-100 px-1.5 py-0.5 rounded border border-emerald-300 font-bold">
+                                  Desconto Fidelidade
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="py-2 px-2.5 text-center">
+                            <div className="inline-flex items-center bg-white border border-slate-300 rounded-md overflow-hidden shadow-2xs">
+                              <button 
+                                onClick={() => handleUpdateQuantity(index, -1)}
+                                className="px-2 py-1 text-slate-600 hover:bg-slate-200 hover:text-slate-900 transition-colors cursor-pointer"
+                              >
+                                <Minus className="w-3 h-3" />
+                              </button>
+                              <span className="px-2.5 font-black text-[#0b2545] text-xs">{item.quantity}</span>
+                              <button 
+                                onClick={() => handleUpdateQuantity(index, 1)}
+                                className="px-2 py-1 text-slate-600 hover:bg-slate-200 hover:text-slate-900 transition-colors cursor-pointer"
+                              >
+                                <Plus className="w-3 h-3" />
+                              </button>
+                            </div>
+                          </td>
+                          <td className="py-2 px-2.5 text-right font-mono font-semibold text-slate-700">{item.unit_price.toFixed(2)}</td>
+                          <td className="py-2 px-2.5 text-right font-mono font-bold text-amber-700 whitespace-nowrap">
+                            {(() => {
+                              const tiered = getTieredDiscount(item);
+                              const totalItemDiscount = (item.discount * item.quantity) + (tiered ? tiered.savings : 0);
+                              return totalItemDiscount > 0 ? `-${totalItemDiscount.toFixed(2)}` : '0.00';
+                            })()}
+                          </td>
+                          <td className="py-2 px-2.5 text-right font-black text-emerald-700 text-xs sm:text-sm">
+                            {(() => {
+                              const tiered = getTieredDiscount(item);
+                              const finalItemTotal = tiered ? tiered.promoTotal : item.total_price;
+                              return finalItemTotal.toFixed(2);
+                            })()}
+                          </td>
+                          <td className="py-2 px-2 text-center">
+                            <button 
+                              onClick={() => handleRemoveItem(index)}
+                              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors cursor-pointer"
+                              title="Remover Item do Cupom"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
             </div>
-            {cart.length > 0 && (
-              <button 
-                onClick={() => setIsClearCartModalOpen(true)}
-                className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-rose-300 rounded border border-slate-700 transition-colors flex items-center gap-1"
-              >
-                <Trash2 className="w-3.5 h-3.5 text-rose-400" />
-                <span>Limpar Cupom (F9)</span>
-              </button>
-            )}
+
+            {/* RODAPÉ DA TABELA DO CUPOM */}
+            <div className="bg-slate-100 px-3.5 py-2 border-t border-slate-300 flex items-center justify-between text-xs text-slate-700 shrink-0">
+              <div className="flex items-center space-x-5">
+                <span>Volumes Totais: <strong className="text-[#0b2545] font-black">{totalQuantity} un</strong></span>
+                <span>Itens no Cupom: <strong className="text-[#0b2545] font-black">{cart.length} produto(s)</strong></span>
+                {totalDiscount > 0 && (
+                  <span className="text-emerald-700 font-bold">
+                    Economia no Cupom: <strong>R$ {totalDiscount.toFixed(2)}</strong>
+                  </span>
+                )}
+              </div>
+              {cart.length > 0 && (
+                <button 
+                  onClick={() => setIsClearCartModalOpen(true)}
+                  className="px-2.5 py-1 bg-white hover:bg-rose-50 text-rose-700 font-bold rounded-md border border-rose-300 transition-colors flex items-center gap-1 shadow-2xs cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                  <span>Cancelar Cupom (ESC)</span>
+                </button>
+              )}
+            </div>
           </div>
         </section>
 
-        {/* COLUNA DIREITA: CLIENTE, RESUMO FINANCEIRO, FORMA DE PAGAMENTO E FINALIZAÇÃO (Cols 4 ou 5 de 12) */}
-        <section className="lg:col-span-5 xl:col-span-4 flex flex-col space-y-3 min-h-0 overflow-y-auto pr-0.5">
+        {/* COLUNA DIREITA: CLIENTE, RESUMO FINANCEIRO, PAGAMENTO RÁPIDO E VISOR DE TOTAL (4 de 12 Colunas) */}
+        <section className="lg:col-span-5 xl:col-span-4 flex flex-col gap-2 min-h-0 overflow-y-auto pr-0.5">
           
-          {/* CARD DE CLIENTE / PROGRAMA DE FIDELIDADE (F3) */}
-          <div className="bg-slate-900 rounded-xl border border-slate-800 p-3 shadow-md shrink-0">
+          {/* CARD 1: CLIENTE / CONVÊNIO / CREDIÁRIO (F3) */}
+          <div className="bg-white rounded-xl border border-slate-300 p-3 shadow-sm shrink-0">
             <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center space-x-2 text-xs font-semibold text-slate-300">
-                <UserCheck className="w-4 h-4 text-emerald-400" />
-                <span>Cliente / Programa Fidelidade</span>
+              <div className="flex items-center space-x-2 text-xs font-black text-[#0b2545] uppercase tracking-wide">
+                <UserCheck className="w-4 h-4 text-emerald-600" />
+                <span>Cliente / Fidelidade / Crediário</span>
               </div>
-              <span className="text-[10px] bg-slate-800 text-amber-300 font-bold px-1.5 py-0.5 rounded border border-slate-700">F3</span>
+              <button
+                onClick={() => setIsCustomerModalOpen(true)}
+                className="text-[10px] bg-[#0f3460] text-white font-bold px-2 py-0.5 rounded hover:bg-[#164985] transition cursor-pointer"
+              >
+                F3 Buscar
+              </button>
             </div>
 
             {isCustomerIdentified ? (
-              <div className="bg-slate-950 p-2.5 rounded-lg border border-emerald-900/50 flex items-start justify-between">
+              <div className="bg-emerald-50/70 p-2.5 rounded-lg border border-emerald-300 flex items-start justify-between">
                 <div>
-                  <div className="font-bold text-xs sm:text-sm text-emerald-300">
+                  <div className="font-black text-xs sm:text-sm text-[#0b2545]">
                     {selectedCustomer ? selectedCustomer.name : (customerNameInput || 'Consumidor Identificado')}
                   </div>
-                  <div className="text-[11px] text-slate-400 font-mono mt-0.5">
+                  <div className="text-[11px] text-slate-600 font-mono mt-0.5">
                     CPF/CNPJ: {customerCpf || (selectedCustomer?.cpf || 'Não informado')}
                   </div>
                   <div className="flex items-center space-x-2 mt-1.5 text-[10px]">
-                    <span className="bg-emerald-950 text-emerald-300 px-1.5 py-0.5 rounded font-medium border border-emerald-800/80">
+                    <span className="bg-emerald-600 text-white px-1.5 py-0.5 rounded font-bold">
                       Pontos: {customerPoints} pts
                     </span>
-                    <span className="text-slate-400">{convenioNome}</span>
+                    <span className="text-slate-600 font-semibold">{convenioNome}</span>
                   </div>
 
                   {customerCreditInfo && (
-                    <div className="mt-2 pt-1.5 border-t border-slate-800 flex items-center justify-between gap-2 text-[10px]">
+                    <div className="mt-2 pt-1.5 border-t border-emerald-200 flex items-center justify-between gap-3 text-[11px]">
                       <div>
-                        <span className="text-slate-500">Débito: </span>
-                        <span className="text-amber-400 font-mono font-bold">R$ {Number(customerCreditInfo.open_debt).toFixed(2)}</span>
+                        <span className="text-slate-600">Em Aberto: </span>
+                        <span className="text-amber-700 font-mono font-black">R$ {Number(customerCreditInfo.open_debt).toFixed(2)}</span>
                       </div>
                       <div>
-                        <span className="text-slate-500">Limite Disp: </span>
-                        <span className={`font-mono font-bold ${customerCreditInfo.available_limit > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                        <span className="text-slate-600">Disponível: </span>
+                        <span className={`font-mono font-black ${customerCreditInfo.available_limit > 0 ? 'text-emerald-700' : 'text-rose-600'}`}>
                           R$ {Number(customerCreditInfo.available_limit).toFixed(2)}
                         </span>
                       </div>
@@ -2227,16 +2295,16 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
                 </div>
                 <button 
                   onClick={handleResetCustomer}
-                  className="text-[11px] text-slate-500 hover:text-slate-300 underline font-semibold cursor-pointer"
+                  className="text-[11px] text-rose-600 hover:text-rose-800 underline font-bold cursor-pointer"
                 >
                   Trocar
                 </button>
               </div>
             ) : (
-              <div className="flex space-x-2">
+              <div className="flex space-x-1.5">
                 <input
                   type="text"
-                  placeholder="Informe o CPF ou Nome do cliente..."
+                  placeholder="Digite o CPF ou Nome do cliente..."
                   value={customerCpf}
                   onChange={(e) => setCustomerCpf(e.target.value)}
                   onKeyDown={(e) => {
@@ -2245,57 +2313,55 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
                       handleIdentifyCustomer(customerCpf);
                     }
                   }}
-                  className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 font-mono focus:outline-none focus:border-emerald-500 placeholder-slate-500"
+                  className="flex-1 bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-mono font-semibold focus:outline-none focus:bg-white focus:border-[#0f3460] placeholder-slate-400"
                 />
                 <button 
                   onClick={() => handleIdentifyCustomer(customerCpf)}
-                  className="bg-emerald-700 hover:bg-emerald-600 text-white text-xs px-3 py-1.5 rounded-lg font-bold transition-all shadow-sm"
+                  className="bg-[#0f3460] hover:bg-[#164985] text-white text-xs px-3 py-1.5 rounded-lg font-bold transition-all shadow-2xs cursor-pointer"
                 >
-                  OK
+                  Vincular
                 </button>
               </div>
             )}
           </div>
 
-          {/* BOX DO RESUMO FINANCEIRO */}
-          <div className="bg-slate-900 rounded-xl border border-slate-800 p-3 sm:p-4 shadow-md flex flex-col justify-between space-y-3">
-            <div>
-              <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2.5 flex items-center justify-between">
-                <span>Resumo Financeiro da Compra</span>
-                <DollarSign className="w-4 h-4 text-emerald-400" />
-              </h2>
+          {/* CARD 2: RESUMO FINANCEIRO, DESCONTO SEGURO & PAGAMENTO DIRETO */}
+          <div className="bg-white rounded-xl border border-slate-300 p-3 shadow-sm flex-1 flex flex-col justify-between space-y-2.5">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between border-b border-slate-200 pb-1.5">
+                <span className="text-xs font-black text-[#0b2545] uppercase tracking-wider flex items-center gap-1.5">
+                  <DollarSign className="w-4 h-4 text-emerald-600" />
+                  Resumo Financeiro
+                </span>
+                <button
+                  onClick={() => setIsDiscountModalOpen(true)}
+                  className="text-[10px] bg-amber-100 hover:bg-amber-200 px-2 py-0.5 rounded border border-amber-300 text-amber-900 font-black cursor-pointer"
+                  title="Aplicar Desconto Manual (F7)"
+                >
+                  F7 Desconto
+                </button>
+              </div>
               
-              <div className="space-y-1.5 text-xs sm:text-sm">
-                <div className="flex justify-between text-slate-400">
-                  <span>Subtotal Bruto</span>
-                  <span className="font-mono text-slate-200 font-semibold">R$ {subtotal.toFixed(2)}</span>
+              <div className="space-y-1 text-xs">
+                <div className="flex justify-between text-slate-600 font-medium">
+                  <span>Subtotal Bruto ({totalQuantity} un)</span>
+                  <span className="font-mono text-slate-900 font-bold">R$ {subtotal.toFixed(2)}</span>
                 </div>
 
-                {/* LINHA DE DESCONTO UNIFICADO */}
-                <div className="flex justify-between text-slate-400 items-center">
+                <div className="flex justify-between text-slate-600 items-center font-medium">
                   <span className="flex items-center space-x-1">
-                    <Tag className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Desconto Unificado</span>
+                    <Tag className="w-3.5 h-3.5 text-amber-600" />
+                    <span>Descontos Aplicados</span>
                   </span>
-                  <div className="flex items-center gap-1.5 font-mono">
-                    <span className={`font-semibold ${totalDiscount > 0 ? 'text-amber-400' : 'text-slate-500'}`}>
-                      {totalDiscount > 0 ? `- R$ ${totalDiscount.toFixed(2)}` : 'R$ 0.00'}
-                    </span>
-                    <button
-                      onClick={() => setIsDiscountModalOpen(true)}
-                      className="text-[10px] bg-slate-800 hover:bg-slate-700 px-1.5 py-0.5 rounded border border-slate-700 text-amber-300 font-bold"
-                      title="Editar desconto da venda (F7)"
-                    >
-                      F7
-                    </button>
-                  </div>
+                  <span className={`font-mono font-bold ${totalDiscount > 0 ? 'text-amber-700' : 'text-slate-400'}`}>
+                    {totalDiscount > 0 ? `- R$ ${totalDiscount.toFixed(2)}` : 'R$ 0.00'}
+                  </span>
                 </div>
 
-                {/* Composição sutil dos descontos unificados dos itens bipados */}
                 {(tieredSavingsTotal > 0 || generalDiscountAmount > 0 || itemDiscounts > 0) && (
-                  <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono px-2 py-1 bg-slate-950/70 rounded-lg border border-slate-800/80">
-                    <span className="text-slate-500">Composição Bipada:</span>
-                    <span className="text-amber-300/90 font-medium">
+                  <div className="flex items-center justify-between text-[10px] text-slate-600 font-mono px-2 py-1 bg-amber-50 rounded border border-amber-200">
+                    <span className="font-sans font-semibold">Composição:</span>
+                    <span className="text-amber-900 font-bold">
                       {[
                         generalDiscountAmount > 0 ? `R$ ${generalDiscountAmount.toFixed(2)} geral` : null,
                         tieredSavingsTotal > 0 ? `R$ ${tieredSavingsTotal.toFixed(2)} escalonado` : null,
@@ -2305,49 +2371,31 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
                   </div>
                 )}
 
-                {/* BOTÃO DE DESCONTO SEGURO UNIFICADO (BASEADO NOS ITENS BIPADOS) */}
-                <div className="pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setIsSafeDiscountModalOpen(true)}
-                    disabled={cart.length === 0}
-                    className="w-full py-2 px-3 rounded-xl bg-gradient-to-r from-amber-950/80 via-slate-900 to-emerald-950/80 hover:from-amber-900 hover:to-emerald-900 border border-amber-500/40 hover:border-amber-400 text-xs font-bold flex items-center justify-between transition-all shadow-md cursor-pointer disabled:opacity-40"
-                    title="Aplicar desconto seguro unificado baseado nos itens bipados (Piso: Custo + 10%)"
-                  >
-                    <div className="flex items-center gap-2 text-slate-200">
-                      <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <div className="text-left">
-                        <div className="leading-tight">Desconto Seguro Unificado:</div>
-                        <div className="text-[10px] text-slate-400 font-normal">
-                          {cart.length} {cart.length === 1 ? 'item bipado' : 'itens bipados'} ({totalQuantity} un)
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1 font-mono text-right">
-                      <div>
-                        <div className="text-emerald-400 font-black text-sm">
-                          R$ {safeDiscountSummary.maxSafeDiscount.toFixed(2)}
-                        </div>
-                        <div className="text-[9px] text-slate-400 uppercase font-sans">Margem Máx</div>
-                      </div>
-                      <ChevronRight className="w-3.5 h-3.5 text-amber-400 ml-1" />
-                    </div>
-                  </button>
-                </div>
-              </div>
-
-              {/* CARD GIGANTE DO TOTAL A PAGAR */}
-              <div className="bg-slate-950 p-3 sm:p-4 rounded-xl border border-emerald-900/60 shadow-inner mt-3">
-                <div className="text-[10px] sm:text-xs text-slate-400 uppercase tracking-wider font-semibold">TOTAL A PAGAR</div>
-                <div className="text-2xl sm:text-3xl xl:text-4xl font-extrabold text-emerald-400 font-mono mt-1 tracking-tight">
-                  R$ {totalFinal.toFixed(2)}
-                </div>
+                {/* BOTÃO DE DESCONTO SEGURO UNIFICADO (PISO CUSTO + 10%) */}
+                <button
+                  type="button"
+                  onClick={() => setIsSafeDiscountModalOpen(true)}
+                  disabled={cart.length === 0}
+                  className="w-full py-1.5 px-2.5 rounded-lg bg-gradient-to-r from-emerald-50 via-slate-50 to-amber-50 hover:from-emerald-100 hover:to-amber-100 border border-emerald-300 text-xs font-bold flex items-center justify-between transition-all cursor-pointer disabled:opacity-40"
+                  title="Aplicar desconto seguro unificado baseado nos itens bipados (Piso: Custo + 10%)"
+                >
+                  <div className="flex items-center gap-1.5 text-[#0b2545]">
+                    <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span className="text-[11px] font-black">Desconto Seguro (Máx s/ Prejuízo):</span>
+                  </div>
+                  <div className="flex items-center gap-1 font-mono">
+                    <span className="text-emerald-700 font-black text-xs">
+                      R$ {safeDiscountSummary.maxSafeDiscount.toFixed(2)}
+                    </span>
+                    <ChevronRight className="w-3.5 h-3.5 text-emerald-700" />
+                  </div>
+                </button>
               </div>
             </div>
 
             {/* SELEÇÃO DIRETA DA FORMA DE PAGAMENTO */}
-            <div className="space-y-2 pt-1 border-t border-slate-800">
-              <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">
+            <div className="space-y-2 pt-2 border-t border-slate-200">
+              <label className="text-[11px] font-black text-[#0b2545] uppercase tracking-wider block">
                 Forma de Pagamento
               </label>
               
@@ -2365,13 +2413,13 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
                     <button
                       key={method.id}
                       onClick={() => setSelectedMethod(method.id as any)}
-                      className={`flex items-center space-x-2 p-2 rounded-lg border font-bold transition-all ${
+                      className={`flex items-center space-x-2 p-2 rounded-lg border font-bold transition-all cursor-pointer ${
                         isActive
-                          ? 'bg-emerald-950/80 border-emerald-500 text-emerald-300 shadow-md ring-1 ring-emerald-500/50'
-                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                          ? 'bg-[#0f3460] border-[#0b2545] text-white shadow-sm ring-2 ring-[#0f3460]/20'
+                          : 'bg-slate-50 border-slate-300 text-slate-700 hover:bg-slate-100 hover:text-[#0b2545]'
                       }`}
                     >
-                      <Icon className={`w-4 h-4 ${isActive ? 'text-emerald-400' : 'text-slate-500'}`} />
+                      <Icon className={`w-4 h-4 ${isActive ? 'text-emerald-300' : 'text-slate-500'}`} />
                       <span className="truncate">{method.label}</span>
                     </button>
                   );
@@ -2380,19 +2428,19 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
 
               {/* CAMPOS ESPECÍFICOS POR FORMA DE PAGAMENTO */}
               {selectedMethod === 'DINHEIRO' && (
-                <div className="bg-slate-950 p-2.5 rounded-lg border border-slate-800 space-y-1.5">
-                  <div className="flex items-center justify-between text-xs text-slate-300">
-                    <span className="text-[11px] text-slate-400">Valor Recebido (R$):</span>
+                <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-300 space-y-1.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-[11px] font-bold text-slate-600">Valor Recebido em Espécie:</span>
                     <button
                       type="button"
                       onClick={() => setCashReceived(totalFinal.toFixed(2))}
-                      className="text-[10px] font-bold text-emerald-400 hover:underline cursor-pointer"
+                      className="text-[10px] font-black text-emerald-700 hover:underline cursor-pointer"
                     >
-                      Preencher Exato
+                      Valor Exato
                     </button>
                   </div>
-                  <div className="flex space-x-1.5">
-                    <span className="flex items-center px-2 bg-slate-900 text-slate-400 font-mono border border-slate-700 rounded-l-md text-xs">R$</span>
+                  <div className="flex">
+                    <span className="flex items-center px-2.5 bg-slate-200 text-slate-700 font-mono font-bold border border-r-0 border-slate-300 rounded-l-md text-xs">R$</span>
                     <input
                       type="text"
                       placeholder={`Ex: ${totalFinal.toFixed(2)}`}
@@ -2404,13 +2452,13 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
                           handleStartCheckout();
                         }
                       }}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-r-md px-2.5 py-1 font-mono text-emerald-300 font-bold text-sm focus:outline-none focus:border-emerald-500"
+                      className="w-full bg-white border border-slate-300 rounded-r-md px-2.5 py-1 font-mono text-[#0b2545] font-black text-sm focus:outline-none focus:border-emerald-600"
                     />
                   </div>
                   {cashChange > 0 && (
-                    <div className="flex justify-between items-center pt-1.5 text-xs border-t border-slate-800">
-                      <span className="text-slate-400">Troco a devolver:</span>
-                      <span className="font-mono font-bold text-sm text-emerald-400">
+                    <div className="flex justify-between items-center pt-1.5 text-xs border-t border-slate-200">
+                      <span className="font-bold text-slate-600">TROCO A DEVOLVER:</span>
+                      <span className="font-mono font-black text-sm text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded border border-emerald-300">
                         R$ {cashChange.toFixed(2)}
                       </span>
                     </div>
@@ -2419,25 +2467,24 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
               )}
 
               {selectedMethod === 'PIX' && (
-                <div className="bg-slate-950 p-2.5 rounded-lg border border-slate-800 text-center space-y-1.5">
-                  <div className="inline-block p-1.5 bg-white rounded-md">
-                    <div className="w-20 h-20 bg-slate-900 flex items-center justify-center text-white text-[9px] font-mono text-center p-1">
-                      [ QR CODE PIX CHAVE BELAFARMA ]
-                    </div>
+                <div className="bg-slate-50 p-2 rounded-lg border border-slate-300 text-center flex items-center justify-between gap-2">
+                  <div className="text-left">
+                    <div className="text-xs font-black text-[#0b2545]">Pagamento Instantâneo PIX</div>
+                    <p className="text-[10px] text-slate-500">Confirme o recebimento na maquininha ou conta bancária.</p>
                   </div>
-                  <p className="text-[10px] text-slate-400">Aguardando confirmação do pagamento no sistema bancário...</p>
+                  <QrCode className="w-8 h-8 text-[#0f3460] shrink-0" />
                 </div>
               )}
 
               {['CARTAO_DEBITO', 'CARTAO_CREDITO'].includes(selectedMethod) && (
-                <div className="bg-slate-950 p-2.5 rounded-lg border border-slate-800 space-y-2">
+                <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-300">
                   <div className="grid grid-cols-2 gap-2 text-xs">
                     <div>
-                      <label className="block text-[10px] font-bold text-slate-400 mb-0.5">Bandeira:</label>
+                      <label className="block text-[10px] font-bold text-slate-600 mb-0.5">Bandeira:</label>
                       <select
                         value={cardBrand}
                         onChange={(e) => setCardBrand(e.target.value)}
-                        className="w-full bg-slate-900 border border-slate-700 rounded-md px-2 py-1 text-xs text-slate-200 font-bold focus:outline-none focus:border-emerald-500"
+                        className="w-full bg-white border border-slate-300 rounded-md px-2 py-1 text-xs text-slate-800 font-bold focus:outline-none focus:border-[#0f3460]"
                       >
                         <option value="MASTERCARD">Mastercard</option>
                         <option value="VISA">Visa</option>
@@ -2448,11 +2495,11 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
 
                     {selectedMethod === 'CARTAO_CREDITO' && (
                       <div>
-                        <label className="block text-[10px] font-bold text-slate-400 mb-0.5">Parcelas:</label>
+                        <label className="block text-[10px] font-bold text-slate-600 mb-0.5">Parcelas:</label>
                         <select
                           value={installments}
                           onChange={(e) => setInstallments(parseInt(e.target.value, 10))}
-                          className="w-full bg-slate-900 border border-slate-700 rounded-md px-2 py-1 text-xs text-slate-200 font-bold focus:outline-none focus:border-emerald-500"
+                          className="w-full bg-white border border-slate-300 rounded-md px-2 py-1 text-xs text-slate-800 font-bold focus:outline-none focus:border-[#0f3460]"
                         >
                           <option value="1">1x à vista (R$ {totalFinal.toFixed(2)})</option>
                           <option value="2">2x (R$ {(totalFinal / 2).toFixed(2)})</option>
@@ -2465,16 +2512,16 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
               )}
 
               {selectedMethod === 'CREDIARIO' && (
-                <div className="bg-slate-950 p-2.5 rounded-lg border border-slate-800 space-y-1.5">
-                  <label className="block text-[10px] font-bold text-slate-400">Cliente do Crediário:</label>
+                <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-300 space-y-1.5">
+                  <label className="block text-[10px] font-bold text-slate-600">Cliente do Crediário:</label>
                   <input
                     type="text"
                     value={customerSearch}
                     onChange={(e) => setCustomerSearch(e.target.value)}
                     placeholder="Filtrar clientes cadastrados..."
-                    className="w-full bg-slate-900 border border-slate-700 rounded-md px-2 py-1 text-xs text-slate-200 font-medium mb-1"
+                    className="w-full bg-white border border-slate-300 rounded-md px-2 py-1 text-xs text-slate-800 font-medium mb-1"
                   />
-                  <div className="max-h-24 overflow-y-auto border border-slate-800 rounded-md bg-slate-900 divide-y divide-slate-800">
+                  <div className="max-h-20 overflow-y-auto border border-slate-300 rounded-md bg-white divide-y divide-slate-200">
                     {customersList
                       .filter(c => c.name.toLowerCase().includes(customerSearch.toLowerCase()))
                       .slice(0, 6)
@@ -2487,7 +2534,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
                             if (c.cpf) setCustomerCpf(c.cpf);
                           }}
                           className={`p-1.5 text-xs cursor-pointer font-bold flex justify-between ${
-                            selectedCustomer?.id === c.id ? 'bg-emerald-600 text-white' : 'hover:bg-slate-800 text-slate-300'
+                            selectedCustomer?.id === c.id ? 'bg-[#0f3460] text-white' : 'hover:bg-slate-100 text-slate-700'
                           }`}
                         >
                           <span>{c.name}</span>
@@ -2496,69 +2543,79 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
                       ))}
                   </div>
                   {selectedCustomer && (
-                    <p className="text-[11px] font-bold text-emerald-400 mt-1">
+                    <p className="text-[11px] font-bold text-emerald-700 mt-1">
                       Vinculado: {selectedCustomer.name}
                     </p>
                   )}
                 </div>
               )}
 
-              {/* SEÇÃO FISCAL: EMISSÃO NFC-e & DADOS DO CLIENTE NA NOTA */}
-              <div className="bg-slate-950 p-2.5 rounded-lg border border-slate-800 space-y-1.5">
+              {/* SEÇÃO FISCAL COMPACTA: EMISSÃO NFC-e & CPF NA NOTA */}
+              <div className="bg-slate-50 p-2 rounded-lg border border-slate-300 space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-bold text-slate-300 flex items-center gap-1.5">
-                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                    Cupom Fiscal (NFC-e)
+                  <span className="text-[11px] font-bold text-[#0b2545] flex items-center gap-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                    Cupom Fiscal NFC-e (SEFAZ)
                   </span>
                   <label className="flex items-center gap-1.5 cursor-pointer">
                     <input
                       type="checkbox"
                       checked={emitNfce}
                       onChange={(e) => toggleEmitNfce(e.target.checked)}
-                      className="w-3.5 h-3.5 text-emerald-600 rounded border-slate-700 bg-slate-900 focus:ring-emerald-500"
+                      className="w-3.5 h-3.5 text-emerald-600 rounded border-slate-300 bg-white focus:ring-emerald-500"
                     />
-                    <span className="text-[11px] font-semibold text-slate-400">
-                      Emitir NFC-e
+                    <span className="text-[11px] font-bold text-slate-700">
+                      Emitir c/ QR-Code
                     </span>
                   </label>
                 </div>
 
                 {emitNfce && (
-                  <div className="grid grid-cols-2 gap-1.5 pt-1 border-t border-slate-800">
-                    <div>
-                      <input
-                        type="text"
-                        value={customerCpf}
-                        onChange={(e) => setCustomerCpf(e.target.value)}
-                        placeholder="CPF/CNPJ na Nota"
-                        className="w-full px-2 py-1 text-[11px] font-mono rounded bg-slate-900 border border-slate-700 text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500"
-                      />
-                    </div>
-                    <div>
-                      <input
-                        type="text"
-                        value={customerNameInput}
-                        onChange={(e) => setCustomerNameInput(e.target.value)}
-                        placeholder="Nome (Opcional)"
-                        className="w-full px-2 py-1 text-[11px] font-medium rounded bg-slate-900 border border-slate-700 text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500"
-                      />
-                    </div>
+                  <div className="grid grid-cols-2 gap-1.5 pt-1 border-t border-slate-200">
+                    <input
+                      type="text"
+                      value={customerCpf}
+                      onChange={(e) => setCustomerCpf(e.target.value)}
+                      placeholder="CPF/CNPJ na Nota"
+                      className="w-full px-2 py-1 text-[11px] font-mono rounded bg-white border border-slate-300 text-slate-800 placeholder-slate-400 focus:outline-none focus:border-[#0f3460]"
+                    />
+                    <input
+                      type="text"
+                      value={customerNameInput}
+                      onChange={(e) => setCustomerNameInput(e.target.value)}
+                      placeholder="Nome (Opcional)"
+                      className="w-full px-2 py-1 text-[11px] font-medium rounded bg-white border border-slate-300 text-slate-800 placeholder-slate-400 focus:outline-none focus:border-[#0f3460]"
+                    />
                   </div>
                 )}
               </div>
+            </div>
 
-              {/* BOTÃO FINALIZAR GIGANTE */}
+            {/* VISOR GIGANTE DO TOTAL A PAGAR + BOTÃO DE FINALIZAÇÃO */}
+            <div className="space-y-2 pt-1">
+              <div className="bg-[#0b2545] text-white p-3 sm:p-3.5 rounded-xl border-2 border-emerald-500 shadow-md flex items-center justify-between">
+                <div>
+                  <div className="text-[10px] sm:text-xs text-slate-300 uppercase tracking-wider font-black">TOTAL A PAGAR</div>
+                  <div className="text-[11px] text-emerald-300 font-semibold mt-0.5">
+                    {cart.length} {cart.length === 1 ? 'item' : 'itens'} ({totalQuantity} un)
+                  </div>
+                </div>
+                <div className="text-2xl sm:text-3xl xl:text-4xl font-black text-emerald-400 font-mono tracking-tight">
+                  R$ {totalFinal.toFixed(2)}
+                </div>
+              </div>
+
               <button
-                onClick={handleStartCheckout}
+                onClick={() => handleStartCheckout()}
                 disabled={cart.length === 0 || isProcessing}
-                className="w-full py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-50 text-white font-black text-base rounded-xl shadow-lg transition-all flex items-center justify-center space-x-2 border border-emerald-400/30 active:scale-[0.99] tracking-wide"
+                className="w-full py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-50 text-white font-black text-base rounded-xl shadow-md transition-all flex items-center justify-center space-x-2 border border-emerald-700 active:scale-[0.99] tracking-wide cursor-pointer"
               >
                 {isProcessing ? (
                   <RefreshCw className="w-5 h-5 animate-spin" />
                 ) : (
                   <CheckCircle2 className="w-5 h-5" />
                 )}
-                <span>FINALIZAR VENDA (F4 / F10)</span>
+                <span>FINALIZAR VENDA (F8)</span>
               </button>
             </div>
           </div>
@@ -2566,17 +2623,97 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
 
       </main>
 
-      {/* 5. RODAPÉ DE STATUS DO SISTEMA */}
-      <footer className="bg-slate-950 border-t border-slate-800 px-4 py-1.5 flex items-center justify-between text-[11px] text-slate-500 shrink-0">
-        <div>
-          <span>BelaFarma PDV Express v4.2.0</span> | <span>Empresa: Bela Farma Sul Ltda (CNPJ: 47.378.578/0001-40)</span>
+      {/* 4. BARRA FIXA DE COMANDOS E TECLAS DE FUNÇÃO NO RODAPÉ (ESTILO ERP / DIGIFARMA) */}
+      <footer className="bg-[#0b2545] border-t-2 border-[#0f3460] px-3 py-1.5 flex items-center justify-between gap-2 text-xs text-white shrink-0 overflow-x-auto">
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button
+            onClick={() => {
+              setIsSearchOpen(true);
+              setTimeout(() => searchInputRef.current?.focus(), 100);
+            }}
+            className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 px-2.5 py-1 rounded border border-white/15 transition cursor-pointer"
+          >
+            <kbd className="bg-amber-400 text-slate-950 font-black px-1.5 py-0.5 rounded text-[10px] font-mono">F2</kbd>
+            <span className="font-bold">Buscar Produto</span>
+          </button>
+
+          <button
+            onClick={() => setIsCustomerModalOpen(true)}
+            className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 px-2.5 py-1 rounded border border-white/15 transition cursor-pointer"
+          >
+            <kbd className="bg-sky-400 text-slate-950 font-black px-1.5 py-0.5 rounded text-[10px] font-mono">F3</kbd>
+            <span className="font-bold">Cliente / Crediário</span>
+          </button>
+
+          <button
+            onClick={() => {
+              fetchRecentMovements();
+              setIsCashMovementModalOpen(true);
+            }}
+            className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 px-2.5 py-1 rounded border border-white/15 transition cursor-pointer"
+          >
+            <kbd className="bg-emerald-400 text-slate-950 font-black px-1.5 py-0.5 rounded text-[10px] font-mono">F4</kbd>
+            <span className="font-bold">Sangria / Suprimento</span>
+          </button>
+
+          <button
+            onClick={handleOpenSellerModal}
+            className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 px-2.5 py-1 rounded border border-white/15 transition cursor-pointer"
+          >
+            <kbd className="bg-amber-400 text-slate-950 font-black px-1.5 py-0.5 rounded text-[10px] font-mono">F5</kbd>
+            <span className="font-bold">Vendedor</span>
+          </button>
+
+          <button
+            onClick={() => setIsDiscountModalOpen(true)}
+            className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 px-2.5 py-1 rounded border border-white/15 transition cursor-pointer"
+          >
+            <kbd className="bg-amber-400 text-slate-950 font-black px-1.5 py-0.5 rounded text-[10px] font-mono">F7</kbd>
+            <span className="font-bold">Desconto</span>
+          </button>
+
+          <button
+            onClick={() => handleStartCheckout()}
+            disabled={cart.length === 0}
+            className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 px-2.5 py-1 rounded border border-emerald-400 transition cursor-pointer"
+          >
+            <kbd className="bg-white text-emerald-950 font-black px-1.5 py-0.5 rounded text-[10px] font-mono">F8</kbd>
+            <span className="font-black">Finalizar</span>
+          </button>
+
+          <button
+            onClick={() => {
+              fetchPreSales();
+              setIsPreSaleModalOpen(true);
+            }}
+            className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 px-2.5 py-1 rounded border border-white/15 transition cursor-pointer"
+          >
+            <kbd className="bg-indigo-300 text-slate-950 font-black px-1.5 py-0.5 rounded text-[10px] font-mono">F9</kbd>
+            <span className="font-bold">Pré-Venda</span>
+          </button>
+
+          <button
+            onClick={handleOpenRecentSales}
+            className="flex items-center gap-1.5 bg-rose-600/80 hover:bg-rose-500 px-2.5 py-1 rounded border border-rose-400/50 transition cursor-pointer"
+          >
+            <kbd className="bg-white text-rose-950 font-black px-1.5 py-0.5 rounded text-[10px] font-mono">F10</kbd>
+            <span className="font-bold">Cancelar / Histórico</span>
+          </button>
+
+          <button
+            onClick={() => {
+              if (cart.length > 0) setIsClearCartModalOpen(true);
+            }}
+            disabled={cart.length === 0}
+            className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 disabled:opacity-40 px-2.5 py-1 rounded border border-white/15 transition cursor-pointer"
+          >
+            <kbd className="bg-slate-300 text-slate-950 font-black px-1.5 py-0.5 rounded text-[10px] font-mono">ESC</kbd>
+            <span className="font-bold">Limpar</span>
+          </button>
         </div>
-        <div className="flex items-center space-x-4">
-          <span className="flex items-center gap-1 text-slate-400">
-            <Lock className="w-3 h-3 text-emerald-400" /> 
-            {isPrinterStation ? 'Estação Bematech Conectada' : 'Spooler Bematech OK'}
-          </span>
-          <span className="hidden sm:inline">Juiz de Fora - MG</span>
+
+        <div className="hidden 2xl:flex items-center gap-3 text-[11px] text-slate-300 shrink-0 font-mono">
+          <span>Bela Farma Sul Ltda • CNPJ 47.378.578/0001-40</span>
         </div>
       </footer>
 

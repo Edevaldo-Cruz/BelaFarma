@@ -1,12 +1,17 @@
 [package]
-name = "app"
-version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
+name = "belinha-pdv"
+version = "5.0.0"
+description = "Belinha PDV - Frente de Caixa Fiscal | Drogaria Bela Farma Sul"
+authors = ["Edevaldo Cruz"]
 license = ""
 repository = ""
 edition = "2021"
 rust-version = "1.71"
+default-run = "BelinhaPDV"
+
+[[bin]]
+name = "BelinhaPDV"
+path = "src/main.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

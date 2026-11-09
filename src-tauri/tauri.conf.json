@@ -1,23 +1,25 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "AssistenteVenda",
-  "version": "0.1.0",
-  "identifier": "com.belafarma.assistente",
+  "productName": "BelinhaPDV",
+  "version": "5.0.0",
+  "identifier": "com.belafarma.pdv",
   "build": {
     "frontendDist": "../dist",
-    "devUrl": "http://localhost:5173",
+    "devUrl": "http://localhost:5173/?app=pdv",
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build"
   },
   "app": {
     "windows": [
       {
-        "title": "Assistente de Vendas",
+        "title": "Belinha PDV - Frente de Caixa Fiscal | Drogaria Bela Farma Sul",
+        "url": "http://192.168.1.70:8085/?app=pdv",
         "width": 1920,
-        "height": 320,
+        "height": 1080,
         "resizable": true,
-        "fullscreen": false,
-        "alwaysOnTop": true
+        "fullscreen": true,
+        "maximized": true,
+        "alwaysOnTop": false
       }
     ],
     "security": {
