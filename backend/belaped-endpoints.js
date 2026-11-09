@@ -2625,10 +2625,30 @@ function belapedEndpoints(db) {
 
       const candidatos = db.prepare(query).all(portalParam, fornecedorNome);
 
+      // Busca itens que já estão em pedidos pendentes de entrega para não pedir duas vezes
+      const pendingOrders = db.prepare("SELECT items FROM orders WHERE status = 'Pendente'").all();
+      const pendingNamesSet = new Set();
+      for (const po of pendingOrders) {
+        try {
+          const pItems = JSON.parse(po.items || '[]');
+          for (const pit of pItems) {
+            if (pit.name) pendingNamesSet.add(pit.name.trim().toLowerCase());
+            if (pit.ean) pendingNamesSet.add(String(pit.ean).trim());
+          }
+        } catch (e) {}
+      }
+
       let acumulado = 0;
       const sugestoes = [];
 
       for (const item of candidatos) {
+        // Se já foi pedido recentemente e está pendente de entrega, não sugere novamente
+        const itemDescLower = (item.descricao || '').trim().toLowerCase();
+        const itemEan = String(item.ean || '').trim();
+        if (pendingNamesSet.has(itemDescLower) || (itemEan && pendingNamesSet.has(itemEan))) {
+          continue;
+        }
+
         const preco = Number(item.preco_portal);
         if (preco <= 0) continue;
         const vmd = Number(item.vmd_ponderado || 0);

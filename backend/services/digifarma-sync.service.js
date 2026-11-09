@@ -169,6 +169,55 @@ async function syncProdutos(db) {
 
     insertMany(productsWithCurve);
 
+    // 🔄 Sincroniza saldo e status em compras_estoque_cache e dá baixa automática em faltas atendidas
+    try {
+      db.prepare(`
+        UPDATE compras_estoque_cache 
+        SET 
+          saldo = (
+            SELECT d.estoque_atual 
+            FROM digifarma_products_cache d 
+            WHERE CAST(d.produto_id AS INTEGER) = compras_estoque_cache.produto_id
+          ),
+          status_ruptura = CASE 
+            WHEN (SELECT d.estoque_atual FROM digifarma_products_cache d WHERE CAST(d.produto_id AS INTEGER) = compras_estoque_cache.produto_id) <= 0 THEN 'RUPTURA'
+            WHEN (SELECT d.estoque_atual FROM digifarma_products_cache d WHERE CAST(d.produto_id AS INTEGER) = compras_estoque_cache.produto_id) < est_minimo_calculado THEN 'ABAIXO_MINIMO'
+            ELSE 'NORMAL'
+          END,
+          atualizado_em = datetime('now', 'localtime')
+        WHERE EXISTS (
+          SELECT 1 FROM digifarma_products_cache d 
+          WHERE CAST(d.produto_id AS INTEGER) = compras_estoque_cache.produto_id
+        )
+      `).run();
+
+      const baixas = db.prepare(`
+        UPDATE shortages 
+        SET 
+          purchased = 1,
+          saldo = (
+            SELECT d.estoque_atual 
+            FROM digifarma_products_cache d 
+            WHERE UPPER(d.descricao) LIKE '%' || UPPER(shortages.productName) || '%'
+               OR UPPER(shortages.productName) LIKE '%' || UPPER(d.descricao) || '%'
+            LIMIT 1
+          )
+        WHERE purchased = 0
+          AND EXISTS (
+            SELECT 1 
+            FROM digifarma_products_cache d 
+            WHERE (UPPER(d.descricao) LIKE '%' || UPPER(shortages.productName) || '%'
+               OR UPPER(shortages.productName) LIKE '%' || UPPER(d.descricao) || '%')
+              AND d.estoque_atual > 0
+          )
+      `).run();
+      if (baixas.changes > 0) {
+        console.log(`[Digifarma Sync] 📦 ${baixas.changes} faltas receberam baixa automática por reposição de estoque.`);
+      }
+    } catch (eEst) {
+      console.warn('[Digifarma Sync] Aviso ao sincronizar compras_estoque_cache / shortages:', eEst.message);
+    }
+
     const duracaoMs = Date.now() - start;
     updateSyncMetadata(db, 'produtos', productsWithCurve.length, duracaoMs, 'ok');
     console.log(`[Digifarma Sync] ✅ ${productsWithCurve.length} Produtos sincronizados no cache SQLite em ${duracaoMs}ms!`);
