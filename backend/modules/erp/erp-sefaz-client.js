@@ -27,7 +27,8 @@ const xmlParser = new XMLParser({
   attributeNamePrefix: '@_',
   textNodeName: '#text',
   trimValues: true,
-  removeNSPrefix: true
+  removeNSPrefix: true,
+  parseTagValue: false
 });
 
 /**
@@ -244,8 +245,9 @@ async function transmitirCancelamentoSefaz(params) {
   const ws = (WEBSERVICES_SEFAZ_MG[ambiente] || WEBSERVICES_SEFAZ_MG.homologacao).recepcaoEvento;
   const tpAmb = ambiente === 'producao' ? '1' : '2';
 
-  const now = new Date();
-  const dhEvento = now.toISOString().replace(/\.\d{3}Z$/, '-03:00');
+  const pad = (n) => String(n).padStart(2, '0');
+  const d = new Date(Date.now() - 10000); // 10s de margem para não exceder o relógio da SEFAZ (Rejeição 578)
+  const dhEvento = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}-03:00`;
   const idLote = String(Date.now()).slice(-15);
   const idEvento = `ID110111${chaveAcesso}01`;
 

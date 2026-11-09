@@ -626,6 +626,7 @@ async function estornarVendaDigifarma(digifarmaVendaId, motivo = '') {
     await queryDigifarma(`
       UPDATE CAB_VENDAS 
       SET CANCELADO = 'S',
+          CANCELADO_CUPOM = 'S',
           VALOR_DEVOLUCAO = VENDA_TOTAL,
           LASTUPDATE = CURRENT_TIMESTAMP
       WHERE VENDA_NOTA_ID = ?
@@ -660,6 +661,8 @@ async function estornarVendaDigifarma(digifarmaVendaId, motivo = '') {
       await queryDigifarma(`
         UPDATE ITEM_VENDAS 
         SET CANCELADO = 'S',
+            ITEMVEND_CANCELADO_CUPOM = 'S',
+            DATA_CANCELAMENTO = CURRENT_TIMESTAMP,
             LASTUPDATE = CURRENT_TIMESTAMP
         WHERE VENDA_NOTA_ID = ?
       `, [vId], 10000);
@@ -697,9 +700,11 @@ async function estornarVendaDigifarma(digifarmaVendaId, motivo = '') {
       await queryDigifarma(`
         UPDATE NFCE 
         SET STATUS = 'C',
+            MOTIVO_CANC = ?,
+            DATA_NFCE_CANC = CURRENT_TIMESTAMP,
             DATA_OPERACAO = CURRENT_TIMESTAMP
         WHERE VENDA_NOTA_ID = ?
-      `, [vId], 10000);
+      `, [String(motivo || 'Cancelamento no PDV').substring(0, 100), vId], 10000);
     } catch (nfceErr) {
       console.warn(`[Digifarma Estorno] ⚠️ Aviso ao atualizar tabela NFCE para cancelado:`, nfceErr.message);
     }
