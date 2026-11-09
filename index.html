@@ -7,7 +7,24 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
-    <title>belinha - Gestão Inteligente</title>
+    <title>belinha - Gestao Inteligente</title>
+    <script>
+      // Desativa e desregistra imediatamente qualquer Service Worker/PWA antigo
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(function(regs) {
+          for (var i = 0; i < regs.length; i++) {
+            regs[i].unregister();
+          }
+        }).catch(function() {});
+      }
+      if ('caches' in window) {
+        caches.keys().then(function(keys) {
+          for (var i = 0; i < keys.length; i++) {
+            caches.delete(keys[i]);
+          }
+        }).catch(function() {});
+      }
+    </script>
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
     <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png" />
     <link rel="icon" type="image/x-icon" href="/favicon.ico" />

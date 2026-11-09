@@ -1,9 +1,14 @@
 {
   "version": "1.2.4",
-  "commitHash": "c7ff84a",
-  "commitMessage": "feat(pdv): modal instantanea de oferta escalonada e correcao de correspondencia de regras",
-  "buildTime": "09/11/2026, 16:01:19",
+  "commitHash": "2fa096f",
+  "commitMessage": "fix(pdv): anexar tiered_rules ao produto, priorizar regras de varejo e corrigir foco ao bipar",
+  "buildTime": "09/11/2026, 16:15:46",
   "recentCommits": [
+    {
+      "hash": "2fa096f",
+      "date": "09/11/2026",
+      "message": "fix(pdv): anexar tiered_rules ao produto, priorizar regras de varejo e corrigir foco ao bipar"
+    },
     {
       "hash": "c7ff84a",
       "date": "09/11/2026",
@@ -58,11 +63,6 @@
       "hash": "c112529",
       "date": "09/11/2026",
       "message": "build: atualizar bundle de producao com correcoes do fechamento"
-    },
-    {
-      "hash": "5645c35",
-      "date": "09/11/2026",
-      "message": "fix(finance): zerar vendas na virada do dia e impedir vazamento de cache de ontem no fechamento"
     }
   ]
 }
