@@ -348,21 +348,36 @@ async function emitirCupomFiscal(saleId, options = {}) {
   }
 
   const tpAmb = config.ambiente === 'producao' ? '1' : '2';
-  const serie = config.nfe_series || 1;
+  let serie = 1;
   let nNF = config.next_nfe_number || 1;
 
-  // Consulta dinâmica no Digifarma: obtém o maior número já emitido para esta série
+  // Consulta dinâmica no Digifarma: obtém o último número registrado (SERIE_NF e NFCE) e soma + 1
   try {
-    const digiMax = await queryDigifarma(
-      'SELECT COALESCE(MAX(NF_ID), 0) AS MAX_NF FROM NFCE WHERE SERIE_ID = ?',
-      [serie],
-      3000
-    );
-    if (digiMax && digiMax.length > 0 && digiMax[0].MAX_NF) {
-      const maxDigiNum = parseInt(digiMax[0].MAX_NF, 10);
-      if (!isNaN(maxDigiNum) && maxDigiNum >= nNF) {
-        console.log(`[ERP Fiscal] 🔄 Sincronizando numeração com Digifarma (Série ${serie}): Último no Digifarma = #${maxDigiNum}, próximo será #${maxDigiNum + 1}`);
-        nNF = maxDigiNum + 1;
+    const digiRows = await queryDigifarma(`
+      SELECT 
+        COALESCE((SELECT FIRST 1 SERIE_ID FROM SERIE_NF WHERE TIPO_NF = 'NFCE'), 1) AS SERIE_OFICIAL,
+        COALESCE((SELECT MAX(NF_ID) FROM SERIE_NF WHERE TIPO_NF = 'NFCE'), 0) AS MAX_SERIE_NF,
+        COALESCE((SELECT MAX(NF_ID) FROM NFCE WHERE SERIE_ID = 1), 0) AS MAX_NFCE
+      FROM RDB$DATABASE
+    `, [], 4000);
+
+    if (digiRows && digiRows.length > 0) {
+      const row = digiRows[0];
+      serie = parseInt(row.SERIE_OFICIAL, 10) || 1;
+      const maxSerieNf = parseInt(row.MAX_SERIE_NF, 10) || 0;
+      const maxNfce = parseInt(row.MAX_NFCE, 10) || 0;
+      const ultimoRegistrado = Math.max(maxSerieNf, maxNfce);
+
+      if (ultimoRegistrado > 0) {
+        nNF = ultimoRegistrado + 1;
+        console.log(`[ERP Fiscal] 🔄 Sincronizando numeração com Digifarma (Série ${serie}): Último registrado = #${ultimoRegistrado} -> Novo = #${nNF}`);
+
+        // Reserva imediatamente na tabela SERIE_NF do Digifarma para manter o caixa físico sincronizado
+        await queryDigifarma(`
+          UPDATE SERIE_NF 
+          SET NF_ID = ?, DATA_ULT_VENDA = CURRENT_TIMESTAMP 
+          WHERE TIPO_NF = 'NFCE' AND SERIE_ID = ?
+        `, [nNF, serie], 3000);
       }
     }
   } catch (digiErr) {
@@ -700,8 +715,8 @@ async function emitirCupomFiscal(saleId, options = {}) {
 
   // 8. Atualização Atômica no Banco de Dados
   const transaction = db.transaction(() => {
-    // Incrementa próximo número fiscal local mantendo paridade com o nNF emitido
-    db.prepare('UPDATE fiscal_settings SET next_nfe_number = MAX(next_nfe_number + 1, ? + 1) WHERE id = ?').run(nNF, 'primary');
+    // Incrementa próximo número fiscal local mantendo paridade com o nNF e série emitidos
+    db.prepare('UPDATE fiscal_settings SET nfe_series = ?, next_nfe_number = MAX(next_nfe_number + 1, ? + 1) WHERE id = ?').run(serie, nNF, 'primary');
 
     // Atualiza a venda com os dados fiscais autorizados
     db.prepare(`

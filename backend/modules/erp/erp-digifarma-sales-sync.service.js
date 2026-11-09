@@ -282,82 +282,119 @@ async function sincronizarVendaDigifarma(saleData, fiscalInfo = null) {
     // 7. Registro Fiscal na Tabela NFCE do Digifarma
     let nfceRecordStatus = 'NAO_APLICAVEL';
 
-    if (fiscalInfo && fiscalInfo.chave) {
-      const isContingency = fiscalInfo.status === 'CONTINGENCIA' || fiscalInfo.contingency === true;
-      const statusNfce = isContingency ? 'P' : 'A';
-      const serieId = parseInt(fiscalInfo.serie, 10) || 1;
-      const nfId = parseInt(fiscalInfo.nfe_number, 10) || 1;
-      const protocoloEnvio = fiscalInfo.protocolo || (isContingency ? 'CONTINGENCIA-OFFLINE' : 'AUTORIZADO-BELINHA');
+    if (fiscalInfo) {
+      let serieId = parseInt(fiscalInfo.serie, 10) || 1;
+      let nfId = parseInt(fiscalInfo.nfe_number, 10) || 0;
 
-      try {
-        const insertNfceSql = `
-          INSERT INTO NFCE (
-            NFCE_ID, LOTE, SERIE_ID, NF_ID, VENDA_NOTA_ID,
-            CONTROLE, CHAVE, RECIBO_ENVIO, PROTOCOLO_ENVIO,
-            TIPO, DATA_AUTORIZACAO, DATA_NFCE_ENVIO,
-            STATUS, URL, DATA_OPERACAO, INTEGRADO, DFE
-          ) VALUES (
-            GEN_ID(GEN_NFCE, 1), 1, ?, ?, ?,
-            ?, ?, ?, ?,
-            'V', ${isContingency ? 'NULL' : 'CURRENT_TIMESTAMP'}, CURRENT_TIMESTAMP,
-            ?, ?, CURRENT_TIMESTAMP, 'S', 'S'
-          )
-        `;
-
-        await queryDigifarma(insertNfceSql, [
-          serieId,
-          nfId,
-          vendaNotaId,
-          vendaNotaId,
-          fiscalInfo.chave,
-          protocoloEnvio,
-          protocoloEnvio,
-          statusNfce,
-          fiscalInfo.url_qrcode || ''
-        ]);
-
-        nfceRecordStatus = isContingency ? 'CONTINGENCIA_OFFLINE' : 'AUTORIZADO_SEM_REENVIO';
-        console.log(`[Digifarma Sync] 🛡️ Venda #${vendaNotaId} registrada em NFCE com STATUS '${statusNfce}' (Chave: ${fiscalInfo.chave.substring(0, 15)}..., Série: ${serieId}, NF: #${nfId}).`);
-      } catch (nfceErr) {
-        console.error('[Digifarma Sync] ⚠️ Erro ao gravar registro na tabela NFCE do Digifarma:', nfceErr.message);
+      // Se o número não veio ou veio <= 1, obtém sempre o último número registrado no Digifarma + 1
+      if (nfId <= 1) {
+        try {
+          const maxRows = await queryDigifarma(`
+            SELECT 
+              COALESCE((SELECT FIRST 1 SERIE_ID FROM SERIE_NF WHERE TIPO_NF = 'NFCE'), 1) AS SERIE_OFICIAL,
+              COALESCE((SELECT MAX(NF_ID) FROM SERIE_NF WHERE TIPO_NF = 'NFCE'), 0) AS MAX_SERIE_NF,
+              COALESCE((SELECT MAX(NF_ID) FROM NFCE WHERE SERIE_ID = 1), 0) AS MAX_NFCE
+            FROM RDB$DATABASE
+          `, [], 3000);
+          if (maxRows && maxRows.length > 0) {
+            serieId = parseInt(maxRows[0].SERIE_OFICIAL, 10) || 1;
+            const ultimo = Math.max(
+              parseInt(maxRows[0].MAX_SERIE_NF, 10) || 0,
+              parseInt(maxRows[0].MAX_NFCE, 10) || 0
+            );
+            nfId = ultimo + 1;
+          }
+        } catch (maxErr) {
+          console.warn('[Digifarma Sync] ⚠️ Erro ao consultar último NF_ID no Digifarma:', maxErr.message);
+        }
       }
-    } else if (fiscalInfo && !fiscalInfo.success) {
-      // ⚠️ SEFAZ FALHOU OU NÃO CONECTOU SEM CHAVE:
-      // Grava com STATUS 'P' (Pendente) para que o Digifarma saiba que precisa ser resolvida
-      try {
-        const serieId = parseInt(fiscalInfo.serie, 10) || 1;
-        const nfId = parseInt(fiscalInfo.nfe_number, 10) || 1;
 
-        const insertNfceSql = `
-          INSERT INTO NFCE (
-            NFCE_ID, LOTE, SERIE_ID, NF_ID, VENDA_NOTA_ID,
-            CONTROLE, CHAVE, RECIBO_ENVIO, PROTOCOLO_ENVIO,
-            TIPO, DATA_NFCE_ENVIO,
-            STATUS, URL, DATA_OPERACAO, INTEGRADO, DFE, ERRO
-          ) VALUES (
-            GEN_ID(GEN_NFCE, 1), 1, ?, ?, ?,
-            ?, '', '', '',
-            'V', CURRENT_TIMESTAMP,
-            'P', '', CURRENT_TIMESTAMP, 'N', 'N', ?
-          )
-        `;
-
-        await queryDigifarma(insertNfceSql, [
-          serieId,
-          nfId,
-          vendaNotaId,
-          vendaNotaId,
-          (fiscalInfo.error || fiscalInfo.error_message || 'Pendente SEFAZ via Belinha').substring(0, 200)
-        ]);
-
-        nfceRecordStatus = 'PENDENTE_DIGIFARMA';
-        console.log(`[Digifarma Sync] ⚠️ Venda #${vendaNotaId} gravada em NFCE com STATUS 'P' (Pendente fiscal no Digifarma).`);
-      } catch (nfceErr) {
-        console.error('[Digifarma Sync] ⚠️ Erro ao gravar NFCE pendente:', nfceErr.message);
+      // Atualiza SERIE_NF no Digifarma para manter o sequencial sincronizado com o caixa físico
+      if (nfId > 1) {
+        try {
+          await queryDigifarma(`
+            UPDATE SERIE_NF 
+            SET NF_ID = CASE WHEN COALESCE(NF_ID, 0) < ? THEN ? ELSE NF_ID END,
+                DATA_ULT_VENDA = CURRENT_TIMESTAMP
+            WHERE TIPO_NF = 'NFCE' AND SERIE_ID = ?
+          `, [nfId, nfId, serieId]);
+        } catch (sErr) {
+          console.warn('[Digifarma Sync] ⚠️ Aviso ao atualizar SERIE_NF:', sErr.message);
+        }
       }
-    }
-      } catch (nfceErr) {
-        console.error('[Digifarma Sync] ⚠️ Erro ao registrar pendência fiscal na tabela NFCE:', nfceErr.message);
+
+      if (fiscalInfo.chave) {
+        const isContingency = fiscalInfo.status === 'CONTINGENCIA' || fiscalInfo.contingency === true;
+        const statusNfce = isContingency ? 'P' : 'A';
+        const protocoloEnvio = fiscalInfo.protocolo || (isContingency ? 'CONTINGENCIA-OFFLINE' : 'AUTORIZADO-BELINHA');
+
+        try {
+          const insertNfceSql = `
+            INSERT INTO NFCE (
+              NFCE_ID, LOTE, SERIE_ID, NF_ID, VENDA_NOTA_ID,
+              CONTROLE, CHAVE, RECIBO_ENVIO, PROTOCOLO_ENVIO,
+              TIPO, DATA_AUTORIZACAO, DATA_NFCE_ENVIO,
+              STATUS, URL, DATA_OPERACAO, INTEGRADO, DFE,
+              MOTIVO_CANC, TOKEN, TENT_ENVIO, AMBIENTE
+            ) VALUES (
+              GEN_ID(GEN_NFCE, 1), 1, ?, ?, ?,
+              ?, ?, ?, ?,
+              'V', ${isContingency ? 'NULL' : 'CURRENT_TIMESTAMP'}, CURRENT_TIMESTAMP,
+              ?, ?, CURRENT_TIMESTAMP, NULL, NULL,
+              '', '', 0, 'P'
+            )
+          `;
+
+          await queryDigifarma(insertNfceSql, [
+            serieId,
+            nfId,
+            vendaNotaId,
+            vendaNotaId,
+            fiscalInfo.chave,
+            protocoloEnvio,
+            protocoloEnvio,
+            statusNfce,
+            fiscalInfo.url_qrcode || fiscalInfo.url || ''
+          ]);
+
+          nfceRecordStatus = isContingency ? 'CONTINGENCIA_OFFLINE' : 'AUTORIZADO_SEM_REENVIO';
+          console.log(`[Digifarma Sync] 🛡️ Venda #${vendaNotaId} registrada em NFCE com STATUS '${statusNfce}' (Chave: ${fiscalInfo.chave.substring(0, 15)}..., Série: ${serieId}, NF: #${nfId}).`);
+        } catch (nfceErr) {
+          console.error('[Digifarma Sync] ⚠️ Erro ao gravar registro na tabela NFCE do Digifarma:', nfceErr.message);
+        }
+      } else if (!fiscalInfo.success && !fiscalInfo.non_fiscal) {
+        // ⚠️ SEFAZ FALHOU OU NÃO CONECTOU SEM CHAVE:
+        // Grava com STATUS 'P' (Pendente) e o NF_ID sequencial real (nunca 1)
+        try {
+          const insertNfceSql = `
+            INSERT INTO NFCE (
+              NFCE_ID, LOTE, SERIE_ID, NF_ID, VENDA_NOTA_ID,
+              CONTROLE, CHAVE, RECIBO_ENVIO, PROTOCOLO_ENVIO,
+              TIPO, DATA_NFCE_ENVIO,
+              STATUS, URL, DATA_OPERACAO, INTEGRADO, DFE, ERRO,
+              MOTIVO_CANC, TOKEN, TENT_ENVIO, AMBIENTE
+            ) VALUES (
+              GEN_ID(GEN_NFCE, 1), 1, ?, ?, ?,
+              ?, '', '', '',
+              'V', CURRENT_TIMESTAMP,
+              'P', '', CURRENT_TIMESTAMP, 'N', 'N', ?,
+              '', '', 0, 'P'
+            )
+          `;
+
+          await queryDigifarma(insertNfceSql, [
+            serieId,
+            nfId,
+            vendaNotaId,
+            vendaNotaId,
+            (fiscalInfo.error || fiscalInfo.error_message || 'Pendente SEFAZ via Belinha').substring(0, 200)
+          ]);
+
+          nfceRecordStatus = 'PENDENTE_DIGIFARMA';
+          console.log(`[Digifarma Sync] ⚠️ Venda #${vendaNotaId} gravada em NFCE com STATUS 'P' e NF #${nfId}.`);
+        } catch (nfceErr) {
+          console.error('[Digifarma Sync] ⚠️ Erro ao gravar NFCE pendente:', nfceErr.message);
+        }
       }
     }
 
