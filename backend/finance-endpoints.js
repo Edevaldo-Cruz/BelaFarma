@@ -282,14 +282,22 @@ module.exports = function (db) {
         qtdVendas = digiVendas;
         crediarioList = digiCrediarioList;
       } else {
-        // Fallback seguro: se a conexão com o Firebird oscilar, busca EXCLUSIVAMENTE no cache das vendas do Digifarma
+        // Fallback seguro: se a conexão com o Firebird oscilar, busca EXCLUSIVAMENTE no cache das vendas de HOJE
         try {
+          // 1. Limpa registros residuais de dias anteriores para evitar puxar vendas de ontem na abertura da loja
+          db.prepare(`
+            DELETE FROM digifarma_vendas_hoje_cache
+            WHERE date(atualizado_em) < date('now', 'localtime')
+          `).run();
+
+          // 2. Só computa se houver vendas sincronizadas estritamente no dia de HOJE
           const cacheRow = db.prepare(`
             SELECT 
               COUNT(*) as qtd,
               COALESCE(SUM(valor_total), 0) as total
             FROM digifarma_vendas_hoje_cache
             WHERE cancelado <> 'S'
+              AND date(atualizado_em) = date('now', 'localtime')
           `).get();
           if (cacheRow && cacheRow.total > 0) {
             totalSales = Math.round(cacheRow.total * 100) / 100;

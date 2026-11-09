@@ -295,6 +295,10 @@ async function syncCrediario(db) {
  */
 async function syncVendasHoje(db) {
   const start = Date.now();
+  // Garante a limpeza preventiva de vendas de dias anteriores ao iniciar o novo dia
+  try {
+    db.prepare("DELETE FROM digifarma_vendas_hoje_cache WHERE date(atualizado_em) < date('now', 'localtime')").run();
+  } catch (cleanErr) {}
   try {
     const vendasData = await queryDigifarma(`
       SELECT 
