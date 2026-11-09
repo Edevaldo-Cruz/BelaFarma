@@ -36,6 +36,9 @@ export interface DanfeNfceData {
   issued_at: string;
   qr_code_base64?: string;
   ambiente: string;
+  fiscal_status?: string;
+  is_contingency?: boolean;
+  contingency_reason?: string;
   empresa: {
     razao_social: string;
     nome_fantasia: string;
@@ -483,6 +486,12 @@ export function imprimirDanfeNfce(danfe: DanfeNfceData) {
         <div style="font-weight: 900; font-size: 11px; text-transform: uppercase;">DANFE NFC-e</div>
         <div style="font-size: 9px; font-weight: 700;">Documento Auxiliar da Nota Fiscal de Consumidor Eletrônica</div>
         <div style="font-size: 8.5px; font-weight: 700;">Não permite aproveitamento de crédito de ICMS</div>
+        ${danfe.is_contingency ? `
+          <div style="margin-top: 4px; padding: 4px 2px; border: 2px solid #000000; text-align: center;">
+            <div style="font-size: 11px; font-weight: 900; text-transform: uppercase;">EMITIDA EM CONTINGÊNCIA</div>
+            <div style="font-size: 9px; font-weight: 700;">Pendente de autorização pelo Fisco</div>
+          </div>
+        ` : ''}
       </div>
 
       <div class="divider"></div>
@@ -536,7 +545,12 @@ export function imprimirDanfeNfce(danfe: DanfeNfceData) {
       <div class="text-center" style="font-size: 10px; font-weight: 700;">
         <div class="bold">NFC-e nº ${danfe.nfe_number} Série ${danfe.nfe_series}</div>
         <div>Emissão: ${danfe.issued_at}</div>
-        <div style="font-size: 9px;">Protocolo: ${escapeHtml(danfe.protocol_number)}</div>
+        ${danfe.is_contingency ? `
+          <div style="font-size: 9px; font-weight: 900; margin-top: 1px;">EMISSÃO EM CONTINGÊNCIA OFFLINE (tpEmis = 9)</div>
+          ${danfe.contingency_reason ? `<div style="font-size: 8px; font-weight: 700; margin-top: 1px;">Motivo: ${escapeHtml(danfe.contingency_reason)}</div>` : ''}
+        ` : `
+          <div style="font-size: 9px;">Protocolo: ${escapeHtml(danfe.protocol_number || '')}</div>
+        `}
         <div style="font-size: 9px; font-weight: 900; text-transform: uppercase; margin-top: 2px;">Ambiente: ${escapeHtml(danfe.ambiente)}</div>
       </div>
 

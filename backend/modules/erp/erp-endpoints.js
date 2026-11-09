@@ -236,59 +236,58 @@ router.post('/pos/checkout', async (req, res) => {
     });
 
     const { emit_nfce, customer_cpf, customer_name } = req.body;
+    let danfe = null;
+    let fiscalResult = null;
 
-    // Resposta imediata (< 15ms) para não travar o caixa
+    if (emit_nfce) {
+      try {
+        danfe = await emitirCupomFiscal(resultado.sale_id, { customer_cpf, customer_name });
+        if (danfe && danfe.non_fiscal) {
+          fiscalResult = { success: true, non_fiscal: true };
+          console.log(`[Belinha PDV] ℹ️ Venda ${resultado.sale_id} concluída como Cupom Não Fiscal (itens sem cadastro fiscal)`);
+        } else if (danfe) {
+          fiscalResult = {
+            success: true,
+            chave: danfe.access_key || danfe.chave_acesso,
+            nfe_number: danfe.nfe_number,
+            serie: danfe.nfe_series,
+            protocolo: danfe.protocol_number,
+            url_qrcode: danfe.qr_code_url,
+            status: danfe.fiscal_status
+          };
+          console.log(`[Belinha PDV] ✅ NFC-e #${danfe.nfe_number} emitida com sucesso (${danfe.fiscal_status}) para venda ${resultado.sale_id}`);
+        }
+      } catch (fiscalErr) {
+        console.warn(`[Belinha PDV] ⚠️ Falha ao emitir NFC-e para venda ${resultado.sale_id}:`, fiscalErr.message);
+        fiscalResult = {
+          success: false,
+          error: fiscalErr.message,
+          error_message: fiscalErr.message
+        };
+        // Grava status ERRO e motivo no banco para rastreio e reenvio na tela de vendas
+        try {
+          const { db } = require('./erp-database');
+          db.prepare(`
+            UPDATE sales 
+            SET fiscal_status = 'ERRO',
+                contingency_reason = ?,
+                customer_cpf = COALESCE(?, customer_cpf),
+                customer_name = COALESCE(?, customer_name)
+            WHERE id = ?
+          `).run(fiscalErr.message.substring(0, 255), customer_cpf || null, customer_name || null, resultado.sale_id);
+        } catch (dbErr) {}
+      }
+    }
+
+    // Retorna a resposta ao PDV com danfe completo pronto para impressão térmica com QR Code
     res.status(201).json({
       ...resultado,
-      fiscal: emit_nfce ? { status: 'EM_PROCESSAMENTO' } : null,
-      danfe: null
+      fiscal: fiscalResult || (emit_nfce ? { status: 'ERRO' } : null),
+      danfe: danfe || null
     });
 
-    // Processamento de emissão fiscal (SEFAZ) e sincronização externa em segundo plano
+    // Sincronização com o Digifarma em segundo plano (com os dados fiscais emitidos)
     setImmediate(async () => {
-      let fiscalResult = null;
-      let danfe = null;
-
-      if (emit_nfce) {
-        try {
-          danfe = await emitirCupomFiscal(resultado.sale_id, { customer_cpf, customer_name });
-          if (danfe && danfe.non_fiscal) {
-            fiscalResult = { success: true, non_fiscal: true };
-            console.log(`[Belinha PDV] ℹ️ Venda ${resultado.sale_id} concluída como Cupom Não Fiscal (itens sem cadastro fiscal)`);
-          } else {
-            fiscalResult = {
-              success: true,
-              chave: danfe.chave_acesso || danfe.chNFe,
-              nfe_number: danfe.nfe_number || danfe.nNF,
-              serie: danfe.serie,
-              protocolo: danfe.protocol_number || danfe.nProt,
-              url_qrcode: danfe.qr_code_url
-            };
-            console.log(`[Belinha PDV] ✅ NFC-e #${fiscalResult.nfe_number} emitida com sucesso em 2º plano para venda ${resultado.sale_id}`);
-          }
-        } catch (fiscalErr) {
-          console.warn(`[Belinha PDV] ⚠️ Falha ao emitir NFC-e via SEFAZ em 2º plano para venda ${resultado.sale_id}:`, fiscalErr.message);
-          fiscalResult = {
-            success: false,
-            error: fiscalErr.message,
-            error_message: fiscalErr.message
-          };
-          // Grava status ERRO e motivo no banco para rastreio e reenvio na tela de vendas
-          try {
-            const { db } = require('./erp-database');
-            db.prepare(`
-              UPDATE sales 
-              SET fiscal_status = 'ERRO',
-                  contingency_reason = ?,
-                  customer_cpf = COALESCE(?, customer_cpf),
-                  customer_name = COALESCE(?, customer_name)
-              WHERE id = ?
-            `).run(fiscalErr.message.substring(0, 255), customer_cpf || null, customer_name || null, resultado.sale_id);
-          } catch (dbErr) {}
-        }
-      }
-
-      // Sincronização em segundo plano com o Digifarma
       try {
         await sincronizarVendaDigifarma(resultado, fiscalResult);
       } catch (syncErr) {

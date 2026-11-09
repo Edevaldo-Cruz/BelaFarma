@@ -1399,14 +1399,28 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
 
         // Venda finalizada com sucesso imediato no balcão
         setCompletedSale(saleData);
-        if (autoPrintCupom) {
-          setTimeout(() => {
-            imprimirCupomVenda(saleData);
-          }, 50);
+
+        if (json.danfe && json.danfe.qr_code_base64) {
+          if (autoPrintCupom) {
+            setTimeout(() => {
+              imprimirDanfeNfce(json.danfe);
+            }, 50);
+          }
+
+          if (json.danfe.fiscal_status === 'CONTINGENCIA') {
+            addToast(`⚡ Venda finalizada! NFC-e #${json.danfe.nfe_number} impressa em CONTINGÊNCIA OFFLINE com QR-Code!`, 'warning', 4500);
+          } else {
+            addToast(`✅ Venda finalizada! NFC-e #${json.danfe.nfe_number} autorizada pela SEFAZ e impressa!`, 'success', 3500);
+          }
+        } else {
+          if (autoPrintCupom) {
+            setTimeout(() => {
+              imprimirCupomVenda(saleData);
+            }, 50);
+          }
+          addToast(`✅ Venda finalizada por ${seller.name}! (R$ ${totalFinal.toFixed(2)})`, 'success', 3000);
         }
 
-        const msgFiscal = emitNfce ? ' (NFC-e processando em 2º plano)' : '';
-        addToast(`✅ Venda finalizada por ${seller.name}! (R$ ${totalFinal.toFixed(2)})${msgFiscal}`, 'success', 3000);
         focusBarcodeInput();
 
       } else {
@@ -3193,7 +3207,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
                   <span>Imprimir (80mm)</span>
                 </button>
 
-                {completedSaleFiscalStatus?.nfe_number || completedSaleFiscalStatus?.fiscal_status === 'EMITIDO' ? (
+                {completedSaleFiscalStatus?.nfe_number || completedSaleFiscalStatus?.fiscal_status === 'EMITIDO' || completedSaleFiscalStatus?.fiscal_status === 'CONTINGENCIA' ? (
                   <button
                     onClick={async () => {
                       try {

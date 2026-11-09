@@ -1,9 +1,14 @@
 {
   "version": "1.2.4",
-  "commitHash": "2b4b9bb",
-  "commitMessage": "fix(sync): usar VENDA_RECEBIDO (Preco de Venda real) em vez de VENDA_TOTAL (Tabela) e apontar host correto",
-  "buildTime": "09/11/2026, 08:47:08",
+  "commitHash": "5f4aaff",
+  "commitMessage": "fix(pdv): importar ChevronRight no BelinhaPDV corrigindo quebra de tela ao entrar no caixa",
+  "buildTime": "09/11/2026, 09:38:49",
   "recentCommits": [
+    {
+      "hash": "5f4aaff",
+      "date": "09/11/2026",
+      "message": "fix(pdv): importar ChevronRight no BelinhaPDV corrigindo quebra de tela ao entrar no caixa"
+    },
     {
       "hash": "2b4b9bb",
       "date": "09/11/2026",
@@ -58,11 +63,6 @@
       "hash": "6d584f3",
       "date": "08/11/2026",
       "message": "feat(fiscal): Fase 3 e 4 - Sincronizacao Compras Digifarma, Auditoria Previa e Pacote Contabil (.ZIP)"
-    },
-    {
-      "hash": "7a611a7",
-      "date": "08/11/2026",
-      "message": "feat(fiscal): Fase 2 - Cancelamento Bidirecional Rigoroso SEFAZ MG (tpEvento 110111) e Estorno Digifarma"
     }
   ]
 }
