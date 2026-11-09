@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '../ToastContext';
 import { DanfeNfceModal } from './DanfeNfceModal';
+import { User as AppUser, UserRole } from '../../types';
 
 interface SalePayment {
   method: string;
@@ -80,8 +81,13 @@ interface ResumoDia {
   };
 }
 
-export const SalesHistory: React.FC = () => {
+interface SalesHistoryProps {
+  user?: AppUser;
+}
+
+export const SalesHistory: React.FC<SalesHistoryProps> = ({ user }) => {
   const { addToast } = useToast();
+  const isAdmin = !user || user.role === UserRole.ADM;
   const [sales, setSales] = useState<SaleSummary[]>([]);
   const [resumoDia, setResumoDia] = useState<ResumoDia | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -473,7 +479,8 @@ export const SalesHistory: React.FC = () => {
         </div>
       </div>
 
-      {/* 2. PÍLULAS INTERATIVAS POR TODAS AS FORMAS DE PAGAMENTO DO DIA */}
+      {/* 2. PÍLULAS INTERATIVAS POR TODAS AS FORMAS DE PAGAMENTO DO DIA (Apenas ADM) */}
+      {isAdmin && (
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-2.5 mb-4">
         {/* Todas as Formas */}
         <button
@@ -622,6 +629,7 @@ export const SalesHistory: React.FC = () => {
           </p>
         </div>
       </div>
+      )}
 
       {/* 3. BARRA DE FILTROS ADICIONAIS & BUSCA */}
       <div className="flex flex-wrap items-center justify-between gap-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-3 shadow-sm mb-4">
@@ -705,7 +713,9 @@ export const SalesHistory: React.FC = () => {
         {/* Resumo Rápido da Busca Atual */}
         <div className="text-xs font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-3">
           <span>Mostrando <strong className="text-slate-900 dark:text-white">{filteredSales.length}</strong> vendas</span>
-          <span>Total: <strong className="text-emerald-600 dark:text-emerald-400 font-mono">R$ {totalFaturadoLista.toFixed(2)}</strong></span>
+          {isAdmin && (
+            <span>Total: <strong className="text-emerald-600 dark:text-emerald-400 font-mono">R$ {totalFaturadoLista.toFixed(2)}</strong></span>
+          )}
         </div>
       </div>
 

@@ -464,16 +464,21 @@ app.get('/api/all-data', async (req, res) => {
       return mapped;
     });
 
+    const isAdmin = security.isAdminUser(req.user);
+    const fixedAccounts = isAdmin
+      ? db.prepare('SELECT * FROM fixed_accounts').all().map(acc => ({ ...acc, isActive: !!acc.isActive }))
+      : [];
+
     res.json({
       users: { documents: users },
       orders: { documents: orders },
       shortages: { documents: shortages },
-      logs: { documents: logs },
-      cashClosings: { documents: cashClosings },
-      boletos: { documents: boletos },
-      monthlyLimits: { documents: monthlyLimits },
+      logs: { documents: isAdmin ? logs : [] },
+      cashClosings: { documents: isAdmin ? cashClosings : [] },
+      boletos: { documents: isAdmin ? boletos : [] },
+      monthlyLimits: { documents: isAdmin ? monthlyLimits : [] },
       dailyRecords: { documents: dailyRecords },
-      fixedAccounts: { documents: db.prepare('SELECT * FROM fixed_accounts').all().map(acc => ({ ...acc, isActive: !!acc.isActive })) },
+      fixedAccounts: { documents: fixedAccounts },
     });
   } catch (err) {
     console.error('Error fetching all data:', err);
@@ -511,7 +516,7 @@ app.post('/api/monthly-limits', security.requireAdmin, (req, res) => {
 
 
 // --- Fixed Accounts CUD ---
-app.get('/api/fixed-accounts', (req, res) => {
+app.get('/api/fixed-accounts', security.requireAdmin, (req, res) => {
   try {
     const { garantirContaFixaInss, obterInssDinamicoParaMesPagamento } = require('./services/prolabore-inss.service');
     garantirContaFixaInss(db);
@@ -537,7 +542,7 @@ app.get('/api/fixed-accounts', (req, res) => {
   }
 });
 
-app.post('/api/fixed-accounts', (req, res) => {
+app.post('/api/fixed-accounts', security.requireAdmin, (req, res) => {
   try {
     const { id, name, value, dueDay, isActive } = req.body;
     
@@ -584,7 +589,7 @@ app.post('/api/fixed-accounts', (req, res) => {
   }
 });
 
-app.put('/api/fixed-accounts/:id', (req, res) => {
+app.put('/api/fixed-accounts/:id', security.requireAdmin, (req, res) => {
   try {
     const { id } = req.params;
     const { name, value, dueDay, isActive } = req.body;
@@ -671,7 +676,7 @@ app.delete('/api/fixed-accounts/:id', security.requireAdmin, (req, res) => {
 // --- FIXED ACCOUNT PAYMENTS ENDPOINTS ---
 
 // GET /api/fixed-account-payments - Get payments for a specific month (with auto-generation)
-app.get('/api/fixed-account-payments', (req, res) => {
+app.get('/api/fixed-account-payments', security.requireAdmin, (req, res) => {
   try {
     let { month, year } = req.query; // Esperado: YYYY-MM ou month=MM&year=YYYY
     
@@ -737,7 +742,7 @@ app.get('/api/fixed-account-payments', (req, res) => {
 
 
 // PUT /api/fixed-account-payments/:id - Update payment status
-app.put('/api/fixed-account-payments/:id', (req, res) => {
+app.put('/api/fixed-account-payments/:id', security.requireAdmin, (req, res) => {
   try {
     const { id } = req.params;
     const { status, paidAt, notes } = req.body;
@@ -766,7 +771,7 @@ app.put('/api/fixed-account-payments/:id', (req, res) => {
 });
 
 // GET /api/fixed-account-payments/history/:fixedAccountId - Get payment history
-app.get('/api/fixed-account-payments/history/:fixedAccountId', (req, res) => {
+app.get('/api/fixed-account-payments/history/:fixedAccountId', security.requireAdmin, (req, res) => {
   try {
     const { fixedAccountId } = req.params;
     const payments = db.prepare(
@@ -1373,7 +1378,7 @@ app.delete('/api/users/:id', security.requireAdmin, (req, res) => {
 
 // --- Boletos CUD ---
 // GET all boletos (incluindo títulos Foguete Amarelo)
-app.get('/api/boletos', (req, res) => {
+app.get('/api/boletos', security.requireAdmin, (req, res) => {
   try {
     // 1. Buscar boletos normais da tabela boletos
     const boletosNormais = db.prepare('SELECT * FROM boletos ORDER BY due_date').all();
@@ -1466,7 +1471,7 @@ app.post('/api/orders/:order_id/boletos', (req, res) => {
 });
 
 // CREATE a new boleto
-app.post('/api/boletos', (req, res) => {
+app.post('/api/boletos', security.requireAdmin, (req, res) => {
   try {
     const boleto = req.body;
     const stmt = db.prepare(`
@@ -1520,7 +1525,7 @@ app.post('/api/boletos', (req, res) => {
 });
 
 // UPDATE a boleto
-app.put('/api/boletos/:id', (req, res) => {
+app.put('/api/boletos/:id', security.requireAdmin, (req, res) => {
   try {
     const { id } = req.params;
     const { supplierName, order_id, due_date, value, status, invoice_number } = req.body;
@@ -1563,7 +1568,7 @@ app.put('/api/boletos/:id', (req, res) => {
 });
 
 // UPDATE boleto status
-app.put('/api/boletos/:id/status', (req, res) => {
+app.put('/api/boletos/:id/status', security.requireAdmin, (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
@@ -1581,7 +1586,7 @@ app.put('/api/boletos/:id/status', (req, res) => {
 });
 
 // DELETE a boleto
-app.delete('/api/boletos/:id', (req, res) => {
+app.delete('/api/boletos/:id', security.requireAdmin, (req, res) => {
   try {
     const { id } = req.params;
     const stmt = db.prepare('DELETE FROM boletos WHERE id = ?');
@@ -1978,7 +1983,7 @@ app.post('/api/logs', (req, res) => {
 
 // --- Cash Closings CUD ---
 // GET all cash closings
-app.get('/api/cash-closings', (req, res) => {
+app.get('/api/cash-closings', security.requireAdmin, (req, res) => {
   try {
     const closings = db.prepare('SELECT * FROM cash_closings ORDER BY date DESC').all().map(closing => ({
       ...closing,
@@ -1994,7 +1999,7 @@ app.get('/api/cash-closings', (req, res) => {
 });
 
 // CREATE cash closing
-app.post('/api/cash-closings', (req, res) => {
+app.post('/api/cash-closings', security.requireAdmin, (req, res) => {
   try {
     const closing = req.body;
     console.log('Received closing data:', closing); // Debugging line
@@ -3047,7 +3052,7 @@ app.put('/api/tasks/:taskId/admin-attention', (req, res) => {
 
 // --- Checking Account CUD ---
 // GET all checking account transactions
-app.get('/api/checking-account/transactions', (req, res) => {
+app.get('/api/checking-account/transactions', security.requireAdmin, (req, res) => {
   try {
     const transactions = db.prepare('SELECT * FROM checking_account_transactions ORDER BY date DESC').all();
     res.json(transactions);
@@ -3058,7 +3063,7 @@ app.get('/api/checking-account/transactions', (req, res) => {
 });
 
 // GET checking account balance
-app.get('/api/checking-account/balance', (req, res) => {
+app.get('/api/checking-account/balance', security.requireAdmin, (req, res) => {
   try {
     const result = db.prepare(`
       SELECT 
@@ -3074,7 +3079,7 @@ app.get('/api/checking-account/balance', (req, res) => {
 
 // --- Safe Entries CUD ---
 // GET all safe entries
-app.get('/api/safe-entries', (req, res) => {
+app.get('/api/safe-entries', security.requireAdmin, (req, res) => {
   try {
     const entries = db.prepare('SELECT * FROM safe_entries ORDER BY date DESC').all();
     res.json(entries);
@@ -3085,7 +3090,7 @@ app.get('/api/safe-entries', (req, res) => {
 });
 
 // CREATE safe entry
-app.post('/api/safe-entries', (req, res) => {
+app.post('/api/safe-entries', security.requireAdmin, (req, res) => {
   try {
     const entry = req.body;
     const stmt = db.prepare(`
@@ -3160,7 +3165,7 @@ app.post('/api/safe-entries', (req, res) => {
 });
 
 // DELETE safe entry
-app.delete('/api/safe-entries/:id', (req, res) => {
+app.delete('/api/safe-entries/:id', security.requireAdmin, (req, res) => {
   try {
     const { id } = req.params;
     const stmt = db.prepare('DELETE FROM safe_entries WHERE id = ?');
@@ -3588,7 +3593,7 @@ app.delete('/api/customer-debts/:id', (req, res) => {
 
 // --- Debtors Report (aggregated) ---
 // GET customers with pending/overdue debts, ordered by total owed (highest first)
-app.get('/api/debtors-report', (req, res) => {
+app.get('/api/debtors-report', security.requireAdmin, (req, res) => {
   try {
     const debtors = db.prepare(`
       SELECT 

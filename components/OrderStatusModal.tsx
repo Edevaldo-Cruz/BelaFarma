@@ -35,6 +35,11 @@ export const OrderStatusModal: React.FC<OrderStatusModalProps> = ({ user, order,
       invoice_number: fullOrderData.invoiceNumber || '',
     }));
     
+    if (user.role !== UserRole.ADM) {
+      onUpdateBoletos(fullOrderData.id, boletos);
+      onClose();
+      return;
+    }
     setBoletosForConfirmation(boletos);
     setIsBoletoModalOpen(true);
   };

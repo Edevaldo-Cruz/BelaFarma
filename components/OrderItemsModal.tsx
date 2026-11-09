@@ -1,14 +1,16 @@
 import React from 'react';
 import { X, Package, AlertCircle, CheckCircle2, DollarSign, Calendar, Truck, FileText } from 'lucide-react';
-import { Order, OrderItem } from '../types';
+import { Order, OrderItem, User, UserRole } from '../types';
 
 interface OrderItemsModalProps {
+  user?: User;
   order: Order | null;
   onClose: () => void;
 }
 
-export const OrderItemsModal: React.FC<OrderItemsModalProps> = ({ order, onClose }) => {
+export const OrderItemsModal: React.FC<OrderItemsModalProps> = ({ user, order, onClose }) => {
   if (!order) return null;
+  const isAdmin = !user || user.role === UserRole.ADM;
 
   const items: OrderItem[] = order.items || [];
   const itemsComCorte = items.filter(i => i.status === 'Corte' || (i.quantidadeCorte && i.quantidadeCorte > 0));
@@ -51,35 +53,41 @@ export const OrderItemsModal: React.FC<OrderItemsModalProps> = ({ order, onClose
         </div>
 
         {/* Resumo Financeiro & Alertas de Cortes */}
-        <div className="p-5 bg-white border-b border-slate-100 grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
-            <span className="text-[10px] font-black uppercase text-slate-400 block tracking-wider">Total do Pedido</span>
-            <span className="text-base font-black text-slate-900 tracking-tight">{brl(order.totalValue)}</span>
-          </div>
+        <div className={`p-5 bg-white border-b border-slate-100 grid ${isAdmin ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-1'} gap-3`}>
+          {isAdmin && (
+            <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+              <span className="text-[10px] font-black uppercase text-slate-400 block tracking-wider">Total do Pedido</span>
+              <span className="text-base font-black text-slate-900 tracking-tight">{brl(order.totalValue)}</span>
+            </div>
+          )}
 
           <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
             <span className="text-[10px] font-black uppercase text-slate-400 block tracking-wider">Produtos / Unidades</span>
             <span className="text-base font-black text-slate-900 tracking-tight">{items.length} itens ({totalUnidadesAtendidas} un)</span>
           </div>
 
-          <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
-            <span className="text-[10px] font-black uppercase text-slate-400 block tracking-wider">Forma de Pagamento</span>
-            <span className="text-base font-black text-slate-900 tracking-tight flex items-center gap-1">
-              {order.paymentMethod} {order.installments && order.installments.length > 0 && `(${order.installments.length}x)`}
-            </span>
-          </div>
+          {isAdmin && (
+            <>
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                <span className="text-[10px] font-black uppercase text-slate-400 block tracking-wider">Forma de Pagamento</span>
+                <span className="text-base font-black text-slate-900 tracking-tight flex items-center gap-1">
+                  {order.paymentMethod} {order.installments && order.installments.length > 0 && `(${order.installments.length}x)`}
+                </span>
+              </div>
 
-          <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
-            <span className="text-[10px] font-black uppercase text-slate-400 block tracking-wider">Mês Orçamento</span>
-            <span className="text-base font-black text-red-600 tracking-tight">{order.paymentMonth}</span>
-          </div>
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                <span className="text-[10px] font-black uppercase text-slate-400 block tracking-wider">Mês Orçamento</span>
+                <span className="text-base font-black text-red-600 tracking-tight">{order.paymentMonth}</span>
+              </div>
+            </>
+          )}
         </div>
 
         {itemsComCorte.length > 0 && (
           <div className="mx-6 mt-4 p-3.5 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-3 text-amber-900 text-xs">
             <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
             <div>
-              <span className="font-bold">Aviso de Cortes na Distribuidora:</span> Há {itemsComCorte.length} item(ns) com corte/não atendido pelo fornecedor. O valor de cortes totalizou {brl(valorTotalCortes)}, e o valor efetivo a pagar já reflete o desconto dos itens não faturados.
+              <span className="font-bold">Aviso de Cortes na Distribuidora:</span> Há {itemsComCorte.length} item(ns) com corte/não atendido pelo fornecedor.{isAdmin ? ` O valor de cortes totalizou ${brl(valorTotalCortes)}, e o valor efetivo a pagar já reflete o desconto dos itens não faturados.` : ''}
             </div>
           </div>
         )}
@@ -101,9 +109,9 @@ export const OrderItemsModal: React.FC<OrderItemsModalProps> = ({ order, onClose
                     <th className="px-3.5 py-3">Produto</th>
                     <th className="px-3.5 py-3 text-center whitespace-nowrap">Qtd Sol.</th>
                     <th className="px-3.5 py-3 text-center whitespace-nowrap">Qtd Atend.</th>
-                    <th className="px-3.5 py-3 text-right whitespace-nowrap">Preço Unit.</th>
-                    <th className="px-3.5 py-3 text-right whitespace-nowrap">ST Unit.</th>
-                    <th className="px-3.5 py-3 text-right whitespace-nowrap">Subtotal</th>
+                    {isAdmin && <th className="px-3.5 py-3 text-right whitespace-nowrap">Preço Unit.</th>}
+                    {isAdmin && <th className="px-3.5 py-3 text-right whitespace-nowrap">ST Unit.</th>}
+                    {isAdmin && <th className="px-3.5 py-3 text-right whitespace-nowrap">Subtotal</th>}
                     <th className="px-3.5 py-3 text-center whitespace-nowrap">Status</th>
                   </tr>
                 </thead>
@@ -127,15 +135,19 @@ export const OrderItemsModal: React.FC<OrderItemsModalProps> = ({ order, onClose
                         <td className="px-3.5 py-2.5 text-center font-black text-slate-900">
                           {it.quantidadeAtendida !== undefined ? it.quantidadeAtendida : it.quantidade}
                         </td>
-                        <td className="px-3.5 py-2.5 text-right font-medium text-slate-700">
-                          {brl(it.precoUnitario)}
-                        </td>
-                        <td className="px-3.5 py-2.5 text-right font-medium text-slate-500">
-                          {it.valorST ? brl(it.valorST) : '-'}
-                        </td>
-                        <td className="px-3.5 py-2.5 text-right font-black text-slate-900">
-                          {brl(it.subtotal)}
-                        </td>
+                        {isAdmin && (
+                          <>
+                            <td className="px-3.5 py-2.5 text-right font-medium text-slate-700">
+                              {brl(it.precoUnitario)}
+                            </td>
+                            <td className="px-3.5 py-2.5 text-right font-medium text-slate-500">
+                              {it.valorST ? brl(it.valorST) : '-'}
+                            </td>
+                            <td className="px-3.5 py-2.5 text-right font-black text-slate-900">
+                              {brl(it.subtotal)}
+                            </td>
+                          </>
+                        )}
                         <td className="px-3.5 py-2.5 text-center">
                           {isCorte ? (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-100 text-rose-700">
@@ -155,8 +167,8 @@ export const OrderItemsModal: React.FC<OrderItemsModalProps> = ({ order, onClose
             </div>
           )}
 
-          {/* Boletos Vinculados */}
-          {order.installments && order.installments.length > 0 && (
+          {/* Boletos Vinculados (Apenas ADM) */}
+          {isAdmin && order.installments && order.installments.length > 0 && (
             <div className="mt-5 p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
               <span className="text-[11px] font-black uppercase text-slate-500 tracking-wider flex items-center gap-1.5">
                 <Calendar className="w-3.5 h-3.5 text-red-600" /> Boletos e Vencimentos Vinculados ({order.installments.length}x)

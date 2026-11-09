@@ -314,10 +314,11 @@ export const TopMenuBar: React.FC<TopMenuBarProps> = ({
       items: [
         { id: 'belinha-pdv', label: 'Belinha PDV', icon: DollarSign },
         { id: 'erp-vendas', label: 'Vendas do Dia', icon: Receipt },
+        { id: 'daily-records', label: 'Lançamentos', icon: Receipt },
         { id: 'deliveries', label: 'Pedidos & Entregas', icon: Truck },
         { id: 'orders', label: 'Pedidos', icon: ShoppingCart },
         { id: 'ifood-control', label: 'Controle iFood', icon: ShoppingCart, adminOnly: true },
-        { id: 'promocoes-whatsapp', label: 'Promoção WhatsApp', icon: MessageSquare },
+        { id: 'promocoes-whatsapp', label: 'Promoção WhatsApp', icon: MessageSquare, adminOnly: true },
         { id: 'whatsapp-crm', label: 'CRM WhatsApp', icon: ContactRound, adminOnly: true },
         { id: 'whatsapp-vendas', label: 'Assistente de Vendas', icon: MessageSquare },
         { id: 'sales-report', label: 'Relatório Vendas', icon: TrendingUp, adminOnly: true },
@@ -328,7 +329,7 @@ export const TopMenuBar: React.FC<TopMenuBarProps> = ({
       label: 'Estoque & Farmácia',
       items: [
         { id: 'erp-produtos', label: 'Estoque ERP', icon: Package },
-        { id: 'erp-nfe', label: 'Entrada NF-e', icon: FileSpreadsheet },
+        { id: 'erp-nfe', label: 'Entrada NF-e', icon: FileSpreadsheet, adminOnly: true },
         { id: 'medication-search', label: 'Consultar Medicamentos', icon: Search },
         { id: 'anvisa-alerts', label: 'Alertas ANVISA', icon: ShieldAlert },
         { id: 'controlled-medications', label: 'Controle Especial & SNGPC', icon: ShieldCheck },
@@ -350,7 +351,7 @@ export const TopMenuBar: React.FC<TopMenuBarProps> = ({
         { id: 'compras-live', label: 'Sugestão Compras', icon: ShoppingCart },
         { id: 'reposicao-tabela', label: 'Análise Reposição', icon: TableProperties },
         { id: 'purchase-calendar', label: 'Calendário de Compras', icon: Calendar, adminOnly: true },
-        { id: 'suppliers', label: 'Fornecedores', icon: UsersIcon },
+        { id: 'suppliers', label: 'Fornecedores', icon: UsersIcon, adminOnly: true },
         { id: 'quotations', label: 'Cotações', icon: MessageSquare },
         { id: 'shortages', label: 'Lista de Faltas', icon: ClipboardList },
       ],
@@ -360,7 +361,6 @@ export const TopMenuBar: React.FC<TopMenuBarProps> = ({
       label: 'Financeiro & Fiscal',
       items: [
         { id: 'cash-closing', label: 'Fechamento de Caixa', icon: Calculator, adminOnly: true },
-        { id: 'daily-records', label: 'Lançamentos', icon: Receipt },
         { id: 'caixa-provisoes', label: 'Caixa & Provisões', icon: Wallet, adminOnly: true },
         { id: 'contas-a-pagar', label: 'Contas a Pagar', icon: Banknote, adminOnly: true },
         { id: 'checking-account', label: 'Conta Corrente', icon: Banknote, adminOnly: true },

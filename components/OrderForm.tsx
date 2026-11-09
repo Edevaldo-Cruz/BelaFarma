@@ -216,22 +216,24 @@ export const OrderForm: React.FC<OrderFormProps> = ({ user, order, onSave, onCan
               </div>
             </div>
 
-            <div className="space-y-2">
-              <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Valor Total (R$)*</label>
-              <div className="relative">
-                <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-slate-400">R$</span>
-                <input 
-                  required
-                  disabled={isOperator}
-                  type="text" 
-                  step="0.01"
-                  name="totalValue"
-                  value={formatCurrency(formData.totalValue)}
-                  onChange={handleChange}
-                  className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-red-500 outline-none font-black text-slate-900 text-lg disabled:opacity-60"
-                />
+            {!isOperator && (
+              <div className="space-y-2">
+                <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Valor Total (R$)*</label>
+                <div className="relative">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-slate-400">R$</span>
+                  <input 
+                    required
+                    disabled={isOperator}
+                    type="text" 
+                    step="0.01"
+                    name="totalValue"
+                    value={formatCurrency(formData.totalValue)}
+                    onChange={handleChange}
+                    className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-red-500 outline-none font-black text-slate-900 text-lg disabled:opacity-60"
+                  />
+                </div>
               </div>
-            </div>
+            )}
             {/* Resto do formulário mantido conforme original */}
             <div className="space-y-2">
               <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Data da Compra*</label>
@@ -241,12 +243,14 @@ export const OrderForm: React.FC<OrderFormProps> = ({ user, order, onSave, onCan
               <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Previsão de Chegada*</label>
               <input required disabled={isOperator} type="date" name="arrivalForecast" value={formData.arrivalForecast} onChange={handleChange} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-red-500 outline-none font-bold text-red-600" />
             </div>
-            <div className="space-y-2">
-              <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Forma de Pagamento*</label>
-              <select required disabled={isOperator} name="paymentMethod" value={formData.paymentMethod} onChange={handleChange} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold">
-                {Object.values(PaymentMethod).map(m => (<option key={m} value={m}>{m}</option>))}
-              </select>
-            </div>
+            {!isOperator && (
+              <div className="space-y-2">
+                <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Forma de Pagamento*</label>
+                <select required disabled={isOperator} name="paymentMethod" value={formData.paymentMethod} onChange={handleChange} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold">
+                  {Object.values(PaymentMethod).map(m => (<option key={m} value={m}>{m}</option>))}
+                </select>
+              </div>
+            )}
             
 
             

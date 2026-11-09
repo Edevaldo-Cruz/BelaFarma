@@ -1,9 +1,24 @@
 {
   "version": "1.2.4",
-  "commitHash": "5f4aaff",
-  "commitMessage": "fix(pdv): importar ChevronRight no BelinhaPDV corrigindo quebra de tela ao entrar no caixa",
-  "buildTime": "09/11/2026, 09:38:49",
+  "commitHash": "67afbbf",
+  "commitMessage": "fix(fiscal): corrige fuso horario dhEvento no cancelamento SEFAZ (Rejeicao 578) e parseTagValue",
+  "buildTime": "09/11/2026, 11:19:28",
   "recentCommits": [
+    {
+      "hash": "67afbbf",
+      "date": "09/11/2026",
+      "message": "fix(fiscal): corrige fuso horario dhEvento no cancelamento SEFAZ (Rejeicao 578) e parseTagValue"
+    },
+    {
+      "hash": "e44c0fa",
+      "date": "09/11/2026",
+      "message": "fix(fiscal): sempre obter ultimo NF_ID registrado no Digifarma + 1 e atualizar SERIE_NF"
+    },
+    {
+      "hash": "b7b1ffa",
+      "date": "09/11/2026",
+      "message": "feat(fiscal): emissao de NFC-e online e contingencia offline com QR-Code e sincronizacao Digifarma"
+    },
     {
       "hash": "5f4aaff",
       "date": "09/11/2026",
@@ -48,21 +63,6 @@
       "hash": "94d753a",
       "date": "08/11/2026",
       "message": "feat(erp): Central de Gestao de Promocoes e Precos Escalonados com controle de validade e sincronizacao Digifarma"
-    },
-    {
-      "hash": "c87676b",
-      "date": "08/11/2026",
-      "message": "feat(erp): Exclusao e devolucao individual de itens em vendas realizadas com sincronizacao Digifarma"
-    },
-    {
-      "hash": "2833f12",
-      "date": "08/11/2026",
-      "message": "feat(pdv-fiscal): Cadastro Expresso no PDV com SEM GTIN, Fila de Saneamento e Precos Escalonados Digifarma"
-    },
-    {
-      "hash": "6d584f3",
-      "date": "08/11/2026",
-      "message": "feat(fiscal): Fase 3 e 4 - Sincronizacao Compras Digifarma, Auditoria Previa e Pacote Contabil (.ZIP)"
     }
   ]
 }

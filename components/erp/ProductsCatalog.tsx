@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '../ToastContext';
 import { PromotionsManagementModal } from './PromotionsManagementModal';
+import { User, UserRole } from '../../types';
 
 interface ProductItem {
   code: string;
@@ -51,8 +52,13 @@ interface StockStats {
   valor_total_venda: number;
 }
 
-export const ProductsCatalog: React.FC = () => {
+interface ProductsCatalogProps {
+  user?: User;
+}
+
+export const ProductsCatalog: React.FC<ProductsCatalogProps> = ({ user }) => {
   const { addToast } = useToast();
+  const isAdmin = !user || user.role === UserRole.ADM;
 
   const [products, setProducts] = useState<ProductItem[]>([]);
   const [stats, setStats] = useState<StockStats | null>(null);
@@ -309,7 +315,7 @@ export const ProductsCatalog: React.FC = () => {
 
       {/* 2. CARDS DE MÉTRICAS */}
       {stats && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+        <div className={`grid grid-cols-2 ${isAdmin ? 'sm:grid-cols-4' : 'sm:grid-cols-2'} gap-3 mb-4`}>
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-3.5 shadow-sm">
             <p className="text-[10px] font-black uppercase text-slate-400">Total de Produtos</p>
             <p className="text-xl font-black font-mono text-slate-900 dark:text-white mt-0.5">
@@ -328,23 +334,27 @@ export const ProductsCatalog: React.FC = () => {
             <p className="text-[10px] text-slate-400 mt-0.5">Volumes físicos totais</p>
           </div>
 
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-3.5 shadow-sm">
-            <p className="text-[10px] font-black uppercase text-slate-400">Estoque a Custo (CMV)</p>
-            <p className="text-xl font-black font-mono text-blue-600 dark:text-blue-400 mt-0.5">
-              R$ {stats.valor_total_custo.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-            </p>
-            <p className="text-[10px] text-slate-400 mt-0.5">Patrimônio imobilizado</p>
-          </div>
+          {isAdmin && (
+            <>
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-3.5 shadow-sm">
+                <p className="text-[10px] font-black uppercase text-slate-400">Estoque a Custo (CMV)</p>
+                <p className="text-xl font-black font-mono text-blue-600 dark:text-blue-400 mt-0.5">
+                  R$ {stats.valor_total_custo.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                </p>
+                <p className="text-[10px] text-slate-400 mt-0.5">Patrimônio imobilizado</p>
+              </div>
 
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-3.5 shadow-sm">
-            <p className="text-[10px] font-black uppercase text-slate-400">Estoque a Venda</p>
-            <p className="text-xl font-black font-mono text-emerald-600 dark:text-emerald-400 mt-0.5">
-              R$ {stats.valor_total_venda.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-            </p>
-            <p className="text-[10px] text-emerald-600 font-bold mt-0.5">
-              Margem bruta potencial: {stats.valor_total_venda > 0 ? (((stats.valor_total_venda - stats.valor_total_custo) / stats.valor_total_venda) * 100).toFixed(1) : 0}%
-            </p>
-          </div>
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-3.5 shadow-sm">
+                <p className="text-[10px] font-black uppercase text-slate-400">Estoque a Venda</p>
+                <p className="text-xl font-black font-mono text-emerald-600 dark:text-emerald-400 mt-0.5">
+                  R$ {stats.valor_total_venda.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                </p>
+                <p className="text-[10px] text-emerald-600 font-bold mt-0.5">
+                  Margem bruta potencial: {stats.valor_total_venda > 0 ? (((stats.valor_total_venda - stats.valor_total_custo) / stats.valor_total_venda) * 100).toFixed(1) : 0}%
+                </p>
+              </div>
+            </>
+          )}
         </div>
       )}
 
@@ -396,7 +406,7 @@ export const ProductsCatalog: React.FC = () => {
                 <th className="py-2.5 px-3 whitespace-nowrap w-24">Código</th>
                 <th className="py-2.5 px-3 whitespace-nowrap">Produto / Apresentação</th>
                 <th className="py-2.5 px-3 whitespace-nowrap text-center w-14">Curva</th>
-                <th className="py-2.5 px-3 whitespace-nowrap text-right w-24">Custo</th>
+                {isAdmin && <th className="py-2.5 px-3 whitespace-nowrap text-right w-24">Custo</th>}
                 <th className="py-2.5 px-3 whitespace-nowrap text-right w-24">Preço Venda</th>
                 <th className="py-2.5 px-3 whitespace-nowrap text-right w-24">Promoção</th>
                 <th className="py-2.5 px-3 whitespace-nowrap text-center w-24">Saldo Físico</th>
@@ -457,9 +467,11 @@ export const ProductsCatalog: React.FC = () => {
                         {p.curve || 'C'}
                       </span>
                     </td>
-                    <td className="py-2 px-3 text-right font-mono text-slate-500 whitespace-nowrap">
-                      R$ {p.cost_price.toFixed(2)}
-                    </td>
+                    {isAdmin && (
+                      <td className="py-2 px-3 text-right font-mono text-slate-500 whitespace-nowrap">
+                        R$ {p.cost_price.toFixed(2)}
+                      </td>
+                    )}
                     <td className="py-2 px-3 text-right font-mono font-bold text-slate-800 dark:text-slate-200 whitespace-nowrap">
                       R$ {p.sale_price.toFixed(2)}
                     </td>
@@ -574,19 +586,21 @@ export const ProductsCatalog: React.FC = () => {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1">
-                    Custo Médio / CMV (R$):
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={editCostPrice}
-                    onChange={e => setEditCostPrice(parseFloat(e.target.value) || 0)}
-                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 font-mono font-bold text-sm"
-                  />
-                </div>
+              <div className={`grid ${isAdmin ? 'grid-cols-2' : 'grid-cols-1'} gap-3`}>
+                {isAdmin && (
+                  <div>
+                    <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1">
+                      Custo Médio / CMV (R$):
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={editCostPrice}
+                      onChange={e => setEditCostPrice(parseFloat(e.target.value) || 0)}
+                      className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 font-mono font-bold text-sm"
+                    />
+                  </div>
+                )}
 
                 <div>
                   <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1">
@@ -710,7 +724,7 @@ export const ProductsCatalog: React.FC = () => {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className={`grid ${isAdmin ? 'grid-cols-2' : 'grid-cols-1'} gap-3`}>
                 <div>
                   <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1">
                     Preço de Venda (R$):
@@ -724,18 +738,20 @@ export const ProductsCatalog: React.FC = () => {
                   />
                 </div>
 
-                <div>
-                  <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1">
-                    Custo (R$):
-                  </label>
-                  <input
-                    type="text"
-                    value={newCostPrice}
-                    onChange={e => setNewCostPrice(e.target.value)}
-                    placeholder="0,00"
-                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 font-mono text-xs font-bold"
-                  />
-                </div>
+                {isAdmin && (
+                  <div>
+                    <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1">
+                      Custo (R$):
+                    </label>
+                    <input
+                      type="text"
+                      value={newCostPrice}
+                      onChange={e => setNewCostPrice(e.target.value)}
+                      placeholder="0,00"
+                      className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 font-mono text-xs font-bold"
+                    />
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3">

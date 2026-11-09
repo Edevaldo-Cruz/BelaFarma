@@ -277,19 +277,23 @@ export const Orders: React.FC<OrdersProps> = ({ user, orders, onAdd, onUpdate, o
                       </div>
                     </td>
                     <td className="px-6 py-4 text-right" data-label="Faturamento">
-                      <div className="flex flex-col items-end">
-                        <span className="font-black text-slate-900 text-base tracking-tighter">
-                          {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(order.totalValue)}
-                        </span>
-                        <div className="flex items-center gap-1 mt-0.5">
-                          {order.installments && order.installments.length > 0 && (
-                            <span className="flex items-center gap-0.5 px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded text-[9px] font-black uppercase tracking-widest">
-                              {order.installments.length}x
-                            </span>
-                          )}
-                          <span className="text-[9px] text-red-600 font-black uppercase tracking-tighter">{order.paymentMethod}</span>
+                      {user.role === UserRole.ADM ? (
+                        <div className="flex flex-col items-end">
+                          <span className="font-black text-slate-900 text-base tracking-tighter">
+                            {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(order.totalValue)}
+                          </span>
+                          <div className="flex items-center gap-1 mt-0.5">
+                            {order.installments && order.installments.length > 0 && (
+                              <span className="flex items-center gap-0.5 px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded text-[9px] font-black uppercase tracking-widest">
+                                {order.installments.length}x
+                              </span>
+                            )}
+                            <span className="text-[9px] text-red-600 font-black uppercase tracking-tighter">{order.paymentMethod}</span>
+                          </div>
                         </div>
-                      </div>
+                      ) : (
+                        <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">Protegido</span>
+                      )}
                     </td>
                     <td className="px-6 py-4" data-label="Ações">
                       <div className="flex items-center justify-center gap-1">
@@ -361,6 +365,7 @@ export const Orders: React.FC<OrdersProps> = ({ user, orders, onAdd, onUpdate, o
 
       {selectedOrderForItems && (
         <OrderItemsModal
+          user={user}
           order={selectedOrderForItems}
           onClose={() => setSelectedOrderForItems(null)}
         />

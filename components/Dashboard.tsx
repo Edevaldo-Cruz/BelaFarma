@@ -509,13 +509,17 @@ export const Dashboard: React.FC<DashboardProps> = ({
       }
     };
 
-    fetchLastBackup();
-    fetchLiveSales();
+    if (isAdmin) {
+      fetchLastBackup();
+      fetchLiveSales();
+    }
     fetchInactiveProducts();
     
-    const interval = setInterval(fetchLiveSales, 60000); // 1 minuto
-    return () => clearInterval(interval);
-  }, []);
+    const interval = isAdmin ? setInterval(fetchLiveSales, 60000) : null;
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [isAdmin]);
 
   // Effect para controlar o Autoplay do Carrossel de Produtos Parados (10 segundos)
   React.useEffect(() => {
@@ -905,7 +909,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
       <div className="my-6"></div>
 
-      {/* PAINEL DE VENDAS E ORÇAMENTO MENSAL */}
+      {/* PAINEL DE VENDAS E ORÇAMENTO MENSAL (Apenas ADM) */}
+      {isAdmin && (
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
         
         {/* Vendas Hoje (Live) Widget */}
@@ -997,13 +1002,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
           );
         })()}
       </div>
-
-      
+      )}
 
       {/* 📊 GRID DE KPIS (METRICAS DO DIA/MÊS) NO TOPO */}
-      <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-3 md:gap-6">
+      <div className={`grid grid-cols-2 md:grid-cols-2 ${isAdmin ? 'lg:grid-cols-4 xl:grid-cols-7' : 'lg:grid-cols-3'} gap-3 md:gap-6`}>
         
-        {/* Ticket Médio (Hoje) */}
+        {/* Ticket Médio (Hoje) - Apenas ADM */}
+        {isAdmin && (
         <div className={`glass-card p-6 rounded-3xl shadow-sm flex flex-col justify-between transition-all duration-300 hover:scale-[1.02] hover:-translate-y-0.5 cursor-pointer ${themeCardClass}`}>
           <div>
             <div className="p-2 bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 rounded-xl w-fit mb-4">
@@ -1020,8 +1025,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
             </p>
           </div>
         </div>
+        )}
 
-        {/* Total de Tickets (Hoje) */}
+        {/* Total de Tickets (Hoje) - Apenas ADM */}
+        {isAdmin && (
         <div className={`glass-card p-6 rounded-3xl shadow-sm flex flex-col justify-between transition-all duration-300 hover:scale-[1.02] hover:-translate-y-0.5 cursor-pointer ${themeCardClass}`}>
           <div>
             <div className="p-2 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-xl w-fit mb-4">
@@ -1038,6 +1045,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             </p>
           </div>
         </div>
+        )}
 
         {/* Vencimentos / Faltas */}
         {(() => {
@@ -1212,8 +1220,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       </p>
                       <div className="flex items-center gap-2 mt-1 text-[9px] font-bold text-slate-500 dark:text-slate-450">
                         <span>Qtd: <span className="text-slate-800 dark:text-slate-200 font-black">{product.quantidade} un</span></span>
-                        <span className="w-0.5 h-0.5 bg-slate-300 dark:bg-slate-700 rounded-full" />
-                        <span>Faturamento: <span className="text-slate-900 dark:text-slate-100 font-black">{formattedValor}</span></span>
+                        {isAdmin && (
+                          <>
+                            <span className="w-0.5 h-0.5 bg-slate-300 dark:bg-slate-700 rounded-full" />
+                            <span>Faturamento: <span className="text-slate-900 dark:text-slate-100 font-black">{formattedValor}</span></span>
+                          </>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1407,10 +1419,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
       {/* 📊 SEÇÃO DE RELATÓRIOS COM ABAS */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Coluna Principal: Gráficos com Tabs */}
-        <div className={`lg:col-span-2 glass-card rounded-3xl shadow-sm overflow-hidden min-w-0 ${themeCardClass}`}>
-          {/* Tab Navigation */}
-          {user.role !== UserRole.OPERADOR && (
+        {/* Coluna Principal: Gráficos com Tabs (Apenas ADM) */}
+        {isAdmin && (
+          <div className={`lg:col-span-2 glass-card rounded-3xl shadow-sm overflow-hidden min-w-0 ${themeCardClass}`}>
+            {/* Tab Navigation */}
             <div className="p-4 md:p-6 border-b border-slate-100 dark:border-slate-800">
               <div className="flex flex-wrap gap-1.5 bg-slate-100/80 dark:bg-slate-800/60 p-1 rounded-2xl">
                 {[
@@ -1438,11 +1450,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 })}
               </div>
             </div>
-          )}
 
-          {/* Tab Content */}
-          <div className="p-4 md:p-6">
-            {user.role !== UserRole.OPERADOR ? (
+            {/* Tab Content */}
+            <div className="p-4 md:p-6">
               <div className="h-[260px] md:h-[420px] w-full min-w-0 overflow-hidden">
                 {chartTab === 'evolution' && (
                   <FinancialEvolutionChart orders={orders} boletos={boletos} cashClosings={enrichedCashClosings} fixedAccounts={fixedAccounts} />
@@ -1457,16 +1467,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   <PaymentMethodsChart cashClosings={enrichedCashClosings} />
                 )}
               </div>
-            ) : (
-              <div className="flex items-center justify-center h-[300px] text-slate-400 dark:text-slate-500 text-sm font-medium italic">
-                Sem acesso aos relatórios financeiros.
-              </div>
-            )}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Coluna Lateral: Últimas Remessas */}
-        <div className={`glass-card p-6 md:p-8 rounded-3xl shadow-sm ${themeCardClass}`}>
+        <div className={`${isAdmin ? '' : 'lg:col-span-3'} glass-card p-6 md:p-8 rounded-3xl shadow-sm ${themeCardClass}`}>
           <h2 className="text-xs font-black text-slate-500 dark:text-slate-400 mb-6 flex items-center gap-2 uppercase tracking-widest">
             <ShoppingCart className="w-4 h-4 text-slate-400 dark:text-slate-500" />
             Últimas Remessas
@@ -1587,7 +1593,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                         <th className="px-6 py-3.5">Produto</th>
                         <th className="px-6 py-3.5 text-center">Curva</th>
                         <th className="px-6 py-3.5 text-center">Qtd Vendida</th>
-                        <th className="px-6 py-3.5 text-right">Faturamento</th>
+                        {isAdmin && <th className="px-6 py-3.5 text-right">Faturamento</th>}
                         <th className="px-6 py-3.5 text-right">Acumulado (%)</th>
                       </tr>
                     </thead>
@@ -1634,9 +1640,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
                             </td>
 
                             {/* Faturamento */}
-                            <td className="px-6 py-3 text-right font-black text-slate-900 dark:text-slate-100">
-                              {formattedVenda}
-                            </td>
+                            {isAdmin && (
+                              <td className="px-6 py-3 text-right font-black text-slate-900 dark:text-slate-100">
+                                {formattedVenda}
+                              </td>
+                            )}
 
                             {/* Participação Acumulada */}
                             <td className="px-6 py-3 text-right font-bold text-slate-500 dark:text-slate-400">
@@ -1720,7 +1728,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                         <th className="px-6 py-3.5 text-center">Estoque</th>
                         <th className="px-6 py-3.5 text-right">Valor Venda</th>
                         {isAdmin && <th className="px-6 py-3.5 text-right">Valor Compra</th>}
-                        <th className="px-6 py-3.5 text-right">Total Parado</th>
+                        {isAdmin && <th className="px-6 py-3.5 text-right">Total Parado</th>}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
@@ -1777,9 +1785,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
                             )}
 
                             {/* Total Parado */}
-                            <td className="px-6 py-3 text-right font-black text-slate-900 dark:text-slate-100">
-                              {formattedTotal}
-                            </td>
+                            {isAdmin && (
+                              <td className="px-6 py-3 text-right font-black text-slate-900 dark:text-slate-100">
+                                {formattedTotal}
+                              </td>
+                            )}
                           </tr>
                         );
                       })}
@@ -1890,9 +1900,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     <div className="text-right">
                       {client.lastSaleValue ? (
                         <div className="flex flex-col items-end">
-                          <span className="text-xs font-black text-slate-800 dark:text-slate-200">
-                            R$ {client.lastSaleValue.toFixed(2)}
-                          </span>
+                          {isAdmin && (
+                            <span className="text-xs font-black text-slate-800 dark:text-slate-200">
+                              R$ {client.lastSaleValue.toFixed(2)}
+                            </span>
+                          )}
                           <span className="text-[9px] text-blue-600 dark:text-blue-400 font-bold uppercase tracking-wider mt-0.5">
                             📦 {client.purchasedProducts?.length || 0} itens
                           </span>

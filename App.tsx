@@ -260,6 +260,8 @@ const App: React.FC = () => {
     setIsBudgetSummaryOpen(false);
   };
 
+  const isAdmin = user ? (user.role === UserRole.ADM || String(user.role).toUpperCase().includes('ADM') || String(user.role).toUpperCase().includes('GERENTE')) : false;
+
   // Cálculos do Orçamento dos 2 Próximos Meses (M+1 e M+2) para o Botão Flutuante e Tema
   const { isBudgetBusted, budgetEmoji, currentMonthBudgetStatus, nextMonthsInfo } = useMemo(() => {
     const today = new Date();
@@ -275,6 +277,18 @@ const App: React.FC = () => {
     const m2Index = (currentMonthIndex + 2) % 12;
     const y2 = currentMonthIndex + 2 > 11 ? currentYear + 1 : currentYear;
     const m2Number = m2Index + 1; // 1-12
+
+    if (!isAdmin) {
+      return {
+        isBudgetBusted: false,
+        budgetEmoji: '🤍',
+        currentMonthBudgetStatus: 'no-budget' as const,
+        nextMonthsInfo: {
+          m1: { month: m1Number, year: y1, limit: 0, spent: 0, available: 0, status: 'no-budget' as const },
+          m2: { month: m2Number, year: y2, limit: 0, spent: 0, available: 0, status: 'no-budget' as const },
+        }
+      };
+    }
 
     const limit1Obj = monthlyLimits.find(l => l.month === m1Number && l.year === y1);
     const limit2Obj = monthlyLimits.find(l => l.month === m2Number && l.year === y2);
@@ -349,7 +363,7 @@ const App: React.FC = () => {
         m2: { month: m2Number, year: y2, limit: limit2, spent: spent2, available: limit2 - spent2, status: status2 },
       }
     };
-  }, [boletos, monthlyLimits]);
+  }, [boletos, monthlyLimits, isAdmin]);
 
   const logoutTimerRef = useRef<number | null>(null);
   const currentViewRef = useRef<View>("dashboard");
@@ -1390,15 +1404,15 @@ const App: React.FC = () => {
                 <BelinhaPDV currentUser={user} onNavigate={handleNavigate} />
               )}
               {currentView === "erp-vendas" && (
-                <SalesHistory />
+                <SalesHistory user={user} />
               )}
               {currentView === "controlled-medications" && (
                 <ControlledMedicationsPortal />
               )}
               {currentView === "erp-produtos" && (
-                <ProductsCatalog />
+                <ProductsCatalog user={user} />
               )}
-              {currentView === "erp-nfe" && (
+              {currentView === "erp-nfe" && user.role === UserRole.ADM && (
                 <InboundInvoices />
               )}
               {currentView === "fiscal-contabil" && user.role === UserRole.ADM && (
@@ -1571,7 +1585,7 @@ const App: React.FC = () => {
               {currentView === 'ai-portal' && user.role === UserRole.ADM && (
                 <AIPortal />
               )}
-              {currentView === 'belafarma-ia' && (
+              {currentView === 'belafarma-ia' && user.role === UserRole.ADM && (
                 <BelaFarmaIAChat />
               )}
               {currentView === 'financial-health' && user.role === UserRole.ADM && (
@@ -1739,7 +1753,8 @@ const App: React.FC = () => {
         />
       )}
 
-      {/* Botão Flutuante Discreto do Status de Orçamento (Apenas Desktop) */}
+      {/* Botão Flutuante Discreto do Status de Orçamento (Apenas Desktop e Administradores) */}
+      {isAdmin && (
       <div className="hidden md:flex fixed bottom-6 right-6 z-[90] flex-col items-end gap-2 group">
         {/* Balão de Status dos 2 Próximos Meses (Exibido no Hover ou se em Alerta) */}
         {currentMonthBudgetStatus !== 'no-budget' && nextMonthsInfo && (
@@ -1797,9 +1812,10 @@ const App: React.FC = () => {
           </span>
         </button>
       </div>
+      )}
 
       {/* Pop-up de Somas de Boletos e Orçamentos por Mês */}
-      {isBudgetSummaryOpen && (
+      {isAdmin && isBudgetSummaryOpen && (
         <BoletoBudgetSummaryModal
           boletos={boletos}
           monthlyLimits={monthlyLimits}
