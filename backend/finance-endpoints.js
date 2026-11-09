@@ -178,7 +178,6 @@ module.exports = function (db) {
         JOIN CAB_VENDAS v ON fp.VENDA_NOTA_ID = v.VENDA_NOTA_ID
         WHERE v.VENDA_DATA_HORA >= CURRENT_DATE AND v.VENDA_DATA_HORA < CURRENT_DATE + 1
           AND v.CANCELADO <> 'S'
-          AND v.VENDEDOR_ID <> 9
         GROUP BY fp.TIPO_PAGAMENTO_ID, fp.BANDEIRA
       `;
 

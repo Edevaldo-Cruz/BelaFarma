@@ -500,7 +500,7 @@ function initErpDatabase() {
     if (!tpCols.includes('start_date')) db.prepare(`ALTER TABLE tiered_pricing ADD COLUMN start_date TEXT`).run();
     if (!tpCols.includes('end_date')) db.prepare(`ALTER TABLE tiered_pricing ADD COLUMN end_date TEXT`).run();
     if (!tpCols.includes('is_permanent')) db.prepare(`ALTER TABLE tiered_pricing ADD COLUMN is_permanent INTEGER DEFAULT 1`).run();
-    if (!tpCols.includes('created_at')) db.prepare(`ALTER TABLE tiered_pricing ADD COLUMN created_at TEXT DEFAULT (datetime('now', 'localtime'))`).run();
+    if (!tpCols.includes('created_at')) db.prepare(`ALTER TABLE tiered_pricing ADD COLUMN created_at TEXT`).run();
 
     const pCols = db.pragma('table_info(products)').map(c => c.name);
     if (!pCols.includes('promo_start_date')) db.prepare(`ALTER TABLE products ADD COLUMN promo_start_date TEXT`).run();
