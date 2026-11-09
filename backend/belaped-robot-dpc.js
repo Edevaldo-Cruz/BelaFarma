@@ -159,8 +159,8 @@ class DpcRobot {
 
             const precoFinal = fatorEmbalagem > 1 ? Number((precoNum / fatorEmbalagem).toFixed(2)) : precoNum;
 
-            const tituloEl = card.querySelector('h2, h3, [class*="title"], [class*="name"], .desc-produto');
-            const descProd = tituloEl ? tituloEl.innerText.trim() : (cardText.split('\n')[0] || '');
+            const tituloEl = card.querySelector('.titulo, .titulo-produto a, h2, h3, .desc-produto, [class*="name"], [class*="title"]:not(.price-title)');
+            const descProd = tituloEl ? (tituloEl.innerText || tituloEl.getAttribute('title') || '').trim() : (cardText.split('\n')[0] || '');
 
             const matchEan = cardText.match(/\b(?:EAN|C[oó]d\.?\s*(?:de\s*)?Barras?|Barras?)\s*:?\s*(\d{8,14})\b/i) ||
                              cardText.match(/\b(789\d{10}|790\d{10}|\d{13}|\d{8,14})\b/);
@@ -433,27 +433,44 @@ class DpcRobot {
         }
       }
 
-      const adicionou = await this.page.evaluate((qtd) => {
-        const card = document.querySelector('.bloco-produto, .card-produto, [class*="produto"], .item') || document;
-        const inputQtd = card.querySelector('input[type="number"], input[name*="qtd"], input[name*="quantidade"]');
-        if (!inputQtd) return { sucesso: false, motivo: 'Campo de quantidade não localizado no produto' };
+      const clicouInicial = await this.page.evaluate(() => {
+        const inputExistente = document.querySelector('input.qty, .produto-content input[type="number"]');
+        if (inputExistente) return { jaNoCarrinho: true };
+        const btnAdd = document.querySelector('.btn-addItem, .produto-content button[class*="add"]');
+        if (!btnAdd) return { erro: 'Botão de adicionar não localizado no produto' };
+        btnAdd.click();
+        return { clicouAdd: true };
+      });
 
-        inputQtd.focus();
-        inputQtd.value = '';
-        inputQtd.value = String(qtd);
-        inputQtd.dispatchEvent(new Event('input', { bubbles: true }));
-        inputQtd.dispatchEvent(new Event('change', { bubbles: true }));
-
-        const btnComprar = card.querySelector('button[type="submit"], button.btn-success, button[class*="comprar"], button[class*="add"]');
-        if (!btnComprar) return { sucesso: false, motivo: 'Botão de comprar não localizado' };
-
-        btnComprar.click();
-        return { sucesso: true };
-      }, qtdNum);
-
-      if (adicionou.sucesso) {
-        await new Promise(r => setTimeout(r, 2000));
+      if (clicouInicial.erro) {
+        return {
+          sucesso: false,
+          ean,
+          quantidade: qtdNum,
+          motivo: clicouInicial.erro
+        };
       }
+
+      if (clicouInicial.clicouAdd) {
+        await new Promise(r => setTimeout(r, 1500));
+      }
+
+      if (qtdNum > 1 || clicouInicial.jaNoCarrinho) {
+        await this.page.evaluate((qtd) => {
+          const inputQtd = document.querySelector('input.qty, .produto-content input[type="number"]');
+          if (inputQtd) {
+            inputQtd.focus();
+            inputQtd.value = String(qtd);
+            inputQtd.dispatchEvent(new Event('input', { bubbles: true }));
+            inputQtd.dispatchEvent(new Event('change', { bubbles: true }));
+            inputQtd.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', bubbles: true }));
+            inputQtd.blur();
+          }
+        }, qtdNum);
+        await new Promise(r => setTimeout(r, 1500));
+      }
+
+      const adicionou = { sucesso: true };
 
       return {
         sucesso: adicionou.sucesso,
