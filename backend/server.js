@@ -4717,6 +4717,18 @@ const createCardEndpoints = require('./crediario-card-endpoints.js');
 app.use('/api/cards', createCardEndpoints(db));
 console.log('💳 Módulo Cartão BelaFarma (Private Label) & Fidelidade NFC inicializado em /api/cards.');
 
+// Régua Automática e Cron Diário do Crediário 2.0 (Fechamento D-10, Vencimento, D+1, D+3 e D+5)
+const { initCrediarioCron } = require('./services/crediario-cron.service.js');
+const crediarioCron = initCrediarioCron(db);
+app.post('/api/cards/cron/run', async (req, res) => {
+  try {
+    const relatorio = await crediarioCron.executarReguaDiaria();
+    res.json({ success: true, relatorio });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Belinha ERP - Frente de Caixa (PDV), Produtos, Estoque e Vendas Nativas
 const erpEndpoints = require('./modules/erp/erp-endpoints.js');
 app.use('/api/erp', erpEndpoints);

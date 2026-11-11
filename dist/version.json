@@ -1,9 +1,14 @@
 {
   "version": "1.2.4",
-  "commitHash": "7300f10",
-  "commitMessage": "feat(pdv): tela dedicada estilo desktop/electron e vendedor fixo persistente",
-  "buildTime": "11/11/2026, 13:11:17",
+  "commitHash": "e4ffcde",
+  "commitMessage": "feat(pdv): suporte completo a operacao offline sem internet e contingencia instantanea",
+  "buildTime": "11/11/2026, 13:43:49",
   "recentCommits": [
+    {
+      "hash": "e4ffcde",
+      "date": "11/11/2026",
+      "message": "feat(pdv): suporte completo a operacao offline sem internet e contingencia instantanea"
+    },
     {
       "hash": "7300f10",
       "date": "11/11/2026",
@@ -58,11 +63,6 @@
       "hash": "e44c0fa",
       "date": "09/11/2026",
       "message": "fix(fiscal): sempre obter ultimo NF_ID registrado no Digifarma + 1 e atualizar SERIE_NF"
-    },
-    {
-      "hash": "b7b1ffa",
-      "date": "09/11/2026",
-      "message": "feat(fiscal): emissao de NFC-e online e contingencia offline com QR-Code e sincronizacao Digifarma"
     }
   ]
 }

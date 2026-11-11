@@ -1,14 +1,22 @@
 /**
  * backend/crediario-card-endpoints.js
  *
- * Módulo de Endpoints do Cartão BelaFarma (Private Label) & Fidelidade NFC
- * Gerencia limites de crédito, leitura NFC no caixa, termos jurídicos com aceite no WhatsApp,
- * faturas mensais, tarifas de fatura ativa, encargos de atraso e negativação no Serasa.
+ * Módulo de Endpoints do Crediário 2.0 / Cartão BelaFarma (Private Label) & Fidelidade NFC
+ * Gerencia:
+ * - Limites de crédito flexíveis e controle de saldo em tempo real
+ * - Identificação rápida por Nome, Telefone, CPF ou Aproximação NFC no balcão
+ * - Ciclo de faturamento (vencimentos 10 e 20 com fechamento 10 dias antes)
+ * - Tolerância estendida de atraso (bloqueio automático de novas compras em D+5)
+ * - Emissão de Boletos Híbridos pelo Banco Inter (com QR Code Pix, juros 2.9% a.m. e multa 2%)
+ * - Baixa e liquidação de faturas (no balcão ou via conciliação)
+ * - Régua de comunicação e envio de boletos/Pix via WhatsApp (Baileys)
+ * - Cadastro rápido e alerta de CPF pendente
  */
 
 const express = require('express');
 const crypto = require('crypto');
 const path = require('path');
+const bancoInterService = require('./services/banco-inter.service');
 
 function createCardEndpoints(db, whatsappService = null) {
   const router = express.Router();
@@ -57,7 +65,7 @@ function createCardEndpoints(db, whatsappService = null) {
         });
       }
 
-      // 1. Checagem de Faturas em Atraso
+      // 1. Checagem de Faturas em Atraso (Tolerância estendida até D+5)
       const today = new Date().toISOString().split('T')[0];
       const overdueInvoice = db.prepare(`
         SELECT id, reference_month, due_date, total_due, paid_amount,
@@ -68,7 +76,7 @@ function createCardEndpoints(db, whatsappService = null) {
       `).get(today, card.id, today);
 
       const daysLate = overdueInvoice ? Math.max(0, overdueInvoice.days_late) : 0;
-      const isBlockedLate = daysLate >= 2;
+      const isBlockedLate = daysLate >= 5;
 
       // 2. Saldo de Cashback Disponível
       const cbRows = db.prepare(`
@@ -88,6 +96,8 @@ function createCardEndpoints(db, whatsappService = null) {
           customer_name: card.customer_name,
           phone: card.phone,
           cpf: card.cpf,
+          has_cpf: !!card.cpf,
+          needs_cpf: !card.cpf,
           card_number: card.card_number,
           card_uid: card.card_uid,
           credit_limit: card.credit_limit,
@@ -95,7 +105,7 @@ function createCardEndpoints(db, whatsappService = null) {
           available_credit: availableCredit,
           due_day: card.due_day,
           status: card.status,
-          active_fee_amount: card.active_fee_amount,
+          active_fee_amount: card.active_fee_amount || 0.0,
           available_cashback: availableCashback,
           is_blocked_late: isBlockedLate,
           days_late: daysLate,
@@ -103,332 +113,200 @@ function createCardEndpoints(db, whatsappService = null) {
         }
       });
     } catch (err) {
-      console.error('[Cartao BelaFarma] Erro ao buscar por UID:', err);
+      console.error('[Crediário 2.0] Erro ao buscar por UID:', err);
       res.status(500).json({ error: err.message });
     }
   });
 
   /**
    * 2. GET /api/cards/search?q=...
-   * Fallback de busca no balcão por Nome, Telefone ou CPF.
+   * Busca ágil no balcão por Nome, Telefone ou CPF.
    */
   router.get('/search', (req, res) => {
     try {
       const q = String(req.query.q || '').trim();
-      if (!q || q.length < 2) {
-        return res.json({ success: true, cards: [] });
+      const today = new Date().toISOString().split('T')[0];
+
+      let cards = [];
+      if (!q) {
+        cards = db.prepare(`
+          SELECT id, customer_id, customer_name, phone, cpf, card_number, card_uid,
+                 credit_limit, used_limit, status, due_day, active_fee_amount
+          FROM belafarma_cards
+          ORDER BY used_limit DESC, customer_name ASC LIMIT 25
+        `).all();
+      } else {
+        const cleanQ = q.replace(/\D/g, '');
+        cards = db.prepare(`
+          SELECT id, customer_id, customer_name, phone, cpf, card_number, card_uid,
+                 credit_limit, used_limit, status, due_day, active_fee_amount
+          FROM belafarma_cards
+          WHERE customer_name LIKE ? OR phone LIKE ? OR cpf LIKE ? OR card_uid LIKE ?
+          ORDER BY customer_name ASC LIMIT 25
+        `).all(`%${q}%`, `%${cleanQ || q}%`, `%${cleanQ || q}%`, `%${q}%`);
       }
 
-      const cleanQ = q.replace(/\D/g, '');
-      const cards = db.prepare(`
-        SELECT id, customer_name, phone, cpf, card_number, card_uid, credit_limit, used_limit, status, due_day
-        FROM belafarma_cards
-        WHERE customer_name LIKE ? OR phone LIKE ? OR cpf LIKE ? OR card_uid LIKE ?
-        ORDER BY customer_name ASC LIMIT 10
-      `).all(`%${q}%`, `%${cleanQ || q}%`, `%${cleanQ || q}%`, `%${q}%`);
+      // Enriquecer com métricas de crédito e faturas
+      const enriched = cards.map(c => {
+        const availableCredit = Math.max(0, Number((c.credit_limit - c.used_limit).toFixed(2)));
+        
+        const overdueInvoice = db.prepare(`
+          SELECT id, reference_month, due_date, total_due, paid_amount,
+                 CAST((julianday(?) - julianday(due_date)) AS INTEGER) as days_late
+          FROM card_invoices
+          WHERE card_id = ? AND status != 'paid' AND due_date < ?
+          ORDER BY due_date ASC LIMIT 1
+        `).get(today, c.id, today);
 
-      res.json({ success: true, cards });
+        const daysLate = overdueInvoice ? Math.max(0, overdueInvoice.days_late) : 0;
+        const isBlockedLate = daysLate >= 5;
+        const isBlockedLimit = availableCredit <= 0;
+
+        return {
+          id: c.id,
+          customer_id: c.customer_id,
+          customer_name: c.customer_name,
+          phone: c.phone || '',
+          cpf: c.cpf || '',
+          has_cpf: !!c.cpf,
+          needs_cpf: !c.cpf,
+          card_number: c.card_number,
+          card_uid: c.card_uid,
+          credit_limit: c.credit_limit,
+          used_limit: c.used_limit,
+          available_credit: availableCredit,
+          due_day: c.due_day,
+          status: c.status,
+          is_blocked: isBlockedLate || isBlockedLimit,
+          is_blocked_late: isBlockedLate,
+          is_blocked_limit: isBlockedLimit,
+          days_late: daysLate,
+          overdue_invoice: overdueInvoice || null
+        };
+      });
+
+      res.json({ success: true, cards: enriched });
     } catch (err) {
-      console.error('[Cartao BelaFarma] Erro ao buscar clientes:', err);
+      console.error('[Crediário 2.0] Erro ao buscar clientes:', err);
       res.status(500).json({ error: err.message });
     }
   });
 
   /**
-   * 3. POST /api/cards/issue
-   * Emissão expressa de cartão no balcão (vincula chip virgem, gera termo e dispara WhatsApp).
+   * 3. GET /api/cards/:cardId/details
+   * Retorna perfil completo do cliente, extrato e todas as faturas.
    */
-  router.post('/issue', async (req, res) => {
+  router.get('/:cardId/details', (req, res) => {
     try {
-      const {
-        customerName,
-        phone,
-        cpf,
-        address,
-        neighborhood,
-        cardUid,
-        creditLimit = 300.0,
-        dueDay = 10,
-        sendWhatsApp = true
-      } = req.body;
-
-      if (!customerName || !phone) {
-        return res.status(400).json({ error: 'Nome do cliente e telefone são obrigatórios.' });
+      const { cardId } = req.params;
+      const card = db.prepare('SELECT * FROM belafarma_cards WHERE id = ?').get(cardId);
+      if (!card) {
+        return res.status(404).json({ error: 'Conta de crediário não encontrada.' });
       }
 
-      const cleanPhone = sanitizePhone(phone);
-      const cleanUid = (cardUid || '').trim().toUpperCase();
+      const invoices = db.prepare(`
+        SELECT * FROM card_invoices WHERE card_id = ? ORDER BY due_date DESC
+      `).all(cardId);
 
-      // Checar se o UID já está em uso
-      if (cleanUid) {
-        const existingCard = db.prepare('SELECT id, customer_name FROM belafarma_cards WHERE UPPER(card_uid) = ?').get(cleanUid);
-        if (existingCard) {
-          return res.status(400).json({ error: `Este chip NFC já está vinculado ao cliente ${existingCard.customer_name}.` });
-        }
+      // Itens da fatura mais recente
+      const latestInvoice = invoices[0];
+      let items = [];
+      if (latestInvoice) {
+        items = db.prepare(`
+          SELECT * FROM card_invoice_items WHERE invoice_id = ? ORDER BY purchased_at DESC
+        `).all(latestInvoice.id);
       }
 
-      // Obter ou criar cliente na tabela customers
-      let cust = db.prepare('SELECT id, name FROM customers WHERE phone LIKE ? LIMIT 1').get(`%${cleanPhone.slice(-8)}%`);
-      let customerId = cust ? cust.id : null;
-      if (!customerId) {
-        customerId = `cust_${Date.now()}`;
-        db.prepare(`
-          INSERT INTO customers (id, name, phone, address, neighborhood, createdAt, updatedAt)
-          VALUES (?, ?, ?, ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime'))
-        `).run(customerId, customerName.toUpperCase(), cleanPhone, address || null, neighborhood || null);
-      }
-
-      const cardNumber = generateCardNumber();
-      const token = crypto.randomBytes(16).toString('hex');
-      const limitVal = Number(creditLimit) || 300.0;
-      const dueDayVal = [10, 20].includes(Number(dueDay)) ? Number(dueDay) : 10;
-
-      // 1. Inserir Cartão
-      const insertCard = db.prepare(`
-        INSERT INTO belafarma_cards (
-          customer_id, customer_name, phone, cpf, card_uid, card_number,
-          credit_limit, used_limit, due_day, closing_offset_days, status,
-          active_fee_amount, late_fine_percent, late_interest_monthly_percent,
-          created_at, updated_at
-        ) VALUES (
-          ?, ?, ?, ?, ?, ?,
-          ?, 0.0, ?, 10, 'pending_signature',
-          4.90, 2.00, 2.90,
-          datetime('now', 'localtime'), datetime('now', 'localtime')
-        )
-      `).run(
-        customerId,
-        customerName.trim().toUpperCase(),
-        cleanPhone,
-        cpf ? cpf.replace(/\D/g, '') : null,
-        cleanUid || null,
-        cardNumber,
-        limitVal,
-        dueDayVal
-      );
-
-      const cardId = insertCard.lastInsertRowid;
-
-      // 2. Inserir Termo Jurídico de Assinatura Eletrônica
-      const termsText = `TERMO DE ADESÃO AO CARTÃO BELAFARMA (PRIVATE LABEL)
-Cliente: ${customerName.toUpperCase()} - CPF: ${cpf || 'A confirmar'}
-Limite Concedido: R$ ${limitVal.toFixed(2)} - Vencimento da Fatura: Todo dia ${dueDayVal}
-Tarifa de Fatura Ativa: R$ 4,90 (devida apenas nos meses em que houver compras faturadas).
-Encargos de Atraso: Multa de 2% (Art. 52 CDC) e Juros de Mora de 2,9% ao mês.
-CLÁUSULA DE NEGATIVAÇÃO: Em caso de inadimplência superior a 30 dias contados do vencimento da fatura, o(a) titular autoriza expressamente a inscrição de seu nome e CPF nos órgãos de proteção ao crédito (SPC/Serasa) e o protesto do respectivo título.`;
-
-      db.prepare(`
-        INSERT INTO card_legal_signatures (
-          card_id, customer_id, token, full_name, cpf, phone, address,
-          due_day, credit_limit, active_fee_amount, late_fine_percent, late_interest_monthly_percent,
-          terms_text, status, created_at
-        ) VALUES (
-          ?, ?, ?, ?, ?, ?, ?,
-          ?, ?, 4.90, 2.00, 2.90,
-          ?, 'pending', datetime('now', 'localtime')
-        )
-      `).run(
-        cardId,
-        customerId,
-        token,
-        customerName.trim().toUpperCase(),
-        cpf ? cpf.replace(/\D/g, '') : null,
-        cleanPhone,
-        address ? `${address} - ${neighborhood || ''}` : null,
-        dueDayVal,
-        limitVal,
-        termsText
-      );
-
-      // 3. Creditar Bônus de Boas-Vindas de R$ 3,00 (Cashback Fidelidade válido por 30 dias)
-      const expiresAt = new Date();
-      expiresAt.setDate(expiresAt.getDate() + 30);
-      const expiresStr = expiresAt.toISOString().split('T')[0];
-
-      db.prepare(`
-        INSERT INTO nfc_loyalty_cashback (
-          customer_id, customer_name, phone, card_uid, sale_id,
-          purchase_amount, payment_method, cashback_percent, cashback_amount,
-          balance_available, expires_at, status, created_at
-        ) VALUES (
-          ?, ?, ?, ?, 'BONUS_BOAS_VINDAS',
-          0.0, 'BONUS', 100.0, 3.00,
-          3.00, ?, 'active', datetime('now', 'localtime')
-        )
-      `).run(
-        customerId,
-        customerName.trim().toUpperCase(),
-        cleanPhone,
-        cleanUid || null,
-        expiresStr
-      );
-
-      // 4. Link do Termo para o WhatsApp
-      const signatureUrl = `/cartao/termo.html?token=${token}`;
-
-      // Enviar WhatsApp se o serviço estiver ativo
-      let sentWhatsApp = false;
-      try {
-        const baileys = require('./baileys-service');
-        if (baileys && typeof baileys.enviarMensagemTexto === 'function' && sendWhatsApp) {
-          const jid = cleanPhone.includes('@') ? cleanPhone : `55${cleanPhone}@s.whatsapp.net`;
-          const msg = `🎉 Olá, *${customerName.split(' ')[0]}*! Seu *Cartão BelaFarma* está pronto!\n\n` +
-            `💳 *Limite Aprovado:* R$ ${limitVal.toFixed(2)}\n` +
-            `📅 *Vencimento da Fatura:* Todo dia ${dueDayVal}\n` +
-            `🎁 *Presente:* Liberamos *R$ 3,00 de Bônus* para você aproveitar nos próximos 30 dias!\n\n` +
-            `👉 Para ativar seu cartão agora com segurança, clique no link e confirme seu aceite:\n` +
-            `http://localhost:3001${signatureUrl}\n\n` +
-            `Qualquer dúvida, conte sempre com a BelaFarma! 💚`;
-
-          await baileys.enviarMensagemTexto(jid, msg);
-          sentWhatsApp = true;
-        }
-      } catch (errWpp) {
-        console.warn('[Cartao BelaFarma] Aviso: Falha ao enviar WhatsApp de boas-vindas:', errWpp.message);
-      }
+      const today = new Date().toISOString().split('T')[0];
+      const overdueInvoice = invoices.find(inv => inv.status !== 'paid' && inv.due_date < today);
+      const daysLate = overdueInvoice
+        ? Math.max(0, Math.floor((new Date(today) - new Date(overdueInvoice.due_date)) / (1000 * 60 * 60 * 24)))
+        : 0;
 
       res.json({
         success: true,
-        message: 'Cartão emitido com sucesso e bônus de R$ 3,00 creditado!',
-        cardId,
-        token,
-        signatureUrl,
-        sentWhatsApp,
         card: {
-          id: cardId,
-          customer_name: customerName,
-          phone: cleanPhone,
-          card_number: cardNumber,
-          card_uid: cleanUid,
-          credit_limit: limitVal,
-          due_day: dueDayVal,
-          status: 'pending_signature',
-          bonus_cashback: 3.00
-        }
+          ...card,
+          has_cpf: !!card.cpf,
+          needs_cpf: !card.cpf,
+          available_credit: Math.max(0, Number((card.credit_limit - card.used_limit).toFixed(2))),
+          is_blocked_late: daysLate >= 5,
+          days_late: daysLate
+        },
+        invoices,
+        latestInvoiceItems: items
       });
     } catch (err) {
-      console.error('[Cartao BelaFarma] Erro ao emitir cartão:', err);
+      console.error('[Crediário 2.0] Erro ao buscar detalhes:', err);
       res.status(500).json({ error: err.message });
     }
   });
 
   /**
-   * 4. GET /api/cards/terms/:token
-   * Retorna os dados do termo para exibição no celular do cliente.
+   * 4. POST /api/cards/:cardId/update-profile
+   * Atualização cadastral rápida pelo balcão (cadastra CPF, telefone, limite e data de vencimento).
    */
-  router.get('/terms/:token', (req, res) => {
+  router.post('/:cardId/update-profile', (req, res) => {
     try {
-      const { token } = req.params;
-      const term = db.prepare(`
-        SELECT s.*, c.card_number, c.status as card_status
-        FROM card_legal_signatures s
-        JOIN belafarma_cards c ON s.card_id = c.id
-        WHERE s.token = ?
-      `).get(token);
+      const { cardId } = req.params;
+      const { cpf, phone, dueDay, creditLimit, customerName, address } = req.body;
 
-      if (!term) {
-        return res.status(404).json({ error: 'Termo de adesão não encontrado ou expirado.' });
+      const card = db.prepare('SELECT * FROM belafarma_cards WHERE id = ?').get(cardId);
+      if (!card) {
+        return res.status(404).json({ error: 'Conta de crediário não encontrada.' });
       }
 
-      res.json({
-        success: true,
-        term: {
-          token: term.token,
-          full_name: term.full_name,
-          cpf: term.cpf,
-          phone: term.phone,
-          address: term.address,
-          card_number: term.card_number,
-          due_day: term.due_day,
-          credit_limit: term.credit_limit,
-          active_fee_amount: term.active_fee_amount,
-          late_fine_percent: term.late_fine_percent,
-          late_interest_monthly_percent: term.late_interest_monthly_percent,
-          terms_text: term.terms_text,
-          status: term.status,
-          signed_at: term.signed_at
-        }
-      });
-    } catch (err) {
-      console.error('[Cartao BelaFarma] Erro ao buscar termo:', err);
-      res.status(500).json({ error: err.message });
-    }
-  });
+      const cleanCpf = cpf ? cpf.replace(/\D/g, '') : card.cpf;
+      const cleanPhone = phone ? sanitizePhone(phone) : card.phone;
+      const dueDayVal = dueDay && [10, 20].includes(Number(dueDay)) ? Number(dueDay) : card.due_day;
+      const limitVal = creditLimit !== undefined ? Number(creditLimit) : card.credit_limit;
+      const nameVal = customerName ? customerName.trim().toUpperCase() : card.customer_name;
 
-  /**
-   * 5. POST /api/cards/terms/:token/sign
-   * Assinatura eletrônica realizada pelo cliente no celular (com gravação de IP e Data/Hora).
-   */
-  router.post('/terms/:token/sign', async (req, res) => {
-    try {
-      const { token } = req.params;
-      const { cpf, address } = req.body;
-
-      const term = db.prepare('SELECT * FROM card_legal_signatures WHERE token = ?').get(token);
-      if (!term) {
-        return res.status(404).json({ error: 'Termo de adesão inválido.' });
-      }
-
-      if (term.status === 'signed') {
-        return res.json({ success: true, message: 'Este termo já foi assinado anteriormente!', alreadySigned: true });
-      }
-
-      const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1';
-      const userAgent = req.headers['user-agent'] || 'Desconhecido';
-      const cleanCpf = cpf ? cpf.replace(/\D/g, '') : term.cpf;
-
-      // 1. Atualizar assinatura jurídica
-      db.prepare(`
-        UPDATE card_legal_signatures
-        SET status = 'signed',
-            cpf = COALESCE(?, cpf),
-            address = COALESCE(?, address),
-            ip_address = ?,
-            user_agent = ?,
-            signed_at = datetime('now', 'localtime')
-        WHERE token = ?
-      `).run(cleanCpf || null, address || null, String(clientIp), String(userAgent), token);
-
-      // 2. Ativar o Cartão
       db.prepare(`
         UPDATE belafarma_cards
-        SET status = 'active',
-            cpf = COALESCE(?, cpf),
+        SET customer_name = ?,
+            cpf = ?,
+            phone = ?,
+            due_day = ?,
+            credit_limit = ?,
             updated_at = datetime('now', 'localtime')
         WHERE id = ?
-      `).run(cleanCpf || null, term.card_id);
+      `).run(nameVal, cleanCpf || null, cleanPhone || '', dueDayVal, limitVal, cardId);
 
-      // 3. Atualizar cadastro do cliente
-      if (cleanCpf) {
-        db.prepare('UPDATE customers SET cpf = ? WHERE phone LIKE ?').run(cleanCpf, `%${term.phone.slice(-8)}%`);
+      // Sincronizar em customers
+      if (card.customer_id) {
+        db.prepare(`
+          UPDATE customers
+          SET name = COALESCE(?, name),
+              cpf = COALESCE(?, cpf),
+              phone = COALESCE(?, phone),
+              address = COALESCE(?, address),
+              updatedAt = datetime('now', 'localtime')
+          WHERE id = ?
+        `).run(nameVal, cleanCpf || null, cleanPhone || null, address || null, card.customer_id);
       }
-
-      // 4. Mensagem de Confirmação no WhatsApp
-      try {
-        const baileys = require('./baileys-service');
-        if (baileys && typeof baileys.enviarMensagemTexto === 'function') {
-          const jid = term.phone.includes('@') ? term.phone : `55${term.phone}@s.whatsapp.net`;
-          const msg = `✅ *Tudo certo, ${term.full_name.split(' ')[0]}!* Seu *Cartão BelaFarma* foi ATIVADO com sucesso!\n\n` +
-            `🔒 *Limite Liberado:* R$ ${term.credit_limit.toFixed(2)}\n` +
-            `📅 *Vencimento:* Todo dia ${term.due_day}\n\n` +
-            `Basta aproximar o cartão ou passar o seu WhatsApp no balcão da farmácia para comprar a prazo com comodidade. Muito obrigado pela confiança! 💚`;
-          await baileys.enviarMensagemTexto(jid, msg);
-        }
-      } catch (eWpp) {}
 
       res.json({
         success: true,
-        message: 'Cartão BelaFarma ativado com sucesso! Você já pode realizar compras.',
-        signedAt: new Date().toISOString()
+        message: 'Cadastro atualizado com sucesso!',
+        card: {
+          id: card.id,
+          customer_name: nameVal,
+          cpf: cleanCpf,
+          phone: cleanPhone,
+          due_day: dueDayVal,
+          credit_limit: limitVal,
+          has_cpf: !!cleanCpf
+        }
       });
     } catch (err) {
-      console.error('[Cartao BelaFarma] Erro ao assinar termo:', err);
+      console.error('[Crediário 2.0] Erro ao atualizar cadastro:', err);
       res.status(500).json({ error: err.message });
     }
   });
 
   /**
-   * 6. POST /api/cards/authorize-sale
+   * 5. POST /api/cards/authorize-sale
    * Valida e debita o limite no caixa para compras no crediário próprio.
    */
   router.post('/authorize-sale', (req, res) => {
@@ -442,19 +320,10 @@ CLÁUSULA DE NEGATIVAÇÃO: Em caso de inadimplência superior a 30 dias contado
 
       const card = db.prepare('SELECT * FROM belafarma_cards WHERE id = ?').get(cardId);
       if (!card) {
-        return res.status(404).json({ error: 'Cartão não encontrado.' });
+        return res.status(404).json({ error: 'Conta de crediário não encontrada.' });
       }
 
-      if (card.status !== 'active') {
-        return res.status(403).json({
-          authorized: false,
-          reason: card.status === 'pending_signature'
-            ? 'Cartão aguardando aceite do termo no WhatsApp.'
-            : 'Cartão bloqueado ou cancelado.'
-        });
-      }
-
-      // Checar se há fatura vencida há mais de 2 dias
+      // Checar se há fatura vencida há mais de 5 dias (Tolerância estendida D+5)
       const today = new Date().toISOString().split('T')[0];
       const overdueInvoice = db.prepare(`
         SELECT id, due_date, total_due, paid_amount,
@@ -464,10 +333,10 @@ CLÁUSULA DE NEGATIVAÇÃO: Em caso de inadimplência superior a 30 dias contado
         ORDER BY due_date ASC LIMIT 1
       `).get(today, card.id, today);
 
-      if (overdueInvoice && overdueInvoice.days_late >= 2) {
+      if (overdueInvoice && overdueInvoice.days_late >= 5) {
         return res.status(403).json({
           authorized: false,
-          reason: `Bloqueado por fatura em atraso há ${overdueInvoice.days_late} dias (${formatCurrency(overdueInvoice.total_due - overdueInvoice.paid_amount)} pendente).`
+          reason: `Bloqueado por fatura em atraso há ${overdueInvoice.days_late} dias (${formatCurrency(overdueInvoice.total_due - overdueInvoice.paid_amount)} pendente desde ${overdueInvoice.due_date}).`
         });
       }
 
@@ -475,7 +344,7 @@ CLÁUSULA DE NEGATIVAÇÃO: Em caso de inadimplência superior a 30 dias contado
       if (saleVal > availableLimit) {
         return res.status(403).json({
           authorized: false,
-          reason: `Limite insuficiente. Limite disponível: ${formatCurrency(availableLimit)}, compra: ${formatCurrency(saleVal)}.`
+          reason: `Limite de crédito insuficiente. Limite disponível: ${formatCurrency(availableLimit)}, compra solicitada: ${formatCurrency(saleVal)}.`
         });
       }
 
@@ -495,8 +364,7 @@ CLÁUSULA DE NEGATIVAÇÃO: Em caso de inadimplência superior a 30 dias contado
 
         let invoice = db.prepare('SELECT * FROM card_invoices WHERE id = ?').get(invoiceId);
         if (!invoice) {
-          // Data de vencimento no mês corrente ou seguinte
-          const dueDay = card.due_day;
+          const dueDay = card.due_day || 20;
           let dueYear = now.getFullYear();
           let dueMonth = now.getMonth() + 1;
           if (now.getDate() > dueDay - 10) {
@@ -515,14 +383,13 @@ CLÁUSULA DE NEGATIVAÇÃO: Em caso de inadimplência superior a 30 dias contado
               purchases_total, fee_active_invoice, total_due, status, created_at, updated_at
             ) VALUES (
               ?, ?, ?, ?, ?, ?,
-              ?, ?, ?, 'open', datetime('now', 'localtime'), datetime('now', 'localtime')
+              ?, 0.0, ?, 'open', datetime('now', 'localtime'), datetime('now', 'localtime')
             )
           `).run(
             invoiceId, card.id, card.customer_id, refMonth, closingDateStr, dueDateStr,
-            saleVal, card.active_fee_amount, saleVal + card.active_fee_amount
+            saleVal, saleVal
           );
         } else {
-          // Atualiza total da fatura existente
           db.prepare(`
             UPDATE card_invoices
             SET purchases_total = purchases_total + ?,
@@ -536,7 +403,7 @@ CLÁUSULA DE NEGATIVAÇÃO: Em caso de inadimplência superior a 30 dias contado
         db.prepare(`
           INSERT INTO card_invoice_items (
             invoice_id, card_id, sale_id, description, amount, payment_method, purchased_at
-          ) VALUES (?, ?, ?, ?, ?, 'CREDITO_PROPRIO', datetime('now', 'localtime'))
+          ) VALUES (?, ?, ?, ?, ?, 'CREDIARIO_2.0', datetime('now', 'localtime'))
         `).run(
           invoiceId, card.id, saleId || `pdv_${Date.now()}`,
           description || 'Compra no Balcão BelaFarma', saleVal
@@ -550,92 +417,276 @@ CLÁUSULA DE NEGATIVAÇÃO: Em caso de inadimplência superior a 30 dias contado
 
       res.json({
         authorized: true,
-        message: 'Venda aprovada com sucesso no Cartão BelaFarma!',
+        message: 'Venda aprovada com sucesso no Crediário BelaFarma!',
         saleAmount: saleVal,
         usedLimit: result.newUsed,
         remainingLimit: newRemaining,
         invoiceId: result.invoiceId
       });
     } catch (err) {
-      console.error('[Cartao BelaFarma] Erro ao autorizar venda:', err);
+      console.error('[Crediário 2.0] Erro ao autorizar venda:', err);
       res.status(500).json({ error: err.message });
     }
   });
 
   /**
-   * 7. POST /api/cards/redeem-cashback
-   * Resgata saldo de cashback acumulado na tela do caixa.
+   * 6. POST /api/cards/invoices/:invoiceId/issue-inter-boleto
+   * Emissão do Boleto Híbrido (com QR Code Pix) pelo Banco Inter.
    */
-  router.post('/redeem-cashback', (req, res) => {
+  router.post('/invoices/:invoiceId/issue-inter-boleto', async (req, res) => {
     try {
-      const { phone, amount, saleId } = req.body;
-      const cleanPhone = sanitizePhone(phone);
-      const redeemVal = Number(amount || 0);
-
-      if (!cleanPhone || redeemVal <= 0) {
-        return res.status(400).json({ error: 'Telefone e valor do resgate são obrigatórios.' });
+      const { invoiceId } = req.params;
+      const invoice = db.prepare('SELECT * FROM card_invoices WHERE id = ?').get(invoiceId);
+      if (!invoice) {
+        return res.status(404).json({ error: 'Fatura não encontrada.' });
       }
 
-      // Buscar lotes de cashback ativos
-      const lots = db.prepare(`
-        SELECT id, balance_available
-        FROM nfc_loyalty_cashback
-        WHERE phone = ? AND status = 'active' AND expires_at >= date('now', 'localtime') AND balance_available > 0
-        ORDER BY expires_at ASC
-      `).all(cleanPhone);
+      const card = db.prepare('SELECT * FROM belafarma_cards WHERE id = ?').get(invoice.card_id);
+      if (!card) {
+        return res.status(404).json({ error: 'Cartão vinculado à fatura não encontrado.' });
+      }
 
-      const totalAvail = lots.reduce((acc, l) => acc + l.balance_available, 0);
-      if (redeemVal > totalAvail) {
+      if (!card.cpf) {
         return res.status(400).json({
-          error: `Saldo de cashback insuficiente. Disponível: ${formatCurrency(totalAvail)}.`
+          error: `Cliente ${card.customer_name} não possui CPF cadastrado. Cadastre o CPF no balcão antes de emitir o boleto bancário do Banco Inter.`,
+          needs_cpf: true
         });
       }
 
-      let remainingToDeduct = redeemVal;
-      const deductTx = db.transaction(() => {
-        for (const lot of lots) {
-          if (remainingToDeduct <= 0) break;
-          const deductFromLot = Math.min(lot.balance_available, remainingToDeduct);
-          const newBal = lot.balance_available - deductFromLot;
-          const newStatus = newBal <= 0 ? 'redeemed' : 'active';
+      const saldoAPagar = Number((invoice.total_due - invoice.paid_amount).toFixed(2));
+      if (saldoAPagar <= 0) {
+        return res.status(400).json({ error: 'Esta fatura já se encontra quitada.' });
+      }
 
-          db.prepare(`
-            UPDATE nfc_loyalty_cashback
-            SET balance_available = ?, status = ?
-            WHERE id = ?
-          `).run(newBal, newStatus, lot.id);
+      const cust = card.customer_id
+        ? db.prepare('SELECT * FROM customers WHERE id = ?').get(card.customer_id)
+        : null;
 
-          remainingToDeduct -= deductFromLot;
+      const interBoleto = await bancoInterService.emitirBoletoHibrido({
+        seuNumero: invoice.id.replace(/\W/g, '').substring(0, 15),
+        valor: saldoAPagar,
+        dataVencimento: invoice.due_date,
+        cliente: {
+          nome: card.customer_name,
+          cpf: card.cpf,
+          telefone: card.phone,
+          endereco: cust?.address || 'Rua Principal',
+          bairro: cust?.neighborhood || 'Centro',
+          cidade: 'Muriaé',
+          uf: 'MG',
+          cep: '36880000'
         }
       });
 
-      deductTx();
+      db.prepare(`
+        UPDATE card_invoices
+        SET boleto_id = ?,
+            boleto_barcode = ?,
+            pix_copia_cola = ?,
+            status = 'closed',
+            updated_at = datetime('now', 'localtime')
+        WHERE id = ?
+      `).run(
+        interBoleto.nossoNumero || interBoleto.codigoBarras,
+        interBoleto.linhaDigitavel || interBoleto.codigoBarras,
+        interBoleto.pixCopiaECola,
+        invoiceId
+      );
 
       res.json({
         success: true,
-        message: `${formatCurrency(redeemVal)} de Cashback resgatado com sucesso!`,
-        redeemedAmount: redeemVal,
-        remainingCashback: Number((totalAvail - redeemVal).toFixed(2))
+        message: 'Boleto Híbrido Banco Inter emitido com sucesso!',
+        boleto: {
+          nossoNumero: interBoleto.nossoNumero,
+          codigoBarras: interBoleto.codigoBarras,
+          linhaDigitavel: interBoleto.linhaDigitavel,
+          pixCopiaECola: interBoleto.pixCopiaECola
+        }
       });
     } catch (err) {
-      console.error('[Cartao BelaFarma] Erro ao resgatar cashback:', err);
+      console.error('[Crediário 2.0] Erro ao emitir boleto Banco Inter:', err);
       res.status(500).json({ error: err.message });
     }
   });
 
   /**
-   * 8. GET /api/cards/dashboard
-   * Visão geral de métricas, limites e cobranças do Cartão BelaFarma.
+   * 7. GET /api/cards/invoices/:invoiceId/boleto-pdf
+   * Download / Visualização direta do PDF do boleto gerado.
+   */
+  router.get('/invoices/:invoiceId/boleto-pdf', async (req, res) => {
+    try {
+      const { invoiceId } = req.params;
+      const invoice = db.prepare('SELECT * FROM card_invoices WHERE id = ?').get(invoiceId);
+      if (!invoice || !invoice.boleto_id) {
+        return res.status(404).json({ error: 'Boleto ainda não emitido para esta fatura.' });
+      }
+
+      const pdfBuffer = await bancoInterService.obterBoletoPdf(invoice.boleto_id);
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `inline; filename="Boleto_BelaFarma_${invoiceId}.pdf"`);
+      res.send(pdfBuffer);
+    } catch (err) {
+      console.error('[Crediário 2.0] Erro ao obter PDF do boleto:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  /**
+   * 8. POST /api/cards/invoices/:invoiceId/pay
+   * Liquidação / Baixa de pagamento realizada no balcão da farmácia (dinheiro, Pix, débito).
+   */
+  router.post('/invoices/:invoiceId/pay', (req, res) => {
+    try {
+      const { invoiceId } = req.params;
+      const { amount, paymentMethod = 'DINHEIRO', notes = '' } = req.body;
+      const payVal = Number(amount || 0);
+
+      if (payVal <= 0) {
+        return res.status(400).json({ error: 'Valor pago inválido.' });
+      }
+
+      const invoice = db.prepare('SELECT * FROM card_invoices WHERE id = ?').get(invoiceId);
+      if (!invoice) {
+        return res.status(404).json({ error: 'Fatura não encontrada.' });
+      }
+
+      const card = db.prepare('SELECT * FROM belafarma_cards WHERE id = ?').get(invoice.card_id);
+      if (!card) {
+        return res.status(404).json({ error: 'Cartão não encontrado.' });
+      }
+
+      const newPaid = Number((invoice.paid_amount + payVal).toFixed(2));
+      const isTotal = newPaid >= invoice.total_due;
+      const newStatus = isTotal ? 'paid' : invoice.status;
+
+      db.transaction(() => {
+        db.prepare(`
+          UPDATE card_invoices
+          SET paid_amount = ?,
+              paid_at = CASE WHEN ? THEN datetime('now', 'localtime') ELSE paid_at END,
+              status = ?,
+              updated_at = datetime('now', 'localtime')
+          WHERE id = ?
+        `).run(newPaid, isTotal ? 1 : 0, newStatus, invoiceId);
+
+        const newUsed = Math.max(0, Number((card.used_limit - payVal).toFixed(2)));
+        db.prepare(`
+          UPDATE belafarma_cards
+          SET used_limit = ?,
+              status = 'active',
+              updated_at = datetime('now', 'localtime')
+          WHERE id = ?
+        `).run(newUsed, card.id);
+      })();
+
+      res.json({
+        success: true,
+        message: isTotal
+          ? 'Fatura quitada integralmente! Limite liberado.'
+          : `Pagamento parcial de ${formatCurrency(payVal)} registrado com sucesso!`,
+        invoiceId,
+        paidAmount: payVal,
+        totalPaid: newPaid,
+        totalDue: invoice.total_due,
+        remainingInvoiceDue: Math.max(0, Number((invoice.total_due - newPaid).toFixed(2))),
+        newUsedLimit: Math.max(0, Number((card.used_limit - payVal).toFixed(2))),
+        newAvailableLimit: Math.max(0, Number((card.credit_limit - (card.used_limit - payVal)).toFixed(2)))
+      });
+    } catch (err) {
+      console.error('[Crediário 2.0] Erro ao baixar fatura:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  /**
+   * 9. POST /api/cards/invoices/:invoiceId/send-whatsapp
+   * Disparo manual ou sob demanda de extrato + código Pix/boleto para o WhatsApp do cliente.
+   */
+  router.post('/invoices/:invoiceId/send-whatsapp', async (req, res) => {
+    try {
+      const { invoiceId } = req.params;
+      const invoice = db.prepare('SELECT * FROM card_invoices WHERE id = ?').get(invoiceId);
+      if (!invoice) {
+        return res.status(404).json({ error: 'Fatura não encontrada.' });
+      }
+
+      const card = db.prepare('SELECT * FROM belafarma_cards WHERE id = ?').get(invoice.card_id);
+      if (!card || !card.phone) {
+        return res.status(400).json({ error: 'Telefone do cliente não encontrado.' });
+      }
+
+      const items = db.prepare('SELECT * FROM card_invoice_items WHERE invoice_id = ? ORDER BY purchased_at ASC').all(invoiceId);
+
+      const cleanPhone = sanitizePhone(card.phone);
+      const baileys = require('./baileys-service');
+
+      let itensTexto = '';
+      items.slice(0, 10).forEach(it => {
+        itensTexto += `• ${it.description}: R$ ${Number(it.amount).toFixed(2)}\n`;
+      });
+      if (items.length > 10) {
+        itensTexto += `... e mais ${items.length - 10} item(ns)\n`;
+      }
+
+      const saldoRestante = Number((invoice.total_due - invoice.paid_amount).toFixed(2));
+      const [ano, mes, dia] = invoice.due_date.split('-');
+      const dataVencFormat = `${dia}/${mes}/${ano}`;
+
+      let msg = `🧾 *Fatura BelaFarma - Crediário*\n\n` +
+        `Olá, *${card.customer_name.split(' ')[0]}*! Segue o resumo da sua fatura com vencimento em *${dataVencFormat}*:\n\n` +
+        `💰 *Valor Total a Pagar:* R$ ${saldoRestante.toFixed(2)}\n` +
+        `📅 *Vencimento:* ${dataVencFormat}\n\n` +
+        `🛍️ *Detalhamento das Compras:*\n` +
+        `${itensTexto || '• Compras consolidadas no balcão\n'}\n`;
+
+      if (invoice.pix_copia_cola) {
+        msg += `⚡ *Pague via PIX Copia e Cola (Aprovação Instantânea):*\n` +
+          `\`${invoice.pix_copia_cola}\`\n\n`;
+      } else {
+        msg += `💳 *Chave PIX BelaFarma (CNPJ):*\n` +
+          `\`31.144.152/0001-44\`\n\n` +
+          `_(Ou realize o pagamento diretamente no balcão da farmácia)_\n\n`;
+      }
+
+      msg += `Qualquer dúvida estamos à disposição! Muito obrigado pela parceria e preferência! 💚`;
+
+      await baileys.sendText(cleanPhone, msg);
+
+      let sentPdf = false;
+      if (invoice.boleto_id && typeof baileys.sendDocument === 'function') {
+        try {
+          const pdfBuf = await bancoInterService.obterBoletoPdf(invoice.boleto_id);
+          await baileys.sendDocument(cleanPhone, pdfBuf, `Boleto_BelaFarma_${invoice.reference_month}.pdf`, 'Boleto bancário da sua fatura BelaFarma.');
+          sentPdf = true;
+        } catch (pdfErr) {
+          console.warn('[Crediário 2.0] Aviso: Não foi possível anexar PDF no WhatsApp:', pdfErr.message);
+        }
+      }
+
+      res.json({
+        success: true,
+        message: 'Fatura e cobrança enviadas com sucesso no WhatsApp!',
+        sentPdf
+      });
+    } catch (err) {
+      console.error('[Crediário 2.0] Erro ao enviar WhatsApp:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  /**
+   * 10. GET /api/cards/dashboard
+   * Visão geral de métricas, limites e cobranças do Crediário 2.0.
    */
   router.get('/dashboard', (req, res) => {
     try {
       const totalCards = db.prepare('SELECT COUNT(*) as cnt FROM belafarma_cards').get().cnt;
       const activeCards = db.prepare("SELECT COUNT(*) as cnt FROM belafarma_cards WHERE status = 'active'").get().cnt;
-      const pendingCards = db.prepare("SELECT COUNT(*) as cnt FROM belafarma_cards WHERE status = 'pending_signature'").get().cnt;
+      const semCpfCount = db.prepare("SELECT COUNT(*) as cnt FROM belafarma_cards WHERE cpf IS NULL OR cpf = ''").get().cnt;
 
       const limitStats = db.prepare(`
         SELECT SUM(credit_limit) as total_granted, SUM(used_limit) as total_used
-        FROM belafarma_cards WHERE status = 'active'
+        FROM belafarma_cards
       `).get();
 
       const today = new Date().toISOString().split('T')[0];
@@ -645,34 +696,29 @@ CLÁUSULA DE NEGATIVAÇÃO: Em caso de inadimplência superior a 30 dias contado
         WHERE status != 'paid' AND due_date < ?
       `).get(today);
 
-      const serasaCandidates = db.prepare(`
-        SELECT i.id, i.due_date, (i.total_due - i.paid_amount) as debt_amount,
-               c.customer_name, c.phone, c.cpf,
-               CAST((julianday(?) - julianday(i.due_date)) AS INTEGER) as days_late
-        FROM card_invoices i
-        JOIN belafarma_cards c ON i.card_id = c.id
-        WHERE i.status != 'paid' AND (julianday(?) - julianday(i.due_date)) >= 30
-        ORDER BY days_late DESC LIMIT 20
-      `).all(today, today);
+      const blockedStats = db.prepare(`
+        SELECT COUNT(DISTINCT card_id) as cnt
+        FROM card_invoices
+        WHERE status != 'paid' AND (julianday(?) - julianday(due_date)) >= 5
+      `).get(today).cnt;
 
       res.json({
         success: true,
         cards: {
           total: totalCards,
           active: activeCards,
-          pending: pendingCards,
+          sem_cpf: semCpfCount,
           total_credit_granted: Number(limitStats?.total_granted || 0),
           total_credit_used: Number(limitStats?.total_used || 0)
         },
         billing: {
           overdue_count: overdueStats?.overdue_count || 0,
           overdue_amount: Number(overdueStats?.overdue_amount || 0),
-          serasa_candidates_count: serasaCandidates.length,
-          serasa_candidates: serasaCandidates
+          blocked_overdue_clients: blockedStats
         }
       });
     } catch (err) {
-      console.error('[Cartao BelaFarma] Erro ao carregar dashboard:', err);
+      console.error('[Crediário 2.0] Erro ao carregar dashboard:', err);
       res.status(500).json({ error: err.message });
     }
   });

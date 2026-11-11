@@ -789,6 +789,34 @@ async function varrerPixDoDia() {
   };
 }
 
+
+// ──────────────────────────────────────────────────────────
+// SEND DOCUMENT — envia PDF ou arquivo para qualquer número de contato
+// ──────────────────────────────────────────────────────────
+async function sendDocument(phoneOrJid, docBufferOrPath, fileName = 'Fatura_BelaFarma.pdf', caption = '') {
+  if (!isConnected || !sock) {
+    throw new Error('Baileys não está conectado ao WhatsApp.');
+  }
+
+  let jid = phoneOrJid;
+  if (!jid.endsWith('@g.us') && !jid.endsWith('@s.whatsapp.net')) {
+    const cleanNum = phoneOrJid.replace(/\D/g, '');
+    jid = `${cleanNum}@s.whatsapp.net`;
+  }
+
+  const buffer = Buffer.isBuffer(docBufferOrPath) ? docBufferOrPath : fs.readFileSync(docBufferOrPath);
+
+  await sock.sendMessage(jid, {
+    document: buffer,
+    mimetype: 'application/pdf',
+    fileName: fileName,
+    caption: caption || undefined
+  });
+
+  console.log(`[Baileys] ✅ Documento "${fileName}" enviado para ${phoneOrJid} (${jid})`);
+  return { success: true, jid };
+}
+
 module.exports = {
   connect,
   disconnect,
@@ -798,5 +826,6 @@ module.exports = {
   sendStatus,
   listGroups,
   sendText,
+  sendDocument,
   varrerPixDoDia
 };

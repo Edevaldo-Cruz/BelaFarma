@@ -1,9 +1,24 @@
 {
   "version": "1.2.4",
-  "commitHash": "c8cbb79",
-  "commitMessage": "feat(pwa): desativar PWA/Service Worker e habilitar carregamento direto e instantaneo no PDV",
-  "buildTime": "09/11/2026, 16:46:02",
+  "commitHash": "e4ffcde",
+  "commitMessage": "feat(pdv): suporte completo a operacao offline sem internet e contingencia instantanea",
+  "buildTime": "11/11/2026, 13:43:49",
   "recentCommits": [
+    {
+      "hash": "e4ffcde",
+      "date": "11/11/2026",
+      "message": "feat(pdv): suporte completo a operacao offline sem internet e contingencia instantanea"
+    },
+    {
+      "hash": "7300f10",
+      "date": "11/11/2026",
+      "message": "feat(pdv): tela dedicada estilo desktop/electron e vendedor fixo persistente"
+    },
+    {
+      "hash": "2d255fd",
+      "date": "09/11/2026",
+      "message": "feat(pdv): integrar PDV ao layout padrao do App e embutir seed das 129 regras escalonadas"
+    },
     {
       "hash": "c8cbb79",
       "date": "09/11/2026",
@@ -48,21 +63,6 @@
       "hash": "e44c0fa",
       "date": "09/11/2026",
       "message": "fix(fiscal): sempre obter ultimo NF_ID registrado no Digifarma + 1 e atualizar SERIE_NF"
-    },
-    {
-      "hash": "b7b1ffa",
-      "date": "09/11/2026",
-      "message": "feat(fiscal): emissao de NFC-e online e contingencia offline com QR-Code e sincronizacao Digifarma"
-    },
-    {
-      "hash": "5f4aaff",
-      "date": "09/11/2026",
-      "message": "fix(pdv): importar ChevronRight no BelinhaPDV corrigindo quebra de tela ao entrar no caixa"
-    },
-    {
-      "hash": "2b4b9bb",
-      "date": "09/11/2026",
-      "message": "fix(sync): usar VENDA_RECEBIDO (Preco de Venda real) em vez de VENDA_TOTAL (Tabela) e apontar host correto"
     }
   ]
 }

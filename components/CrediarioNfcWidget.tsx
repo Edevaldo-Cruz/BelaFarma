@@ -15,7 +15,11 @@ import {
   RefreshCw,
   X,
   FileText,
-  AlertTriangle
+  AlertTriangle,
+  Download,
+  Copy,
+  Edit3,
+  Play
 } from 'lucide-react';
 import { useToast } from './ToastContext';
 
@@ -24,6 +28,8 @@ interface CardData {
   customer_name: string;
   phone: string;
   cpf?: string;
+  has_cpf?: boolean;
+  needs_cpf?: boolean;
   card_number: string;
   card_uid?: string;
   credit_limit: number;
@@ -45,27 +51,35 @@ interface CardData {
   } | null;
 }
 
+interface InvoiceData {
+  id: string;
+  card_id: number;
+  customer_id?: string;
+  reference_month: string;
+  closing_date: string;
+  due_date: string;
+  purchases_total: number;
+  total_due: number;
+  paid_amount: number;
+  paid_at?: string;
+  status: string;
+  boleto_id?: string;
+  boleto_barcode?: string;
+  pix_copia_cola?: string;
+}
+
 interface DashboardMetrics {
   cards: {
     total: number;
     active: number;
-    pending: number;
+    sem_cpf: number;
     total_credit_granted: number;
     total_credit_used: number;
   };
   billing: {
     overdue_count: number;
     overdue_amount: number;
-    serasa_candidates_count: number;
-    serasa_candidates: Array<{
-      id: string;
-      due_date: string;
-      debt_amount: number;
-      customer_name: string;
-      phone: string;
-      cpf: string;
-      days_late: number;
-    }>;
+    blocked_overdue_clients: number;
   };
 }
 
@@ -75,6 +89,7 @@ export const CrediarioNfcWidget: React.FC = () => {
   // Estados principais
   const [nfcInput, setNfcInput] = useState('');
   const [activeCard, setActiveCard] = useState<CardData | null>(null);
+  const [cardInvoices, setCardInvoices] = useState<InvoiceData[]>([]);
   const [unregisteredUid, setUnregisteredUid] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'caixa' | 'cobranca'>('caixa');
@@ -84,16 +99,36 @@ export const CrediarioNfcWidget: React.FC = () => {
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const [isSaleModalOpen, setIsSaleModalOpen] = useState(false);
   const [isCashbackModalOpen, setIsCashbackModalOpen] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isPayModalOpen, setIsPayModalOpen] = useState(false);
+  const [selectedInvoiceToPay, setSelectedInvoiceToPay] = useState<InvoiceData | null>(null);
 
   // Formulário de Emissão Expressa
   const [issueName, setIssueName] = useState('');
   const [issuePhone, setIssuePhone] = useState('');
   const [issueCpf, setIssueCpf] = useState('');
   const [issueLimit, setIssueLimit] = useState('300');
-  const [issueDueDay, setIssueDueDay] = useState<'10' | '20'>('10');
+  const [issueDueDay, setIssueDueDay] = useState<'10' | '20'>('20');
   const [issuingLoading, setIssuingLoading] = useState(false);
 
-  // Busca Manual Fallback
+  // Edição Cadastral (CPF / Tel / Limite)
+  const [editCpf, setEditCpf] = useState('');
+  const [editPhone, setEditPhone] = useState('');
+  const [editLimit, setEditLimit] = useState('');
+  const [editDueDay, setEditDueDay] = useState<'10' | '20'>('20');
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  // Baixa / Pagamento no Caixa
+  const [payAmount, setPayAmount] = useState('');
+  const [payMethod, setPayMethod] = useState('DINHEIRO');
+  const [payingLoading, setPayingLoading] = useState(false);
+
+  // Ações de Boleto & WhatsApp
+  const [issuingBoletoId, setIssuingBoletoId] = useState<string | null>(null);
+  const [sendingWppId, setSendingWppId] = useState<string | null>(null);
+  const [runningCron, setRunningCron] = useState(false);
+
+  // Busca Manual
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
 
@@ -112,29 +147,44 @@ export const CrediarioNfcWidget: React.FC = () => {
 
   const nfcInputRef = useRef<HTMLInputElement>(null);
 
-  // Foco automático e atalhos de teclado (F2 para busca rápida)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'F2') {
         e.preventDefault();
         setIsSearchModalOpen(true);
+        handleSearch('');
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  const focusNfcInput = () => {
-    if (nfcInputRef.current) {
-      nfcInputRef.current.focus();
-    }
-  };
-
   const formatCurrency = (val: number) => {
     return Number(val || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
   };
 
-  // 1. Processar Leitura NFC
+  const loadCardDetails = async (cardId: number) => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/cards/${cardId}/details`);
+      const data = await res.json();
+      if (res.ok && data.card) {
+        setActiveCard(data.card);
+        setCardInvoices(data.invoices || []);
+        setEditCpf(data.card.cpf || '');
+        setEditPhone(data.card.phone || '');
+        setEditLimit(String(data.card.credit_limit || 300));
+        setEditDueDay(String(data.card.due_day || 20) as '10' | '20');
+      } else {
+        addToast(data.error || 'Erro ao carregar detalhes da conta.', 'error');
+      }
+    } catch (_) {
+      addToast('Falha na comunicação com o servidor.', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleNfcSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     const cleanUid = nfcInput.trim().toUpperCase();
@@ -142,6 +192,7 @@ export const CrediarioNfcWidget: React.FC = () => {
 
     setLoading(true);
     setActiveCard(null);
+    setCardInvoices([]);
     setUnregisteredUid(null);
 
     try {
@@ -154,14 +205,14 @@ export const CrediarioNfcWidget: React.FC = () => {
       }
 
       if (data.registered && data.card) {
-        setActiveCard(data.card);
         setNfcInput('');
-        addToast(`Cartão lido: ${data.card.customer_name}`, 'success');
+        await loadCardDetails(data.card.id);
+        addToast(`Cliente identificado: ${data.card.customer_name}`, 'success');
       } else {
         setUnregisteredUid(data.card_uid);
         setNfcInput('');
         setIsIssueModalOpen(true);
-        addToast('Chip/Cartão virgem detectado! Abrindo cadastro expresso...', 'info');
+        addToast('Chip virgem detectado! Abrindo cadastro expresso...', 'info');
       }
     } catch (err: any) {
       addToast('Falha na comunicação com o leitor NFC.', 'error');
@@ -170,14 +221,8 @@ export const CrediarioNfcWidget: React.FC = () => {
     }
   };
 
-  // 2. Busca Manual de Cliente
   const handleSearch = async (query: string) => {
     setSearchQuery(query);
-    if (query.trim().length < 2) {
-      setSearchResults([]);
-      return;
-    }
-
     try {
       const res = await fetch(`/api/cards/search?q=${encodeURIComponent(query)}`);
       const data = await res.json();
@@ -187,28 +232,16 @@ export const CrediarioNfcWidget: React.FC = () => {
     } catch (_) {}
   };
 
-  const selectSearchedCard = async (cardUid?: string, phone?: string) => {
+  const selectCardFromSearch = async (cardItem: any) => {
     setIsSearchModalOpen(false);
-    if (cardUid) {
-      setNfcInput(cardUid);
-      setLoading(true);
-      try {
-        const res = await fetch(`/api/cards/by-uid/${encodeURIComponent(cardUid)}`);
-        const data = await res.json();
-        if (data.card) {
-          setActiveCard(data.card);
-          addToast(`Cliente selecionado: ${data.card.customer_name}`, 'success');
-        }
-      } catch (_) {}
-      setLoading(false);
-    }
+    await loadCardDetails(cardItem.id);
+    addToast(`Cliente selecionado: ${cardItem.customer_name}`, 'success');
   };
 
-  // 3. Emissão Expressa de Cartão
   const handleIssueCard = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!issueName.trim() || !issuePhone.trim()) {
-      addToast('Nome e WhatsApp são obrigatórios!', 'warning');
+    if (!issueName.trim()) {
+      addToast('Nome do cliente é obrigatório!', 'warning');
       return;
     }
 
@@ -223,40 +256,62 @@ export const CrediarioNfcWidget: React.FC = () => {
           cpf: issueCpf,
           cardUid: unregisteredUid,
           creditLimit: parseFloat(issueLimit) || 300,
-          dueDay: parseInt(issueDueDay) || 10
+          dueDay: parseInt(issueDueDay) || 20
         })
       });
       const data = await res.json();
 
       if (res.ok && data.success) {
-        addToast('Cartão emitido com sucesso! Bônus de R$ 3,00 creditado.', 'success');
+        addToast('Conta de Crediário criada com sucesso!', 'success');
         setIsIssueModalOpen(false);
         setIssueName('');
         setIssuePhone('');
         setIssueCpf('');
         setUnregisteredUid(null);
-
-        // Carrega o cartão recém-criado
-        if (data.card && data.card.card_uid) {
-          setActiveCard({
-            ...data.card,
-            available_credit: data.card.credit_limit,
-            available_cashback: 3.00,
-            is_blocked_late: false,
-            days_late: 0
-          });
+        if (data.cardId) {
+          await loadCardDetails(data.cardId);
         }
       } else {
-        addToast(data.error || 'Erro ao emitir cartão.', 'error');
+        addToast(data.error || 'Erro ao emitir crediário.', 'error');
       }
     } catch (err: any) {
-      addToast('Falha na emissão do cartão: ' + err.message, 'error');
+      addToast('Erro na criação de conta.', 'error');
     } finally {
       setIssuingLoading(false);
     }
   };
 
-  // 4. Lançar Compra no Crediário Próprio
+  const handleSaveProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeCard) return;
+
+    setSavingEdit(true);
+    try {
+      const res = await fetch(`/api/cards/${activeCard.id}/update-profile`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cpf: editCpf,
+          phone: editPhone,
+          creditLimit: parseFloat(editLimit) || activeCard.credit_limit,
+          dueDay: parseInt(editDueDay) || activeCard.due_day
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        addToast('Dados cadastrais atualizados com sucesso!', 'success');
+        setIsEditModalOpen(false);
+        await loadCardDetails(activeCard.id);
+      } else {
+        addToast(data.error || 'Erro ao atualizar cadastro.', 'error');
+      }
+    } catch (_) {
+      addToast('Falha ao comunicar com o servidor.', 'error');
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
   const handleAuthorizeSale = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeCard) return;
@@ -275,75 +330,119 @@ export const CrediarioNfcWidget: React.FC = () => {
         body: JSON.stringify({
           cardId: activeCard.id,
           amount: val,
-          description: saleDescription
+          description: saleDescription || 'Compra no Balcão BelaFarma'
         })
       });
       const data = await res.json();
 
       if (res.ok && data.authorized) {
-        addToast(`Venda de ${formatCurrency(val)} aprovada no Cartão BelaFarma!`, 'success');
+        addToast(`Venda de ${formatCurrency(val)} autorizada com sucesso!`, 'success');
         setIsSaleModalOpen(false);
         setSaleAmount('');
-
-        // Atualiza dados na tela
-        setActiveCard(prev => prev ? ({
-          ...prev,
-          used_limit: data.usedLimit,
-          available_credit: data.remainingLimit
-        }) : null);
+        await loadCardDetails(activeCard.id);
       } else {
-        addToast(data.reason || 'Venda recusada pelo sistema.', 'error');
+        addToast(data.reason || data.error || 'Venda recusada.', 'error');
       }
     } catch (err: any) {
-      addToast('Erro ao autorizar venda: ' + err.message, 'error');
+      addToast('Falha ao autorizar venda no crediário.', 'error');
     } finally {
       setAuthorizingSale(false);
     }
   };
 
-  // 5. Resgate de Cashback
-  const handleRedeemCashback = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!activeCard) return;
-
-    const val = parseFloat(cashbackToRedeem);
-    if (!val || val <= 0) {
-      addToast('Informe um valor de resgate válido!', 'warning');
+  const handleIssueInterBoleto = async (invoiceId: string) => {
+    if (!activeCard?.cpf) {
+      addToast('Cliente sem CPF cadastrado. Informe o CPF antes de emitir o boleto.', 'warning');
+      setIsEditModalOpen(true);
       return;
     }
 
-    setRedeemingCashback(true);
+    setIssuingBoletoId(invoiceId);
     try {
-      const res = await fetch('/api/cards/redeem-cashback', {
+      const res = await fetch(`/api/cards/invoices/${invoiceId}/issue-inter-boleto`, {
+        method: 'POST'
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        addToast('Boleto Híbrido Banco Inter emitido com sucesso! Código Pix gerado.', 'success');
+        await loadCardDetails(activeCard.id);
+      } else {
+        addToast(data.error || 'Erro ao emitir boleto no Banco Inter.', 'error');
+      }
+    } catch (_) {
+      addToast('Erro na integração com Banco Inter.', 'error');
+    } finally {
+      setIssuingBoletoId(null);
+    }
+  };
+
+  const handleDownloadPdf = (invoiceId: string) => {
+    window.open(`/api/cards/invoices/${invoiceId}/boleto-pdf`, '_blank');
+  };
+
+  const handleSendWhatsApp = async (invoiceId: string) => {
+    setSendingWppId(invoiceId);
+    try {
+      const res = await fetch(`/api/cards/invoices/${invoiceId}/send-whatsapp`, {
+        method: 'POST'
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        addToast(data.sentPdf ? 'Fatura e PDF do boleto enviados no WhatsApp!' : 'Extrato e Pix enviados no WhatsApp!', 'success');
+      } else {
+        addToast(data.error || 'Erro ao enviar WhatsApp.', 'error');
+      }
+    } catch (_) {
+      addToast('Falha no envio de WhatsApp.', 'error');
+    } finally {
+      setSendingWppId(null);
+    }
+  };
+
+  const handleOpenPayModal = (inv: InvoiceData) => {
+    setSelectedInvoiceToPay(inv);
+    const saldoPagar = Math.max(0, inv.total_due - inv.paid_amount);
+    setPayAmount(String(saldoPagar));
+    setPayMethod('DINHEIRO');
+    setIsPayModalOpen(true);
+  };
+
+  const handleConfirmPayment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedInvoiceToPay || !activeCard) return;
+
+    const val = parseFloat(payAmount);
+    if (!val || val <= 0) {
+      addToast('Informe um valor de pagamento válido!', 'warning');
+      return;
+    }
+
+    setPayingLoading(true);
+    try {
+      const res = await fetch(`/api/cards/invoices/${selectedInvoiceToPay.id}/pay`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          phone: activeCard.phone,
-          amount: val
+          amount: val,
+          paymentMethod: payMethod
         })
       });
       const data = await res.json();
 
       if (res.ok && data.success) {
-        addToast(`Sucesso! ${formatCurrency(val)} de desconto abatido no caixa.`, 'success');
-        setIsCashbackModalOpen(false);
-        setCashbackToRedeem('');
-
-        setActiveCard(prev => prev ? ({
-          ...prev,
-          available_cashback: data.remainingCashback
-        }) : null);
+        addToast(data.message || 'Pagamento confirmado e limite liberado!', 'success');
+        setIsPayModalOpen(false);
+        await loadCardDetails(activeCard.id);
       } else {
-        addToast(data.error || 'Erro ao resgatar cashback.', 'error');
+        addToast(data.error || 'Erro ao registrar pagamento.', 'error');
       }
-    } catch (err: any) {
-      addToast('Erro no resgate de cashback.', 'error');
+    } catch (_) {
+      addToast('Erro ao comunicar pagamento.', 'error');
     } finally {
-      setRedeemingCashback(false);
+      setPayingLoading(false);
     }
   };
 
-  // 6. Carregar Métricas do Dashboard de Cobrança
   const loadMetrics = async () => {
     setLoadingMetrics(true);
     try {
@@ -354,6 +453,25 @@ export const CrediarioNfcWidget: React.FC = () => {
       }
     } catch (_) {}
     setLoadingMetrics(false);
+  };
+
+  const handleRunCron = async () => {
+    setRunningCron(true);
+    try {
+      const res = await fetch('/api/cards/cron/run', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        const r = data.relatorio;
+        addToast(`Régua executada: ${r.faturasFechadas} fechadas, ${r.boletosEmitidos} boletos, ${r.lembretesVencimento + r.lembretesAtraso} lembretes enviados!`, 'success');
+        await loadMetrics();
+      } else {
+        addToast(data.error || 'Erro ao executar régua diária.', 'error');
+      }
+    } catch (_) {
+      addToast('Falha ao acionar cron.', 'error');
+    } finally {
+      setRunningCron(false);
+    }
   };
 
   useEffect(() => {
@@ -373,12 +491,12 @@ export const CrediarioNfcWidget: React.FC = () => {
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-extrabold text-sm tracking-tight text-white">Cartão BelaFarma</span>
+              <span className="font-extrabold text-sm tracking-tight text-white">Crediário 2.0 BelaFarma</span>
               <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-950 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
-                <Wifi className="w-3 h-3 animate-pulse" /> NFC Ativo
+                <Wifi className="w-3 h-3 animate-pulse" /> Banco Inter Ativo
               </span>
             </div>
-            <p className="text-[11px] text-slate-400">Terminal de Crédito Próprio & Cashback</p>
+            <p className="text-[11px] text-slate-400">Controle de Limites, Boletos Híbridos & Cobrança Automática</p>
           </div>
         </div>
 
@@ -388,13 +506,13 @@ export const CrediarioNfcWidget: React.FC = () => {
             onClick={() => setActiveTab('caixa')}
             className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${activeTab === 'caixa' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}
           >
-            Terminal do Caixa
+            Terminal do Balcão
           </button>
           <button
             onClick={() => setActiveTab('cobranca')}
             className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${activeTab === 'cobranca' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}
           >
-            Cobrança & Serasa
+            Gestão & Régua Automática
             {metrics?.billing?.overdue_count ? (
               <span className="w-4 h-4 rounded-full bg-rose-500 text-white text-[9px] flex items-center justify-center font-black">
                 {metrics.billing.overdue_count}
@@ -408,67 +526,74 @@ export const CrediarioNfcWidget: React.FC = () => {
       {activeTab === 'caixa' && (
         <div className="p-4 space-y-4">
           
-          {/* BARRA DE LEITURA NFC & BUSCA */}
+          {/* BARRA DE BUSCA ÁGIL POR NOME OU LEITURA NFC */}
           <div className="grid grid-cols-1 md:grid-cols-12 gap-2">
-            <form onSubmit={handleNfcSubmit} className="md:col-span-8 relative">
+            <button
+              onClick={() => { setIsSearchModalOpen(true); handleSearch(''); }}
+              className="md:col-span-8 px-4 py-2.5 rounded-xl bg-slate-950 hover:bg-slate-900 border border-emerald-500/40 text-left text-xs font-medium text-slate-300 flex items-center justify-between transition shadow-inner group"
+            >
+              <div className="flex items-center gap-2.5">
+                <Search className="w-4 h-4 text-emerald-400 group-hover:scale-110 transition-transform" />
+                <span>Buscar Cliente por <strong className="text-white">Nome</strong>, Celular ou CPF...</span>
+              </div>
+              <span className="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-mono">F2</span>
+            </button>
+
+            <form onSubmit={handleNfcSubmit} className="md:col-span-4 relative">
               <input
                 ref={nfcInputRef}
                 type="text"
                 value={nfcInput}
                 onChange={e => setNfcInput(e.target.value)}
-                placeholder="Aproxime o Cartão/Chaveiro NFC ou digite o UID..."
-                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 font-mono transition"
+                placeholder="Aproxime Chip NFC..."
+                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 font-mono transition"
               />
               <button
                 type="submit"
                 disabled={loading}
-                className="absolute right-1.5 top-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition flex items-center gap-1.5"
+                className="absolute right-1.5 top-1.5 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-emerald-400 text-xs font-bold transition flex items-center gap-1"
               >
-                {loading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Wifi className="w-3.5 h-3.5" />}
-                <span>Bipar</span>
+                <Wifi className="w-3.5 h-3.5" />
               </button>
             </form>
-
-            <button
-              onClick={() => setIsSearchModalOpen(true)}
-              className="md:col-span-4 px-3 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-xs font-semibold flex items-center justify-center gap-2 transition"
-            >
-              <Search className="w-3.5 h-3.5" />
-              <span>Buscar Celular / CPF <span className="text-[10px] text-slate-500 font-mono">(F2)</span></span>
-            </button>
           </div>
 
-          {/* ESTADO 1: NENHUM CARTÃO SELECIONADO */}
+          {/* ESTADO 1: NENHUM CLIENTE SELECIONADO */}
           {!activeCard && (
             <div className="p-6 rounded-2xl bg-slate-950/50 border border-slate-800/80 text-center space-y-3">
               <div className="w-12 h-12 rounded-full bg-emerald-950/60 border border-emerald-500/30 text-emerald-400 flex items-center justify-center mx-auto shadow-inner">
-                <Wifi className="w-6 h-6 animate-pulse" />
+                <Search className="w-6 h-6 animate-pulse" />
               </div>
               <div className="space-y-1">
-                <h4 className="text-sm font-bold text-slate-200">Aguardando Leitura por Aproximação</h4>
-                <p className="text-xs text-slate-400 max-w-sm mx-auto">
-                  Encoste o cartão ou chaveiro NFC no leitor USB. O sistema identifica o cliente, checa limite e faturas em atraso em menos de 1 segundo.
+                <h4 className="text-sm font-bold text-slate-200">Selecione um Cliente para Iniciar</h4>
+                <p className="text-xs text-slate-400 max-w-md mx-auto">
+                  Clique na busca acima ou pressione <strong>F2</strong> para buscar pelo Nome do cliente. Você também pode aproximar o cartão ou chaveiro NFC.
                 </p>
               </div>
-              <div className="pt-2">
+              <div className="pt-2 flex justify-center gap-2">
+                <button
+                  onClick={() => { setIsSearchModalOpen(true); handleSearch(''); }}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition shadow"
+                >
+                  <Search className="w-4 h-4" />
+                  <span>Buscar por Nome (22 Clientes Ativos)</span>
+                </button>
                 <button
                   onClick={() => { setUnregisteredUid(null); setIsIssueModalOpen(true); }}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-emerald-400 text-xs font-bold transition"
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-xs font-bold transition"
                 >
                   <UserPlus className="w-4 h-4" />
-                  <span>Cadastrar Novo Cartão Manualmente</span>
+                  <span>Novo Cadastro</span>
                 </button>
               </div>
             </div>
           )}
 
-          {/* ESTADO 2: CARTÃO ATIVO & IDENTIFICADO */}
+          {/* ESTADO 2: CLIENTE ATIVO & IDENTIFICADO */}
           {activeCard && (
             <div className={`p-4 rounded-2xl border transition space-y-4 ${
               activeCard.is_blocked_late
                 ? 'bg-rose-950/30 border-rose-500/40'
-                : activeCard.status === 'pending_signature'
-                ? 'bg-amber-950/30 border-amber-500/40'
                 : 'bg-slate-950/80 border-emerald-500/30'
             }`}>
               
@@ -478,105 +603,210 @@ export const CrediarioNfcWidget: React.FC = () => {
                   <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-lg shadow ${
                     activeCard.is_blocked_late
                       ? 'bg-rose-600 text-white'
-                      : activeCard.status === 'pending_signature'
-                      ? 'bg-amber-600 text-white'
                       : 'bg-emerald-600 text-white'
                   }`}>
                     {activeCard.is_blocked_late ? <XCircle className="w-6 h-6" /> : <CheckCircle className="w-6 h-6" />}
                   </div>
                   <div>
-                    <h3 className="font-extrabold text-sm text-white">{activeCard.customer_name}</h3>
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-extrabold text-sm text-white">{activeCard.customer_name}</h3>
+                      <button
+                        onClick={() => setIsEditModalOpen(true)}
+                        className="text-slate-400 hover:text-emerald-400 transition"
+                        title="Editar Dados / Cadastrar CPF"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                     <div className="inline-flex items-center gap-2 text-xs text-slate-400 font-mono mt-0.5">
-                      <span>{activeCard.phone}</span>
+                      <span>{activeCard.phone || 'Sem Telefone'}</span>
                       <span>•</span>
-                      <span>{activeCard.card_number}</span>
+                      <span>CPF: {activeCard.cpf || 'Não cadastrado'}</span>
                       <span>•</span>
-                      <span className="text-emerald-400 font-sans font-bold">Vence Dia {activeCard.due_day}</span>
+                      <span className="text-emerald-400 font-sans font-bold">Vencimento Dia {activeCard.due_day}</span>
                     </div>
                   </div>
                 </div>
 
-                <div className="text-right">
+                <div className="text-right flex items-center gap-2">
                   <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
                     activeCard.is_blocked_late
                       ? 'bg-rose-900 text-rose-200 border border-rose-500'
-                      : activeCard.status === 'pending_signature'
-                      ? 'bg-amber-900 text-amber-200 border border-amber-500'
                       : 'bg-emerald-950 text-emerald-300 border border-emerald-500/30'
                   }`}>
-                    {activeCard.is_blocked_late
-                      ? 'Bloqueado por Atraso'
-                      : activeCard.status === 'pending_signature'
-                      ? 'Aguardando Assinatura'
-                      : 'Ativo & Liberado'}
+                    {activeCard.is_blocked_late ? 'Bloqueado (> 5 dias de atraso)' : 'Crediário Liberado'}
                   </span>
                   <button
-                    onClick={() => setActiveCard(null)}
-                    className="block text-[10px] text-slate-400 hover:text-white underline mt-1 ml-auto"
+                    onClick={() => { setActiveCard(null); setCardInvoices([]); }}
+                    className="text-[11px] text-slate-400 hover:text-white px-2.5 py-1 rounded-lg bg-slate-800 transition"
                   >
-                    Trocar Cliente
+                    Trocar
                   </button>
                 </div>
               </div>
+
+              {/* ALERTA: CPF PENDENTE */}
+              {activeCard.needs_cpf && (
+                <div className="p-3 rounded-xl bg-amber-950/50 border border-amber-500/40 text-amber-200 text-xs flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0" />
+                    <span><strong>CPF Pendente:</strong> Necessário para emitir boletos bancários pelo Banco Inter.</span>
+                  </div>
+                  <button
+                    onClick={() => setIsEditModalOpen(true)}
+                    className="px-3 py-1 rounded-lg bg-amber-600 hover:bg-amber-500 text-slate-950 font-extrabold text-[11px] transition whitespace-nowrap"
+                  >
+                    + Cadastrar CPF Agora
+                  </button>
+                </div>
+              )}
 
               {/* AVISO SE ESTIVER BLOQUEADO POR ATRASO */}
               {activeCard.is_blocked_late && (
                 <div className="p-3 rounded-xl bg-rose-950/60 border border-rose-500/40 text-rose-200 text-xs flex items-center gap-3">
                   <AlertCircle className="w-5 h-5 flex-shrink-0 text-rose-400" />
                   <div className="flex-1">
-                    <strong>Vendas Bloqueadas:</strong> Fatura de {activeCard.overdue_invoice?.reference_month} vencida há {activeCard.days_late} dias!
-                    Saldo pendente: <strong>{formatCurrency((activeCard.overdue_invoice?.total_due || 0) - (activeCard.overdue_invoice?.paid_amount || 0))}</strong>.
+                    <strong>Vendas a Prazo Bloqueadas:</strong> Fatura vencida há mais de 5 dias! O cliente deve efetuar o pagamento para liberar novas compras.
                   </div>
                 </div>
               )}
 
-              {/* CARDS DE SALDO E CRÉDITO */}
+              {/* CARDS DE SALDO E AÇÕES */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 
                 {/* LIMITE DISPONÍVEL */}
                 <div className="p-3 rounded-xl bg-slate-900/90 border border-white/5 space-y-1">
                   <span className="text-[10px] text-slate-400 uppercase font-semibold">Limite Disponível</span>
-                  <div className="text-lg font-black text-emerald-400">
+                  <div className="text-xl font-black text-emerald-400">
                     {formatCurrency(activeCard.available_credit)}
                   </div>
                   <div className="text-[10px] text-slate-400">
-                    Total: {formatCurrency(activeCard.credit_limit)} | Usado: {formatCurrency(activeCard.used_limit)}
+                    Teto: {formatCurrency(activeCard.credit_limit)} | Usado: {formatCurrency(activeCard.used_limit)}
                   </div>
                 </div>
 
-                {/* CASHBACK DISPONÍVEL */}
+                {/* STATUS DE DÍVIDA TOTAL */}
                 <div className="p-3 rounded-xl bg-slate-900/90 border border-white/5 space-y-1">
-                  <span className="text-[10px] text-slate-400 uppercase font-semibold">Saldo de Cashback</span>
-                  <div className="text-lg font-black text-cyan-400 flex items-center justify-between">
-                    <span>{formatCurrency(activeCard.available_cashback)}</span>
-                    <Gift className="w-4 h-4 text-cyan-400" />
+                  <span className="text-[10px] text-slate-400 uppercase font-semibold">Saldo Devedor Consolidado</span>
+                  <div className="text-xl font-black text-cyan-400">
+                    {formatCurrency(activeCard.used_limit)}
                   </div>
                   <div className="text-[10px] text-slate-400">
-                    Válido por 30 dias após compra
+                    {cardInvoices.length} fatura(s) registradas
                   </div>
                 </div>
 
-                {/* AÇÕES RÁPIDAS NO CAIXA */}
+                {/* BOTÃO PRINCIPAL DE LANÇAMENTO */}
                 <div className="flex flex-col gap-2 justify-center">
                   <button
-                    disabled={activeCard.is_blocked_late || activeCard.status !== 'active' || activeCard.available_credit <= 0}
+                    disabled={activeCard.is_blocked_late || activeCard.available_credit <= 0}
                     onClick={() => setIsSaleModalOpen(true)}
-                    className="w-full py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold shadow transition flex items-center justify-center gap-1.5"
+                    className="w-full py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold shadow transition flex items-center justify-center gap-1.5"
                   >
-                    <CreditCard className="w-3.5 h-3.5" />
-                    <span>Lançar no Cartão</span>
-                  </button>
-
-                  <button
-                    disabled={activeCard.available_cashback <= 0}
-                    onClick={() => { setCashbackToRedeem(String(activeCard.available_cashback)); setIsCashbackModalOpen(true); }}
-                    className="w-full py-2 px-3 rounded-xl bg-cyan-700 hover:bg-cyan-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold shadow transition flex items-center justify-center gap-1.5"
-                  >
-                    <Gift className="w-3.5 h-3.5" />
-                    <span>Resgatar Cashback</span>
+                    <CreditCard className="w-4 h-4" />
+                    <span>Lançar Compra a Prazo</span>
                   </button>
                 </div>
 
+              </div>
+
+              {/* LISTAGEM DE FATURAS DO CLIENTE */}
+              <div className="space-y-2 pt-2 border-t border-slate-800">
+                <h4 className="text-xs font-bold text-slate-300 flex items-center justify-between">
+                  <span>Faturas & Boletos Banco Inter:</span>
+                  <span className="text-[11px] text-slate-500 font-normal">Vencimentos dias 10 e 20</span>
+                </h4>
+
+                {cardInvoices.length === 0 ? (
+                  <div className="p-3 text-center text-xs text-slate-500 bg-slate-900/40 rounded-xl">
+                    Nenhuma fatura em aberto.
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {cardInvoices.map(inv => {
+                      const saldoPagar = Number((inv.total_due - inv.paid_amount).toFixed(2));
+                      const isPaid = inv.status === 'paid' || saldoPagar <= 0;
+                      return (
+                        <div key={inv.id} className="p-3 rounded-xl bg-slate-900 border border-slate-800 flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-xs text-white">Fatura {inv.reference_month}</span>
+                              <span className={`text-[10px] px-2 py-0.5 rounded font-black uppercase ${
+                                isPaid ? 'bg-emerald-950 text-emerald-400 border border-emerald-500/30' : 'bg-amber-950 text-amber-400 border border-amber-500/30'
+                              }`}>
+                                {isPaid ? 'Quitada' : `Vence em ${inv.due_date}`}
+                              </span>
+                            </div>
+                            <div className="text-xs text-slate-400 mt-0.5">
+                              Valor: <strong className="text-white">{formatCurrency(inv.total_due)}</strong>
+                              {inv.paid_amount > 0 && <span className="text-emerald-400"> (Pago: {formatCurrency(inv.paid_amount)})</span>}
+                              {!isPaid && <span className="text-cyan-400 font-bold"> • Saldo: {formatCurrency(saldoPagar)}</span>}
+                            </div>
+                          </div>
+
+                          {/* BOTÕES DE AÇÃO NA FATURA */}
+                          <div className="flex flex-wrap items-center gap-1.5 self-end md:self-auto">
+                            {!isPaid && (
+                              <button
+                                onClick={() => handleOpenPayModal(inv)}
+                                className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition flex items-center gap-1 shadow"
+                              >
+                                <DollarSign className="w-3.5 h-3.5" />
+                                <span>Baixar no Caixa</span>
+                              </button>
+                            )}
+
+                            {!isPaid && !inv.boleto_id && (
+                              <button
+                                disabled={issuingBoletoId === inv.id}
+                                onClick={() => handleIssueInterBoleto(inv.id)}
+                                className="px-2.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs transition flex items-center gap-1"
+                              >
+                                {issuingBoletoId === inv.id ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <FileText className="w-3.5 h-3.5" />}
+                                <span>Gerar Boleto Inter</span>
+                              </button>
+                            )}
+
+                            {inv.boleto_id && (
+                              <button
+                                onClick={() => handleDownloadPdf(inv.id)}
+                                className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition flex items-center gap-1 border border-slate-700"
+                              >
+                                <Download className="w-3.5 h-3.5 text-emerald-400" />
+                                <span>PDF Boleto</span>
+                              </button>
+                            )}
+
+                            {inv.pix_copia_cola && (
+                              <button
+                                onClick={() => {
+                                  navigator.clipboard.writeText(inv.pix_copia_cola || '');
+                                  addToast('Código Pix Copia e Cola copiado!', 'success');
+                                }}
+                                className="px-2 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs transition"
+                                title="Copiar Pix Copia e Cola"
+                              >
+                                <Copy className="w-3.5 h-3.5 text-cyan-400" />
+                              </button>
+                            )}
+
+                            {activeCard.phone && !isPaid && (
+                              <button
+                                disabled={sendingWppId === inv.id}
+                                onClick={() => handleSendWhatsApp(inv.id)}
+                                className="px-2.5 py-1.5 rounded-lg bg-teal-700 hover:bg-teal-600 text-white font-bold text-xs transition flex items-center gap-1"
+                                title="Enviar fatura detalhada com Pix para o WhatsApp"
+                              >
+                                {sendingWppId === inv.id ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                                <span>WhatsApp</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
             </div>
@@ -585,214 +815,62 @@ export const CrediarioNfcWidget: React.FC = () => {
         </div>
       )}
 
-      {/* ABA 2: COBRANÇA, INADIMPLÊNCIA & SERASA */}
+      {/* ABA 2: GESTÃO, DASHBOARD & RÉGUA AUTOMÁTICA */}
       {activeTab === 'cobranca' && (
         <div className="p-4 space-y-4">
           
+          {/* HEADER DA RÉGUA AUTOMÁTICA */}
+          <div className="p-3.5 rounded-xl bg-slate-950 border border-emerald-500/30 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-emerald-600/20 text-emerald-400 flex items-center justify-center font-bold">
+                <Play className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="text-xs font-bold text-white">Régua Automática de Cobrança (WhatsApp & Banco Inter)</h4>
+                <p className="text-[11px] text-slate-400">Disparos diários às 09:00: Fechamento (D-10), Vencimento, D+1, D+3 e D+5.</p>
+              </div>
+            </div>
+            <button
+              disabled={runningCron}
+              onClick={handleRunCron}
+              className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold text-xs transition flex items-center gap-1.5 shadow"
+            >
+              {runningCron ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
+              <span>Executar Varredura Agora</span>
+            </button>
+          </div>
+
           {/* CARDS DE RESUMO DA CARTEIRA */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
-              <div className="text-[10px] text-slate-400 uppercase">Cartões Ativos</div>
-              <div className="text-base font-black text-white mt-0.5">{metrics?.cards?.active || 0} clientes</div>
+              <div className="text-[10px] text-slate-400 uppercase">Clientes Ativos</div>
+              <div className="text-base font-black text-white mt-0.5">{metrics?.cards?.active || 0} contas</div>
             </div>
             <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
-              <div className="text-[10px] text-slate-400 uppercase">Limite Concedido</div>
+              <div className="text-[10px] text-slate-400 uppercase">Limite Total Concedido</div>
               <div className="text-base font-black text-emerald-400 mt-0.5">{formatCurrency(metrics?.cards?.total_credit_granted || 0)}</div>
             </div>
             <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
-              <div className="text-[10px] text-slate-400 uppercase">Crédito em Aberto</div>
+              <div className="text-[10px] text-slate-400 uppercase">Saldo em Aberto</div>
               <div className="text-base font-black text-cyan-400 mt-0.5">{formatCurrency(metrics?.cards?.total_credit_used || 0)}</div>
             </div>
             <div className="p-3 rounded-xl bg-slate-950 border border-rose-500/30 bg-rose-950/20">
-              <div className="text-[10px] text-rose-300 uppercase">Faturas em Atraso</div>
+              <div className="text-[10px] text-rose-300 uppercase">Total Vencido em Atraso</div>
               <div className="text-base font-black text-rose-400 mt-0.5">{formatCurrency(metrics?.billing?.overdue_amount || 0)}</div>
             </div>
           </div>
 
-          {/* TABELA DE CANDIDATOS À NEGATIVAÇÃO NO SERASA (30+ DIAS) */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <h4 className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
-                <ShieldAlert className="w-4 h-4 text-rose-400" />
-                <span>Inadimplentes 30+ Dias (Aptos para Negativação no Serasa / SPC):</span>
-              </h4>
-              <button
-                onClick={loadMetrics}
-                disabled={loadingMetrics}
-                className="text-[11px] text-slate-400 hover:text-white flex items-center gap-1"
-              >
-                <RefreshCw className={`w-3 h-3 ${loadingMetrics ? 'animate-spin' : ''}`} />
-                <span>Atualizar</span>
-              </button>
-            </div>
-
-            <div className="overflow-x-auto rounded-xl border border-slate-800">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-950 text-slate-400 border-b border-slate-800">
-                  <tr>
-                    <th className="px-3 py-2 font-bold whitespace-nowrap">Cliente</th>
-                    <th className="px-3 py-2 font-bold whitespace-nowrap">WhatsApp</th>
-                    <th className="px-3 py-2 font-bold whitespace-nowrap">CPF</th>
-                    <th className="px-3 py-2 font-bold whitespace-nowrap text-right">Dívida Total</th>
-                    <th className="px-3 py-2 font-bold whitespace-nowrap text-right">Atraso</th>
-                    <th className="px-3 py-2 font-bold whitespace-nowrap text-center">Ações</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/60 bg-slate-900/50">
-                  {metrics?.billing?.serasa_candidates?.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="px-3 py-6 text-center text-slate-500">
-                        Nenhum cliente em atraso superior a 30 dias. Carteira saudável! 🎉
-                      </td>
-                    </tr>
-                  ) : (
-                    metrics?.billing?.serasa_candidates?.map(c => (
-                      <tr key={c.id} className="hover:bg-slate-800/40">
-                        <td className="px-3 py-2 font-bold text-white whitespace-nowrap">{c.customer_name}</td>
-                        <td className="px-3 py-2 text-slate-300 font-mono whitespace-nowrap">{c.phone}</td>
-                        <td className="px-3 py-2 text-slate-400 font-mono whitespace-nowrap">{c.cpf || 'Não informado'}</td>
-                        <td className="px-3 py-2 font-mono font-bold text-rose-400 text-right whitespace-nowrap">
-                          {formatCurrency(c.debt_amount)}
-                        </td>
-                        <td className="px-3 py-2 text-right whitespace-nowrap font-mono text-amber-400">
-                          {c.days_late} dias
-                        </td>
-                        <td className="px-3 py-2 text-center whitespace-nowrap">
-                          <button
-                            onClick={() => addToast(`Solicitação de Negativação Serasa para ${c.customer_name} enviada para a esteira bancária!`, 'info')}
-                            className="px-2.5 py-1 rounded bg-rose-600 hover:bg-rose-500 text-white font-bold text-[10px] transition"
-                          >
-                            Negativar Serasa
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
         </div>
       )}
 
-      {/* MODAL 1: EMISSÃO EXPRESSA DE CARTÃO */}
-      {isIssueModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md p-5 space-y-4 shadow-2xl animate-fade-in text-white">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
-              <div className="flex items-center gap-2">
-                <UserPlus className="w-5 h-5 text-emerald-400" />
-                <h3 className="font-extrabold text-sm text-white">Cadastro Expresso - Cartão BelaFarma</h3>
-              </div>
-              <button onClick={() => setIsIssueModalOpen(false)} className="text-slate-400 hover:text-white">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {unregisteredUid && (
-              <div className="p-2.5 rounded-xl bg-emerald-950/40 border border-emerald-500/30 text-xs text-emerald-300 flex items-center gap-2">
-                <Wifi className="w-4 h-4 flex-shrink-0" />
-                <span>Chip NFC Detectado: <strong className="font-mono">{unregisteredUid}</strong></span>
-              </div>
-            )}
-
-            <form onSubmit={handleIssueCard} className="space-y-3 text-xs">
-              <div>
-                <label className="block text-slate-300 font-bold mb-1">Nome Completo do Cliente:</label>
-                <input
-                  type="text"
-                  required
-                  value={issueName}
-                  onChange={e => setIssueName(e.target.value)}
-                  placeholder="Ex: Maria Aparecida da Silva"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-slate-300 font-bold mb-1">WhatsApp (com DDD):</label>
-                  <input
-                    type="text"
-                    required
-                    value={issuePhone}
-                    onChange={e => setIssuePhone(e.target.value)}
-                    placeholder="32999998888"
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-300 font-bold mb-1">CPF (Opcional no caixa):</label>
-                  <input
-                    type="text"
-                    value={issueCpf}
-                    onChange={e => setIssueCpf(e.target.value)}
-                    placeholder="000.000.000-00"
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-slate-300 font-bold mb-1">Limite Aprovado (R$):</label>
-                  <input
-                    type="number"
-                    step="50"
-                    value={issueLimit}
-                    onChange={e => setIssueLimit(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-300 font-bold mb-1">Dia do Vencimento:</label>
-                  <select
-                    value={issueDueDay}
-                    onChange={e => setIssueDueDay(e.target.value as '10' | '20')}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
-                  >
-                    <option value="10">Todo Dia 10 (Salário)</option>
-                    <option value="20">Todo Dia 20 (Vale)</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-[11px] text-slate-400 space-y-1">
-                <div>🎁 <strong>Bônus de Boas-Vindas:</strong> R$ 3,00 de crédito liberado imediatamente.</div>
-                <div>📲 <strong>Termo Digital:</strong> O link será enviado para o WhatsApp do cliente para aceite jurídico.</div>
-              </div>
-
-              <div className="flex gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setIsIssueModalOpen(false)}
-                  className="w-1/3 py-2 rounded-xl bg-slate-800 text-slate-300 hover:bg-slate-700 font-bold transition"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={issuingLoading}
-                  className="w-2/3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition flex items-center justify-center gap-1.5"
-                >
-                  {issuingLoading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle className="w-3.5 h-3.5" />}
-                  <span>Emitir Cartão 🚀</span>
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL 2: BUSCA MANUAL FALLBACK (F2) */}
+      {/* MODAL: BUSCA MANUAL POR NOME (F2) */}
       {isSearchModalOpen && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg p-5 space-y-4 shadow-2xl animate-fade-in text-white">
             <div className="flex items-center justify-between pb-2 border-b border-slate-800">
               <div className="flex items-center gap-2">
                 <Search className="w-5 h-5 text-emerald-400" />
-                <h3 className="font-extrabold text-sm text-white">Buscar Cartão por Nome, Celular ou CPF</h3>
+                <h3 className="font-extrabold text-sm text-white">Localizar Cliente do Crediário</h3>
               </div>
               <button onClick={() => setIsSearchModalOpen(false)} className="text-slate-400 hover:text-white">
                 <X className="w-4 h-4" />
@@ -805,32 +883,48 @@ export const CrediarioNfcWidget: React.FC = () => {
                 type="text"
                 value={searchQuery}
                 onChange={e => handleSearch(e.target.value)}
-                placeholder="Digite o nome, celular ou CPF..."
+                placeholder="Digite o Nome, Celular ou CPF..."
                 className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition"
               />
             </div>
 
-            <div className="max-h-60 overflow-y-auto divide-y divide-slate-800 rounded-xl border border-slate-800">
+            <div className="max-h-72 overflow-y-auto divide-y divide-slate-800 rounded-xl border border-slate-800">
               {searchResults.length === 0 ? (
                 <div className="p-4 text-center text-xs text-slate-500">
-                  {searchQuery ? 'Nenhum cliente localizado.' : 'Digite para iniciar a busca...'}
+                  {searchQuery ? 'Nenhum cliente localizado com esse termo.' : 'Carregando lista de clientes...'}
                 </div>
               ) : (
                 searchResults.map(c => (
                   <div
                     key={c.id}
-                    onClick={() => selectSearchedCard(c.card_uid, c.phone)}
-                    className="p-3 hover:bg-slate-800/60 cursor-pointer flex items-center justify-between transition"
+                    onClick={() => selectCardFromSearch(c)}
+                    className="p-3 hover:bg-slate-800/80 cursor-pointer flex items-center justify-between transition"
                   >
                     <div>
-                      <div className="font-bold text-xs text-white">{c.customer_name}</div>
-                      <div className="text-[11px] text-slate-400 font-mono">{c.phone} • Vence Dia {c.due_day}</div>
+                      <div className="font-bold text-xs text-white flex items-center gap-2">
+                        <span>{c.customer_name}</span>
+                        {c.needs_cpf && (
+                          <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-950 text-amber-400 border border-amber-500/40">
+                            Sem CPF
+                          </span>
+                        )}
+                        {c.is_blocked_late && (
+                          <span className="text-[9px] px-1.5 py-0.2 rounded bg-rose-950 text-rose-400 border border-rose-500/40">
+                            Bloqueado
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[11px] text-slate-400 font-mono mt-0.5">
+                        {c.phone || 'Sem telefone'} • Vence Dia {c.due_day}
+                      </div>
                     </div>
                     <div className="text-right">
                       <div className="text-xs font-bold text-emerald-400">
-                        {formatCurrency(c.credit_limit - c.used_limit)} disp.
+                        {formatCurrency(c.available_credit)} disp.
                       </div>
-                      <div className="text-[10px] text-slate-500">Total: {formatCurrency(c.credit_limit)}</div>
+                      <div className="text-[10px] text-slate-400">
+                        Usado: {formatCurrency(c.used_limit)}
+                      </div>
                     </div>
                   </div>
                 ))
@@ -840,12 +934,12 @@ export const CrediarioNfcWidget: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL 3: LANÇAMENTO DE COMPRA NO CARTÃO */}
+      {/* MODAL: LANÇAMENTO DE COMPRA */}
       {isSaleModalOpen && activeCard && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-sm p-5 space-y-4 shadow-2xl animate-fade-in text-white">
             <div className="flex items-center justify-between pb-2 border-b border-slate-800">
-              <h3 className="font-extrabold text-sm text-white">Lançar Compra no Cartão BelaFarma</h3>
+              <h3 className="font-extrabold text-sm text-white">Lançar Compra no Crediário</h3>
               <button onClick={() => setIsSaleModalOpen(false)} className="text-slate-400 hover:text-white">
                 <X className="w-4 h-4" />
               </button>
@@ -892,7 +986,7 @@ export const CrediarioNfcWidget: React.FC = () => {
                 <button
                   type="submit"
                   disabled={authorizingSale}
-                  className="w-2/3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition flex items-center justify-center gap-1.5"
+                  className="w-2/3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition flex items-center justify-center gap-1.5 shadow"
                 >
                   {authorizingSale ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle className="w-3.5 h-3.5" />}
                   <span>Confirmar Venda</span>
@@ -903,55 +997,244 @@ export const CrediarioNfcWidget: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL 4: RESGATE DE CASHBACK */}
-      {isCashbackModalOpen && activeCard && (
+      {/* MODAL: BAIXA DE PAGAMENTO NO CAIXA */}
+      {isPayModalOpen && selectedInvoiceToPay && activeCard && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-sm p-5 space-y-4 shadow-2xl animate-fade-in text-white">
             <div className="flex items-center justify-between pb-2 border-b border-slate-800">
-              <h3 className="font-extrabold text-sm text-white">Resgatar Saldo de Cashback</h3>
-              <button onClick={() => setIsCashbackModalOpen(false)} className="text-slate-400 hover:text-white">
+              <h3 className="font-extrabold text-sm text-white">Receber Fatura no Balcão</h3>
+              <button onClick={() => setIsPayModalOpen(false)} className="text-slate-400 hover:text-white">
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs space-y-1">
               <div>Cliente: <strong className="text-white">{activeCard.customer_name}</strong></div>
-              <div>Saldo Acumulado: <strong className="text-cyan-400">{formatCurrency(activeCard.available_cashback)}</strong></div>
+              <div>Fatura: <strong className="text-white">{selectedInvoiceToPay.reference_month}</strong></div>
+              <div>Saldo Restante: <strong className="text-cyan-400">{formatCurrency(selectedInvoiceToPay.total_due - selectedInvoiceToPay.paid_amount)}</strong></div>
             </div>
 
-            <form onSubmit={handleRedeemCashback} className="space-y-3 text-xs">
+            <form onSubmit={handleConfirmPayment} className="space-y-3 text-xs">
               <div>
-                <label className="block text-slate-300 font-bold mb-1">Valor do Desconto a Abater no Caixa (R$):</label>
+                <label className="block text-slate-300 font-bold mb-1">Valor Pago (R$):</label>
                 <input
                   autoFocus
                   type="number"
                   step="0.01"
                   required
-                  value={cashbackToRedeem}
-                  onChange={e => setCashbackToRedeem(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-lg font-black text-cyan-400 focus:outline-none focus:border-cyan-500 font-mono"
+                  value={payAmount}
+                  onChange={e => setPayAmount(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-lg font-black text-emerald-400 focus:outline-none focus:border-emerald-500 font-mono"
                 />
               </div>
 
-              <p className="text-[11px] text-slate-400 leading-tight">
-                💡 Após confirmar o resgate aqui, lance esse valor como <strong>Desconto</strong> no fechamento da venda no PDV do Digifarma.
-              </p>
+              <div>
+                <label className="block text-slate-300 font-bold mb-1">Forma de Pagamento:</label>
+                <select
+                  value={payMethod}
+                  onChange={e => setPayMethod(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
+                >
+                  <option value="DINHEIRO">Dinheiro em Espécie</option>
+                  <option value="PIX">Pix Direto</option>
+                  <option value="DEBITO">Cartão de Débito</option>
+                  <option value="CREDITO_AVISTA">Cartão de Crédito à Vista</option>
+                </select>
+              </div>
 
               <div className="flex gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => setIsCashbackModalOpen(false)}
+                  onClick={() => setIsPayModalOpen(false)}
                   className="w-1/3 py-2 rounded-xl bg-slate-800 text-slate-300 font-bold"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  disabled={redeemingCashback}
-                  className="w-2/3 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold transition flex items-center justify-center gap-1.5"
+                  disabled={payingLoading}
+                  className="w-2/3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition flex items-center justify-center gap-1.5 shadow"
                 >
-                  {redeemingCashback ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Gift className="w-3.5 h-3.5" />}
-                  <span>Abater Cashback</span>
+                  {payingLoading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <DollarSign className="w-3.5 h-3.5" />}
+                  <span>Confirmar Baixa</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: EDITAR CADASTRO & CADASTRAR CPF */}
+      {isEditModalOpen && activeCard && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md p-5 space-y-4 shadow-2xl animate-fade-in text-white">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+              <h3 className="font-extrabold text-sm text-white">Dados do Cliente & Parâmetros de Crédito</h3>
+              <button onClick={() => setIsEditModalOpen(false)} className="text-slate-400 hover:text-white">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveProfile} className="space-y-3 text-xs">
+              <div>
+                <label className="block text-slate-300 font-bold mb-1">CPF do Titular (Obrigatório para Banco Inter):</label>
+                <input
+                  autoFocus
+                  type="text"
+                  placeholder="000.000.000-00"
+                  value={editCpf}
+                  onChange={e => setEditCpf(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-emerald-500 font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-300 font-bold mb-1">WhatsApp / Telefone:</label>
+                <input
+                  type="text"
+                  placeholder="(32) 99999-9999"
+                  value={editPhone}
+                  onChange={e => setEditPhone(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-emerald-500 font-mono"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-300 font-bold mb-1">Limite Concedido (R$):</label>
+                  <input
+                    type="number"
+                    step="50"
+                    value={editLimit}
+                    onChange={e => setEditLimit(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-emerald-500 font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-300 font-bold mb-1">Dia de Vencimento:</label>
+                  <select
+                    value={editDueDay}
+                    onChange={e => setEditDueDay(e.target.value as '10' | '20')}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
+                  >
+                    <option value="10">Dia 10 (Fecha dia 1)</option>
+                    <option value="20">Dia 20 (Fecha dia 10)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsEditModalOpen(false)}
+                  className="w-1/3 py-2 rounded-xl bg-slate-800 text-slate-300 font-bold"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingEdit}
+                  className="w-2/3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition flex items-center justify-center gap-1.5 shadow"
+                >
+                  {savingEdit ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle className="w-3.5 h-3.5" />}
+                  <span>Salvar Dados</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: NOVO CADASTRO */}
+      {isIssueModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md p-5 space-y-4 shadow-2xl animate-fade-in text-white">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+              <h3 className="font-extrabold text-sm text-white">Novo Cliente no Crediário 2.0</h3>
+              <button onClick={() => setIsIssueModalOpen(false)} className="text-slate-400 hover:text-white">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleIssueCard} className="space-y-3 text-xs">
+              <div>
+                <label className="block text-slate-300 font-bold mb-1">Nome Completo:</label>
+                <input
+                  autoFocus
+                  type="text"
+                  required
+                  placeholder="Nome do cliente"
+                  value={issueName}
+                  onChange={e => setIssueName(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-emerald-500 uppercase"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-300 font-bold mb-1">CPF (Recomendado):</label>
+                  <input
+                    type="text"
+                    placeholder="000.000.000-00"
+                    value={issueCpf}
+                    onChange={e => setIssueCpf(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-emerald-500 font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-300 font-bold mb-1">WhatsApp:</label>
+                  <input
+                    type="text"
+                    placeholder="(32) 99999-9999"
+                    value={issuePhone}
+                    onChange={e => setIssuePhone(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-emerald-500 font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-300 font-bold mb-1">Limite Inicial (R$):</label>
+                  <input
+                    type="number"
+                    step="50"
+                    value={issueLimit}
+                    onChange={e => setIssueLimit(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-emerald-500 font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-300 font-bold mb-1">Vencimento:</label>
+                  <select
+                    value={issueDueDay}
+                    onChange={e => setIssueDueDay(e.target.value as '10' | '20')}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
+                  >
+                    <option value="20">Dia 20 (Fecha dia 10)</option>
+                    <option value="10">Dia 10 (Fecha dia 1)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsIssueModalOpen(false)}
+                  className="w-1/3 py-2 rounded-xl bg-slate-800 text-slate-300 font-bold"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={issuingLoading}
+                  className="w-2/3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition flex items-center justify-center gap-1.5 shadow"
+                >
+                  {issuingLoading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <UserPlus className="w-3.5 h-3.5" />}
+                  <span>Criar Conta</span>
                 </button>
               </div>
             </form>
