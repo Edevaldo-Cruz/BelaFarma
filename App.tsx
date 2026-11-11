@@ -1324,18 +1324,11 @@ const App: React.FC = () => {
     );
   }
 
-  const isPdvDedicated = typeof window !== 'undefined' && (
-    isTauri || 
-    window.location.search.toLowerCase().includes("app=pdv") || 
-    window.location.search.toLowerCase().includes("mode=pdv") ||
-    (currentView === "belinha-pdv" && window.location.search.toLowerCase().includes("isprinterstation=true"))
-  );
-
-  if (currentView === "belinha-pdv" && isPdvDedicated) {
+  if (currentView === "belinha-pdv") {
     return (
       <div className="h-screen w-screen overflow-hidden flex flex-col bg-[#0b2545]">
         <PwaUpdater />
-        <BelinhaPDV currentUser={user} onNavigate={handleNavigate} isStandaloneWindow={true} />
+        <BelinhaPDV currentUser={user} isStandaloneWindow={true} />
       </div>
     );
   }
@@ -1419,9 +1412,6 @@ const App: React.FC = () => {
                   onUpdateBoletos={handleUpdateBoletos}
                   isMobile={isMobile}
                 />
-              )}
-              {currentView === "belinha-pdv" && (
-                <BelinhaPDV currentUser={user} onNavigate={handleNavigate} />
               )}
               {currentView === "erp-vendas" && (
                 <SalesHistory user={user} />

@@ -2083,17 +2083,15 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
             <span className="hidden lg:inline">Promoções</span>
           </button>
 
-          {/* Vendas do Dia */}
-          {onNavigate && (
-            <button
-              onClick={() => onNavigate('erp-vendas')}
-              className="flex items-center gap-1 px-2 py-1 rounded-md bg-white/10 hover:bg-white/20 text-white border border-white/15 text-[11px] font-bold transition cursor-pointer"
-              title="Abrir Conferência de Caixa e Vendas do Dia"
-            >
-              <Receipt className="w-3.5 h-3.5 text-emerald-300" />
-              <span className="hidden md:inline">Vendas do Dia</span>
-            </button>
-          )}
+          {/* Vendas do Dia (Histórico e Conferência Interna do Caixa [F7]) */}
+          <button
+            onClick={handleOpenRecentSales}
+            className="flex items-center gap-1 px-2 py-1 rounded-md bg-white/10 hover:bg-white/20 text-white border border-white/15 text-[11px] font-bold transition cursor-pointer"
+            title="Abrir Histórico e Conferência de Vendas do PDV [F7]"
+          >
+            <Receipt className="w-3.5 h-3.5 text-emerald-300" />
+            <span className="hidden md:inline">Vendas [F7]</span>
+          </button>
 
           {/* Relógio Digital */}
           <div className="font-mono text-[11px] font-bold text-white bg-black/35 px-2.5 py-1 rounded-md border border-white/15">
@@ -2101,7 +2099,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
             <span className="text-emerald-300 ml-1.5">{currentTime.toLocaleTimeString('pt-BR')}</span>
           </div>
 
-          {/* Controles de Janela do Executável (Minimizar, Tela Cheia F11, Voltar ao ERP / Sair) */}
+          {/* Controles de Janela do Terminal (Minimizar, Tela Cheia F11) */}
           <div className="flex items-center gap-1 pl-1 border-l border-white/15">
             {isTauriWindow && (
               <button
@@ -2121,17 +2119,6 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
               {isFullscreen ? <Minimize2 className="w-3.5 h-3.5 text-amber-300" /> : <Maximize2 className="w-3.5 h-3.5 text-emerald-300" />}
               <span className="hidden xl:inline">F11</span>
             </button>
-
-            {onNavigate && (
-              <button
-                onClick={() => onNavigate('dashboard')}
-                className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-rose-600/90 hover:bg-rose-500 text-white border border-rose-400/50 text-[11px] font-black transition cursor-pointer shadow-sm"
-                title="Voltar ao Painel Administrativo / Retaguarda BelaFarma"
-              >
-                <LogOut className="w-3.5 h-3.5" />
-                <span>Retaguarda</span>
-              </button>
-            )}
           </div>
         </div>
       </header>
