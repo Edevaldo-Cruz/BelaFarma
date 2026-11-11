@@ -1,9 +1,14 @@
 {
   "version": "1.2.4",
-  "commitHash": "e4ffcde",
-  "commitMessage": "feat(pdv): suporte completo a operacao offline sem internet e contingencia instantanea",
-  "buildTime": "11/11/2026, 13:43:49",
+  "commitHash": "68cb850",
+  "commitMessage": "feat(crediario): migracao para o crediario 2.0 com integracao Banco Inter e regua WhatsApp",
+  "buildTime": "11/11/2026, 16:24:09",
   "recentCommits": [
+    {
+      "hash": "68cb850",
+      "date": "11/11/2026",
+      "message": "feat(crediario): migracao para o crediario 2.0 com integracao Banco Inter e regua WhatsApp"
+    },
     {
       "hash": "e4ffcde",
       "date": "11/11/2026",
@@ -58,11 +63,6 @@
       "hash": "67afbbf",
       "date": "09/11/2026",
       "message": "fix(fiscal): corrige fuso horario dhEvento no cancelamento SEFAZ (Rejeicao 578) e parseTagValue"
-    },
-    {
-      "hash": "e44c0fa",
-      "date": "09/11/2026",
-      "message": "fix(fiscal): sempre obter ultimo NF_ID registrado no Digifarma + 1 e atualizar SERIE_NF"
     }
   ]
 }

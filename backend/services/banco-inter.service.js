@@ -238,6 +238,84 @@ class BancoInterService {
 
     return await resp.json();
   }
+
+  /**
+   * Configura a URL de Webhook para notificações automáticas de pagamento
+   * @param {string} webhookUrl URL HTTPS pública que receberá o POST do Inter
+   */
+  async criarWebhook(webhookUrl) {
+    const token = await this.getAccessToken();
+    const url = `${this.baseUrl}/cobranca/v3/cobrancas/webhook`;
+
+    const resp = await fetch(url, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ webhookUrl }),
+      agent: this.httpsAgent,
+      timeout: 10000
+    });
+
+    if (!resp.ok) {
+      const errText = await resp.text();
+      throw new Error(`Erro ao configurar Webhook Banco Inter HTTP ${resp.status}: ${errText}`);
+    }
+
+    console.log(`✅ [Banco Inter] Webhook registrado com sucesso: ${webhookUrl}`);
+    return { success: true, webhookUrl };
+  }
+
+  /**
+   * Consulta a URL do Webhook configurado atualmente no Banco Inter
+   */
+  async consultarWebhook() {
+    const token = await this.getAccessToken();
+    const url = `${this.baseUrl}/cobranca/v3/cobrancas/webhook`;
+
+    const resp = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      },
+      agent: this.httpsAgent,
+      timeout: 10000
+    });
+
+    if (!resp.ok) {
+      if (resp.status === 404) {
+        return { webhookUrl: null, active: false };
+      }
+      throw new Error(`Erro ao consultar Webhook Banco Inter HTTP ${resp.status}`);
+    }
+
+    return await resp.json();
+  }
+
+  /**
+   * Exclui o Webhook registrado no Banco Inter
+   */
+  async excluirWebhook() {
+    const token = await this.getAccessToken();
+    const url = `${this.baseUrl}/cobranca/v3/cobrancas/webhook`;
+
+    const resp = await fetch(url, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      },
+      agent: this.httpsAgent,
+      timeout: 10000
+    });
+
+    if (!resp.ok && resp.status !== 404) {
+      throw new Error(`Erro ao excluir Webhook Banco Inter HTTP ${resp.status}`);
+    }
+
+    console.log('🗑️ [Banco Inter] Webhook de cobrança excluído.');
+    return { success: true };
+  }
 }
 
 module.exports = new BancoInterService();

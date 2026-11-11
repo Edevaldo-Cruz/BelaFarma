@@ -4729,6 +4729,10 @@ app.post('/api/cards/cron/run', async (req, res) => {
   }
 });
 
+// Conciliação e Baixa Automática Banco Inter (Polling a cada 30min e Webhook)
+const { initCrediarioConciliacao } = require('./services/crediario-conciliacao.service.js');
+const crediarioConciliacao = initCrediarioConciliacao(db);
+
 // Belinha ERP - Frente de Caixa (PDV), Produtos, Estoque e Vendas Nativas
 const erpEndpoints = require('./modules/erp/erp-endpoints.js');
 app.use('/api/erp', erpEndpoints);

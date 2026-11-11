@@ -127,6 +127,7 @@ export const CrediarioNfcWidget: React.FC = () => {
   const [issuingBoletoId, setIssuingBoletoId] = useState<string | null>(null);
   const [sendingWppId, setSendingWppId] = useState<string | null>(null);
   const [runningCron, setRunningCron] = useState(false);
+  const [runningConciliacao, setRunningConciliacao] = useState(false);
 
   // Busca Manual
   const [searchQuery, setSearchQuery] = useState('');
@@ -471,6 +472,30 @@ export const CrediarioNfcWidget: React.FC = () => {
       addToast('Falha ao acionar cron.', 'error');
     } finally {
       setRunningCron(false);
+    }
+  };
+
+  const handleRunConciliacao = async () => {
+    setRunningConciliacao(true);
+    try {
+      const res = await fetch('/api/cards/conciliacao/run', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        const r = data.relatorio;
+        if (r.totalLiquidadas > 0) {
+          addToast(`Sucesso! ${r.totalLiquidadas} fatura(s) baixada(s) automaticamente! Total recebido: ${formatCurrency(r.totalValorRecebido)}`, 'success');
+        } else {
+          addToast(`Conciliação concluída: ${r.totalVerificadas} fatura(s) verificada(s). Nenhuma nova liquidação pendente no Banco Inter.`, 'info');
+        }
+        await loadMetrics();
+        if (activeCard) await loadCardDetails(activeCard.id);
+      } else {
+        addToast(data.error || 'Erro ao executar conciliação.', 'error');
+      }
+    } catch (_) {
+      addToast('Erro na conciliação.', 'error');
+    } finally {
+      setRunningConciliacao(false);
     }
   };
 
@@ -837,6 +862,27 @@ export const CrediarioNfcWidget: React.FC = () => {
             >
               {runningCron ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
               <span>Executar Varredura Agora</span>
+            </button>
+          </div>
+
+          {/* HEADER DA CONCILIAÇÃO & BAIXA AUTOMÁTICA */}
+          <div className="p-3.5 rounded-xl bg-slate-950 border border-cyan-500/30 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-cyan-600/20 text-cyan-400 flex items-center justify-center font-bold">
+                <RefreshCw className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="text-xs font-bold text-white">Conciliação & Baixa Automática (Banco Inter)</h4>
+                <p className="text-[11px] text-slate-400">Verifica boletos e Pix liquidados no Inter, dá baixa automática e libera o limite do cliente na hora.</p>
+              </div>
+            </div>
+            <button
+              disabled={runningConciliacao}
+              onClick={handleRunConciliacao}
+              className="px-3.5 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white font-bold text-xs transition flex items-center gap-1.5 shadow"
+            >
+              {runningConciliacao ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+              <span>Verificar Pagamentos Agora</span>
             </button>
           </div>
 

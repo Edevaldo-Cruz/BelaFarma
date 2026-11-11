@@ -723,6 +723,67 @@ function createCardEndpoints(db, whatsappService = null) {
     }
   });
 
+  /**
+   * 11. POST /api/cards/webhook/inter
+   * Endpoint de Webhook oficial para receber notificações de pagamento do Banco Inter em tempo real.
+   */
+  router.post('/webhook/inter', async (req, res) => {
+    try {
+      const { processarWebhookPayload } = require('./services/crediario-conciliacao.service');
+      const results = await processarWebhookPayload(db, req.body);
+      res.status(200).json({ success: true, processed: results });
+    } catch (err) {
+      console.error('[Webhook Inter] Erro ao processar:', err.message);
+      // Retorna 200 para o Inter não ficar retentando indefinidamente se for erro de payload
+      res.status(200).json({ success: false, error: err.message });
+    }
+  });
+
+  /**
+   * 12. POST /api/cards/conciliacao/run
+   * Dispara a conciliação ativa imediata com o Banco Inter para verificar pagamentos pendentes.
+   */
+  router.post('/conciliacao/run', async (req, res) => {
+    try {
+      const { executarConciliacaoAtiva } = require('./services/crediario-conciliacao.service');
+      const relatorio = await executarConciliacaoAtiva(db);
+      res.json({ success: true, relatorio });
+    } catch (err) {
+      console.error('[Conciliação Inter] Erro manual:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  /**
+   * 13. GET /api/cards/webhook/status
+   * Consulta a situação do Webhook registrado no Banco Inter.
+   */
+  router.get('/webhook/status', async (req, res) => {
+    try {
+      const status = await bancoInterService.consultarWebhook();
+      res.json({ success: true, status });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  /**
+   * 14. POST /api/cards/webhook/register
+   * Configura/Atualiza a URL pública do Webhook no Banco Inter.
+   */
+  router.post('/webhook/register', async (req, res) => {
+    try {
+      const { webhookUrl } = req.body;
+      if (!webhookUrl) {
+        return res.status(400).json({ error: 'URL do Webhook é obrigatória.' });
+      }
+      const result = await bancoInterService.criarWebhook(webhookUrl);
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   return router;
 }
 
