@@ -38,7 +38,9 @@ import {
   Minimize2,
   LogOut,
   Database,
-  Package
+  Package,
+  Wifi,
+  WifiOff
 } from 'lucide-react';
 import { useToast } from '../ToastContext';
 import { BelaFarmaLogo } from '../BelaFarmaLogo';
@@ -356,6 +358,43 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
       localStorage.setItem('belaped_auto_print', checked ? 'true' : 'false');
     } catch {}
   };
+
+  // Modo Sem Internet / Contingência Offline Instantânea
+  const [isOfflineMode, setIsOfflineMode] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('belinha_pdv_offline_mode') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const toggleOfflineMode = useCallback((val: boolean) => {
+    setIsOfflineMode(val);
+    try {
+      localStorage.setItem('belinha_pdv_offline_mode', val ? 'true' : 'false');
+    } catch {}
+    if (val) {
+      addToast('⚡ Modo Sem Internet ATIVADO! Vendas sairão instantaneamente em Contingência Offline com QR-Code.', 'warning', 4500);
+    } else {
+      addToast('🌐 Modo Normal (Online) ativado! NFC-e será enviada diretamente à SEFAZ.', 'success', 3000);
+    }
+  }, [addToast]);
+
+  // Listener nativo de status de rede do navegador
+  useEffect(() => {
+    const handleOffline = () => {
+      addToast('⚡ Queda de conexão com a Internet! O PDV continua funcionando 100% no servidor local e em Contingência.', 'warning', 6000);
+    };
+    const handleOnline = () => {
+      addToast('🌐 Conexão com a Internet restabelecida!', 'success', 3500);
+    };
+    window.addEventListener('offline', handleOffline);
+    window.addEventListener('online', handleOnline);
+    return () => {
+      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('online', handleOnline);
+    };
+  }, [addToast]);
 
   // Modal de Histórico e Cancelamento Rápido no PDV [F7]
   const [isRecentSalesOpen, setIsRecentSalesOpen] = useState<boolean>(false);
@@ -1625,6 +1664,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
         seller_name: seller.name,
         controlled_recipes: controlledRecipesData || undefined,
         emit_nfce: emitNfce,
+        force_contingency: isOfflineMode,
         customer_cpf: customerCpf.trim() || null
       };
 
@@ -1945,6 +1985,33 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
 
         {/* Pílulas Compactas de Status (SEFAZ / Digifarma / SNGPC / Impressora) + Relógio + Controles de Janela */}
         <div className="flex items-center flex-wrap gap-1.5">
+          {/* Pílula de Modo Sem Internet / Contingência */}
+          <button
+            onClick={() => toggleOfflineMode(!isOfflineMode)}
+            className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-bold border transition cursor-pointer ${
+              isOfflineMode
+                ? 'bg-amber-500 text-slate-950 border-amber-300 animate-pulse font-black'
+                : 'bg-white/10 hover:bg-white/20 text-emerald-300 border-white/15'
+            }`}
+            title={
+              isOfflineMode
+                ? 'Modo Sem Internet ATIVADO. Todas as vendas saem imediatamente em Contingência Offline com QR-Code. Clique para voltar ao modo Online.'
+                : 'Modo Online ativo. Clique para forçar o Modo Sem Internet (Contingência Instantânea).'
+            }
+          >
+            {isOfflineMode ? (
+              <>
+                <WifiOff className="w-3.5 h-3.5 text-slate-950 shrink-0" />
+                <span>SEM INTERNET</span>
+              </>
+            ) : (
+              <>
+                <Wifi className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                <span className="hidden lg:inline">Online</span>
+              </>
+            )}
+          </button>
+
           {/* Pílula SEFAZ-MG */}
           <button
             onClick={() => setIsFiscalSettingsOpen(true)}
@@ -2068,6 +2135,22 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
           </div>
         </div>
       </header>
+
+      {/* AVISO DE OPERAÇÃO SEM INTERNET / CONTINGÊNCIA OFFLINE */}
+      {isOfflineMode && (
+        <div className="bg-amber-500 text-slate-950 px-3 sm:px-4 py-1.5 flex flex-wrap items-center justify-between gap-2 text-xs font-black shadow-md shrink-0 border-b border-amber-600">
+          <div className="flex items-center gap-2">
+            <WifiOff className="w-4 h-4 text-slate-950 shrink-0 animate-pulse" />
+            <span>MODO SEM INTERNET ATIVADO: Frente de Caixa operando 100% offline. Cupons fiscais saem direto em Contingência com QR-Code SEFAZ.</span>
+          </div>
+          <button
+            onClick={() => toggleOfflineMode(false)}
+            className="px-2.5 py-0.5 rounded bg-slate-950 hover:bg-slate-800 text-amber-300 text-[10px] font-bold uppercase transition cursor-pointer"
+          >
+            Voltar para Modo Online
+          </button>
+        </div>
+      )}
 
       {/* 2. BANNER TEMÁTICO DE RETENÇÃO DE RECEITA CONTROLADA (AMARELA / AZUL / BRANCA / CREME) */}
       {dominantRecipe && (

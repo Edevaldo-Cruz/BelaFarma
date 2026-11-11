@@ -1,9 +1,14 @@
 {
   "version": "1.2.4",
-  "commitHash": "2d255fd",
-  "commitMessage": "feat(pdv): integrar PDV ao layout padrao do App e embutir seed das 129 regras escalonadas",
-  "buildTime": "11/11/2026, 12:27:46",
+  "commitHash": "7300f10",
+  "commitMessage": "feat(pdv): tela dedicada estilo desktop/electron e vendedor fixo persistente",
+  "buildTime": "11/11/2026, 13:11:17",
   "recentCommits": [
+    {
+      "hash": "7300f10",
+      "date": "11/11/2026",
+      "message": "feat(pdv): tela dedicada estilo desktop/electron e vendedor fixo persistente"
+    },
     {
       "hash": "2d255fd",
       "date": "09/11/2026",
@@ -58,11 +63,6 @@
       "hash": "b7b1ffa",
       "date": "09/11/2026",
       "message": "feat(fiscal): emissao de NFC-e online e contingencia offline com QR-Code e sincronizacao Digifarma"
-    },
-    {
-      "hash": "5f4aaff",
-      "date": "09/11/2026",
-      "message": "fix(pdv): importar ChevronRight no BelinhaPDV corrigindo quebra de tela ao entrar no caixa"
     }
   ]
 }

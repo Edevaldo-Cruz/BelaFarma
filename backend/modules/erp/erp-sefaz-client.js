@@ -34,7 +34,7 @@ const xmlParser = new XMLParser({
 /**
  * Executa uma requisição SOAP 1.2 sobre HTTPS com mTLS para a SEFAZ
  */
-function enviarRequisicaoSoapSefaz(endpointUrl, soapAction, xmlDadosMsg, pfxBuffer, passphrase, timeoutMs = 25000) {
+function enviarRequisicaoSoapSefaz(endpointUrl, soapAction, xmlDadosMsg, pfxBuffer, passphrase, timeoutMs = 6000) {
   return new Promise((resolve, reject) => {
     const urlParsed = new URL(endpointUrl);
 
@@ -163,7 +163,7 @@ async function transmitirNfceSefaz(xmlNfeAssinado, pfxBuffer, passphrase, ambien
   const xmlLote = `<enviNFe xmlns="http://www.portalfiscal.inf.br/nfe" versao="4.00"><idLote>${idLote}</idLote><indSinc>1</indSinc>${xmlSemDeclaracao}</enviNFe>`;
   const soapAction = 'http://www.portalfiscal.inf.br/nfe/wsdl/NFeAutorizacao4';
 
-  const resp = await enviarRequisicaoSoapSefaz(ws, soapAction, xmlLote, pfxBuffer, passphrase, 25000);
+  const resp = await enviarRequisicaoSoapSefaz(ws, soapAction, xmlLote, pfxBuffer, passphrase, 6000);
   const parsed = xmlParser.parse(resp.body);
 
   const retEnviNFe = parsed.Envelope?.Body?.nfeResultMsg?.retEnviNFe

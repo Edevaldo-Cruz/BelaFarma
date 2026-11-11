@@ -235,13 +235,19 @@ router.post('/pos/checkout', async (req, res) => {
       user_name: userName
     });
 
-    const { emit_nfce, customer_cpf, customer_name } = req.body;
+    const { emit_nfce, customer_cpf, customer_name, force_contingency, contingency } = req.body;
     let danfe = null;
     let fiscalResult = null;
 
     if (emit_nfce) {
       try {
-        danfe = await emitirCupomFiscal(resultado.sale_id, { customer_cpf, customer_name });
+        const isOfflineForced = Boolean(force_contingency || contingency);
+        danfe = await emitirCupomFiscal(resultado.sale_id, {
+          customer_cpf,
+          customer_name,
+          contingency: isOfflineForced,
+          contingency_reason: isOfflineForced ? 'Operação em Contingência Offline (Sem Internet no Terminal)' : undefined
+        });
         if (danfe && danfe.non_fiscal) {
           fiscalResult = { success: true, non_fiscal: true };
           console.log(`[Belinha PDV] ℹ️ Venda ${resultado.sale_id} concluída como Cupom Não Fiscal (itens sem cadastro fiscal)`);
