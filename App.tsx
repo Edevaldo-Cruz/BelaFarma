@@ -150,7 +150,7 @@ const App: React.FC = () => {
       const hash = window.location.hash.toLowerCase();
       const search = window.location.search.toLowerCase();
       const isTauriEnv = '__TAURI_INTERNALS__' in window || '__TAURI__' in window;
-      if (isTauriEnv || search.includes('app=pdv') || search.includes('view=belinha-pdv') || hash.includes('pdv')) {
+      if (isTauriEnv || search.includes('app=pdv') || search.includes('mode=pdv') || search.includes('isprinterstation=true') || search.includes('view=belinha-pdv') || hash.includes('pdv')) {
         return 'belinha-pdv';
       }
       if (host.startsWith('ia.') || hash.includes('ia') || search.includes('view=ia') || search.includes('view=belafarma-ia')) {
@@ -1320,6 +1320,22 @@ const App: React.FC = () => {
           onNavigate={handleNavigate}
           initialTab={currentView === "promocoes-whatsapp" ? "promocoes_whatsapp" : undefined}
         />
+      </div>
+    );
+  }
+
+  const isPdvDedicated = typeof window !== 'undefined' && (
+    isTauri || 
+    window.location.search.toLowerCase().includes("app=pdv") || 
+    window.location.search.toLowerCase().includes("mode=pdv") ||
+    (currentView === "belinha-pdv" && window.location.search.toLowerCase().includes("isprinterstation=true"))
+  );
+
+  if (currentView === "belinha-pdv" && isPdvDedicated) {
+    return (
+      <div className="h-screen w-screen overflow-hidden flex flex-col bg-[#0b2545]">
+        <PwaUpdater />
+        <BelinhaPDV currentUser={user} onNavigate={handleNavigate} isStandaloneWindow={true} />
       </div>
     );
   }

@@ -128,9 +128,10 @@ const normalizeProductBarcode = (val: any): string => {
 interface BelinhaPDVProps {
   currentUser?: any;
   onNavigate?: (view: any) => void;
+  isStandaloneWindow?: boolean;
 }
 
-export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate }) => {
+export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate, isStandaloneWindow = false }) => {
   const { addToast } = useToast();
 
   // Spooler de Impressão Térmica em Rede (qualquer computador da farmácia imprime na Bematech do Caixa)
@@ -186,8 +187,20 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
     } catch {}
   }, []);
 
-  // Identificação do Vendedor por Chave de Acesso do Login
+  // Identificação do Vendedor com Persistência Permanente no Terminal (não perde o vendedor)
   const [currentSeller, setCurrentSeller] = useState<{ id: string; name: string; role?: string; jobRole?: string } | null>(() => {
+    try {
+      const stored = typeof window !== 'undefined' ? localStorage.getItem('belinha_pdv_current_seller') : null;
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed && parsed.name) {
+          return parsed;
+        }
+      }
+    } catch (e) {
+      console.warn('Erro ao restaurar vendedor salvo:', e);
+    }
+
     if (currentUser && currentUser.name && currentUser.name !== 'Caixa') {
       return {
         id: currentUser.id,
@@ -198,6 +211,20 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
     }
     return null;
   });
+
+  const handleSetSeller = useCallback((seller: { id: string; name: string; role?: string; jobRole?: string } | null) => {
+    setCurrentSeller(seller);
+    try {
+      if (seller) {
+        localStorage.setItem('belinha_pdv_current_seller', JSON.stringify(seller));
+      } else {
+        localStorage.removeItem('belinha_pdv_current_seller');
+      }
+    } catch (e) {
+      console.error('Erro ao persistir vendedor no terminal:', e);
+    }
+  }, []);
+
   const [isSellerModalOpen, setIsSellerModalOpen] = useState(false);
   const [sellerKeyInput, setSellerKeyInput] = useState('');
   const [isIdentifyingSeller, setIsIdentifyingSeller] = useState(false);
@@ -798,10 +825,10 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
 
       const json = await res.json();
       if (res.ok && json.success && json.seller) {
-        setCurrentSeller(json.seller);
+        handleSetSeller(json.seller);
         setIsSellerModalOpen(false);
         setSellerKeyInput('');
-        addToast(`👤 Vendedor: ${json.seller.name} identificado com sucesso!`, 'success', 2500);
+        addToast(`👤 Vendedor: ${json.seller.name} vinculado com sucesso (Fixo neste terminal)!`, 'success', 2500);
 
         // Se o checkout estava aguardando a identificação do vendedor, prossegue imediatamente
         if (isPendingCheckout) {
@@ -1846,8 +1873,18 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
   const lastScannedItem = cart.length > 0 ? cart[cart.length - 1] : null;
   const isTauriWindow = typeof window !== 'undefined' && ('__TAURI_INTERNALS__' in window || '__TAURI__' in window);
 
+  const isPdvAppMode = Boolean(
+    isStandaloneWindow || 
+    (typeof window !== 'undefined' && (
+      '__TAURI_INTERNALS__' in window || 
+      '__TAURI__' in window || 
+      window.location.search.toLowerCase().includes('app=pdv') || 
+      window.location.search.toLowerCase().includes('mode=pdv')
+    ))
+  );
+
   return (
-    <div className="flex flex-col h-[calc(100vh-4.25rem)] sm:h-[calc(100vh-4.5rem)] w-full bg-[#e8eef5] text-slate-800 font-sans select-none overflow-hidden rounded-xl border border-slate-300 shadow-xl">
+    <div className={`flex flex-col ${isPdvAppMode ? 'h-screen w-screen rounded-none border-0' : 'h-[calc(100vh-4.25rem)] sm:h-[calc(100vh-4.5rem)] w-full rounded-xl border border-slate-300'} bg-[#e8eef5] text-slate-800 font-sans select-none overflow-hidden shadow-xl`}>
       
       {/* 1. CABEÇALHO SUPERIOR ESTILO SOFTWARE NATIVO DE FARMÁCIA */}
       <header className="bg-gradient-to-r from-[#0b2545] via-[#0f3460] to-[#0b2e26] border-b-2 border-emerald-500 px-3 sm:px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-xs text-white shadow-md shrink-0">
@@ -1861,6 +1898,11 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
                 <span className="text-[10px] font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 px-1.5 py-0.5 rounded uppercase">
                   PRO v5.0
                 </span>
+                {isPdvAppMode && (
+                  <span className="text-[9px] font-bold bg-sky-500/30 text-sky-200 border border-sky-400/30 px-1 py-0.2 rounded uppercase">
+                    DESKTOP
+                  </span>
+                )}
               </div>
               <div className="text-[10px] text-slate-300 font-medium tracking-wide uppercase">
                 Frente de Caixa Fiscal • Drogaria Bela Farma Sul
@@ -1880,19 +1922,24 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
             <span>{cart.length > 0 ? `CAIXA 01 • EM VENDA (${totalQuantity} ITENS)` : 'CAIXA 01 • LIVRE'}</span>
           </div>
 
-          {/* Vendedor em Destaque */}
+          {/* Vendedor em Destaque (Fixo no terminal) */}
           <button
             onClick={handleOpenSellerModal}
             className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs font-bold transition-all shadow-sm cursor-pointer ${
               currentSeller
-                ? 'bg-white/10 border-emerald-400/60 text-emerald-200 hover:bg-white/20'
+                ? 'bg-emerald-950/60 border-emerald-400/60 text-emerald-200 hover:bg-emerald-900/80 shadow-emerald-950/40'
                 : 'bg-amber-500 text-slate-950 border-amber-300 hover:bg-amber-400 animate-pulse font-black'
             }`}
-            title="Clique para identificar ou trocar o vendedor (F5)"
+            title="Vendedor fixo neste terminal. Clique ou pressione F5 para trocar"
           >
-            <UserCheck className="w-3.5 h-3.5" />
+            <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
             <span>{currentSeller ? `Vendedor: ${currentSeller.name}` : 'Identificar Vendedor'}</span>
-            <kbd className="text-[10px] bg-black/30 text-white px-1 py-0.5 rounded font-mono">F5</kbd>
+            {currentSeller && (
+              <span className="text-[9px] font-mono bg-emerald-500/30 text-emerald-300 px-1 py-0.2 rounded uppercase font-black tracking-wider border border-emerald-400/30">
+                FIXO
+              </span>
+            )}
+            <kbd className="text-[10px] bg-black/40 text-white px-1 py-0.5 rounded font-mono">F5</kbd>
           </button>
         </div>
 
@@ -4161,8 +4208,31 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
               </button>
             </div>
 
+            {currentSeller && (
+              <div className="mb-3.5 p-2.5 rounded-xl bg-emerald-950/50 border border-emerald-500/40 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <UserCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <div>
+                    <p className="text-[10px] text-emerald-300 font-bold uppercase tracking-wider">Vendedor Ativo no Terminal</p>
+                    <p className="text-xs font-black text-white">{currentSeller.name}</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleSetSeller(null);
+                    addToast('Vendedor desvinculado do terminal.', 'info');
+                  }}
+                  className="px-2 py-1 rounded-lg bg-rose-500/20 hover:bg-rose-500/40 text-rose-300 text-[10px] font-bold border border-rose-400/30 transition-all"
+                  title="Desvincular vendedor e exigir nova identificação"
+                >
+                  Desvincular
+                </button>
+              </div>
+            )}
+
             <p className="text-xs text-slate-300 mb-3 leading-relaxed">
-              Digite a <strong className="text-emerald-400">chave de acesso de login</strong> do vendedor ou bipe o crachá:
+              Digite a <strong className="text-emerald-400">chave de acesso de login</strong> do vendedor para fixar neste terminal:
             </p>
 
             <form
@@ -4171,7 +4241,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
                 handleIdentifySeller();
               }}
             >
-              <div className="relative mb-4">
+              <div className="relative mb-3">
                 <input
                   ref={sellerKeyInputRef}
                   type="password"
@@ -4186,6 +4256,11 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate 
                     <RefreshCw className="w-5 h-5 text-emerald-400 animate-spin" />
                   </div>
                 )}
+              </div>
+
+              <div className="mb-4 flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-slate-950/60 border border-slate-800 text-[11px] text-slate-300">
+                <span className="text-emerald-400">🔒</span>
+                <span>O vendedor permanecerá <strong>fixo</strong> mesmo ao fechar e reabrir o PDV.</span>
               </div>
 
               <div className="flex gap-2">

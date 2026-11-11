@@ -12,7 +12,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "$p = Get-Printer | Where
 
 REM 2. URL do Servidor BelaFarma na rede local
 set "SERVER_IP=192.168.1.70:3001"
-set "URL=http://%SERVER_IP%?isPrinterStation=true"
+set "URL=http://%SERVER_IP%/?app=pdv&isPrinterStation=true"
 set "USER_DATA=%LOCALAPPDATA%\BelaFarmaPDV"
 
 REM 3. Localizar navegador Chrome ou Edge
