@@ -1,9 +1,14 @@
 {
   "version": "1.2.4",
-  "commitHash": "68cb850",
-  "commitMessage": "feat(crediario): migracao para o crediario 2.0 com integracao Banco Inter e regua WhatsApp",
-  "buildTime": "11/11/2026, 16:24:09",
+  "commitHash": "73e2770",
+  "commitMessage": "feat(crediario): conciliacao automatica e webhook Banco Inter com liberacao de limite instantanea",
+  "buildTime": "11/11/2026, 17:39:39",
   "recentCommits": [
+    {
+      "hash": "73e2770",
+      "date": "11/11/2026",
+      "message": "feat(crediario): conciliacao automatica e webhook Banco Inter com liberacao de limite instantanea"
+    },
     {
       "hash": "68cb850",
       "date": "11/11/2026",
@@ -58,11 +63,6 @@
       "hash": "4d4faa7",
       "date": "09/11/2026",
       "message": "fix(security): restringe acesso e visualizacao de dados financeiros exclusivamente para administradores"
-    },
-    {
-      "hash": "67afbbf",
-      "date": "09/11/2026",
-      "message": "fix(fiscal): corrige fuso horario dhEvento no cancelamento SEFAZ (Rejeicao 578) e parseTagValue"
     }
   ]
 }

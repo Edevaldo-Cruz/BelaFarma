@@ -193,6 +193,40 @@ function createCardEndpoints(db, whatsappService = null) {
   });
 
   /**
+   * 2.1 GET /api/cards/by-customer/:customerId
+   * Retorna a conta de crediário associada ao customer_id ou busca por CPF/telefone se não houver customer_id exato.
+   */
+  router.get('/by-customer/:customerId', (req, res) => {
+    try {
+      const { customerId } = req.params;
+      let card = db.prepare('SELECT * FROM belafarma_cards WHERE customer_id = ?').get(customerId);
+      
+      if (!card) {
+        const cust = db.prepare('SELECT * FROM customers WHERE id = ?').get(customerId);
+        if (cust) {
+          if (cust.cpf) {
+            const cleanCpf = cust.cpf.replace(/\D/g, '');
+            card = db.prepare('SELECT * FROM belafarma_cards WHERE REPLACE(REPLACE(REPLACE(cpf, ".", ""), "-", ""), " ", "") = ?').get(cleanCpf);
+          }
+          if (!card && cust.phone) {
+            const cleanPhone = cust.phone.replace(/\D/g, '');
+            card = db.prepare('SELECT * FROM belafarma_cards WHERE REPLACE(REPLACE(REPLACE(REPLACE(phone, "(", ""), ")", ""), "-", ""), " ", "") = ?').get(cleanPhone);
+          }
+        }
+      }
+
+      if (!card) {
+        return res.status(404).json({ error: 'Cliente não possui conta no Crediário 2.0.' });
+      }
+
+      res.json({ success: true, card });
+    } catch (err) {
+      console.error('[Crediário 2.0] Erro ao buscar por customerId:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  /**
    * 3. GET /api/cards/:cardId/details
    * Retorna perfil completo do cliente, extrato e todas as faturas.
    */
@@ -238,6 +272,231 @@ function createCardEndpoints(db, whatsappService = null) {
       });
     } catch (err) {
       console.error('[Crediário 2.0] Erro ao buscar detalhes:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  /**
+   * 3.1 GET /api/cards/:cardId/statement
+   * Retorna o extrato completo unificado de compras (+) e pagamentos (-),
+   * além de dados cadastrais 360 e resumo de crédito.
+   */
+  router.get('/:cardId/statement', (req, res) => {
+    try {
+      const { cardId } = req.params;
+      let card = db.prepare('SELECT * FROM belafarma_cards WHERE id = ?').get(cardId);
+      if (!card) {
+        card = db.prepare('SELECT * FROM belafarma_cards WHERE customer_id = ?').get(cardId);
+      }
+      if (!card) {
+        return res.status(404).json({ error: 'Conta de crediário não encontrada.' });
+      }
+
+      const customer = card.customer_id
+        ? db.prepare('SELECT * FROM customers WHERE id = ?').get(card.customer_id)
+        : null;
+
+      const invoices = db.prepare('SELECT * FROM card_invoices WHERE card_id = ? ORDER BY due_date DESC').all(card.id);
+
+      const items = db.prepare(`
+        SELECT id, invoice_id, sale_id, description, amount, payment_method, purchased_at
+        FROM card_invoice_items
+        WHERE card_id = ?
+        ORDER BY purchased_at DESC, id DESC
+      `).all(card.id);
+
+      const transactions = [];
+
+      // 1. Compras (+)
+      items.forEach(it => {
+        transactions.push({
+          id: `compra_${it.id}`,
+          type: 'PURCHASE',
+          date: it.purchased_at || 'Data N/D',
+          description: it.description || 'Compra no Balcão',
+          amount: Number(Number(it.amount || 0).toFixed(2)),
+          invoice_id: it.invoice_id,
+          sale_id: it.sale_id,
+          payment_method: it.payment_method || 'CREDIARIO_2.0'
+        });
+      });
+
+      // 2. Pagamentos (-)
+      invoices.forEach(inv => {
+        if (inv.paid_amount > 0) {
+          transactions.push({
+            id: `pagamento_${inv.id}`,
+            type: 'PAYMENT',
+            date: inv.paid_at || inv.updated_at || 'Data N/D',
+            description: `Pagamento de Fatura (${inv.reference_month})`,
+            amount: Number(Number(inv.paid_amount || 0).toFixed(2)),
+            invoice_id: inv.id,
+            payment_method: inv.boleto_id ? 'BOLETO_INTER' : 'CAIXA_BALCAO'
+          });
+        }
+      });
+
+      // Ordenar cronologicamente decrescente
+      transactions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+      const totalPurchases = items.reduce((acc, it) => acc + Number(it.amount || 0), 0);
+      const totalPayments = invoices.reduce((acc, inv) => acc + Number(inv.paid_amount || 0), 0);
+      const availableCredit = Math.max(0, Number((card.credit_limit - card.used_limit).toFixed(2)));
+
+      const today = new Date().toISOString().split('T')[0];
+      const overdueInvoice = invoices.find(inv => inv.status !== 'paid' && inv.due_date < today);
+      const daysLate = overdueInvoice
+        ? Math.max(0, Math.floor((new Date(today) - new Date(overdueInvoice.due_date)) / (1000 * 60 * 60 * 24)))
+        : 0;
+
+      res.json({
+        success: true,
+        card: {
+          ...card,
+          has_cpf: !!card.cpf,
+          needs_cpf: !card.cpf,
+          available_credit: availableCredit,
+          is_blocked_late: daysLate >= 5,
+          days_late: daysLate
+        },
+        customer: customer || {
+          id: card.customer_id,
+          name: card.customer_name,
+          phone: card.phone,
+          cpf: card.cpf
+        },
+        invoices,
+        transactions,
+        metrics: {
+          totalPurchases: Number(totalPurchases.toFixed(2)),
+          totalPayments: Number(totalPayments.toFixed(2)),
+          currentDebt: Number(card.used_limit.toFixed(2)),
+          creditLimit: Number(card.credit_limit.toFixed(2)),
+          availableCredit
+        }
+      });
+    } catch (err) {
+      console.error('[Crediário 2.0] Erro ao buscar extrato:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  /**
+   * 3.2 POST /api/cards/:cardId/print-statement
+   * Envia a impressão da ficha/extrato para a impressora térmica de 80mm do caixa (Bematech)
+   */
+  router.post('/:cardId/print-statement', async (req, res) => {
+    try {
+      const { cardId } = req.params;
+      let card = db.prepare('SELECT * FROM belafarma_cards WHERE id = ?').get(cardId);
+      if (!card) {
+        card = db.prepare('SELECT * FROM belafarma_cards WHERE customer_id = ?').get(cardId);
+      }
+      if (!card) {
+        return res.status(404).json({ error: 'Conta de crediário não encontrada.' });
+      }
+
+      const items = db.prepare(`
+        SELECT id, description, amount, purchased_at
+        FROM card_invoice_items WHERE card_id = ? ORDER BY purchased_at DESC LIMIT 30
+      `).all(card.id);
+
+      const invoices = db.prepare(`
+        SELECT reference_month, total_due, paid_amount, paid_at, due_date, status
+        FROM card_invoices WHERE card_id = ? ORDER BY due_date DESC
+      `).all(card.id);
+
+      const availableCredit = Math.max(0, Number((card.credit_limit - card.used_limit).toFixed(2)));
+      const nowStr = new Date().toLocaleString('pt-BR');
+
+      let itensHtml = '';
+      items.forEach(it => {
+        const dStr = it.purchased_at ? it.purchased_at.substring(0, 10).split('-').reverse().join('/') : '';
+        itensHtml += `
+          <div style="display: flex; justify-content: space-between; margin-bottom: 3px; font-size: 11px;">
+            <span>[+] ${dStr} ${(it.description || 'Compra').substring(0, 18)}</span>
+            <span style="font-weight: bold;">R$ ${Number(it.amount || 0).toFixed(2)}</span>
+          </div>
+        `;
+      });
+
+      let pagamentosHtml = '';
+      invoices.filter(i => i.paid_amount > 0).forEach(i => {
+        const dStr = i.paid_at ? i.paid_at.substring(0, 10).split('-').reverse().join('/') : '';
+        pagamentosHtml += `
+          <div style="display: flex; justify-content: space-between; margin-bottom: 3px; font-size: 11px; color: #15803d;">
+            <span>[-] ${dStr} Pgto Fat. ${i.reference_month}</span>
+            <span style="font-weight: bold;">-R$ ${Number(i.paid_amount || 0).toFixed(2)}</span>
+          </div>
+        `;
+      });
+
+      const htmlContent = `
+        <div style="font-family: monospace, sans-serif; width: 280px; font-size: 12px; color: #000; line-height: 1.3; padding: 4px;">
+          <div style="text-align: center; border-bottom: 1px dashed #000; padding-bottom: 6px; margin-bottom: 6px;">
+            <div style="font-weight: 900; font-size: 15px;">DROGARIA BELAFARMA</div>
+            <div style="font-size: 11px; font-weight: bold;">FICHA & EXTRATO DO CREDIÁRIO</div>
+            <div style="font-size: 10px;">${nowStr}</div>
+          </div>
+
+          <div style="border-bottom: 1px dashed #000; padding-bottom: 6px; margin-bottom: 6px; font-size: 11px;">
+            <div><strong>CLIENTE:</strong> ${card.customer_name}</div>
+            <div><strong>CPF:</strong> ${card.cpf || 'Não Informado'}</div>
+            <div><strong>TELEFONE:</strong> ${card.phone || 'Não Informado'}</div>
+            <div><strong>VENCIMENTO:</strong> Todo Dia ${card.due_day}</div>
+            <div style="margin-top: 4px; display: flex; justify-content: space-between;">
+              <span>LIMITE TOTAL:</span>
+              <span style="font-weight: bold;">${formatCurrency(card.credit_limit)}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; color: #15803d;">
+              <span>DISPONÍVEL:</span>
+              <span style="font-weight: bold;">${formatCurrency(availableCredit)}</span>
+            </div>
+          </div>
+
+          <div style="margin-bottom: 6px;">
+            <div style="font-weight: bold; font-size: 11px; margin-bottom: 4px; text-decoration: underline;">ÚLTIMAS TRANSAÇÕES:</div>
+            ${itensHtml || '<div style="font-size: 10px; color: #666;">Sem compras recentes</div>'}
+            ${pagamentosHtml}
+          </div>
+
+          <div style="border-top: 2px solid #000; padding-top: 6px; margin-top: 6px;">
+            <div style="display: flex; justify-content: space-between; font-size: 14px; font-weight: 900;">
+              <span>SALDO A PAGAR:</span>
+              <span>${formatCurrency(card.used_limit)}</span>
+            </div>
+          </div>
+
+          <div style="text-align: center; border-top: 1px dashed #000; margin-top: 8px; padding-top: 6px; font-size: 10px;">
+            <div>⚡ Pague via PIX (CNPJ):</div>
+            <div style="font-weight: bold; font-size: 11px; margin: 2px 0;">31.144.152/0001-44</div>
+            <div>Ou diretamente no caixa da farmácia.</div>
+            <div style="margin-top: 4px; font-weight: bold;">Muito obrigado pela preferência! 💚</div>
+          </div>
+        </div>
+      `;
+
+      let printJobResult = null;
+      try {
+        const { enfileirarJobImpressao } = require('./services/printer.service');
+        printJobResult = await enfileirarJobImpressao({
+          title: `Extrato Crediário - ${card.customer_name}`,
+          html_content: htmlContent,
+          print_type: 'EXTRATO_CREDIARIO',
+          origin_user: 'Terminal Caixa'
+        });
+      } catch (errPrinter) {
+        console.warn('[Crediário 2.0] Aviso na fila de impressão:', errPrinter.message);
+      }
+
+      res.json({
+        success: true,
+        message: 'Extrato enviado para a impressora térmica com sucesso!',
+        htmlContent,
+        job: printJobResult
+      });
+    } catch (err) {
+      console.error('[Crediário 2.0] Erro ao imprimir extrato:', err);
       res.status(500).json({ error: err.message });
     }
   });

@@ -22,6 +22,7 @@ import {
   Play
 } from 'lucide-react';
 import { useToast } from './ToastContext';
+import { CrediarioCustomerProfileModal } from './CrediarioCustomerProfileModal';
 
 interface CardData {
   id: number;
@@ -102,6 +103,8 @@ export const CrediarioNfcWidget: React.FC = () => {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isPayModalOpen, setIsPayModalOpen] = useState(false);
   const [selectedInvoiceToPay, setSelectedInvoiceToPay] = useState<InvoiceData | null>(null);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [profileTargetCardId, setProfileTargetCardId] = useState<number | string | null>(null);
 
   // Formulário de Emissão Expressa
   const [issueName, setIssueName] = useState('');
@@ -721,7 +724,7 @@ export const CrediarioNfcWidget: React.FC = () => {
                   </div>
                 </div>
 
-                {/* BOTÃO PRINCIPAL DE LANÇAMENTO */}
+                {/* BOTÕES DE AÇÃO: VENDA + FICHA 360 & EXTRATO */}
                 <div className="flex flex-col gap-2 justify-center">
                   <button
                     disabled={activeCard.is_blocked_late || activeCard.available_credit <= 0}
@@ -730,6 +733,17 @@ export const CrediarioNfcWidget: React.FC = () => {
                   >
                     <CreditCard className="w-4 h-4" />
                     <span>Lançar Compra a Prazo</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setProfileTargetCardId(activeCard.id);
+                      setIsProfileModalOpen(true);
+                    }}
+                    className="w-full py-2 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-cyan-300 border border-cyan-500/30 text-xs font-bold transition flex items-center justify-center gap-1.5 shadow"
+                  >
+                    <FileText className="w-4 h-4" />
+                    <span>Ver Ficha 360° & Extrato</span>
                   </button>
                 </div>
 
@@ -964,13 +978,26 @@ export const CrediarioNfcWidget: React.FC = () => {
                         {c.phone || 'Sem telefone'} • Vence Dia {c.due_day}
                       </div>
                     </div>
-                    <div className="text-right">
-                      <div className="text-xs font-bold text-emerald-400">
-                        {formatCurrency(c.available_credit)} disp.
+                    <div className="flex items-center gap-2">
+                      <div className="text-right">
+                        <div className="text-xs font-bold text-emerald-400">
+                          {formatCurrency(c.available_credit)} disp.
+                        </div>
+                        <div className="text-[10px] text-slate-400">
+                          Usado: {formatCurrency(c.used_limit)}
+                        </div>
                       </div>
-                      <div className="text-[10px] text-slate-400">
-                        Usado: {formatCurrency(c.used_limit)}
-                      </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setProfileTargetCardId(c.id);
+                          setIsProfileModalOpen(true);
+                        }}
+                        className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-cyan-400 border border-slate-700 transition"
+                        title="Abrir Ficha 360° e Extrato"
+                      >
+                        <FileText className="w-4 h-4" />
+                      </button>
                     </div>
                   </div>
                 ))

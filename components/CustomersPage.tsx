@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Users, Plus, Search, Edit2, Trash2, Phone, Mail, MapPin, X, Eye, AlertCircle, FileText, UploadCloud, Stethoscope, Loader2 } from 'lucide-react';
+import { Users, Plus, CreditCard, Search, Edit2, Trash2, Phone, Mail, MapPin, X, Eye, AlertCircle, FileText, UploadCloud, Stethoscope, Loader2 } from 'lucide-react';
 import { Customer, CustomerDebt, User } from '../types';
 import { useToast } from './ToastContext';
+import { CrediarioCustomerProfileModal } from './CrediarioCustomerProfileModal';
 
 interface CustomersPageProps {
   user: User;
@@ -14,6 +15,8 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({ user, onLog }) => 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
+  const [isCrediarioModalOpen, setIsCrediarioModalOpen] = useState(false);
+  const [crediarioTargetCustomerId, setCrediarioTargetCustomerId] = useState<string | null>(null);
   const [customerDebts, setCustomerDebts] = useState<CustomerDebt[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const { addToast } = useToast();
@@ -355,6 +358,16 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({ user, onLog }) => 
                     <td className="px-8 py-4">
                       <div className="flex items-center justify-center gap-2">
                         <button
+                          onClick={() => {
+                            setCrediarioTargetCustomerId(customer.id);
+                            setIsCrediarioModalOpen(true);
+                          }}
+                          className="p-2 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-xl transition-colors"
+                          title="Ficha 360° & Extrato Crediário 2.0"
+                        >
+                          <CreditCard className="w-4 h-4" />
+                        </button>
+                        <button
                           onClick={() => openDetailsModal(customer)}
                           className="p-2 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-xl transition-colors"
                           title="Ver Detalhes"
@@ -525,6 +538,14 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({ user, onLog }) => 
         </div>
       )}
 
+      {/* Modal Crediário 2.0 Ficha e Extrato */}
+      <CrediarioCustomerProfileModal
+        isOpen={isCrediarioModalOpen}
+        onClose={() => setIsCrediarioModalOpen(false)}
+        customerId={crediarioTargetCustomerId}
+        onProfileUpdated={fetchCustomers}
+      />
+
       {/* Customer Details Modal */}
       {isDetailsModalOpen && selectedCustomer && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -541,6 +562,29 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({ user, onLog }) => 
               </button>
             </div>
             
+            {/* Crediário 2.0 Direct Access Banner */}
+            <div className="p-4 bg-emerald-500/10 border-b border-emerald-500/20 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold">
+                  <CreditCard className="w-4 h-4" />
+                </div>
+                <div>
+                  <span className="text-xs font-black uppercase text-emerald-700 dark:text-emerald-400">Crediário 2.0 BelaFarma</span>
+                  <p className="text-[11px] text-slate-500">Ficha cadastral, limite em tempo real, boletos Banco Inter e extrato unificado.</p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setIsDetailsModalOpen(false);
+                  setCrediarioTargetCustomerId(selectedCustomer.id);
+                  setIsCrediarioModalOpen(true);
+                }}
+                className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition shadow"
+              >
+                Abrir Ficha & Extrato 360°
+              </button>
+            </div>
+
             {/* Customer Info */}
             <div className="p-6 grid grid-cols-2 gap-4 border-b border-slate-100 dark:border-slate-800">
               {selectedCustomer.phone && (
