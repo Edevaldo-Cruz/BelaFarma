@@ -1,9 +1,19 @@
 {
   "version": "1.2.4",
-  "commitHash": "17c0ef6",
-  "commitMessage": "feat(pdv): isolamento estrito da tela do PDV sem barras e sem saida para retaguarda",
-  "buildTime": "11/11/2026, 22:30:16",
+  "commitHash": "fc52974",
+  "commitMessage": "feat(pdv): distribuicao do inicializador do PDV para todos os computadores da rede",
+  "buildTime": "12/11/2026, 08:54:01",
   "recentCommits": [
+    {
+      "hash": "fc52974",
+      "date": "12/11/2026",
+      "message": "feat(pdv): distribuicao do inicializador do PDV para todos os computadores da rede"
+    },
+    {
+      "hash": "5049496",
+      "date": "11/11/2026",
+      "message": "feat(crediario): historico individual card_payments e conciliacao da baixa parcial da Simone"
+    },
     {
       "hash": "17c0ef6",
       "date": "11/11/2026",
@@ -53,16 +63,6 @@
       "hash": "c7ff84a",
       "date": "09/11/2026",
       "message": "feat(pdv): modal instantanea de oferta escalonada e correcao de correspondencia de regras"
-    },
-    {
-      "hash": "d64f6e1",
-      "date": "09/11/2026",
-      "message": "feat(pdv): transformar Belinha PDV em aplicacao tela cheia estilo executavel nativo com tema clinico claro"
-    },
-    {
-      "hash": "a6e1adb",
-      "date": "09/11/2026",
-      "message": "fix(belaped-mg): adiciona retry com delay na inicializacao de sessao da MG Medicamentos"
     }
   ]
 }
