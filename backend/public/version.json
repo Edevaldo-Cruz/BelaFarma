@@ -1,9 +1,19 @@
 {
   "version": "1.2.4",
-  "commitHash": "73e2770",
-  "commitMessage": "feat(crediario): conciliacao automatica e webhook Banco Inter com liberacao de limite instantanea",
-  "buildTime": "11/11/2026, 17:39:39",
+  "commitHash": "17c0ef6",
+  "commitMessage": "feat(pdv): isolamento estrito da tela do PDV sem barras e sem saida para retaguarda",
+  "buildTime": "11/11/2026, 22:30:16",
   "recentCommits": [
+    {
+      "hash": "17c0ef6",
+      "date": "11/11/2026",
+      "message": "feat(pdv): isolamento estrito da tela do PDV sem barras e sem saida para retaguarda"
+    },
+    {
+      "hash": "20f1ce1",
+      "date": "11/11/2026",
+      "message": "feat(crediario): ficha 360 do cliente e extrato bancario com impressao termica 80mm"
+    },
     {
       "hash": "73e2770",
       "date": "11/11/2026",
@@ -53,16 +63,6 @@
       "hash": "a6e1adb",
       "date": "09/11/2026",
       "message": "fix(belaped-mg): adiciona retry com delay na inicializacao de sessao da MG Medicamentos"
-    },
-    {
-      "hash": "e364a9a",
-      "date": "09/11/2026",
-      "message": "fix(belaped-dpc): corrige seletores de titulo e adicao ao carrinho (.btn-addItem e input.qty)"
-    },
-    {
-      "hash": "4d4faa7",
-      "date": "09/11/2026",
-      "message": "fix(security): restringe acesso e visualizacao de dados financeiros exclusivamente para administradores"
     }
   ]
 }

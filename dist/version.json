@@ -1,9 +1,14 @@
 {
   "version": "1.2.4",
-  "commitHash": "20f1ce1",
-  "commitMessage": "feat(crediario): ficha 360 do cliente e extrato bancario com impressao termica 80mm",
-  "buildTime": "11/11/2026, 18:13:03",
+  "commitHash": "17c0ef6",
+  "commitMessage": "feat(pdv): isolamento estrito da tela do PDV sem barras e sem saida para retaguarda",
+  "buildTime": "11/11/2026, 22:30:16",
   "recentCommits": [
+    {
+      "hash": "17c0ef6",
+      "date": "11/11/2026",
+      "message": "feat(pdv): isolamento estrito da tela do PDV sem barras e sem saida para retaguarda"
+    },
     {
       "hash": "20f1ce1",
       "date": "11/11/2026",
@@ -58,11 +63,6 @@
       "hash": "a6e1adb",
       "date": "09/11/2026",
       "message": "fix(belaped-mg): adiciona retry com delay na inicializacao de sessao da MG Medicamentos"
-    },
-    {
-      "hash": "e364a9a",
-      "date": "09/11/2026",
-      "message": "fix(belaped-dpc): corrige seletores de titulo e adicao ao carrinho (.btn-addItem e input.qty)"
     }
   ]
 }

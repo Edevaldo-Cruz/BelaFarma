@@ -322,19 +322,38 @@ function createCardEndpoints(db, whatsappService = null) {
       });
 
       // 2. Pagamentos (-)
-      invoices.forEach(inv => {
-        if (inv.paid_amount > 0) {
+      let cardPayments = [];
+      try {
+        cardPayments = db.prepare('SELECT * FROM card_payments WHERE card_id = ? ORDER BY paid_at DESC').all(card.id);
+      } catch (_) {}
+
+      if (cardPayments.length > 0) {
+        cardPayments.forEach(p => {
           transactions.push({
-            id: `pagamento_${inv.id}`,
+            id: `pagamento_${p.id}`,
             type: 'PAYMENT',
-            date: inv.paid_at || inv.updated_at || 'Data N/D',
-            description: `Pagamento de Fatura (${inv.reference_month})`,
-            amount: Number(Number(inv.paid_amount || 0).toFixed(2)),
-            invoice_id: inv.id,
-            payment_method: inv.boleto_id ? 'BOLETO_INTER' : 'CAIXA_BALCAO'
+            date: p.paid_at || p.created_at || 'Data N/D',
+            description: p.notes || `Pagamento no Balcão (${p.payment_method})`,
+            amount: Number(Number(p.amount || 0).toFixed(2)),
+            invoice_id: p.invoice_id,
+            payment_method: p.payment_method || 'CAIXA_BALCAO'
           });
-        }
-      });
+        });
+      } else {
+        invoices.forEach(inv => {
+          if (inv.paid_amount > 0) {
+            transactions.push({
+              id: `pagamento_${inv.id}`,
+              type: 'PAYMENT',
+              date: inv.paid_at || inv.updated_at || 'Data N/D',
+              description: `Pagamento de Fatura (${inv.reference_month})`,
+              amount: Number(Number(inv.paid_amount || 0).toFixed(2)),
+              invoice_id: inv.id,
+              payment_method: inv.boleto_id ? 'BOLETO_INTER' : 'CAIXA_BALCAO'
+            });
+          }
+        });
+      }
 
       // Ordenar cronologicamente decrescente
       transactions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
@@ -421,15 +440,32 @@ function createCardEndpoints(db, whatsappService = null) {
       });
 
       let pagamentosHtml = '';
-      invoices.filter(i => i.paid_amount > 0).forEach(i => {
-        const dStr = i.paid_at ? i.paid_at.substring(0, 10).split('-').reverse().join('/') : '';
-        pagamentosHtml += `
-          <div style="display: flex; justify-content: space-between; margin-bottom: 3px; font-size: 11px; color: #15803d;">
-            <span>[-] ${dStr} Pgto Fat. ${i.reference_month}</span>
-            <span style="font-weight: bold;">-R$ ${Number(i.paid_amount || 0).toFixed(2)}</span>
-          </div>
-        `;
-      });
+      let cPayments = [];
+      try {
+        cPayments = db.prepare('SELECT * FROM card_payments WHERE card_id = ? ORDER BY paid_at DESC').all(card.id);
+      } catch (_) {}
+
+      if (cPayments.length > 0) {
+        cPayments.forEach(p => {
+          const dStr = p.paid_at ? p.paid_at.substring(0, 10).split('-').reverse().join('/') : '';
+          pagamentosHtml += `
+            <div style="display: flex; justify-content: space-between; margin-bottom: 3px; font-size: 11px; color: #15803d;">
+              <span>[-] ${dStr} Pgto (${p.payment_method})</span>
+              <span style="font-weight: bold;">-R$ ${Number(p.amount || 0).toFixed(2)}</span>
+            </div>
+          `;
+        });
+      } else {
+        invoices.filter(i => i.paid_amount > 0).forEach(i => {
+          const dStr = i.paid_at ? i.paid_at.substring(0, 10).split('-').reverse().join('/') : '';
+          pagamentosHtml += `
+            <div style="display: flex; justify-content: space-between; margin-bottom: 3px; font-size: 11px; color: #15803d;">
+              <span>[-] ${dStr} Pgto Fat. ${i.reference_month}</span>
+              <span style="font-weight: bold;">-R$ ${Number(i.paid_amount || 0).toFixed(2)}</span>
+            </div>
+          `;
+        });
+      }
 
       const htmlContent = `
         <div style="font-family: monospace, sans-serif; width: 280px; font-size: 12px; color: #000; line-height: 1.3; padding: 4px;">
@@ -827,6 +863,11 @@ function createCardEndpoints(db, whatsappService = null) {
               updated_at = datetime('now', 'localtime')
           WHERE id = ?
         `).run(newPaid, isTotal ? 1 : 0, newStatus, invoiceId);
+
+        db.prepare(`
+          INSERT INTO card_payments (card_id, invoice_id, amount, payment_method, paid_at, origin, notes)
+          VALUES (?, ?, ?, ?, datetime('now', 'localtime'), 'BALCAO_CAIXA', ?)
+        `).run(card.id, invoiceId, payVal, paymentMethod, notes || `Pagamento no Balcão (${paymentMethod})`);
 
         const newUsed = Math.max(0, Number((card.used_limit - payVal).toFixed(2)));
         db.prepare(`
