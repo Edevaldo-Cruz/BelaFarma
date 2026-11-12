@@ -74,21 +74,28 @@ export interface DanfeNfceData {
  * Injeta o documento no iframe invisível e dispara a impressão
  */
 export function imprimirHtmlIsolado(htmlContent: string) {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return;
+
   // Limpa iframes de impressões anteriores
   const existing = document.getElementById('bela-thermal-printer-frame');
   if (existing) {
-    existing.remove();
+    try {
+      existing.remove();
+    } catch (e) {}
   }
 
   const iframe = document.createElement('iframe');
   iframe.id = 'bela-thermal-printer-frame';
+  // Posicionamento fora da viewport, mas com dimensões e opacidade não-nulas
+  // para que os navegadores Chromium/Edge/Firefox renderizem o CSS @media print e o QR code
   iframe.style.position = 'fixed';
-  iframe.style.right = '0';
-  iframe.style.bottom = '0';
-  iframe.style.width = '0';
-  iframe.style.height = '0';
+  iframe.style.left = '-9999px';
+  iframe.style.top = '-9999px';
+  iframe.style.width = '300px';
+  iframe.style.height = '400px';
+  iframe.style.opacity = '0.01';
+  iframe.style.pointerEvents = 'none';
   iframe.style.border = '0';
-  iframe.style.visibility = 'hidden';
   document.body.appendChild(iframe);
 
   const doc = iframe.contentWindow?.document || iframe.contentDocument;
@@ -101,15 +108,39 @@ export function imprimirHtmlIsolado(htmlContent: string) {
   doc.write(htmlContent);
   doc.close();
 
-  // Espera breve para renderização de fontes e QR code
-  setTimeout(() => {
+  let printed = false;
+  const triggerPrint = () => {
+    if (printed) return;
+    printed = true;
     try {
       iframe.contentWindow?.focus();
       iframe.contentWindow?.print();
     } catch (err) {
       console.error('Erro na chamada print():', err);
+      try {
+        const printWin = window.open('', '_blank', 'width=350,height=600');
+        if (printWin) {
+          printWin.document.open();
+          printWin.document.write(htmlContent);
+          printWin.document.close();
+          printWin.focus();
+          setTimeout(() => {
+            printWin.print();
+            printWin.close();
+          }, 350);
+        }
+      } catch (winErr) {
+        console.error('Fallback window.open falhou:', winErr);
+      }
     }
-  }, 250);
+  };
+
+  iframe.onload = () => {
+    setTimeout(triggerPrint, 200);
+  };
+
+  // Timeout de garantia
+  setTimeout(triggerPrint, 400);
 }
 
 /**
@@ -123,8 +154,19 @@ export function isEstacaoImpressoraLocal(): boolean {
     localStorage.setItem('belafarma_is_printer_station', 'true');
     return true;
   }
-  // 2. Checa configuração persistida no navegador deste computador
-  return localStorage.getItem('belafarma_is_printer_station') === 'true';
+  // 2. Checa configuração explicitamente persistida
+  const saved = localStorage.getItem('belafarma_is_printer_station');
+  if (saved !== null) {
+    return saved === 'true';
+  }
+  // 3. Padrão no PDV: assume que o terminal do caixa imprime diretamente
+  const isPdv = window.location.search.includes('pdv') ||
+                localStorage.getItem('belinha_current_view') === 'belinha-pdv';
+  if (isPdv) {
+    localStorage.setItem('belafarma_is_printer_station', 'true');
+    return true;
+  }
+  return false;
 }
 
 /**
@@ -137,13 +179,18 @@ export function setEstacaoImpressoraLocal(ativo: boolean) {
 
 /**
  * Despacha uma impressão térmica inteligente:
- * - Se ESTA MÁQUINA for a estação do Caixa (com a Bematech conectada):
+ * - Se ESTA MÁQUINA for a estação do Caixa ou forceDirect=true:
  *     Imprime diretamente no iframe silencioso (sai na Bematech local).
- * - Se ESTA MÁQUINA for QUALQUER OUTRO COMPUTADOR na rede (Balcão, Escritório, celular):
- *     Envia para a API /api/printer/print. A estação do Caixa captura e imprime imediatamente na Bematech!
+ * - Se ESTA MÁQUINA for CLIENTE de rede (ex: balcão secundário):
+ *     Envia para a API /api/printer/print.
  */
-export async function despacharImpressaoTermica(htmlContent: string, title: string = 'Cupom BelaFarma', metadata: any = {}) {
-  const isCaixaPrinter = isEstacaoImpressoraLocal();
+export async function despacharImpressaoTermica(
+  htmlContent: string, 
+  title: string = 'Cupom BelaFarma', 
+  metadata: any = {}, 
+  forceDirect: boolean = false
+) {
+  const isCaixaPrinter = forceDirect || isEstacaoImpressoraLocal();
 
   if (isCaixaPrinter) {
     // Imprime direto na Bematech conectada neste computador
@@ -179,7 +226,7 @@ export async function despacharImpressaoTermica(htmlContent: string, title: stri
 
  * Tipografia espessa em preto absoluto (100% #000) para evitar o efeito pontilhado/falhado
  */
-export function imprimirCupomVenda(venda: CupomVendaData) {
+export function imprimirCupomVenda(venda: CupomVendaData, forceDirect: boolean = false) {
   const itemsHtml = venda.items
     .map(
       (it) => `
@@ -376,14 +423,14 @@ export function imprimirCupomVenda(venda: CupomVendaData) {
     </html>
   `;
 
-  despacharImpressaoTermica(html, `Cupom #${venda.sale_id}`, { print_type: 'CUPOM_VENDA', sale_id: venda.sale_id });
+  despacharImpressaoTermica(html, `Cupom #${venda.sale_id}`, { print_type: 'CUPOM_VENDA', sale_id: venda.sale_id }, forceDirect);
 }
 
 
 /**
  * Imprime DANFE NFC-e com QR Code oficial da SEFAZ
  */
-export function imprimirDanfeNfce(danfe: DanfeNfceData) {
+export function imprimirDanfeNfce(danfe: DanfeNfceData, forceDirect: boolean = false) {
   const itensHtml = danfe.itens
     .map(
       (it) => `
@@ -588,7 +635,7 @@ export function imprimirDanfeNfce(danfe: DanfeNfceData) {
     </html>
   `;
 
-  despacharImpressaoTermica(html, `NFC-e #${danfe.nfe_number}`, { print_type: 'DANFE_NFCE', sale_id: danfe.nfe_number });
+  despacharImpressaoTermica(html, `NFC-e #${danfe.nfe_number}`, { print_type: 'DANFE_NFCE', sale_id: danfe.nfe_number }, forceDirect);
 }
 
 

@@ -153,6 +153,11 @@ const App: React.FC = () => {
       if (isTauriEnv || search.includes('app=pdv') || search.includes('mode=pdv') || search.includes('isprinterstation=true') || search.includes('view=belinha-pdv') || hash.includes('pdv')) {
         return 'belinha-pdv';
       }
+      // Se a última tela salva era o PDV, restaura o PDV para evitar redirecionamento ao dashboard no F5
+      const savedView = localStorage.getItem('belinha_current_view');
+      if (savedView === 'belinha-pdv') {
+        return 'belinha-pdv';
+      }
       if (host.startsWith('ia.') || hash.includes('ia') || search.includes('view=ia') || search.includes('view=belafarma-ia')) {
         return 'belafarma-ia';
       }
@@ -370,11 +375,19 @@ const App: React.FC = () => {
   }, [boletos, monthlyLimits, isAdmin]);
 
   const logoutTimerRef = useRef<number | null>(null);
-  const currentViewRef = useRef<View>("dashboard");
+  const currentViewRef = useRef<View>(currentView);
 
   useEffect(() => {
     currentViewRef.current = currentView;
-    resetLogoutTimer();
+    if (currentView === "belinha-pdv") {
+      // Cancela e anula qualquer timer pendente imediatamente ao entrar no PDV
+      if (logoutTimerRef.current) {
+        clearTimeout(logoutTimerRef.current);
+        logoutTimerRef.current = null;
+      }
+    } else {
+      resetLogoutTimer();
+    }
   }, [currentView]);
 
   const handleLogout = () => {
@@ -405,6 +418,7 @@ const App: React.FC = () => {
 
   const handleNavigate = (view: View) => {
     setCurrentView(view);
+    localStorage.setItem('belinha_current_view', view);
     trackViewUsage(view, user?.name);
   };
 
@@ -419,6 +433,10 @@ const App: React.FC = () => {
 
     if (user && currentViewRef.current !== "whatsapp-vendas") {
       logoutTimerRef.current = window.setTimeout(() => {
+        // Blindagem estrita no momento do disparo do timer
+        if (currentViewRef.current === "belinha-pdv") {
+          return;
+        }
         handleLogout();
         addToast("Sessão expirada por inatividade.", "warning");
       }, LOGOUT_TIME);

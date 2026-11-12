@@ -1,9 +1,14 @@
 {
   "version": "1.2.4",
-  "commitHash": "9b3c2f4",
-  "commitMessage": "fix(pdv): desativa temporizador de logout por inatividade exclusivamente no PDV",
-  "buildTime": "12/11/2026, 14:30:43",
+  "commitHash": "8a24485",
+  "commitMessage": "fix(pdv): correcao de precos, integracao direta do Digifarma, desclassificacao de ibuprofeno como controlado e auto-importacao de produtos novos",
+  "buildTime": "12/11/2026, 15:38:27",
   "recentCommits": [
+    {
+      "hash": "8a24485",
+      "date": "12/11/2026",
+      "message": "fix(pdv): correcao de precos, integracao direta do Digifarma, desclassificacao de ibuprofeno como controlado e auto-importacao de produtos novos"
+    },
     {
       "hash": "9b3c2f4",
       "date": "12/11/2026",
@@ -58,11 +63,6 @@
       "hash": "e4ffcde",
       "date": "11/11/2026",
       "message": "feat(pdv): suporte completo a operacao offline sem internet e contingencia instantanea"
-    },
-    {
-      "hash": "7300f10",
-      "date": "11/11/2026",
-      "message": "feat(pdv): tela dedicada estilo desktop/electron e vendedor fixo persistente"
     }
   ]
 }

@@ -328,6 +328,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
 
   // Cupom Concluído e Fiscal
   const [completedSale, setCompletedSale] = useState<any | null>(null);
+  const completedSaleTimeRef = useRef<number>(0);
   const [emitNfce, setEmitNfce] = useState<boolean>(() => {
     try {
       const saved = localStorage.getItem('belaped_emit_nfce_default');
@@ -955,8 +956,11 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
         }
       }
 
-      // Se estiver na tela de cupom concluído, ENTER ou ESC retorna imediatamente ao caixa
+      // Se estiver na tela de cupom concluído, ENTER ou ESC retorna ao caixa (com proteção de 500ms anti-fechamento acidental)
       if (completedSale && (e.key === 'Enter' || e.key === 'Escape')) {
+        if (Date.now() - completedSaleTimeRef.current < 500) {
+          return;
+        }
         e.preventDefault();
         setCompletedSale(null);
         focusBarcodeInput();
@@ -1733,24 +1737,26 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
         setCustomerNameInput('');
 
         // Venda finalizada com sucesso imediato no balcão
+        completedSaleTimeRef.current = Date.now();
         setCompletedSale(saleData);
 
-        if (json.danfe && json.danfe.qr_code_base64) {
+        const returnedDanfe = json.danfe || (json.nfe_number ? json : null);
+        if (returnedDanfe && (returnedDanfe.qr_code_base64 || returnedDanfe.nfe_number)) {
           if (autoPrintCupom) {
             setTimeout(() => {
-              imprimirDanfeNfce(json.danfe);
+              imprimirDanfeNfce(returnedDanfe, true);
             }, 50);
           }
 
-          if (json.danfe.fiscal_status === 'CONTINGENCIA') {
-            addToast(`⚡ Venda finalizada! NFC-e #${json.danfe.nfe_number} impressa em CONTINGÊNCIA OFFLINE com QR-Code!`, 'warning', 4500);
+          if (returnedDanfe.fiscal_status === 'CONTINGENCIA') {
+            addToast(`⚡ Venda finalizada! NFC-e #${returnedDanfe.nfe_number} impressa em CONTINGÊNCIA OFFLINE com QR-Code!`, 'warning', 4500);
           } else {
-            addToast(`✅ Venda finalizada! NFC-e #${json.danfe.nfe_number} autorizada pela SEFAZ e impressa!`, 'success', 3500);
+            addToast(`✅ Venda finalizada! NFC-e #${returnedDanfe.nfe_number} autorizada pela SEFAZ e impressa!`, 'success', 3500);
           }
         } else {
           if (autoPrintCupom) {
             setTimeout(() => {
-              imprimirCupomVenda(saleData);
+              imprimirCupomVenda(saleData, true);
             }, 50);
           }
           addToast(`✅ Venda finalizada por ${seller.name}! (R$ ${totalFinal.toFixed(2)})`, 'success', 3000);
@@ -3805,7 +3811,10 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
 
               <div className="flex gap-2">
                 <button
-                  onClick={() => imprimirCupomVenda(completedSale)}
+                  onClick={() => {
+                    imprimirCupomVenda(completedSale, true);
+                    addToast('🖨️ Enviado para impressão térmica!', 'info', 2000);
+                  }}
                   className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors border border-slate-700 cursor-pointer"
                 >
                   <Printer className="w-4 h-4 text-emerald-400" />
@@ -3819,9 +3828,10 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
                         const res = await fetch(`/api/erp/fiscal/danfe/${encodeURIComponent(completedSale.sale_id)}`);
                         if (res.ok) {
                           const json = await res.json();
-                          if (json.success && json.danfe) {
+                          const danfeObj = json.danfe || (json.nfe_number ? json : null);
+                          if (danfeObj) {
                             setCompletedSale(null);
-                            setActiveDanfeModal(json.danfe);
+                            setActiveDanfeModal(danfeObj);
                             return;
                           }
                         }

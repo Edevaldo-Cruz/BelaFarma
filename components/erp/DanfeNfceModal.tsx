@@ -3,65 +3,44 @@ import { Printer, X, CheckCircle2, ShieldCheck, QrCode } from 'lucide-react';
 import { imprimirDanfeNfce } from '../../utils/thermalPrinter';
 
 interface DanfeNfceModalProps {
-  danfe: {
-    nfe_number: number;
-    nfe_series: number;
-    access_key_formatted: string;
-    protocol_number: string;
-    issued_at: string;
-    qr_code_base64?: string;
-    ambiente: string;
-    empresa: {
-      razao_social: string;
-      nome_fantasia: string;
-      cnpj: string;
-      inscricao_estadual: string;
-      endereco: string;
-    };
-    consumidor: {
-      cpf: string;
-      nome: string;
-    };
-    totais: {
-      total_items_value: number;
-      discount_value: number;
-      total_value: number;
-      total_tributos_aprox: number;
-    };
-    itens: Array<{
-      index: number;
-      code: string;
-      name: string;
-      quantity: number;
-      unit_price: number;
-      total_price: number;
-    }>;
-    pagamentos: Array<{
-      metodo: string;
-      valor: number;
-    }>;
-  };
+  danfe?: any;
+  danfeData?: any;
+  isOpen?: boolean;
   onClose: () => void;
 }
 
-export const DanfeNfceModal: React.FC<DanfeNfceModalProps> = ({ danfe, onClose }) => {
+export const DanfeNfceModal: React.FC<DanfeNfceModalProps> = ({ danfe, danfeData, onClose }) => {
+  const resolvedDanfe = danfe || danfeData;
   const printAreaRef = useRef<HTMLDivElement>(null);
 
-  const handlePrint = () => {
-    imprimirDanfeNfce(danfe);
+  const handlePrint = (forceDirect: boolean = true) => {
+    if (!resolvedDanfe) return;
+    imprimirDanfeNfce(resolvedDanfe, forceDirect);
+  };
+
+  const handleManualPrintClick = () => {
+    handlePrint(true);
+    // Como garantia visual para o operador ao clicar em "Imprimir", abre o diálogo padrão se necessário
+    setTimeout(() => {
+      try {
+        window.print();
+      } catch (e) {}
+    }, 150);
   };
 
   // Disparo automático imediato da impressão do cupom térmico ao abrir
   React.useEffect(() => {
+    if (!resolvedDanfe) return;
     const timer = setTimeout(() => {
-      handlePrint();
+      handlePrint(true);
     }, 100);
     return () => clearTimeout(timer);
-  }, []);
+  }, [resolvedDanfe]);
 
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' || e.key === 'Enter') {
+      // Apenas ESC fecha a modal para evitar que ENTER residual da finalização feche a tela
+      if (e.key === 'Escape') {
         e.preventDefault();
         onClose();
       }
@@ -69,6 +48,14 @@ export const DanfeNfceModal: React.FC<DanfeNfceModalProps> = ({ danfe, onClose }
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
+
+  if (!resolvedDanfe) return null;
+
+  const empresa = resolvedDanfe.empresa || {};
+  const consumidor = resolvedDanfe.consumidor || { cpf: 'Consumidor Final' };
+  const totais = resolvedDanfe.totais || { total_items_value: 0, discount_value: 0, total_value: 0, total_tributos_aprox: 0 };
+  const itens = Array.isArray(resolvedDanfe.itens) ? resolvedDanfe.itens : [];
+  const pagamentos = Array.isArray(resolvedDanfe.pagamentos) ? resolvedDanfe.pagamentos : [];
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
@@ -124,21 +111,21 @@ export const DanfeNfceModal: React.FC<DanfeNfceModalProps> = ({ danfe, onClose }
             </div>
             <div>
               <h3 className="text-sm font-bold text-white">Cupom Fiscal Eletrônico</h3>
-              <p className="text-[11px] text-slate-400">NFC-e #{danfe.nfe_number} (Série {danfe.nfe_series})</p>
+              <p className="text-[11px] text-slate-400">NFC-e #{resolvedDanfe.nfe_number} (Série {resolvedDanfe.nfe_series || 1})</p>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
             <button
-              onClick={handlePrint}
-              className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-emerald-950/40 transition-colors"
+              onClick={handleManualPrintClick}
+              className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-emerald-950/40 transition-colors cursor-pointer"
             >
               <Printer className="w-4 h-4" />
               Imprimir
             </button>
             <button
               onClick={onClose}
-              className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 transition-colors"
+              className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 transition-colors cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
@@ -154,10 +141,10 @@ export const DanfeNfceModal: React.FC<DanfeNfceModalProps> = ({ danfe, onClose }
           >
             {/* Cabeçalho Empresa */}
             <div className="text-center border-b border-dashed border-gray-400 pb-2 mb-2">
-              <div className="font-bold text-xs uppercase">{danfe.empresa.nome_fantasia || danfe.empresa.razao_social}</div>
-              <div className="text-[10px]">{danfe.empresa.razao_social}</div>
-              <div className="text-[10px]">CNPJ: {danfe.empresa.cnpj} | IE: {danfe.empresa.inscricao_estadual}</div>
-              <div className="text-[9px] text-gray-700 mt-0.5">{danfe.empresa.endereco}</div>
+              <div className="font-bold text-xs uppercase">{empresa.nome_fantasia || empresa.razao_social || 'DROGARIA BELA FARMA'}</div>
+              <div className="text-[10px]">{empresa.razao_social || 'BELA FARMA SUL LTDA'}</div>
+              <div className="text-[10px]">CNPJ: {empresa.cnpj || '47.378.578/0001-40'} | IE: {empresa.inscricao_estadual || '0041234560089'}</div>
+              <div className="text-[9px] text-gray-700 mt-0.5">{empresa.endereco || 'RUA PREVIDENCIARIOS, S/N - JUIZ DE FORA/MG'}</div>
               <div className="mt-1 font-bold text-[10px] uppercase border-t border-dotted border-gray-400 pt-1">
                 DANFE NFC-e - Documento Auxiliar da Nota Fiscal de Consumidor Eletrônica
               </div>
@@ -171,14 +158,14 @@ export const DanfeNfceModal: React.FC<DanfeNfceModalProps> = ({ danfe, onClose }
                 <span>QTD x VL.UN = TOTAL</span>
               </div>
               <div className="space-y-1">
-                {danfe.itens.map((it) => (
-                  <div key={it.index} className="text-[10px]">
+                {itens.map((it: any, idx: number) => (
+                  <div key={it.index || idx} className="text-[10px]">
                     <div className="font-semibold truncate">
-                      {String(it.index).padStart(2, '0')} {it.name}
+                      {String(it.index || idx + 1).padStart(2, '0')} {it.name}
                     </div>
                     <div className="flex justify-between text-gray-700 text-[9px]">
-                      <span>{it.quantity} un x R$ {it.unit_price.toFixed(2)}</span>
-                      <span className="font-bold text-black">R$ {it.total_price.toFixed(2)}</span>
+                      <span>{it.quantity} un x R$ {(it.unit_price || 0).toFixed(2)}</span>
+                      <span className="font-bold text-black">R$ {(it.total_price || 0).toFixed(2)}</span>
                     </div>
                   </div>
                 ))}
@@ -189,30 +176,30 @@ export const DanfeNfceModal: React.FC<DanfeNfceModalProps> = ({ danfe, onClose }
             <div className="border-b border-dashed border-gray-400 pb-2 mb-2 space-y-0.5 text-[10px]">
               <div className="flex justify-between">
                 <span>Qtd. Total de Itens:</span>
-                <span className="font-bold">{danfe.itens.length}</span>
+                <span className="font-bold">{itens.length}</span>
               </div>
               <div className="flex justify-between">
                 <span>Subtotal Itens:</span>
-                <span>R$ {danfe.totais.total_items_value.toFixed(2)}</span>
+                <span>R$ {(totais.total_items_value || 0).toFixed(2)}</span>
               </div>
-              {danfe.totais.discount_value > 0 && (
+              {totais.discount_value > 0 && (
                 <div className="flex justify-between text-red-700">
                   <span>Desconto:</span>
-                  <span>- R$ {danfe.totais.discount_value.toFixed(2)}</span>
+                  <span>- R$ {(totais.discount_value || 0).toFixed(2)}</span>
                 </div>
               )}
               <div className="flex justify-between text-xs font-bold pt-1 border-t border-gray-300">
                 <span>VALOR A PAGAR:</span>
-                <span>R$ {danfe.totais.total_value.toFixed(2)}</span>
+                <span>R$ {(totais.total_value || 0).toFixed(2)}</span>
               </div>
 
               {/* Formas de Pagamento */}
               <div className="pt-1.5 mt-1 border-t border-dotted border-gray-300">
                 <div className="font-bold text-[9px] uppercase">Forma de Pagamento:</div>
-                {danfe.pagamentos.map((p, idx) => (
+                {pagamentos.map((p: any, idx: number) => (
                   <div key={idx} className="flex justify-between text-[9px]">
                     <span>{p.metodo}:</span>
-                    <span>R$ {p.valor.toFixed(2)}</span>
+                    <span>R$ {(p.valor || 0).toFixed(2)}</span>
                   </div>
                 ))}
               </div>
@@ -221,36 +208,36 @@ export const DanfeNfceModal: React.FC<DanfeNfceModalProps> = ({ danfe, onClose }
             {/* Tributos da Lei 12.741/2012 */}
             <div className="text-[9px] text-gray-700 text-center border-b border-dashed border-gray-400 pb-2 mb-2">
               Tributos Incidentes (Lei Federal 12.741/2012): <br />
-              <strong className="text-black">R$ {danfe.totais.total_tributos_aprox.toFixed(2)}</strong> (Aprox. 31.4% IBPT)
+              <strong className="text-black">R$ {(totais.total_tributos_aprox || 0).toFixed(2)}</strong> (Aprox. 31.4% IBPT)
             </div>
 
             {/* Dados da NFC-e e SEFAZ */}
             <div className="text-center border-b border-dashed border-gray-400 pb-2 mb-2 text-[9px] space-y-0.5">
               <div className="font-bold">
-                NFC-e nº {danfe.nfe_number} Série {danfe.nfe_series}
+                NFC-e nº {resolvedDanfe.nfe_number} Série {resolvedDanfe.nfe_series || 1}
               </div>
-              <div>Data de Emissão: {danfe.issued_at}</div>
-              <div className="text-[8px] text-gray-600">Protocolo de Autorização: {danfe.protocol_number}</div>
-              <div className="font-bold text-[8px] uppercase mt-1">Ambiente: {danfe.ambiente}</div>
+              <div>Data de Emissão: {resolvedDanfe.issued_at || new Date().toLocaleString('pt-BR')}</div>
+              <div className="text-[8px] text-gray-600">Protocolo de Autorização: {resolvedDanfe.protocol_number || 'HOMOLOGADO'}</div>
+              <div className="font-bold text-[8px] uppercase mt-1">Ambiente: {resolvedDanfe.ambiente || 'Produção'}</div>
             </div>
 
             {/* Consumidor */}
             <div className="text-center border-b border-dashed border-gray-400 pb-2 mb-2 text-[9px]">
-              <span className="font-bold">CONSUMIDOR:</span> {danfe.consumidor.cpf}
+              <span className="font-bold">CONSUMIDOR:</span> {consumidor.cpf || 'Não Identificado'}
             </div>
 
             {/* Chave de Acesso */}
             <div className="text-center border-b border-dashed border-gray-400 pb-2 mb-2">
               <div className="font-bold text-[9px]">CHAVE DE ACESSO:</div>
-              <div className="text-[8px] font-mono tracking-tighter break-all">{danfe.access_key_formatted}</div>
+              <div className="text-[8px] font-mono tracking-tighter break-all">{resolvedDanfe.access_key_formatted || resolvedDanfe.access_key}</div>
             </div>
 
             {/* QR Code SEFAZ */}
-            {danfe.qr_code_base64 && (
+            {resolvedDanfe.qr_code_base64 && (
               <div className="flex flex-col items-center justify-center pt-1 text-center">
                 <div className="text-[9px] font-bold uppercase mb-1">Consulta via Leitor de QR Code</div>
                 <img
-                  src={danfe.qr_code_base64}
+                  src={resolvedDanfe.qr_code_base64}
                   alt="QR Code NFC-e SEFAZ"
                   className="w-36 h-36 border border-gray-200"
                 />
@@ -269,7 +256,7 @@ export const DanfeNfceModal: React.FC<DanfeNfceModalProps> = ({ danfe, onClose }
             className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black rounded-xl text-xs sm:text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-950/50 transition-all cursor-pointer"
             title="Concluir visualização fiscal e retornar imediatamente para o caixa"
           >
-            <span>Voltar ao Caixa / Adicionar Itens [ENTER ou ESC]</span>
+            <span>Voltar ao Caixa / Adicionar Itens [ESC]</span>
           </button>
         </div>
       </div>

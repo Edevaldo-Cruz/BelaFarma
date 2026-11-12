@@ -1244,7 +1244,7 @@ export const SalesHistory: React.FC<SalesHistoryProps> = ({ user }) => {
       {/* 7. MODAL DANFE NFC-e COM QR CODE */}
       {activeDanfeModal && (
         <DanfeNfceModal
-          isOpen={Boolean(activeDanfeModal)}
+          danfe={activeDanfeModal}
           danfeData={activeDanfeModal}
           onClose={() => setActiveDanfeModal(null)}
         />
