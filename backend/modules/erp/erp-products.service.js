@@ -38,11 +38,86 @@ function enrichProduct(p) {
 }
 
 /**
+ * Tenta buscar um produto em tempo real no Firebird do Digifarma
+ * caso ele tenha acabado de ser cadastrado no Digifarma e ainda não exista no SQLite local.
+ */
+async function syncSingleProductFromDigifarma(cleanQ) {
+  if (!cleanQ) return null;
+  try {
+    const { queryDigifarma } = require('../../services/digifarma.service');
+    const isNum = /^\d+$/.test(cleanQ);
+    const whereCond = isNum ? "(COD_BARRAS = ? OR PRODUTO_ID = ?)" : "COD_BARRAS = ?";
+    const params = isNum ? [cleanQ, parseInt(cleanQ, 10)] : [cleanQ];
+
+    const fbNew = await queryDigifarma(`
+      SELECT FIRST 1
+        PRODUTO_ID, PRODUTO, APRESENTACAO, COD_BARRAS, CATEGORIA_ID,
+        PROD_SALDO, PROD_PRVENDA, PROD_PRCOMPRA, VALOR_ULT_COMPRA, PROD_CMV,
+        PROD_PRPROMOCAO, TRIBUTACAO_MONOFASICA, CST_PIS, CST_COFINS,
+        ALIQUOTA_ST, IMPOSTO_ALIQ, NCM, CEST, PSICOTROPICO, ANTIMICROBIANO
+      FROM PRODUTOS
+      WHERE ${whereCond} AND PROD_ATIVO = 'S'
+    `, params, 2500);
+
+    if (fbNew && fbNew.length > 0) {
+      const p = fbNew[0];
+      const cmv = parseFloat(p.PROD_CMV || 0);
+      const pUlt = parseFloat(p.VALOR_ULT_COMPRA || 0);
+      const pCompra = parseFloat(p.PROD_PRCOMPRA || 0);
+      const custo = cmv > 0 ? cmv : (pUlt > 0 ? pUlt : pCompra);
+
+      const newProd = {
+        code: String(p.PRODUTO_ID),
+        barcode: (p.COD_BARRAS || '').trim(),
+        name: (p.PRODUTO || '').trim(),
+        presentation: (p.APRESENTACAO || '').trim(),
+        category_id: p.CATEGORIA_ID ? parseInt(p.CATEGORIA_ID, 10) : null,
+        sale_price: parseFloat(p.PROD_PRVENDA || 0),
+        promo_price: parseFloat(p.PROD_PRPROMOCAO || 0),
+        cost_price: custo,
+        stock_qty: parseFloat(p.PROD_SALDO || 0),
+        curve: 'C',
+        tributacao_monofasica: p.TRIBUTACAO_MONOFASICA || null,
+        cst_pis: p.CST_PIS || null,
+        cst_cofins: p.CST_COFINS || null,
+        aliquota_st: p.ALIQUOTA_ST ? parseFloat(p.ALIQUOTA_ST) : null,
+        imposto_aliq: p.IMPOSTO_ALIQ ? parseFloat(p.IMPOSTO_ALIQ) : null,
+        ncm: p.NCM ? String(p.NCM).trim() : null,
+        cest: p.CEST ? String(p.CEST).trim() : null,
+        psicotropico: p.PSICOTROPICO === 'S' ? 'S' : 'N',
+        antimicrobiano: p.ANTIMICROBIANO === 'S' ? 'S' : 'N',
+        is_active: 1
+      };
+
+      db.prepare(`
+        INSERT OR REPLACE INTO products (
+          code, barcode, name, presentation, category_id,
+          sale_price, promo_price, cost_price, stock_qty, curve,
+          tributacao_monofasica, cst_pis, cst_cofins, aliquota_st, imposto_aliq, ncm, cest,
+          psicotropico, antimicrobiano, is_active, updated_at
+        ) VALUES (
+          @code, @barcode, @name, @presentation, @category_id,
+          @sale_price, @promo_price, @cost_price, @stock_qty, @curve,
+          @tributacao_monofasica, @cst_pis, @cst_cofins, @aliquota_st, @imposto_aliq, @ncm, @cest,
+          @psicotropico, @antimicrobiano, 1, datetime('now', 'localtime')
+        )
+      `).run(newProd);
+
+      console.log(`[Belinha ERP] ⚡ Produto ${newProd.code} - ${newProd.name} auto-importado do Digifarma com sucesso!`);
+      return newProd;
+    }
+  } catch (err) {
+    // Digifarma offline ou indisponível
+  }
+  return null;
+}
+
+/**
  * Busca produtos por código de barras, código interno ou nome
  * Otimizado para latência < 20ms no leitor e autocomplete do PDV,
  * priorizando produtos mais vendidos (curva A/volume de vendas) e com estoque.
  */
-function buscarProdutos({ query = '', limit = 30, onlyWithStock = false } = {}) {
+async function buscarProdutos({ query = '', limit = 30, onlyWithStock = false } = {}) {
   const cleanQ = (query || '').trim();
   if (!cleanQ) {
     let sql = `
@@ -68,7 +143,7 @@ function buscarProdutos({ query = '', limit = 30, onlyWithStock = false } = {}) 
 
   // Se for código numérico (bipagem de EAN ou código interno)
   if (/^\d+$/.test(cleanQ)) {
-    // 1. Tenta correspondência exata de EAN ou Código
+    // 1. Tenta correspondência exata de EAN ou Código no SQLite local
     const exact = db.prepare(`
       SELECT p.*,
              COALESCE(c.vendas_30d, p.vendas_30d, 0) as vendas_30d,
@@ -82,9 +157,15 @@ function buscarProdutos({ query = '', limit = 30, onlyWithStock = false } = {}) 
     if (exact) {
       return [enrichProduct(exact)];
     }
+
+    // 2. Se não encontrou no SQLite local, busca em tempo real no Firebird do Digifarma!
+    const fromDg = await syncSingleProductFromDigifarma(cleanQ);
+    if (fromDg) {
+      return [enrichProduct(fromDg)];
+    }
   }
 
-  // 2. Busca por termo ou início de código
+  // 3. Busca por termo ou início de código
   const words = cleanQ.split(/\s+/).filter(Boolean);
   let whereClauses = ['p.is_active = 1'];
   let params = [];

@@ -66,7 +66,7 @@ async function executarMigracaoErp({ forceCacheOnly = false, resetTables = false
           APRESENTACAO,
           COD_BARRAS,
           CATEGORIA_ID,
-          ESTOQUE,
+          PROD_SALDO,
           PROD_PRVENDA,
           PROD_PRCOMPRA,
           VALOR_ULT_COMPRA,
@@ -78,10 +78,12 @@ async function executarMigracaoErp({ forceCacheOnly = false, resetTables = false
           ALIQUOTA_ST,
           IMPOSTO_ALIQ,
           NCM,
-          CEST
+          CEST,
+          PSICOTROPICO,
+          ANTIMICROBIANO
         FROM PRODUTOS
         WHERE PROD_ATIVO = 'S'
-      `, [], 60000);
+      `, [], 90000);
 
       produtosParaMigrar = fbProducts.map(p => {
         const cmv = parseFloat(p.PROD_CMV || 0);
@@ -98,7 +100,7 @@ async function executarMigracaoErp({ forceCacheOnly = false, resetTables = false
           sale_price: parseFloat(p.PROD_PRVENDA || 0),
           promo_price: parseFloat(p.PROD_PRPROMOCAO || 0),
           cost_price: custo,
-          stock_qty: parseFloat(p.ESTOQUE || 0),
+          stock_qty: parseFloat(p.PROD_SALDO || 0),
           curve: 'C',
           tributacao_monofasica: p.TRIBUTACAO_MONOFASICA || null,
           cst_pis: p.CST_PIS || null,
@@ -106,7 +108,9 @@ async function executarMigracaoErp({ forceCacheOnly = false, resetTables = false
           aliquota_st: p.ALIQUOTA_ST ? parseFloat(p.ALIQUOTA_ST) : null,
           imposto_aliq: p.IMPOSTO_ALIQ ? parseFloat(p.IMPOSTO_ALIQ) : null,
           ncm: p.NCM ? String(p.NCM).trim() : null,
-          cest: p.CEST ? String(p.CEST).trim() : null
+          cest: p.CEST ? String(p.CEST).trim() : null,
+          psicotropico: p.PSICOTROPICO === 'S' ? 'S' : 'N',
+          antimicrobiano: p.ANTIMICROBIANO === 'S' ? 'S' : 'N'
         };
       });
     } catch (fbErr) {
@@ -165,11 +169,13 @@ async function executarMigracaoErp({ forceCacheOnly = false, resetTables = false
       code, barcode, name, presentation, category_id,
       sale_price, promo_price, cost_price, stock_qty, curve,
       tributacao_monofasica, cst_pis, cst_cofins, aliquota_st, imposto_aliq, ncm, cest,
+      psicotropico, antimicrobiano,
       is_active, updated_at
     ) VALUES (
       @code, @barcode, @name, @presentation, @category_id,
       @sale_price, @promo_price, @cost_price, @stock_qty, @curve,
       @tributacao_monofasica, @cst_pis, @cst_cofins, @aliquota_st, @imposto_aliq, @ncm, @cest,
+      @psicotropico, @antimicrobiano,
       1, datetime('now', 'localtime')
     )
     ON CONFLICT(code) DO UPDATE SET
@@ -189,6 +195,8 @@ async function executarMigracaoErp({ forceCacheOnly = false, resetTables = false
       imposto_aliq = excluded.imposto_aliq,
       ncm = excluded.ncm,
       cest = excluded.cest,
+      psicotropico = excluded.psicotropico,
+      antimicrobiano = excluded.antimicrobiano,
       is_active = 1,
       updated_at = datetime('now', 'localtime')
   `);

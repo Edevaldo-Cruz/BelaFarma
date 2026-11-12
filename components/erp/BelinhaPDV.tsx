@@ -421,6 +421,28 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
   // Modal de Instalação do Executável do PDV na Área de Trabalho
   const [isInstallAppModalOpen, setIsInstallAppModalOpen] = useState<boolean>(false);
   const [isCopiedInstallerCmd, setIsCopiedInstallerCmd] = useState<boolean>(false);
+  const [isSyncingCatalog, setIsSyncingCatalog] = useState<boolean>(false);
+
+  // Sincronização sob demanda com o banco Firebird do Digifarma
+  const handleSyncDigifarmaCatalog = async () => {
+    if (isSyncingCatalog) return;
+    setIsSyncingCatalog(true);
+    addToast('🔄 Sincronizando catálogo e preços com o Digifarma...', 'info', 4000);
+    try {
+      const res = await fetch('/api/erp/products/sync-digifarma', { method: 'POST' });
+      const data = await res.json();
+      if (data && data.success) {
+        addToast(`✅ ${data.productsMigrated || 'Catálogo'} produtos e preços atualizados do Digifarma!`, 'success', 5000);
+      } else {
+        addToast(`Aviso: ${data?.error || 'Não foi possível contatar o Digifarma'}`, 'warning', 5000);
+      }
+    } catch (e: any) {
+      addToast('Erro ao sincronizar com Digifarma: ' + (e?.message || 'Falha de rede'), 'error', 5000);
+    } finally {
+      setIsSyncingCatalog(false);
+      focusBarcodeInput();
+    }
+  };
 
   // Movimentações de Caixa (Sangria e Suprimento) [F4]
   const [isCashMovementModalOpen, setIsCashMovementModalOpen] = useState<boolean>(false);
@@ -2078,6 +2100,17 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
           >
             <span className={`w-2 h-2 rounded-full ${isPrinterStation ? 'bg-blue-300 animate-pulse' : 'bg-amber-300'}`} />
             <span>{isPrinterStation ? 'Estação Caixa' : 'Spooler Rede'}</span>
+          </button>
+
+          {/* Botão Sincronizar Digifarma */}
+          <button
+            onClick={handleSyncDigifarmaCatalog}
+            disabled={isSyncingCatalog}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-blue-600/30 hover:bg-blue-600/50 text-blue-200 border border-blue-400/40 text-[11px] font-bold transition cursor-pointer disabled:opacity-50"
+            title="Sincronizar produtos, novos cadastros e preços atualizados do Digifarma"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 text-blue-300 ${isSyncingCatalog ? 'animate-spin' : ''}`} />
+            <span className="hidden lg:inline">{isSyncingCatalog ? 'Sincronizando...' : 'Sync Digifarma'}</span>
           </button>
 
           {/* Promoções & Validade */}

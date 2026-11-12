@@ -1,9 +1,14 @@
 {
   "version": "1.2.4",
-  "commitHash": "5bd94cc",
-  "commitMessage": "fix(clipboard): polyfill universal para restaurar funcionamento de todos os botoes de copiar em rede local HTTP",
-  "buildTime": "12/11/2026, 11:24:35",
+  "commitHash": "9b3c2f4",
+  "commitMessage": "fix(pdv): desativa temporizador de logout por inatividade exclusivamente no PDV",
+  "buildTime": "12/11/2026, 14:30:43",
   "recentCommits": [
+    {
+      "hash": "9b3c2f4",
+      "date": "12/11/2026",
+      "message": "fix(pdv): desativa temporizador de logout por inatividade exclusivamente no PDV"
+    },
     {
       "hash": "5bd94cc",
       "date": "12/11/2026",
@@ -58,11 +63,6 @@
       "hash": "7300f10",
       "date": "11/11/2026",
       "message": "feat(pdv): tela dedicada estilo desktop/electron e vendedor fixo persistente"
-    },
-    {
-      "hash": "2d255fd",
-      "date": "09/11/2026",
-      "message": "feat(pdv): integrar PDV ao layout padrao do App e embutir seed das 129 regras escalonadas"
     }
   ]
 }

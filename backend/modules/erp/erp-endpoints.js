@@ -126,16 +126,27 @@ router.get('/products/catalog', (req, res) => {
   }
 });
 
-router.get('/products', (req, res) => {
+router.get('/products', async (req, res) => {
   try {
     const { limit, onlyWithStock } = req.query;
     const q = req.query.q || req.query.query || '';
-    const prods = buscarProdutos({
+    const prods = await buscarProdutos({
       query: q,
       limit: parseInt(limit, 10) || 40,
       onlyWithStock: onlyWithStock === 'true'
     });
     res.json({ success: true, count: prods.length, data: prods });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+router.post('/products/sync-digifarma', async (req, res) => {
+  try {
+    const resultado = await executarMigracaoErp({ forceCacheOnly: false });
+    // Limpeza de códigos obsoletos legados
+    db.prepare("DELETE FROM products WHERE code LIKE '%.0'").run();
+    res.json({ success: true, ...resultado });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
