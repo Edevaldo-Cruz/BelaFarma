@@ -278,6 +278,35 @@ function construirXmlNfce({
   const cleanJust = (contingencyReason || 'ESTABELECIMENTO SEM COMUNICACAO COM SEFAZ NO MOMENTO').slice(0, 256);
   const justificada = cleanJust.length >= 15 ? cleanJust : 'ESTABELECIMENTO SEM COMUNICACAO COM SEFAZ NO MOMENTO';
 
+  // Montagem do grupo de pagamentos (<pag>)
+  // Regra SEFAZ Rejeição 391: Para tPag = 03 (Crédito) ou 04 (Débito),
+  // é obrigatório incluir o grupo <card> com <tpIntegra> (1=Integrado, 2=Não Integrado/POS) e <tBand>.
+  let pagamentosXml = '';
+  if (payments && payments.length > 0) {
+    let somaPag = 0;
+    pagamentosXml = payments.map((p, idx) => {
+      const tPag = mapearTipoPagamentoNfce(p.payment_method);
+      let vPag = parseFloat(p.amount) || 0;
+      if (payments.length === 1) {
+        vPag = totalFiscalFinal;
+      } else if (idx === payments.length - 1) {
+        const restante = Math.max(0, Math.round((totalFiscalFinal - somaPag) * 100) / 100);
+        if (restante > 0) vPag = restante;
+      }
+      somaPag += vPag;
+
+      let cardXml = '';
+      if (tPag === '03' || tPag === '04') {
+        const tBand = mapearBandeiraCartaoNfce(p.card_brand);
+        cardXml = `<card><tpIntegra>2</tpIntegra><tBand>${tBand}</tBand></card>`;
+      }
+
+      return `<detPag><indPag>0</indPag><tPag>${tPag}</tPag><vPag>${vPag.toFixed(2)}</vPag>${cardXml}</detPag>`;
+    }).join('');
+  } else {
+    pagamentosXml = `<detPag><indPag>0</indPag><tPag>01</tPag><vPag>${totalFiscalFinal.toFixed(2)}</vPag></detPag>`;
+  }
+
   return `<NFe xmlns="http://www.portalfiscal.inf.br/nfe"><infNFe Id="NFe${chaveAcesso}" versao="4.00"><ide><cUF>${CODIGOS_UF[config.uf] || '31'}</cUF><cNF>${chaveAcesso.slice(35, 43)}</cNF><natOp>VENDA</natOp><mod>65</mod><serie>${serie}</serie><nNF>${nNF}</nNF><dhEmi>${dhEmi}</dhEmi><tpNF>1</tpNF><idDest>1</idDest><cMunFG>${config.cod_municipio_ibge}</cMunFG><tpImp>4</tpImp><tpEmis>${tpEmis}</tpEmis><cDV>${chaveAcesso.slice(-1)}</cDV><tpAmb>${tpAmb}</tpAmb><finNFe>1</finNFe><indFinal>1</indFinal><indPres>1</indPres><indIntermed>0</indIntermed><procEmi>0</procEmi><verProc>Belinha_1.0</verProc>${tpEmis === '9' ? `<dhCont>${dhEmi}</dhCont><xJust>${justificada}</xJust>` : ''}</ide><emit><CNPJ>${config.cnpj}</CNPJ><xNome>${config.razao_social}</xNome><xFant>${config.nome_fantasia}</xFant><enderEmit><xLgr>${config.logradouro}</xLgr><nro>${config.numero}</nro><xBairro>${config.bairro}</xBairro><cMun>${config.cod_municipio_ibge}</cMun><xMun>${config.municipio}</xMun><UF>${config.uf}</UF><CEP>${config.cep}</CEP><cPais>1058</cPais><xPais>BRASIL</xPais><fone>3232165691</fone></enderEmit><IE>${config.inscricao_estadual}</IE><CRT>${config.regime_tributario}</CRT></emit>${destTag}${itensFiscais.map(it => `
 <det nItem="${it.nItem}">
   <prod>
@@ -307,7 +336,7 @@ function construirXmlNfce({
     <PIS><PISNT><CST>07</CST></PISNT></PIS>
     <COFINS><COFINSNT><CST>07</CST></COFINSNT></COFINS>
   </imposto>
-</det>`).join('')}<total><ICMSTot><vBC>0.00</vBC><vICMS>0.00</vICMS><vICMSDeson>0.00</vICMSDeson><vFCP>0.00</vFCP><vBCST>0.00</vBCST><vST>0.00</vST><vFCPST>0.00</vFCPST><vFCPSTRet>0.00</vFCPSTRet><vProd>${totalFiscalItens.toFixed(2)}</vProd><vFrete>0.00</vFrete><vSeg>0.00</vSeg><vDesc>${descontoFiscal.toFixed(2)}</vDesc><vII>0.00</vII><vIPI>0.00</vIPI><vIPIDevol>0.00</vIPIDevol><vPIS>0.00</vPIS><vCOFINS>0.00</vCOFINS><vOutro>0.00</vOutro><vNF>${totalFiscalFinal.toFixed(2)}</vNF><vTotTrib>${totalTributosAprox.toFixed(2)}</vTotTrib></ICMSTot></total><transp><modFrete>9</modFrete></transp><pag><detPag><indPag>0</indPag><tPag>${payments.length > 0 ? mapearTipoPagamentoNfce(payments[0].payment_method) : '01'}</tPag><vPag>${totalFiscalFinal.toFixed(2)}</vPag></detPag></pag><infAdic><infCpl>Trib aprox R$ ${totalTributosAprox.toFixed(2)} Fonte: IBPT. Venda PDV Belinha #${saleId}.</infCpl></infAdic></infNFe>${qrCodeUrl ? `<infNFeSupl><qrCode>${qrCodeUrl}</qrCode><urlChave>https://portalsped.fazenda.mg.gov.br/portalnfce</urlChave></infNFeSupl>` : ''}</NFe>`;
+</det>`).join('')}<total><ICMSTot><vBC>0.00</vBC><vICMS>0.00</vICMS><vICMSDeson>0.00</vICMSDeson><vFCP>0.00</vFCP><vBCST>0.00</vBCST><vST>0.00</vST><vFCPST>0.00</vFCPST><vFCPSTRet>0.00</vFCPSTRet><vProd>${totalFiscalItens.toFixed(2)}</vProd><vFrete>0.00</vFrete><vSeg>0.00</vSeg><vDesc>${descontoFiscal.toFixed(2)}</vDesc><vII>0.00</vII><vIPI>0.00</vIPI><vIPIDevol>0.00</vIPIDevol><vPIS>0.00</vPIS><vCOFINS>0.00</vCOFINS><vOutro>0.00</vOutro><vNF>${totalFiscalFinal.toFixed(2)}</vNF><vTotTrib>${totalTributosAprox.toFixed(2)}</vTotTrib></ICMSTot></total><transp><modFrete>9</modFrete></transp><pag>${pagamentosXml}</pag><infAdic><infCpl>Trib aprox R$ ${totalTributosAprox.toFixed(2)} Fonte: IBPT. Venda PDV Belinha #${saleId}.</infCpl></infAdic></infNFe>${qrCodeUrl ? `<infNFeSupl><qrCode>${qrCodeUrl}</qrCode><urlChave>https://portalsped.fazenda.mg.gov.br/portalnfce</urlChave></infNFeSupl>` : ''}</NFe>`;
 }
 
 /**
@@ -999,6 +1028,26 @@ function mapearTipoPagamentoNfce(method) {
 }
 
 /**
+ * Mapeia a bandeira do cartão para o código oficial da SEFAZ (tBand)
+ * 01=Visa, 02=Mastercard, 03=American Express, 04=Sorocred, 05=Diners Club, 
+ * 06=Elo, 07=Hipercard, 08=Aura, 09=Cabal, 99=Outros
+ */
+function mapearBandeiraCartaoNfce(brand) {
+  if (!brand) return '99';
+  const b = String(brand).toUpperCase();
+  if (b.includes('VISA')) return '01';
+  if (b.includes('MASTER')) return '02';
+  if (b.includes('AMEX') || b.includes('AMERICAN')) return '03';
+  if (b.includes('SORO')) return '04';
+  if (b.includes('DINERS')) return '05';
+  if (b.includes('ELO')) return '06';
+  if (b.includes('HIPER')) return '07';
+  if (b.includes('AURA')) return '08';
+  if (b.includes('CABAL')) return '09';
+  return '99';
+}
+
+/**
  * Consulta o status operacional do WebService da SEFAZ-MG com o Certificado Digital A1
  */
 async function consultarStatusSefaz() {
@@ -1080,5 +1129,6 @@ module.exports = {
   cancelarCupomFiscal,
   listarCuponsEmitidos,
   mapearTipoPagamentoNfce,
+  mapearBandeiraCartaoNfce,
   consultarStatusSefaz
 };
