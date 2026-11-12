@@ -390,6 +390,11 @@ const App: React.FC = () => {
   useEffect(() => {
     const onUnauthorized = () => {
       if (user && !isPublicRoute) {
+        // Se estiver no PDV, nunca desloga a tela por 401 de background, preservando o terminal sempre ativo
+        if (currentViewRef.current === "belinha-pdv") {
+          console.warn("[BelaFarma] Evento de não autorizado ignorado no PDV para manter o terminal de caixa sempre aberto.");
+          return;
+        }
         handleLogout();
         addToast("Sessão expirada ou atualizada por segurança. Faça login novamente.", "warning");
       }
@@ -406,6 +411,12 @@ const App: React.FC = () => {
   const resetLogoutTimer = () => {
     if (logoutTimerRef.current) clearTimeout(logoutTimerRef.current);
     if (isMobile) return; // Se for mobile, não desloga por inatividade
+
+    // O PDV (Terminal Frente de Caixa) deve permanecer sempre aberto e nunca deslogar por inatividade
+    if (currentViewRef.current === "belinha-pdv") {
+      return;
+    }
+
     if (user && currentViewRef.current !== "whatsapp-vendas") {
       logoutTimerRef.current = window.setTimeout(() => {
         handleLogout();

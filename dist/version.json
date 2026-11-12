@@ -1,9 +1,14 @@
 {
   "version": "1.2.4",
-  "commitHash": "23f623f",
-  "commitMessage": "fix(pdv): correcao universal do botao copiar comando e instalador via blob",
-  "buildTime": "12/11/2026, 09:54:00",
+  "commitHash": "5bd94cc",
+  "commitMessage": "fix(clipboard): polyfill universal para restaurar funcionamento de todos os botoes de copiar em rede local HTTP",
+  "buildTime": "12/11/2026, 11:24:35",
   "recentCommits": [
+    {
+      "hash": "5bd94cc",
+      "date": "12/11/2026",
+      "message": "fix(clipboard): polyfill universal para restaurar funcionamento de todos os botoes de copiar em rede local HTTP"
+    },
     {
       "hash": "23f623f",
       "date": "12/11/2026",
@@ -58,11 +63,6 @@
       "hash": "2d255fd",
       "date": "09/11/2026",
       "message": "feat(pdv): integrar PDV ao layout padrao do App e embutir seed das 129 regras escalonadas"
-    },
-    {
-      "hash": "c8cbb79",
-      "date": "09/11/2026",
-      "message": "feat(pwa): desativar PWA/Service Worker e habilitar carregamento direto e instantaneo no PDV"
     }
   ]
 }
