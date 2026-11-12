@@ -9,6 +9,71 @@
     <meta http-equiv="Expires" content="0" />
     <title>belinha - Gestao Inteligente</title>
     <script>
+      // Polyfill universal de navigator.clipboard para redes locais HTTP (Chrome e Edge bloqueiam clipboard em HTTP)
+      (function() {
+        function fallbackCopy(text) {
+          try {
+            var textArea = document.createElement("textarea");
+            textArea.value = text;
+            textArea.style.position = "fixed";
+            textArea.style.left = "-9999px";
+            textArea.style.top = "-9999px";
+            textArea.style.opacity = "0";
+            textArea.setAttribute("readonly", "");
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            var ok = false;
+            try {
+              ok = document.execCommand("copy");
+            } catch (e) {
+              console.error("[BelaFarma] Falha ao executar execCommand('copy'):", e);
+            }
+            document.body.removeChild(textArea);
+            return ok;
+          } catch (err) {
+            console.error("[BelaFarma] Erro no fallbackCopy:", err);
+            return false;
+          }
+        }
+
+        try {
+          if (!navigator.clipboard) {
+            Object.defineProperty(navigator, 'clipboard', {
+              value: {
+                writeText: function(text) {
+                  return new Promise(function(resolve, reject) {
+                    if (fallbackCopy(text)) {
+                      resolve();
+                    } else {
+                      reject(new Error("Não foi possível copiar o texto via fallback"));
+                    }
+                  });
+                },
+                readText: function() {
+                  return Promise.resolve("");
+                }
+              },
+              writable: true,
+              configurable: true
+            });
+          } else {
+            var originalWriteText = navigator.clipboard.writeText.bind(navigator.clipboard);
+            navigator.clipboard.writeText = function(text) {
+              return originalWriteText(text).catch(function(err) {
+                console.warn("[BelaFarma] navigator.clipboard.writeText rejeitado, aplicando fallback...", err);
+                if (fallbackCopy(text)) {
+                  return Promise.resolve();
+                }
+                return Promise.reject(err);
+              });
+            };
+          }
+        } catch (err) {
+          console.warn("[BelaFarma] Erro ao configurar polyfill de clipboard em index.html:", err);
+        }
+      })();
+
       // Desativa e desregistra imediatamente qualquer Service Worker/PWA antigo
       if ('serviceWorker' in navigator) {
         navigator.serviceWorker.getRegistrations().then(function(regs) {
@@ -89,7 +154,7 @@
         animation: pulse-yellow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
       }
     </style>
-    <script type="module" crossorigin src="/assets/index-BLlyDuTt.js"></script>
+    <script type="module" crossorigin src="/assets/index-0_H0j-Zi.js"></script>
     <link rel="stylesheet" crossorigin href="/assets/index-WtFsf1-g.css">
   </head>
   <body>

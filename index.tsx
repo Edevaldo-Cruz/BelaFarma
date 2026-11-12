@@ -1,4 +1,64 @@
 
+// Polyfill seguro de navigator.clipboard para HTTP (rede local da farmácia)
+try {
+  const fallbackCopy = (text: string): boolean => {
+    try {
+      const textArea = document.createElement("textarea");
+      textArea.value = text;
+      textArea.style.position = "fixed";
+      textArea.style.left = "-9999px";
+      textArea.style.top = "-9999px";
+      textArea.style.opacity = "0";
+      textArea.setAttribute("readonly", "");
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+      const ok = document.execCommand("copy");
+      document.body.removeChild(textArea);
+      return !!ok;
+    } catch (err) {
+      console.error("[BelaFarma] Erro no fallback de cópia:", err);
+      return false;
+    }
+  };
+
+  if (typeof window !== "undefined") {
+    if (!navigator.clipboard) {
+      Object.defineProperty(navigator, 'clipboard', {
+        value: {
+          writeText: (text: string) => {
+            return new Promise<void>((resolve, reject) => {
+              if (fallbackCopy(text)) {
+                resolve();
+              } else {
+                reject(new Error("Não foi possível copiar via fallback"));
+              }
+            });
+          },
+          readText: () => Promise.resolve("")
+        },
+        writable: true,
+        configurable: true
+      });
+    } else if (navigator.clipboard.writeText) {
+      const originalWriteText = navigator.clipboard.writeText.bind(navigator.clipboard);
+      navigator.clipboard.writeText = async (text: string) => {
+        try {
+          return await originalWriteText(text);
+        } catch (err) {
+          console.warn("[BelaFarma] navigator.clipboard.writeText falhou, usando fallback...", err);
+          if (fallbackCopy(text)) {
+            return Promise.resolve();
+          }
+          throw err;
+        }
+      };
+    }
+  }
+} catch (e) {
+  console.warn("[BelaFarma] Falha ao configurar polyfill de clipboard em index.tsx:", e);
+}
+
 // Polyfill seguro de localStorage e sessionStorage para iframes cross-origin
 try {
   const testLocal = window.localStorage;
