@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Instalar PDV BelaFarma na Área de Trabalho</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      background: linear-gradient(135deg, #0b2545 0%, #0f3460 100%);
+      color: #ffffff;
+      margin: 0;
+      padding: 20px;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .card {
+      background: rgba(15, 23, 42, 0.95);
+      border: 2px solid #10b981;
+      border-radius: 24px;
+      padding: 32px;
+      max-width: 580px;
+      width: 100%;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+      text-align: center;
+    }
+    .logo-badge {
+      display: inline-block;
+      background: #10b981;
+      color: #022c22;
+      font-weight: 900;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      padding: 4px 12px;
+      border-radius: 999px;
+      margin-bottom: 12px;
+    }
+    h1 {
+      margin: 0 0 10px 0;
+      font-size: 24px;
+      font-weight: 900;
+    }
+    p {
+      color: #94a3b8;
+      font-size: 14px;
+      line-height: 1.5;
+      margin: 0 0 24px 0;
+    }
+    .btn-download {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      background: #10b981;
+      color: #ffffff;
+      text-decoration: none;
+      padding: 16px 28px;
+      border-radius: 16px;
+      font-weight: 800;
+      font-size: 16px;
+      transition: all 0.2s;
+      box-shadow: 0 10px 15px -3px rgba(16, 185, 129, 0.3);
+    }
+    .btn-download:hover {
+      background: #059669;
+      transform: translateY(-2px);
+    }
+    .cmd-box {
+      margin-top: 24px;
+      background: #020617;
+      border: 1px solid #334155;
+      border-radius: 14px;
+      padding: 16px;
+      text-align: left;
+    }
+    .cmd-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: #38bdf8;
+      margin-bottom: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .code-text {
+      font-family: Consolas, monospace;
+      font-size: 12px;
+      color: #34d399;
+      background: #0b132b;
+      padding: 10px;
+      border-radius: 8px;
+      word-break: break-all;
+      user-select: all;
+      border: 1px dashed #10b981;
+    }
+    .step-list {
+      text-align: left;
+      margin-top: 20px;
+      font-size: 13px;
+      color: #cbd5e1;
+      line-height: 1.8;
+      background: rgba(255, 255, 255, 0.03);
+      padding: 16px 20px 16px 36px;
+      border-radius: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <span class="logo-badge">Drogaria Bela Farma Sul</span>
+    <h1>Instalar PDV na Área de Trabalho</h1>
+    <p>Abra este link em qualquer computador da farmácia (Caixa, Balcão ou Escritório) para colocar o inicializador do PDV na Área de Trabalho.</p>
+
+    <!-- Botão Principal de Download -->
+    <a href="/INICIAR_PDV_NO_CAIXA.bat" download="INICIAR_PDV_NO_CAIXA.bat" class="btn-download">
+      📥 Baixar INICIAR_PDV_NO_CAIXA.bat
+    </a>
+
+    <!-- Opção Automática via PowerShell -->
+    <div class="cmd-box">
+      <div class="cmd-title">
+        <span>⚡ Instalação Automática Direta (Win + R ou PowerShell):</span>
+      </div>
+      <div class="code-text" id="cmdCode">powershell -c "irm http://192.168.1.70:3001/INICIAR_PDV_NO_CAIXA.bat -OutFile ([Environment]::GetFolderPath('Desktop') + '\INICIAR_PDV_NO_CAIXA.bat')"</div>
+    </div>
+
+    <ol class="step-list">
+      <li><strong>Opção 1:</strong> Clique no botão verde acima e salve o arquivo direto na sua <strong>Área de Trabalho</strong>.</li>
+      <li><strong>Opção 2:</strong> Pressione <kbd>Windows + R</kbd> no teclado, cole o comando acima e tecle <kbd>Enter</kbd>. O atalho aparecerá na Área de Trabalho imediatamente!</li>
+    </ol>
+  </div>
+</body>
+</html>
