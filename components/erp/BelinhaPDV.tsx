@@ -420,6 +420,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
 
   // Modal de Instalação do Executável do PDV na Área de Trabalho
   const [isInstallAppModalOpen, setIsInstallAppModalOpen] = useState<boolean>(false);
+  const [isCopiedInstallerCmd, setIsCopiedInstallerCmd] = useState<boolean>(false);
 
   // Movimentações de Caixa (Sangria e Suprimento) [F4]
   const [isCashMovementModalOpen, setIsCashMovementModalOpen] = useState<boolean>(false);
@@ -4991,98 +4992,234 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
       {/* ========================================================================= */}
       {/* MODAL: INSTALAR EXECUTÁVEL DO PDV NA ÁREA DE TRABALHO                    */}
       {/* ========================================================================= */}
-      {isInstallAppModalOpen && (
-        <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border-2 border-emerald-500/70 rounded-3xl max-w-lg w-full p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-150 text-slate-100">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center font-bold shadow-inner">
-                  <MonitorDown className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="font-black text-sm text-white">Instalar PDV na Área de Trabalho</h3>
-                  <p className="text-[11px] text-slate-400">Terminal Frente de Caixa dedicado com impressão Bematech</p>
-                </div>
-              </div>
-              <button 
-                onClick={() => {
-                  setIsInstallAppModalOpen(false);
-                  focusBarcodeInput();
-                }}
-                className="text-slate-400 hover:text-white transition cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+      {isInstallAppModalOpen && (() => {
+        const currentHost = typeof window !== 'undefined' ? (window.location.host || '192.168.1.70:3001') : '192.168.1.70:3001';
+        
+        // Comando autônomo do PowerShell para o Win + R (não depende de download remoto)
+        const winRCommand = `powershell -ExecutionPolicy Bypass -Command "$h = '${currentHost}'; $b = @('C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe','C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe','C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe','C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe') | Where-Object { Test-Path $_ } | Select-Object -First 1; $w = New-Object -ComObject WScript.Shell; $d = [Environment]::GetFolderPath('Desktop'); $s = $w.CreateShortcut((Join-Path $d 'PDV BelaFarma.lnk')); if ($b) { $s.TargetPath = $b; $s.Arguments = ('--app=http://' + $h + '/?app=pdv --user-data-dir=' + $env:LOCALAPPDATA + '\\BelaFarmaPDV --kiosk-printing --disable-print-preview --start-maximized') } else { $s.TargetPath = ('http://' + $h + '/?app=pdv') }; $s.Description = 'Drogaria Bela Farma - PDV'; $s.Save(); Start-Process (Join-Path $d 'PDV BelaFarma.lnk')"`;
 
-            <div className="space-y-4 text-xs">
-              {/* Opção 1: Download Direto do Instalador */}
-              <div className="p-4 rounded-2xl bg-slate-950 border border-emerald-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-inner">
-                <div className="space-y-1">
-                  <p className="font-black text-emerald-300 text-sm flex items-center gap-1.5">
-                    <span>1. Baixar Instalador Automático</span>
-                    <span className="text-[9px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.2 rounded font-mono uppercase font-black">Recomendado</span>
-                  </p>
-                  <p className="text-slate-400 text-[11px] leading-relaxed">
-                    Cria o atalho oficial <strong>PDV BelaFarma</strong> no Desktop e configura tela cheia permanente.
-                  </p>
+        // Função de cópia universal (compatível com HTTP em rede local)
+        const handleCopyCommand = async () => {
+          let success = false;
+          // 1. Tentar Clipboard API nativa
+          if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+            try {
+              await navigator.clipboard.writeText(winRCommand);
+              success = true;
+            } catch (err) {
+              console.warn('Falha no clipboard nativo (HTTP), usando fallback execCommand:', err);
+            }
+          }
+          // 2. Fallback universal para HTTP (textarea temporário)
+          if (!success) {
+            try {
+              const textArea = document.createElement('textarea');
+              textArea.value = winRCommand;
+              textArea.style.position = 'fixed';
+              textArea.style.left = '-999999px';
+              textArea.style.top = '-999999px';
+              textArea.setAttribute('readonly', '');
+              document.body.appendChild(textArea);
+              textArea.focus();
+              textArea.select();
+              success = document.execCommand('copy');
+              document.body.removeChild(textArea);
+            } catch (fallbackErr) {
+              console.error('Falha no fallback de cópia:', fallbackErr);
+            }
+          }
+
+          if (success) {
+            setIsCopiedInstallerCmd(true);
+            addToast('📋 Comando copiado! Pressione Win + R, aperte Ctrl + V e tecle Enter.', 'success', 5000);
+            setTimeout(() => setIsCopiedInstallerCmd(false), 3000);
+          } else {
+            addToast('Não foi possível copiar automaticamente. Clique na caixa de texto abaixo e pressione Ctrl + C.', 'warning', 6000);
+          }
+        };
+
+        // Função que gera o arquivo .bat no navegador via Blob (100% garantido sem depender do Nginx)
+        const handleDownloadInstallerBlob = () => {
+          const batContent = `@echo off
+chcp 65001 >nul
+title Instalador PDV BelaFarma
+color 0A
+cls
+echo ======================================================================
+echo       DROGARIA BELA FARMA - INSTALADOR DO EXECUTAVEL DO PDV
+echo ======================================================================
+echo.
+echo Criando atalho dedicado na Area de Trabalho...
+
+set "TARGET_URL=http://${currentHost}/?app=pdv"
+set "USER_DIR=%LOCALAPPDATA%\\BelaFarmaPDV"
+set "DESKTOP_DIR=%USERPROFILE%\\Desktop"
+
+if not exist "%USER_DIR%" mkdir "%USER_DIR%"
+
+set "BROWSER_EXE="
+if exist "%ProgramFiles%\\Google\\Chrome\\Application\\chrome.exe" (
+    set "BROWSER_EXE=%ProgramFiles%\\Google\\Chrome\\Application\\chrome.exe"
+) else if exist "%ProgramFiles(x86)%\\Google\\Chrome\\Application\\chrome.exe" (
+    set "BROWSER_EXE=%ProgramFiles(x86)%\\Google\\Chrome\\Application\\chrome.exe"
+) else if exist "%LOCALAPPDATA%\\Google\\Chrome\\Application\\chrome.exe" (
+    set "BROWSER_EXE=%LOCALAPPDATA%\\Google\\Chrome\\Application\\chrome.exe"
+) else if exist "%ProgramFiles(x86)%\\Microsoft\\Edge\\Application\\msedge.exe" (
+    set "BROWSER_EXE=%ProgramFiles(x86)%\\Microsoft\\Edge\\Application\\msedge.exe"
+) else if exist "%ProgramFiles%\\Microsoft\\Edge\\Application\\msedge.exe" (
+    set "BROWSER_EXE=%ProgramFiles%\\Microsoft\\Edge\\Application\\msedge.exe"
+)
+
+set "SHORTCUT_PATH=%DESKTOP_DIR%\\PDV BelaFarma.lnk"
+
+if defined BROWSER_EXE (
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut('%SHORTCUT_PATH%'); $s.TargetPath = '%BROWSER_EXE%'; $s.Arguments = '--app=\"%TARGET_URL%\" --user-data-dir=\"%USER_DIR%\" --kiosk-printing --disable-print-preview --start-maximized'; $s.Description = 'Drogaria Bela Farma - Frente de Caixa PDV'; $s.Save()"
+) else (
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut('%SHORTCUT_PATH%'); $s.TargetPath = '%TARGET_URL%'; $s.Description = 'Drogaria Bela Farma - Frente de Caixa PDV'; $s.Save()"
+)
+
+echo.
+echo ======================================================================
+echo  [SUCESSO] Atalho 'PDV BelaFarma' criado na sua Area de Trabalho!
+echo ======================================================================
+echo Abrindo o PDV agora...
+start "" "%SHORTCUT_PATH%"
+exit
+`;
+          try {
+            const blob = new Blob([batContent], { type: 'application/x-bat;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'INSTALAR_PDV_BelaFarma.bat';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            addToast('📥 Instalador baixado! Dê um duplo clique no arquivo baixado para criar o atalho.', 'success', 5000);
+          } catch (e) {
+            console.error('Erro ao gerar blob do instalador:', e);
+            addToast('Erro ao baixar. Utilize o comando do Win + R abaixo.', 'error', 5000);
+          }
+        };
+
+        return (
+          <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-slate-900 border-2 border-emerald-500/70 rounded-3xl max-w-lg w-full p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-150 text-slate-100">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center font-bold shadow-inner">
+                    <MonitorDown className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-black text-sm text-white">Instalar PDV na Área de Trabalho</h3>
+                    <p className="text-[11px] text-slate-400">Terminal Frente de Caixa dedicado com impressão Bematech</p>
+                  </div>
                 </div>
-                <a
-                  href="/INSTALAR_PDV_DESKTOP.bat"
-                  download="INSTALAR_PDV_DESKTOP.bat"
-                  onClick={() => addToast('📥 Download iniciado! Clique no arquivo baixado para criar o atalho.', 'success', 4000)}
-                  className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs transition shadow-md flex items-center justify-center gap-2 shrink-0 cursor-pointer"
+                <button 
+                  onClick={() => {
+                    setIsInstallAppModalOpen(false);
+                    focusBarcodeInput();
+                  }}
+                  className="text-slate-400 hover:text-white transition cursor-pointer"
                 >
-                  <Download className="w-4 h-4" />
-                  <span>Baixar Instalador</span>
-                </a>
+                  <X className="w-5 h-5" />
+                </button>
               </div>
 
-              {/* Opção 2: Comando Rápido (Windows + R) */}
-              <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-slate-200">2. Ou instale via Windows + R:</span>
+              <div className="space-y-4 text-xs">
+                {/* Opção 1: Download Direto do Instalador via Blob */}
+                <div className="p-4 rounded-2xl bg-slate-950 border border-emerald-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-inner">
+                  <div className="space-y-1">
+                    <p className="font-black text-emerald-300 text-sm flex items-center gap-1.5">
+                      <span>1. Baixar Instalador Automático</span>
+                      <span className="text-[9px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded font-mono uppercase font-black">Recomendado</span>
+                    </p>
+                    <p className="text-slate-400 text-[11px] leading-relaxed">
+                      Baixa o script oficial. Dê <strong>duplo clique</strong> no arquivo baixado para criar o atalho <strong>PDV BelaFarma</strong> no Desktop na hora.
+                    </p>
+                  </div>
                   <button
-                    onClick={() => {
-                      const host = typeof window !== 'undefined' ? (window.location.host || '192.168.1.70:3001') : '192.168.1.70:3001';
-                      const cmd = `powershell -c "irm http://${host}/INSTALAR_PDV_DESKTOP.bat -OutFile ([Environment]::GetFolderPath('Desktop') + '\\INSTALAR_PDV.bat'); & ([Environment]::GetFolderPath('Desktop') + '\\INSTALAR_PDV.bat')"`;
-                      navigator.clipboard.writeText(cmd);
-                      addToast('📋 Comando copiado! Pressione Windows + R, cole e tecle Enter.', 'success', 4000);
-                    }}
-                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-bold transition border border-slate-700 cursor-pointer"
+                    type="button"
+                    onClick={handleDownloadInstallerBlob}
+                    className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs transition shadow-md flex items-center justify-center gap-2 shrink-0 cursor-pointer active:scale-95"
                   >
-                    <Copy className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>Copiar Comando</span>
+                    <Download className="w-4 h-4" />
+                    <span>Baixar Instalador</span>
                   </button>
                 </div>
-                <p className="text-[11px] text-slate-400">
-                  Pressione <kbd className="bg-slate-800 text-slate-200 px-1.5 py-0.5 rounded font-mono text-[10px]">Windows + R</kbd>, cole o comando e tecle <kbd className="bg-slate-800 text-slate-200 px-1.5 py-0.5 rounded font-mono text-[10px]">Enter</kbd>.
-                </p>
+
+                {/* Opção 2: Comando Rápido (Windows + R) */}
+                <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-slate-200">2. Ou instale via Windows + R (Sem baixar arquivo):</span>
+                    <button
+                      type="button"
+                      onClick={handleCopyCommand}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold transition border cursor-pointer ${
+                        isCopiedInstallerCmd 
+                          ? 'bg-emerald-600 text-white border-emerald-500' 
+                          : 'bg-slate-800 hover:bg-slate-700 text-emerald-300 border-emerald-500/40 hover:border-emerald-400'
+                      }`}
+                    >
+                      {isCopiedInstallerCmd ? (
+                        <>
+                          <Check className="w-3.5 h-3.5 text-white" />
+                          <span>Copiado!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3.5 h-3.5 text-emerald-400" />
+                          <span>Copiar Comando</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  {/* Caixa com o comando para clique e seleção automática */}
+                  <textarea
+                    readOnly
+                    value={winRCommand}
+                    onClick={(e) => {
+                      e.currentTarget.select();
+                      handleCopyCommand();
+                    }}
+                    className="w-full bg-slate-900/90 font-mono text-[10px] text-emerald-400/90 p-2.5 rounded-xl border border-slate-800 hover:border-slate-700 resize-none h-16 select-all focus:outline-none focus:border-emerald-500/60 cursor-pointer transition shadow-inner"
+                    title="Clique para selecionar e copiar o comando"
+                  />
+
+                  <div className="text-[11px] text-slate-400 space-y-1 bg-slate-900/40 p-2.5 rounded-xl border border-slate-800/80">
+                    <p className="font-bold text-slate-300">Como executar no Windows:</p>
+                    <p>1. Clique em <strong>Copiar Comando</strong> acima.</p>
+                    <p>2. No teclado, pressione as teclas <kbd className="bg-slate-800 text-slate-200 px-1.5 py-0.5 rounded font-mono text-[10px]">Win + R</kbd> para abrir o <em>Executar</em>.</p>
+                    <p>3. Pressione <kbd className="bg-slate-800 text-slate-200 px-1.5 py-0.5 rounded font-mono text-[10px]">Ctrl + V</kbd> e tecle <kbd className="bg-slate-800 text-slate-200 px-1.5 py-0.5 rounded font-mono text-[10px]">Enter</kbd>.</p>
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-xl bg-emerald-950/40 border border-emerald-500/20 text-[11px] text-emerald-200 flex items-start gap-2">
+                  <span className="text-emerald-400 mt-0.5 font-bold">💡</span>
+                  <span>
+                    O atalho criado abrirá o PDV em janela dedicada, <strong>sem barras do navegador</strong>, <strong>sem perder o vendedor</strong> e com impressão direta na Bematech MP-4200 TH.
+                  </span>
+                </div>
               </div>
 
-              <div className="p-3 rounded-xl bg-emerald-950/40 border border-emerald-500/20 text-[11px] text-emerald-200 flex items-start gap-2">
-                <span className="text-emerald-400 mt-0.5 font-bold">💡</span>
-                <span>
-                  O atalho criado abrirá o PDV em janela dedicada, <strong>sem barras do navegador</strong>, <strong>sem perder o vendedor</strong> e com impressão direta na Bematech MP-4200 TH.
-                </span>
+              <div className="pt-2 border-t border-slate-800 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsInstallAppModalOpen(false);
+                    focusBarcodeInput();
+                  }}
+                  className="px-5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition cursor-pointer"
+                >
+                  Fechar [ESC]
+                </button>
               </div>
-            </div>
-
-            <div className="pt-2 border-t border-slate-800 flex justify-end">
-              <button
-                type="button"
-                onClick={() => {
-                  setIsInstallAppModalOpen(false);
-                  focusBarcodeInput();
-                }}
-                className="px-5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition cursor-pointer"
-              >
-                Fechar [ESC]
-              </button>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 };
