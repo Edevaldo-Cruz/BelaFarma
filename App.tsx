@@ -80,6 +80,7 @@ import { ProductsCatalog } from "./components/erp/ProductsCatalog";
 import { InboundInvoices } from "./components/erp/InboundInvoices";
 import { ControlledMedicationsPortal } from "./components/erp/ControlledMedicationsPortal";
 import { FiscalAccountingView } from "./components/FiscalAccountingView";
+import { PromotionsManagerPage } from "./components/erp/PromotionsManagerPage";
 
 
 import {
@@ -1451,6 +1452,9 @@ const App: React.FC = () => {
               )}
               {currentView === "erp-produtos" && (
                 <ProductsCatalog user={user} />
+              )}
+              {currentView === "erp-promocoes" && (
+                <PromotionsManagerPage user={user} />
               )}
               {currentView === "erp-nfe" && user.role === UserRole.ADM && (
                 <InboundInvoices />

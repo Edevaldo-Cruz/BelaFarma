@@ -1,9 +1,14 @@
 {
   "version": "1.2.4",
-  "commitHash": "52fb8fd",
-  "commitMessage": "feat: unifica modulo de crediario em central unica e corrige dropdowns do menu no topo",
-  "buildTime": "13/11/2026, 11:54:47",
+  "commitHash": "4522082",
+  "commitMessage": "fix(precos-promocoes): blindagem contra sobrescrita de precos, sincronizacao estrita com Digifarma e correcao da busca de promocoes escalonadas (produtos 32775 e 6370)",
+  "buildTime": "13/11/2026, 12:05:37",
   "recentCommits": [
+    {
+      "hash": "4522082",
+      "date": "13/11/2026",
+      "message": "fix(precos-promocoes): blindagem contra sobrescrita de precos, sincronizacao estrita com Digifarma e correcao da busca de promocoes escalonadas (produtos 32775 e 6370)"
+    },
     {
       "hash": "52fb8fd",
       "date": "13/11/2026",
@@ -58,11 +63,6 @@
       "hash": "17c0ef6",
       "date": "11/11/2026",
       "message": "feat(pdv): isolamento estrito da tela do PDV sem barras e sem saida para retaguarda"
-    },
-    {
-      "hash": "20f1ce1",
-      "date": "11/11/2026",
-      "message": "feat(crediario): ficha 360 do cliente e extrato bancario com impressao termica 80mm"
     }
   ]
 }

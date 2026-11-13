@@ -274,6 +274,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'belinha-pdv', label: 'Belinha PDV', icon: DollarSign },
     { id: 'erp-vendas', label: 'Vendas do Dia', icon: Receipt },
     { id: 'controlled-medications', label: 'Controle Especial & SNGPC', icon: ShieldCheck },
+    { id: 'erp-promocoes', label: 'Promoções & Escalonados', icon: Sparkles },
     { id: 'erp-produtos', label: 'Estoque ERP', icon: Package },
     { id: 'erp-nfe', label: 'Entrada NF-e', icon: FileSpreadsheet },
     { id: 'fiscal-contabil', label: 'Fiscal & Simples', icon: Receipt },
@@ -438,6 +439,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: 'Vendas & Atendimento',
       itemIds: [
         'belinha-pdv',
+        'erp-promocoes',
         'erp-vendas',
         'daily-records',
         'deliveries',
@@ -453,6 +455,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'estoque',
       label: 'Estoque & Farmácia',
       itemIds: [
+        'erp-promocoes',
         'erp-produtos',
         'erp-nfe',
         'medication-search',
