@@ -1,9 +1,19 @@
 {
-  "version": "1.2.4",
-  "commitHash": "4522082",
-  "commitMessage": "fix(precos-promocoes): blindagem contra sobrescrita de precos, sincronizacao estrita com Digifarma e correcao da busca de promocoes escalonadas (produtos 32775 e 6370)",
-  "buildTime": "13/11/2026, 12:05:37",
+  "version": "1.2.5",
+  "commitHash": "e5ab2f4",
+  "commitMessage": "fix(sync): atualizacao completa da tabela products via Firebird com datas de promocao e curva ABC",
+  "buildTime": "13/11/2026, 13:37:09",
   "recentCommits": [
+    {
+      "hash": "e5ab2f4",
+      "date": "13/11/2026",
+      "message": "fix(sync): atualizacao completa da tabela products via Firebird com datas de promocao e curva ABC"
+    },
+    {
+      "hash": "b382085",
+      "date": "13/11/2026",
+      "message": "feat(promocoes): tela completa de gestao de promocoes e precos escalonados no menu principal (PromotionsManagerPage)"
+    },
     {
       "hash": "4522082",
       "date": "13/11/2026",
@@ -53,16 +63,6 @@
       "hash": "fc52974",
       "date": "12/11/2026",
       "message": "feat(pdv): distribuicao do inicializador do PDV para todos os computadores da rede"
-    },
-    {
-      "hash": "5049496",
-      "date": "11/11/2026",
-      "message": "feat(crediario): historico individual card_payments e conciliacao da baixa parcial da Simone"
-    },
-    {
-      "hash": "17c0ef6",
-      "date": "11/11/2026",
-      "message": "feat(pdv): isolamento estrito da tela do PDV sem barras e sem saida para retaguarda"
     }
   ]
 }

@@ -105,6 +105,25 @@ import { trackViewUsage, calculateWeeklyBudgetsCascade, getLocalDateKey } from "
 
 const LOGOUT_TIME = 15 * 60 * 1000;
 
+export const isPdvUrlRoute = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  const path = window.location.pathname.toLowerCase();
+  const hash = window.location.hash.toLowerCase();
+  const search = window.location.search.toLowerCase();
+  const isTauriEnv = '__TAURI_INTERNALS__' in window || '__TAURI__' in window;
+
+  return (
+    path.startsWith('/pdv') ||
+    hash.startsWith('#/pdv') ||
+    hash === '#pdv' ||
+    search.includes('view=belinha-pdv') ||
+    search.includes('view=pdv') ||
+    search.includes('mode=pdv') ||
+    search.includes('app=pdv') ||
+    (isTauriEnv && (hash.includes('pdv') || search.includes('pdv') || path.includes('pdv')))
+  );
+};
+
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(() => {
     const saved = localStorage.getItem("belinha_session_user");
@@ -127,6 +146,18 @@ const App: React.FC = () => {
       setIsPublicRoute(active);
       if (active) {
         setShowSplash(true);
+      }
+
+      // Sincroniza a tela com base estrita na rota de URL
+      if (isPdvUrlRoute()) {
+        setCurrentView('belinha-pdv');
+      } else {
+        // Se a URL não for de PDV, garante que não fique preso no PDV
+        setCurrentView(prev => (prev === 'belinha-pdv' ? 'dashboard' : prev));
+        const saved = localStorage.getItem('belinha_current_view');
+        if (saved === 'belinha-pdv') {
+          localStorage.setItem('belinha_current_view', 'dashboard');
+        }
       }
     };
     window.addEventListener("popstate", handleRouteChange);
@@ -151,17 +182,24 @@ const App: React.FC = () => {
       const host = window.location.hostname.toLowerCase();
       const hash = window.location.hash.toLowerCase();
       const search = window.location.search.toLowerCase();
-      const isTauriEnv = '__TAURI_INTERNALS__' in window || '__TAURI__' in window;
-      if (isTauriEnv || search.includes('app=pdv') || search.includes('mode=pdv') || search.includes('isprinterstation=true') || search.includes('view=belinha-pdv') || hash.includes('pdv')) {
+
+      // REGRA: O PDV SÓ entra se a URL explicitamente solicitar a rota do PDV (/pdv, #/pdv, ?view=pdv)
+      if (isPdvUrlRoute()) {
         return 'belinha-pdv';
       }
-      // Se a última tela salva era o PDV, restaura o PDV para evitar redirecionamento ao dashboard no F5
+
+      // Se a URL NÃO for de PDV, limpa o estado travado de belinha-pdv no localStorage
       const savedView = localStorage.getItem('belinha_current_view');
       if (savedView === 'belinha-pdv') {
-        return 'belinha-pdv';
+        localStorage.setItem('belinha_current_view', 'dashboard');
       }
+
       if (host.startsWith('ia.') || hash.includes('ia') || search.includes('view=ia') || search.includes('view=belafarma-ia')) {
         return 'belafarma-ia';
+      }
+
+      if (savedView && savedView !== 'belinha-pdv') {
+        return savedView as View;
       }
     }
     return 'dashboard';
@@ -422,6 +460,16 @@ const App: React.FC = () => {
     setCurrentView(view);
     localStorage.setItem('belinha_current_view', view);
     trackViewUsage(view, user?.name);
+
+    if (view === 'belinha-pdv') {
+      if (!window.location.hash.toLowerCase().includes('pdv')) {
+        window.location.hash = '/pdv';
+      }
+    } else {
+      if (window.location.hash.toLowerCase().includes('pdv')) {
+        window.location.hash = '';
+      }
+    }
   };
 
   const resetLogoutTimer = () => {
@@ -1359,7 +1407,7 @@ const App: React.FC = () => {
     return (
       <div className="h-screen w-screen overflow-hidden flex flex-col bg-[#0b2545]">
         <PwaUpdater />
-        <BelinhaPDV currentUser={user} isStandaloneWindow={true} />
+        <BelinhaPDV currentUser={user} isStandaloneWindow={true} onNavigate={handleNavigate} />
       </div>
     );
   }

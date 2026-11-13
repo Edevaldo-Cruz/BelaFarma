@@ -28,6 +28,7 @@ import {
   Lock,
   Zap,
   ArrowRight,
+  ArrowLeft,
   AlertTriangle,
   FileText,
   Percent,
@@ -1965,6 +1966,25 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
       <header className="bg-gradient-to-r from-[#0b2545] via-[#0f3460] to-[#0b2e26] border-b-2 border-emerald-500 px-3 sm:px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-xs text-white shadow-md shrink-0">
         {/* Identidade Bela Farma Sul, Status do Caixa e Vendedor */}
         <div className="flex items-center gap-2.5 sm:gap-3 flex-wrap">
+          {/* Botão para Sair do PDV e Voltar ao Painel Geral da BelaFarma */}
+          <button
+            type="button"
+            onClick={() => {
+              localStorage.setItem('belinha_current_view', 'dashboard');
+              if (onNavigate) {
+                onNavigate('dashboard');
+              } else {
+                window.location.hash = '';
+                window.location.pathname = '/';
+              }
+            }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-rose-600 text-white font-black text-xs border border-white/20 hover:border-rose-400 transition-all cursor-pointer shadow-sm group"
+            title="Sair do Caixa e Voltar ao Painel Geral do BelaFarma"
+          >
+            <ArrowLeft className="w-4 h-4 text-amber-300 group-hover:text-white transition-colors" />
+            <span>Voltar ao Sistema</span>
+          </button>
+
           <div className="flex items-center gap-2.5">
             <BelaFarmaLogo size="sm" lightMode showSubtext={false} className="shrink-0 drop-shadow" />
             <div className="leading-tight">
@@ -2174,6 +2194,24 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
             >
               {isFullscreen ? <Minimize2 className="w-3.5 h-3.5 text-amber-300" /> : <Maximize2 className="w-3.5 h-3.5 text-emerald-300" />}
               <span className="hidden xl:inline">F11</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                localStorage.setItem('belinha_current_view', 'dashboard');
+                if (onNavigate) {
+                  onNavigate('dashboard');
+                } else {
+                  window.location.hash = '';
+                  window.location.pathname = '/';
+                }
+              }}
+              className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-rose-600/70 hover:bg-rose-600 text-white border border-rose-400/50 text-[11px] font-bold transition cursor-pointer shadow-sm"
+              title="Sair do Caixa e Voltar ao Painel Geral da BelaFarma"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Sair</span>
             </button>
           </div>
         </div>
