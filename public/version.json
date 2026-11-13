@@ -1,9 +1,29 @@
 {
-  "version": "1.2.5",
-  "commitHash": "bdcc0d5",
-  "commitMessage": "build: atualizacao dos bundles do frontend e dist v1.2.5",
-  "buildTime": "13/11/2026, 14:45:52",
+  "version": "1.2.6",
+  "commitHash": "4037e2b",
+  "commitMessage": "feat(pdv): adiciona botao e navegacao direta para o Catalogo de Produtos do ERP no cabecalho do PDV",
+  "buildTime": "13/11/2026, 18:15:59",
   "recentCommits": [
+    {
+      "hash": "4037e2b",
+      "date": "13/11/2026",
+      "message": "feat(pdv): adiciona botao e navegacao direta para o Catalogo de Produtos do ERP no cabecalho do PDV"
+    },
+    {
+      "hash": "f3b3b74",
+      "date": "13/11/2026",
+      "message": "feat(sync): propaga atualizacao de precos e estoque do Digifarma em cascata para a tabela nativa products"
+    },
+    {
+      "hash": "cd28e75",
+      "date": "13/11/2026",
+      "message": "feat: adapta crediario para busca por nome sem nfc e adiciona extrato web protegido por cpf com pix"
+    },
+    {
+      "hash": "47063e6",
+      "date": "13/11/2026",
+      "message": "fix(pdv): correcao sistemica de precos e eliminacao de produtos duplicados com sufixo .0"
+    },
     {
       "hash": "bdcc0d5",
       "date": "13/11/2026",
@@ -43,26 +63,6 @@
       "hash": "64f5fbd",
       "date": "12/11/2026",
       "message": "fix(pdv): blindagem contra saida da tela do PDV e correcao da impressao direta do cupom fiscal NFC-e"
-    },
-    {
-      "hash": "8a24485",
-      "date": "12/11/2026",
-      "message": "fix(pdv): correcao de precos, integracao direta do Digifarma, desclassificacao de ibuprofeno como controlado e auto-importacao de produtos novos"
-    },
-    {
-      "hash": "9b3c2f4",
-      "date": "12/11/2026",
-      "message": "fix(pdv): desativa temporizador de logout por inatividade exclusivamente no PDV"
-    },
-    {
-      "hash": "5bd94cc",
-      "date": "12/11/2026",
-      "message": "fix(clipboard): polyfill universal para restaurar funcionamento de todos os botoes de copiar em rede local HTTP"
-    },
-    {
-      "hash": "23f623f",
-      "date": "12/11/2026",
-      "message": "fix(pdv): correcao universal do botao copiar comando e instalador via blob"
     }
   ]
 }

@@ -78,6 +78,7 @@ import { isPublicVitrineRoute } from "./components/vitrine/vitrineTypes";
 import { BelinhaPDV } from "./components/erp/BelinhaPDV";
 import { SalesHistory } from "./components/erp/SalesHistory";
 import { ProductsCatalog } from "./components/erp/ProductsCatalog";
+import { ExpressProductsManagement } from "./components/erp/ExpressProductsManagement";
 import { InboundInvoices } from "./components/erp/InboundInvoices";
 import { ControlledMedicationsPortal } from "./components/erp/ControlledMedicationsPortal";
 import { FiscalAccountingView } from "./components/FiscalAccountingView";
@@ -1523,6 +1524,9 @@ const App: React.FC = () => {
               )}
               {currentView === "erp-produtos" && (
                 <ProductsCatalog user={user} onNavigate={handleNavigate} />
+              )}
+              {currentView === "erp-express-products" && (
+                <ExpressProductsManagement user={user} onNavigate={handleNavigate} />
               )}
               {currentView === "erp-promocoes" && (
                 <PromotionsManagerPage user={user} />

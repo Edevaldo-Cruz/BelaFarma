@@ -44,7 +44,9 @@ import {
   WifiOff,
   Download,
   Copy,
-  MonitorDown
+  MonitorDown,
+  Pause,
+  Play
 } from 'lucide-react';
 import { useToast } from '../ToastContext';
 import { BelaFarmaLogo } from '../BelaFarmaLogo';
@@ -330,6 +332,9 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
   // Cupom Concluído e Fiscal
   const [completedSale, setCompletedSale] = useState<any | null>(null);
   const completedSaleTimeRef = useRef<number>(0);
+  const [saleModalCountdown, setSaleModalCountdown] = useState<number>(15);
+  const [isCountdownPaused, setIsCountdownPaused] = useState<boolean>(false);
+  const [pendingExpressCount, setPendingExpressCount] = useState<number>(0);
   const [emitNfce, setEmitNfce] = useState<boolean>(() => {
     try {
       const saved = localStorage.getItem('belaped_emit_nfce_default');
@@ -771,6 +776,62 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
       focusBarcodeInput();
     }
   }, [currentSeller, handleOpenSellerModal, focusBarcodeInput]);
+
+  // Contagem de produtos expressos pendentes de saneamento
+  const fetchPendingExpressCount = useCallback(async () => {
+    try {
+      const res = await fetch('/api/erp/sanitization/tasks/summary');
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && json.summary) {
+          setPendingExpressCount(json.summary.pendentes || 0);
+        }
+      }
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    fetchPendingExpressCount();
+    const interval = setInterval(fetchPendingExpressCount, 30000);
+    return () => clearInterval(interval);
+  }, [fetchPendingExpressCount]);
+
+  // Timer de 15 segundos para fechar modal de finalização de venda
+  useEffect(() => {
+    if (!completedSale) {
+      setSaleModalCountdown(15);
+      setIsCountdownPaused(false);
+      return;
+    }
+
+    // Busca QR Code e dados enriquecidos se ainda não estiver presente
+    if (completedSale.sale_id && !completedSale.qr_code_base64) {
+      fetch(`/api/erp/sales/${encodeURIComponent(completedSale.sale_id)}/receipt-data`)
+        .then(r => r.json())
+        .then(res => {
+          if (res.success && res.data?.qr_code_base64) {
+            setCompletedSale((prev: any) => prev ? { ...prev, qr_code_base64: res.data.qr_code_base64 } : prev);
+          }
+        })
+        .catch(() => {});
+    }
+
+    if (isCountdownPaused) return;
+
+    const timer = setInterval(() => {
+      setSaleModalCountdown((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          setCompletedSale(null);
+          focusBarcodeInput();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [completedSale, isCountdownPaused, focusBarcodeInput]);
 
   // Abertura da modal de produto não cadastrado / sem código de barras (*123)
   const handleOpenUnregisteredModal = useCallback((barcode: string, qty: number = 1) => {
@@ -1822,6 +1883,56 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
     fetchRecentSales();
   };
 
+  // Impressão rápida de cupom da venda (com QR Code mesmo não fiscal)
+  const handlePrintSaleReceipt = async (sale: any) => {
+    if (!sale?.id) return;
+    try {
+      addToast('Carregando comprovante com QR Code...', 'info', 1500);
+      const res = await fetch(`/api/erp/sales/${encodeURIComponent(sale.id)}/receipt-data`);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && json.data) {
+          imprimirCupomVenda(json.data, true);
+          addToast('🖨️ Cupom enviado para impressão térmica!', 'info', 2500);
+          return;
+        }
+      }
+      // Fallback para rota padrão de venda
+      const fallbackRes = await fetch(`/api/erp/sales/${encodeURIComponent(sale.id)}`);
+      if (fallbackRes.ok) {
+        const fullJson = await fallbackRes.json();
+        const saleObj = fullJson.sale || fullJson.data;
+        if (saleObj) {
+          imprimirCupomVenda(saleObj, true);
+          addToast('🖨️ Cupom enviado para impressão térmica!', 'info', 2500);
+          return;
+        }
+      }
+      addToast('Não foi possível carregar os dados de impressão desta venda.', 'error');
+    } catch {
+      addToast('Erro ao imprimir comprovante de venda.', 'error');
+    }
+  };
+
+  // Abertura de DANFE NFC-e a partir da lista
+  const handleOpenDanfeFromList = async (sale: any) => {
+    if (!sale?.id) return;
+    try {
+      const res = await fetch(`/api/erp/fiscal/danfe/${encodeURIComponent(sale.id)}`);
+      if (res.ok) {
+        const json = await res.json();
+        const danfeObj = json.danfe || (json.nfe_number ? json : null);
+        if (danfeObj) {
+          setActiveDanfeModal(danfeObj);
+          return;
+        }
+      }
+      addToast('DANFE NFC-e não disponível para esta venda.', 'warning');
+    } catch {
+      addToast('Erro ao carregar DANFE NFC-e.', 'error');
+    }
+  };
+
   const [isSyncingDigifarma, setIsSyncingDigifarma] = useState(false);
 
   const handleSyncPendingDigifarma = async () => {
@@ -2108,6 +2219,27 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
             <Database className="w-3.5 h-3.5 text-sky-400" />
             <span className="hidden md:inline">Digifarma Sync</span>
           </button>
+
+          {/* Atalho para Produtos Expressos PDV */}
+          {onNavigate && (
+            <button
+              onClick={() => onNavigate('erp-express-products')}
+              className={`flex items-center gap-1 px-2 py-1 rounded-md border text-[11px] font-bold transition cursor-pointer ${
+                pendingExpressCount > 0
+                  ? 'bg-amber-500/25 text-amber-200 border-amber-400/60 hover:bg-amber-500/35 shadow-sm shadow-amber-950/40'
+                  : 'bg-white/10 hover:bg-white/20 text-slate-300 border-white/15'
+              }`}
+              title="Visualizar produtos cadastrados expressamente no PDV para saneamento no Digifarma"
+            >
+              <Zap className={`w-3.5 h-3.5 ${pendingExpressCount > 0 ? 'text-amber-400' : 'text-slate-400'}`} />
+              <span className="hidden lg:inline">Expressos</span>
+              {pendingExpressCount > 0 && (
+                <span className="bg-amber-500 text-slate-950 font-black px-1.5 py-0.2 rounded-full text-[10px]">
+                  {pendingExpressCount}
+                </span>
+              )}
+            </button>
+          )}
 
           {/* Pílula SNGPC */}
           <div
@@ -3720,17 +3852,66 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
           `}</style>
 
           <div className="bg-slate-900 border border-slate-700 rounded-3xl shadow-2xl max-w-md w-full p-6 animate-in fade-in zoom-in-95 duration-200 relative">
-            {/* Botão de Fechar Rápido Superior */}
-            <button
-              onClick={() => {
-                setCompletedSale(null);
-                focusBarcodeInput();
-              }}
-              className="absolute right-4 top-4 text-slate-400 hover:text-white p-1 rounded-lg no-print transition-colors"
-              title="Voltar para a tela anterior (ESC)"
-            >
-              <X className="w-5 h-5" />
-            </button>
+            {/* Header da Modal com Timer de 15 Segundos e Fechamento Automático */}
+            <div className="mb-4 no-print space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-2.5 w-2.5 relative">
+                    <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
+                      isCountdownPaused ? 'bg-amber-400' : 'bg-emerald-400'
+                    }`}></span>
+                    <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${
+                      isCountdownPaused ? 'bg-amber-500' : 'bg-emerald-500'
+                    }`}></span>
+                  </span>
+                  <span className="font-bold text-slate-200">
+                    {isCountdownPaused ? (
+                      <span className="text-amber-300">Timer pausado em {saleModalCountdown}s</span>
+                    ) : (
+                      <>Fechando em <span className="font-mono text-emerald-400 font-black text-sm">{saleModalCountdown}s</span></>
+                    )}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setIsCountdownPaused(!isCountdownPaused)}
+                    className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-[11px] font-bold flex items-center gap-1 transition cursor-pointer"
+                    title={isCountdownPaused ? "Retomar fechamento automático" : "Pausar fechamento automático"}
+                  >
+                    {isCountdownPaused ? <Play className="w-3 h-3 text-emerald-400" /> : <Pause className="w-3 h-3 text-amber-400" />}
+                    <span>{isCountdownPaused ? "Retomar" : "Pausar"}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCompletedSale(null);
+                      focusBarcodeInput();
+                    }}
+                    className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-[11px] font-bold transition cursor-pointer"
+                    title="Fechar imediatamente e voltar ao caixa (ESC)"
+                  >
+                    Fechar Agora
+                  </button>
+                </div>
+              </div>
+
+              {/* Barra de Progresso Visual de 15s */}
+              <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                <div
+                  className={`h-full transition-all duration-1000 ease-linear ${
+                    isCountdownPaused
+                      ? 'bg-amber-400'
+                      : saleModalCountdown <= 3
+                      ? 'bg-rose-500'
+                      : saleModalCountdown <= 7
+                      ? 'bg-amber-400'
+                      : 'bg-emerald-500'
+                  }`}
+                  style={{ width: `${Math.max(0, Math.min(100, (saleModalCountdown / 15) * 100))}%` }}
+                />
+              </div>
+            </div>
 
             <div id="thermal-pdv-receipt" className="bg-white text-slate-900 p-4 rounded-xl font-mono text-[11px] leading-tight shadow-inner">
               <div className="text-center border-b border-dashed border-slate-300 pb-3 mb-3">
@@ -3863,6 +4044,21 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
                     })()}
                   </div>
                 </div>
+
+                {/* QR Code de Autenticidade / Consulta (Padrão Digifarma) */}
+                {completedSale.qr_code_base64 && (
+                  <div className="flex flex-col items-center justify-center my-3 text-center border-t border-dashed border-slate-300 pt-3">
+                    <img 
+                      src={completedSale.qr_code_base64} 
+                      alt="QR Code Cupom" 
+                      className="w-28 h-28 mx-auto" 
+                      style={{ imageRendering: 'pixelated' }} 
+                    />
+                    <span className="text-[9px] text-slate-600 font-bold mt-1 uppercase tracking-wide">
+                      Consulta via QR Code • Autenticidade BelaFarma
+                    </span>
+                  </div>
+                )}
 
                 <div className="text-[8px] text-slate-400 text-center pt-2 border-t border-dashed border-slate-200 mt-1">
                   Documento auxiliar de conferência de compra
@@ -4000,16 +4196,38 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
                       {inspectedSaleDetail.status}
                     </span>
                   </div>
-                  <div className="text-right">
-                    <span className="text-slate-400 text-[11px]">Total: </span>
-                    <span className="font-mono font-bold text-emerald-400">
-                      R$ {Number(inspectedSaleDetail.total_value).toFixed(2)}
-                    </span>
-                    {Number(inspectedSaleDetail.returned_value || 0) > 0 && (
-                      <span className="text-[10px] text-rose-400 ml-2 font-mono">
-                        (Estornado: R$ {Number(inspectedSaleDetail.returned_value).toFixed(2)})
-                      </span>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => handlePrintSaleReceipt(inspectedSaleDetail)}
+                      className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold text-xs flex items-center gap-1 transition cursor-pointer"
+                      title="Reimprimir cupom desta venda com QR Code"
+                    >
+                      <Printer className="w-3.5 h-3.5 text-emerald-400" />
+                      Cupom
+                    </button>
+                    {(inspectedSaleDetail.nfe_number || inspectedSaleDetail.fiscal_status === 'EMITIDO' || inspectedSaleDetail.fiscal_status === 'CONTINGENCIA') && (
+                      <button
+                        type="button"
+                        onClick={() => handleOpenDanfeFromList(inspectedSaleDetail)}
+                        className="px-2 py-1 rounded-lg bg-emerald-700/60 hover:bg-emerald-600 text-emerald-100 border border-emerald-600/50 font-bold text-xs flex items-center gap-1 transition cursor-pointer"
+                        title="Visualizar / Imprimir DANFE NFC-e"
+                      >
+                        <QrCode className="w-3.5 h-3.5 text-emerald-300" />
+                        DANFE
+                      </button>
                     )}
+                    <div className="text-right">
+                      <span className="text-slate-400 text-[11px]">Total: </span>
+                      <span className="font-mono font-bold text-emerald-400">
+                        R$ {Number(inspectedSaleDetail.total_value).toFixed(2)}
+                      </span>
+                      {Number(inspectedSaleDetail.returned_value || 0) > 0 && (
+                        <span className="text-[10px] text-rose-400 ml-2 font-mono">
+                          (Estornado: R$ {Number(inspectedSaleDetail.returned_value).toFixed(2)})
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
 
@@ -4179,7 +4397,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
                         )}
                       </div>
 
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="text-base font-black font-mono text-emerald-400 mr-1">
                           R$ {Number(s.total_value).toFixed(2)}
                         </span>
@@ -4193,14 +4411,34 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
                           Itens
                         </button>
 
+                        <button
+                          onClick={() => handlePrintSaleReceipt(s)}
+                          className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs flex items-center gap-1 border border-slate-700 shadow-sm transition-colors cursor-pointer"
+                          title="Reimprimir Cupom / Notinha desta venda (com QR Code de consulta)"
+                        >
+                          <Printer className="w-3.5 h-3.5 text-emerald-400" />
+                          Cupom
+                        </button>
+
+                        {(s.nfe_number || s.fiscal_status === 'EMITIDO' || s.fiscal_status === 'CONTINGENCIA') && (
+                          <button
+                            onClick={() => handleOpenDanfeFromList(s)}
+                            className="px-2.5 py-1.5 rounded-xl bg-emerald-700/60 hover:bg-emerald-600 text-emerald-100 font-bold text-xs flex items-center gap-1 border border-emerald-600/50 shadow-sm transition-colors cursor-pointer"
+                            title={`Visualizar / Imprimir DANFE NFC-e #${s.nfe_number || ''}`}
+                          >
+                            <QrCode className="w-3.5 h-3.5 text-emerald-300" />
+                            NFC-e
+                          </button>
+                        )}
+
                         {s.status !== 'CANCELADA' && (
                           <button
                             onClick={() => setSaleToCancel(s)}
-                            className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center gap-1 shadow-sm transition-colors cursor-pointer"
+                            className="px-2.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center gap-1 shadow-sm transition-colors cursor-pointer"
                             title="Cancelar toda a venda e estornar estoque completo"
                           >
                             <RotateCcw className="w-3.5 h-3.5" />
-                            Cancelar Venda
+                            Cancelar
                           </button>
                         )}
                       </div>

@@ -52,6 +52,8 @@ import {
   FileSpreadsheet, // Added for Entrada de NF-e ERP
   ChevronDown,
   ChevronRight,
+  Sparkle,
+  Zap,
 } from 'lucide-react';
 import { View, User, UserRole, Task, Boleto, BoletoStatus } from '../types';
 import { NotificationPanel } from './NotificationPanel';
@@ -276,6 +278,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'controlled-medications', label: 'Controle Especial & SNGPC', icon: ShieldCheck },
     { id: 'erp-promocoes', label: 'Promoções & Escalonados', icon: Sparkles },
     { id: 'erp-produtos', label: 'Estoque ERP', icon: Package },
+    { id: 'erp-express-products', label: 'Produtos Expressos PDV', icon: Zap },
     { id: 'erp-nfe', label: 'Entrada NF-e', icon: FileSpreadsheet },
     { id: 'fiscal-contabil', label: 'Fiscal & Simples', icon: Receipt },
     { id: 'anvisa-alerts', label: 'Alertas ANVISA', icon: ShieldAlert },
@@ -457,6 +460,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       itemIds: [
         'erp-promocoes',
         'erp-produtos',
+        'erp-express-products',
         'erp-nfe',
         'medication-search',
         'anvisa-alerts',

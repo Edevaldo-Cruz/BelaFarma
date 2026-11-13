@@ -81,6 +81,9 @@ const { gerarArquivoSintegra } = require('./sintegra.service');
 const {
   cadastrarProdutoExpresso,
   listarTarefasSaneamento,
+  obterResumoTarefasSaneamento,
+  atualizarTarefaSaneamento,
+  excluirTarefaSaneamento,
   sanearProdutoECadastrarDigifarma,
   sincronizarPrecosEscalonadosDigifarma,
   obterPrecosEscalonados,
@@ -532,13 +535,60 @@ router.post('/pos/quick-product', (req, res) => {
   }
 });
 
+// ==========================================
+// PRODUTOS EXPRESSOS (BIPADOS NO PDV) & SANEAMENTO
+// ==========================================
 router.get('/sanitization/tasks', (req, res) => {
   try {
-    const { status } = req.query;
-    const tasks = listarTarefasSaneamento(status);
+    const { status, q, limit } = req.query;
+    const tasks = listarTarefasSaneamento({
+      status: status || 'TODOS',
+      query: q || '',
+      limit: parseInt(limit, 10) || 200
+    });
     res.json({ success: true, tasks });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+router.get('/sanitization/tasks/summary', (req, res) => {
+  try {
+    const summary = obterResumoTarefasSaneamento();
+    res.json({ success: true, summary });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+router.post('/sanitization/tasks', (req, res) => {
+  try {
+    const userName = req.headers['x-user-name'] || req.body.user_name || 'Caixa';
+    const result = cadastrarProdutoExpresso({
+      ...req.body,
+      user_name: userName
+    });
+    res.json({ success: true, product: result });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+router.put('/sanitization/tasks/:id', (req, res) => {
+  try {
+    const updated = atualizarTarefaSaneamento(parseInt(req.params.id, 10), req.body);
+    res.json({ success: true, task: updated });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+router.delete('/sanitization/tasks/:id', (req, res) => {
+  try {
+    const result = excluirTarefaSaneamento(parseInt(req.params.id, 10));
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
   }
 });
 
@@ -687,6 +737,45 @@ router.get('/sales/:id', (req, res) => {
       return res.status(404).json({ success: false, error: 'Venda não encontrada.' });
     }
     res.json({ success: true, data: venda });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+router.get('/sales/:id/receipt-data', async (req, res) => {
+  try {
+    const QRCode = require('qrcode');
+    const venda = obterVendaDetalhada(req.params.id);
+    if (!venda) {
+      return res.status(404).json({ success: false, error: 'Venda não encontrada.' });
+    }
+
+    // Se a venda possui QR Code fiscal oficial da NFC-e (SEFAZ), usa a URL oficial
+    let qrPayload = venda.qr_code_url;
+    if (!qrPayload) {
+      // Padrão Digifarma: QR Code de conferência e autenticidade da notinha
+      qrPayload = `https://chatbot-jtsj.onrender.com/cupom/${venda.id}?data=${encodeURIComponent(venda.sale_date)}&total=${venda.total_value}&cnpj=33614820000101`;
+    }
+
+    let qrCodeBase64 = '';
+    try {
+      qrCodeBase64 = await QRCode.toDataURL(qrPayload, {
+        width: 150,
+        margin: 1,
+        color: { dark: '#000000', light: '#ffffff' }
+      });
+    } catch (eQr) {
+      console.warn('[Receipt Data] Falha ao gerar QR Code base64:', eQr.message);
+    }
+
+    res.json({
+      success: true,
+      data: {
+        ...venda,
+        qr_code_base64: qrCodeBase64,
+        qr_code_url: qrPayload
+      }
+    });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }

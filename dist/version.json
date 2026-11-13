@@ -1,9 +1,14 @@
 {
   "version": "1.2.6",
-  "commitHash": "f3b3b74",
-  "commitMessage": "feat(sync): propaga atualizacao de precos e estoque do Digifarma em cascata para a tabela nativa products",
-  "buildTime": "13/11/2026, 17:45:08",
+  "commitHash": "4037e2b",
+  "commitMessage": "feat(pdv): adiciona botao e navegacao direta para o Catalogo de Produtos do ERP no cabecalho do PDV",
+  "buildTime": "13/11/2026, 18:15:59",
   "recentCommits": [
+    {
+      "hash": "4037e2b",
+      "date": "13/11/2026",
+      "message": "feat(pdv): adiciona botao e navegacao direta para o Catalogo de Produtos do ERP no cabecalho do PDV"
+    },
     {
       "hash": "f3b3b74",
       "date": "13/11/2026",
@@ -58,11 +63,6 @@
       "hash": "64f5fbd",
       "date": "12/11/2026",
       "message": "fix(pdv): blindagem contra saida da tela do PDV e correcao da impressao direta do cupom fiscal NFC-e"
-    },
-    {
-      "hash": "8a24485",
-      "date": "12/11/2026",
-      "message": "fix(pdv): correcao de precos, integracao direta do Digifarma, desclassificacao de ibuprofeno como controlado e auto-importacao de produtos novos"
     }
   ]
 }

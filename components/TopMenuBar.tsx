@@ -46,6 +46,7 @@ import {
   TableProperties,
   Flame,
   FileSpreadsheet,
+  Zap,
 } from 'lucide-react';
 import { View, User, UserRole, Task, Boleto, BoletoStatus } from '../types';
 import { NotificationPanel } from './NotificationPanel';
@@ -329,6 +330,7 @@ export const TopMenuBar: React.FC<TopMenuBarProps> = ({
       label: 'Estoque & Farmácia',
       items: [
         { id: 'erp-produtos', label: 'Estoque ERP', icon: Package },
+        { id: 'erp-express-products', label: 'Produtos Expressos PDV', icon: Zap },
         { id: 'erp-nfe', label: 'Entrada NF-e', icon: FileSpreadsheet, adminOnly: true },
         { id: 'medication-search', label: 'Consultar Medicamentos', icon: Search },
         { id: 'anvisa-alerts', label: 'Alertas ANVISA', icon: ShieldAlert },

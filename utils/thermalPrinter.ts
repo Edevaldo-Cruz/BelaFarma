@@ -26,6 +26,8 @@ export interface CupomVendaData {
     amount?: number;
   };
   change?: number;
+  qr_code_base64?: string;
+  qr_code_url?: string;
 }
 
 export interface DanfeNfceData {
@@ -411,6 +413,19 @@ export function imprimirCupomVenda(venda: CupomVendaData, forceDirect: boolean =
       ` : ''}
 
       <div class="divider"></div>
+
+      ${venda.qr_code_base64 ? `
+        <div class="text-center" style="margin: 6px 0;">
+          <div style="font-size: 9px; font-weight: 900; text-transform: uppercase; margin-bottom: 2px;">
+            Consulta via QR Code
+          </div>
+          <img src="${venda.qr_code_base64}" alt="QR Code Cupom" style="width: 120px; height: 120px; margin: 0 auto; display: block; image-rendering: pixelated;" />
+          <div style="font-size: 8px; font-weight: 700; margin-top: 2px; color: #000;">
+            Autenticidade e Conferência • BelaFarma
+          </div>
+        </div>
+        <div class="divider"></div>
+      ` : ''}
 
       <div class="footer">
         <div>OBRIGADO PELA PREFERÊNCIA!</div>

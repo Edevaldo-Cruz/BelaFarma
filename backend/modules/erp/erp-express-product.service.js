@@ -102,21 +102,112 @@ function cadastrarProdutoExpresso({ name, sale_price, barcode_read = '', categor
 
 /**
  * Lista as tarefas de saneamento fiscal
- * @param {string} status 'TODOS' | 'PENDENTE' | 'SANEADO'
+ * @param {Object} options
  * @returns {Array} Lista de tarefas
  */
-function listarTarefasSaneamento(status = 'PENDENTE') {
+function listarTarefasSaneamento(options = {}) {
   initErpDatabase();
-  let sql = 'SELECT * FROM product_sanitization_tasks';
+  const status = typeof options === 'string' ? options : (options?.status || 'TODOS');
+  const query = typeof options === 'object' ? (options?.query || '') : '';
+  const limit = typeof options === 'object' ? (parseInt(options?.limit, 10) || 200) : 200;
+
+  let sql = 'SELECT * FROM product_sanitization_tasks WHERE 1=1';
   const params = [];
 
   if (status && status !== 'TODOS') {
-    sql += ' WHERE status = ?';
+    sql += ' AND status = ?';
     params.push(status);
   }
 
-  sql += ' ORDER BY id DESC LIMIT 200';
+  const cleanQ = (query || '').trim();
+  if (cleanQ) {
+    sql += ' AND (product_name LIKE ? OR barcode_read LIKE ? OR product_code LIKE ?)';
+    const pStr = `%${cleanQ}%`;
+    params.push(pStr, pStr, pStr);
+  }
+
+  sql += ' ORDER BY id DESC LIMIT ?';
+  params.push(limit);
   return db.prepare(sql).all(...params);
+}
+
+/**
+ * Retorna contadores gerais das tarefas de saneamento
+ */
+function obterResumoTarefasSaneamento() {
+  initErpDatabase();
+  const pendentes = db.prepare("SELECT COUNT(*) as c FROM product_sanitization_tasks WHERE status = 'PENDENTE'").get()?.c || 0;
+  const saneados = db.prepare("SELECT COUNT(*) as c FROM product_sanitization_tasks WHERE status = 'SANEADO'").get()?.c || 0;
+  const total = db.prepare("SELECT COUNT(*) as c FROM product_sanitization_tasks").get()?.c || 0;
+  return { total, pendentes, saneados };
+}
+
+/**
+ * Atualiza os dados de um produto expresso
+ */
+function atualizarTarefaSaneamento(id, dados = {}) {
+  initErpDatabase();
+  const task = db.prepare('SELECT * FROM product_sanitization_tasks WHERE id = ?').get(id);
+  if (!task) throw new Error(`Produto expresso #${id} não encontrado.`);
+
+  const nome = dados.product_name ? String(dados.product_name).trim().toUpperCase() : task.product_name;
+  const precoVenda = dados.sale_price !== undefined ? Math.max(0.01, parseFloat(dados.sale_price) || 0) : task.sale_price;
+  const precoCusto = dados.cost_price !== undefined ? Math.max(0, parseFloat(dados.cost_price) || 0) : task.cost_price;
+  const barcode = dados.barcode_read !== undefined ? String(dados.barcode_read).trim() : task.barcode_read;
+  const ncmDef = dados.ncm_definitive !== undefined ? (dados.ncm_definitive ? String(dados.ncm_definitive).replace(/\D/g, '') : null) : task.ncm_definitive;
+  const cestDef = dados.cest_definitive !== undefined ? (dados.cest_definitive ? String(dados.cest_definitive).replace(/\D/g, '') : null) : task.cest_definitive;
+  const categoria = dados.category || task.category;
+  const status = dados.status || task.status;
+
+  db.prepare(`
+    UPDATE product_sanitization_tasks
+    SET product_name = ?,
+        sale_price = ?,
+        cost_price = ?,
+        barcode_read = ?,
+        ncm_definitive = ?,
+        cest_definitive = ?,
+        category = ?,
+        status = ?,
+        updated_at = datetime('now', 'localtime')
+    WHERE id = ?
+  `).run(nome, precoVenda, precoCusto, barcode, ncmDef, cestDef, categoria, status, id);
+
+  // Sincroniza alterações na tabela products nativa do ERP
+  try {
+    db.prepare(`
+      UPDATE products
+      SET name = ?,
+          sale_price = ?,
+          cost_price = ?,
+          barcode = ?,
+          ncm = COALESCE(?, ncm),
+          cest = COALESCE(?, cest),
+          updated_at = datetime('now', 'localtime')
+      WHERE code = ?
+    `).run(nome, precoVenda, precoCusto, barcode, ncmDef, cestDef, task.product_code);
+  } catch (eSync) {}
+
+  return db.prepare('SELECT * FROM product_sanitization_tasks WHERE id = ?').get(id);
+}
+
+/**
+ * Remove um produto expresso e seu registro provisório no catálogo
+ */
+function excluirTarefaSaneamento(id) {
+  initErpDatabase();
+  const task = db.prepare('SELECT * FROM product_sanitization_tasks WHERE id = ?').get(id);
+  if (!task) throw new Error(`Produto expresso #${id} não encontrado.`);
+
+  db.prepare('DELETE FROM product_sanitization_tasks WHERE id = ?').run(id);
+
+  try {
+    if (task.product_code && task.product_code.startsWith('EXP')) {
+      db.prepare('DELETE FROM products WHERE code = ?').run(task.product_code);
+    }
+  } catch (eDel) {}
+
+  return { success: true, id, product_code: task.product_code };
 }
 
 /**
@@ -481,6 +572,9 @@ function calcularDescontoEscalonado(item, regras = []) {
 module.exports = {
   cadastrarProdutoExpresso,
   listarTarefasSaneamento,
+  obterResumoTarefasSaneamento,
+  atualizarTarefaSaneamento,
+  excluirTarefaSaneamento,
   sanearProdutoECadastrarDigifarma,
   sincronizarPrecosEscalonadosDigifarma,
   obterPrecosEscalonados,

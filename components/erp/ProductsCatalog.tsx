@@ -16,7 +16,8 @@ import {
   Database,
   ArrowUpDown,
   Sparkles,
-  ShoppingCart
+  ShoppingCart,
+  Zap
 } from 'lucide-react';
 import { useToast } from '../ToastContext';
 import { PromotionsManagementModal } from './PromotionsManagementModal';
@@ -307,6 +308,17 @@ export const ProductsCatalog: React.FC<ProductsCatalogProps> = ({ user, onNaviga
             <Sparkles className="w-3.5 h-3.5" />
             Promoções & Validade
           </button>
+
+          {onNavigate && (
+            <button
+              onClick={() => onNavigate('erp-express-products')}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30 text-xs font-bold transition-all shadow-sm"
+              title="Visualizar produtos cadastrados expressamente no PDV pendentes de saneamento no Digifarma"
+            >
+              <Zap className="w-3.5 h-3.5" />
+              Produtos Expressos PDV
+            </button>
+          )}
 
           <button
             onClick={() => setIsSyncModalOpen(true)}
