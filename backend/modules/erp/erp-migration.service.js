@@ -72,6 +72,9 @@ async function executarMigracaoErp({ forceCacheOnly = false, resetTables = false
           VALOR_ULT_COMPRA,
           PROD_CMV,
           PROD_PRPROMOCAO,
+          INICIO_PROMOCAO,
+          TERMINO_PROMOCAO,
+          PROMOCAO_PERMANENTE,
           TRIBUTACAO_MONOFASICA,
           CST_PIS,
           CST_COFINS,
@@ -85,14 +88,39 @@ async function executarMigracaoErp({ forceCacheOnly = false, resetTables = false
         WHERE PROD_ATIVO = 'S'
       `, [], 90000);
 
+      // Mapeamento prévio de curvas ABC do cache para preservar inteligência
+      const curvasMap = new Map();
+      try {
+        const rowsCurva = db.prepare('SELECT produto_id, curva FROM digifarma_products_cache WHERE curva IS NOT NULL').all();
+        for (const rc of rowsCurva) {
+          const pid = String(rc.produto_id).replace(/\.0+$/, '');
+          curvasMap.set(pid, rc.curva);
+        }
+      } catch (eC) {}
+
+      const formatPromoDate = (dt) => {
+        if (!dt) return null;
+        try {
+          const d = new Date(dt);
+          if (isNaN(d.getTime())) return null;
+          return d.toISOString().split('T')[0];
+        } catch {
+          return null;
+        }
+      };
+
       produtosParaMigrar = fbProducts.map(p => {
         const cmv = parseFloat(p.PROD_CMV || 0);
         const pUlt = parseFloat(p.VALOR_ULT_COMPRA || 0);
         const pCompra = parseFloat(p.PROD_PRCOMPRA || 0);
         const custo = cmv > 0 ? cmv : (pUlt > 0 ? pUlt : pCompra);
+        const pidStr = String(p.PRODUTO_ID);
+        const dtInicio = formatPromoDate(p.INICIO_PROMOCAO);
+        const dtFim = formatPromoDate(p.TERMINO_PROMOCAO);
+        const isPerm = p.PROMOCAO_PERMANENTE === 'S' || (!dtInicio && !dtFim && parseFloat(p.PROD_PRPROMOCAO || 0) > 0) ? 1 : 0;
 
         return {
-          code: String(p.PRODUTO_ID),
+          code: pidStr,
           barcode: (p.COD_BARRAS || '').trim(),
           name: (p.PRODUTO || '').trim(),
           presentation: (p.APRESENTACAO || '').trim(),
@@ -101,7 +129,7 @@ async function executarMigracaoErp({ forceCacheOnly = false, resetTables = false
           promo_price: parseFloat(p.PROD_PRPROMOCAO || 0),
           cost_price: custo,
           stock_qty: parseFloat(p.PROD_SALDO || 0),
-          curve: 'C',
+          curve: curvasMap.get(pidStr) || 'C',
           tributacao_monofasica: p.TRIBUTACAO_MONOFASICA || null,
           cst_pis: p.CST_PIS || null,
           cst_cofins: p.CST_COFINS || null,
@@ -110,7 +138,10 @@ async function executarMigracaoErp({ forceCacheOnly = false, resetTables = false
           ncm: p.NCM ? String(p.NCM).trim() : null,
           cest: p.CEST ? String(p.CEST).trim() : null,
           psicotropico: p.PSICOTROPICO === 'S' ? 'S' : 'N',
-          antimicrobiano: p.ANTIMICROBIANO === 'S' ? 'S' : 'N'
+          antimicrobiano: p.ANTIMICROBIANO === 'S' ? 'S' : 'N',
+          promo_start_date: dtInicio,
+          promo_end_date: dtFim,
+          promo_permanent: isPerm
         };
       });
     } catch (fbErr) {
@@ -159,7 +190,12 @@ async function executarMigracaoErp({ forceCacheOnly = false, resetTables = false
       aliquota_st: p.aliquota_st,
       imposto_aliq: p.imposto_aliq,
       ncm: p.ncm,
-      cest: p.cest
+      cest: p.cest,
+      psicotropico: 'N',
+      antimicrobiano: 'N',
+      promo_start_date: null,
+      promo_end_date: null,
+      promo_permanent: 0
     }));
   }
 
@@ -170,12 +206,14 @@ async function executarMigracaoErp({ forceCacheOnly = false, resetTables = false
       sale_price, promo_price, cost_price, stock_qty, curve,
       tributacao_monofasica, cst_pis, cst_cofins, aliquota_st, imposto_aliq, ncm, cest,
       psicotropico, antimicrobiano,
+      promo_start_date, promo_end_date, promo_permanent,
       is_active, updated_at
     ) VALUES (
       @code, @barcode, @name, @presentation, @category_id,
       @sale_price, @promo_price, @cost_price, @stock_qty, @curve,
       @tributacao_monofasica, @cst_pis, @cst_cofins, @aliquota_st, @imposto_aliq, @ncm, @cest,
       @psicotropico, @antimicrobiano,
+      @promo_start_date, @promo_end_date, @promo_permanent,
       1, datetime('now', 'localtime')
     )
     ON CONFLICT(code) DO UPDATE SET
@@ -197,6 +235,9 @@ async function executarMigracaoErp({ forceCacheOnly = false, resetTables = false
       cest = excluded.cest,
       psicotropico = excluded.psicotropico,
       antimicrobiano = excluded.antimicrobiano,
+      promo_start_date = excluded.promo_start_date,
+      promo_end_date = excluded.promo_end_date,
+      promo_permanent = excluded.promo_permanent,
       is_active = 1,
       updated_at = datetime('now', 'localtime')
   `);
