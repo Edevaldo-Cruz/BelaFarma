@@ -287,6 +287,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'checking-account', label: 'Conta Corrente', icon: Banknote },
     { id: 'medication-search', label: 'Consultar Méd.', icon: Search },
     { id: 'debtors-report', label: 'Devedores', icon: AlertTriangle },
+    { id: 'crediario-report', label: 'Central do Crediário', icon: CreditCard },
     { id: 'cash-closing', label: 'Fechamento', icon: Calculator },
     { id: 'agenda', label: 'Agenda & Tarefas', icon: Calendar },
     { id: 'notes', label: 'Anotações', icon: NotebookPen },
@@ -407,7 +408,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     const auditItem = auditMap[item.id];
     if (auditItem && auditItem.status === 'UNINSTALLED') return false;
 
-    const adminOnly = ['fiscal-contabil', 'logs', 'belaped', 'central-compras', 'checking-account', 'cash-closing', 'financial', 'contas-a-pagar', 'users', 'safe', 'debtors-report', 'backups', 'consignados', 'invoices', 'ifood-control', 'messaging-center', 'belafarma-ia', 'ai-portal', 'radio-manager', 'whatsapp-crm', 'stock', 'financial-health', 'caixa-provisoes', 'sales-report', 'critical-stock', 'system-watcher', 'purchase-calendar', 'price-manager', 'card-machines', 'liquidacao-caixa', 'erp-nfe', 'promocoes-whatsapp', 'suppliers']; 
+    const adminOnly = ['fiscal-contabil', 'logs', 'belaped', 'central-compras', 'checking-account', 'cash-closing', 'financial', 'contas-a-pagar', 'users', 'safe', 'debtors-report', 'crediario-report', 'backups', 'consignados', 'invoices', 'ifood-control', 'messaging-center', 'belafarma-ia', 'ai-portal', 'radio-manager', 'whatsapp-crm', 'stock', 'financial-health', 'caixa-provisoes', 'sales-report', 'critical-stock', 'system-watcher', 'purchase-calendar', 'price-manager', 'card-machines', 'liquidacao-caixa', 'erp-nfe', 'promocoes-whatsapp', 'suppliers']; 
 
     if (adminOnly.includes(item.id) && !isAdmin) return false;
     return true;
@@ -481,11 +482,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ]
     },
     {
+      id: 'crediario',
+      label: 'Crediário & Cobrança',
+      itemIds: [
+        'crediario-report',
+        'debtors-report'
+      ]
+    },
+    {
       id: 'financeiro',
       label: 'Financeiro & Fiscal',
       itemIds: [
         'cash-closing',
         'caixa-provisoes',
+        'crediario-report',
         'contas-a-pagar',
         'checking-account',
         'debtors-report',
@@ -571,6 +581,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
     if (catId === 'compras') {
       return purchasingPendingCount;
+    }
+    if (catId === 'crediario') {
+      return (hasOverdue ? 1 : 0);
     }
     if (catId === 'financeiro') {
       return (hasOverdue ? 1 : 0);
@@ -1013,7 +1026,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         Destaque
                       </span>
                     )}
-                    {item.id === 'debtors-report' && hasOverdue && !showCleanupCheckboxes && (
+                    {(item.id === 'debtors-report' || item.id === 'crediario-report') && hasOverdue && !showCleanupCheckboxes && (
                       <span className="ml-auto w-2 h-2 bg-red-600 rounded-full animate-pulse shadow-sm" title="Existem clientes com pagamento atrasado" />
                     )}
                     {item.id === 'anvisa-alerts' && anvisaAlertCount > 0 && !showCleanupCheckboxes && (

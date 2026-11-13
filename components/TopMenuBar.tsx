@@ -357,11 +357,20 @@ export const TopMenuBar: React.FC<TopMenuBarProps> = ({
       ],
     },
     {
+      id: 'crediario',
+      label: 'Crediário',
+      items: [
+        { id: 'crediario-report', label: 'Central do Crediário', icon: CreditCard, adminOnly: true },
+        { id: 'debtors-report', label: 'Clientes Devedores', icon: AlertTriangle, adminOnly: true },
+      ],
+    },
+    {
       id: 'financeiro',
       label: 'Financeiro & Fiscal',
       items: [
         { id: 'cash-closing', label: 'Fechamento de Caixa', icon: Calculator, adminOnly: true },
         { id: 'caixa-provisoes', label: 'Caixa & Provisões', icon: Wallet, adminOnly: true },
+        { id: 'crediario-report', label: 'Central do Crediário', icon: CreditCard, adminOnly: true },
         { id: 'contas-a-pagar', label: 'Contas a Pagar', icon: Banknote, adminOnly: true },
         { id: 'checking-account', label: 'Conta Corrente', icon: Banknote, adminOnly: true },
         { id: 'debtors-report', label: 'Devedores', icon: AlertTriangle, adminOnly: true },
@@ -415,7 +424,7 @@ export const TopMenuBar: React.FC<TopMenuBarProps> = ({
     if (itemId === 'whatsapp-vendas') {
       return <span className="px-1.5 py-0.5 text-[9px] font-black uppercase rounded-full bg-orange-500 text-white animate-pulse">Destaque</span>;
     }
-    if (itemId === 'debtors-report' && hasOverdue) {
+    if ((itemId === 'debtors-report' || itemId === 'crediario-report') && hasOverdue) {
       return <span className="w-2 h-2 rounded-full bg-red-600 animate-pulse" title="Clientes em atraso" />;
     }
     if (itemId === 'anvisa-alerts' && anvisaAlertCount > 0) {
@@ -443,6 +452,9 @@ export const TopMenuBar: React.FC<TopMenuBarProps> = ({
     }
     if (catId === 'compras') {
       return purchasingPendingCount > 0;
+    }
+    if (catId === 'crediario') {
+      return hasOverdue;
     }
     if (catId === 'financeiro') {
       return hasOverdue || overdueBoletos.length > 0;
@@ -475,7 +487,7 @@ export const TopMenuBar: React.FC<TopMenuBarProps> = ({
   return (
     <header
       ref={menuBarRef}
-      className="hidden md:flex flex-col w-full border-b select-none transition-colors duration-300 relative z-30 shadow-xs"
+      className="hidden md:flex flex-col w-full border-b select-none transition-colors duration-300 relative z-40 shadow-xs"
       style={{
         backgroundColor: 'var(--bf-header-bg)',
         borderColor: 'var(--bf-header-border)',
@@ -504,7 +516,7 @@ export const TopMenuBar: React.FC<TopMenuBarProps> = ({
         </div>
 
         {/* Center: Windows-style Menubar Categories */}
-        <nav className="flex items-center gap-1 flex-1 overflow-x-auto no-scrollbar">
+        <nav className="flex items-center gap-0.5 lg:gap-1 flex-1 overflow-visible">
           {visibleCategories.map(cat => {
             const isOpen = openCategory === cat.id;
             const isCategoryActive = cat.items.some(i => i.id === currentView);
@@ -514,7 +526,10 @@ export const TopMenuBar: React.FC<TopMenuBarProps> = ({
               <div key={cat.id} className="relative">
                 <button
                   type="button"
-                  onClick={() => handleCategoryClick(cat.id)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleCategoryClick(cat.id);
+                  }}
                   onMouseEnter={() => handleCategoryMouseEnter(cat.id)}
                   className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
                     isOpen
@@ -534,7 +549,10 @@ export const TopMenuBar: React.FC<TopMenuBarProps> = ({
                 {/* Dropdown Menu Window */}
                 {isOpen && (
                   <div
-                    className="absolute left-0 mt-1 w-64 rounded-xl shadow-2xl border py-1.5 z-50 animate-in fade-in zoom-in-95 duration-150 backdrop-blur-md"
+                    onClick={(e) => e.stopPropagation()}
+                    className={`absolute top-full mt-1.5 w-64 rounded-xl shadow-2xl border py-1.5 z-50 animate-in fade-in zoom-in-95 duration-150 backdrop-blur-md ${
+                      cat.id === 'sistema' || cat.id === 'ferramentas' ? 'right-0 xl:left-0' : 'left-0'
+                    }`}
                     style={{
                       backgroundColor: 'var(--bf-sidebar-bg)',
                       borderColor: 'var(--bf-sidebar-border)',

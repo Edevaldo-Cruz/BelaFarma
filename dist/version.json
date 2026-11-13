@@ -1,9 +1,19 @@
 {
   "version": "1.2.4",
-  "commitHash": "8a24485",
-  "commitMessage": "fix(pdv): correcao de precos, integracao direta do Digifarma, desclassificacao de ibuprofeno como controlado e auto-importacao de produtos novos",
-  "buildTime": "12/11/2026, 15:38:27",
+  "commitHash": "21a74a0",
+  "commitMessage": "fix(fiscal): inclusao obrigatoria do grupo card em pagamentos com cartao de credito/debito (correcao Rejeicao SEFAZ 391)",
+  "buildTime": "13/11/2026, 08:21:16",
   "recentCommits": [
+    {
+      "hash": "21a74a0",
+      "date": "12/11/2026",
+      "message": "fix(fiscal): inclusao obrigatoria do grupo card em pagamentos com cartao de credito/debito (correcao Rejeicao SEFAZ 391)"
+    },
+    {
+      "hash": "64f5fbd",
+      "date": "12/11/2026",
+      "message": "fix(pdv): blindagem contra saida da tela do PDV e correcao da impressao direta do cupom fiscal NFC-e"
+    },
     {
       "hash": "8a24485",
       "date": "12/11/2026",
@@ -53,16 +63,6 @@
       "hash": "73e2770",
       "date": "11/11/2026",
       "message": "feat(crediario): conciliacao automatica e webhook Banco Inter com liberacao de limite instantanea"
-    },
-    {
-      "hash": "68cb850",
-      "date": "11/11/2026",
-      "message": "feat(crediario): migracao para o crediario 2.0 com integracao Banco Inter e regua WhatsApp"
-    },
-    {
-      "hash": "e4ffcde",
-      "date": "11/11/2026",
-      "message": "feat(pdv): suporte completo a operacao offline sem internet e contingencia instantanea"
     }
   ]
 }

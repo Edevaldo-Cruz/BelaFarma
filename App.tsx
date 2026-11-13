@@ -19,6 +19,7 @@ import { ContasAPagar } from "./components/ContasAPagar";
 import { BoletoBudgetSummaryModal } from "./components/BoletoBudgetSummaryModal";
 import { DaysInDebt } from "./components/DaysInDebt";
 import { CrediarioReport } from "./components/CrediarioReport";
+import { CrediarioHub } from "./components/CrediarioHub";
 import { TaskManagementPage } from "./components/TaskManagementPage";
 import { FixedAccountsPage } from "./components/FixedAccountsPage";
 import { CustomersPage } from "./components/CustomersPage";
@@ -1544,7 +1545,7 @@ const App: React.FC = () => {
                 <CheckingAccount user={user} />
               )}
               {currentView === 'crediario-report' && user.role === UserRole.ADM && (
-                <CrediarioReport />
+                <CrediarioHub initialTab="titulos" />
               )}
               {(currentView === 'agenda' || currentView === 'task-management') && (
                 <AgendaCalendar currentUser={user} users={users} />
@@ -1568,7 +1569,7 @@ const App: React.FC = () => {
                 />
               )}
               {currentView === 'debtors-report' && user.role === UserRole.ADM && (
-                <DebtorsReport />
+                <CrediarioHub initialTab="devedores" />
               )}
               {currentView === 'inventario' && (
                 <InventoryManager user={user} />
