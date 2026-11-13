@@ -1,9 +1,24 @@
 {
   "version": "1.2.4",
-  "commitHash": "8a24485",
-  "commitMessage": "fix(pdv): correcao de precos, integracao direta do Digifarma, desclassificacao de ibuprofeno como controlado e auto-importacao de produtos novos",
-  "buildTime": "12/11/2026, 15:38:27",
+  "commitHash": "52fb8fd",
+  "commitMessage": "feat: unifica modulo de crediario em central unica e corrige dropdowns do menu no topo",
+  "buildTime": "13/11/2026, 11:54:47",
   "recentCommits": [
+    {
+      "hash": "52fb8fd",
+      "date": "13/11/2026",
+      "message": "feat: unifica modulo de crediario em central unica e corrige dropdowns do menu no topo"
+    },
+    {
+      "hash": "21a74a0",
+      "date": "12/11/2026",
+      "message": "fix(fiscal): inclusao obrigatoria do grupo card em pagamentos com cartao de credito/debito (correcao Rejeicao SEFAZ 391)"
+    },
+    {
+      "hash": "64f5fbd",
+      "date": "12/11/2026",
+      "message": "fix(pdv): blindagem contra saida da tela do PDV e correcao da impressao direta do cupom fiscal NFC-e"
+    },
     {
       "hash": "8a24485",
       "date": "12/11/2026",
@@ -48,21 +63,6 @@
       "hash": "20f1ce1",
       "date": "11/11/2026",
       "message": "feat(crediario): ficha 360 do cliente e extrato bancario com impressao termica 80mm"
-    },
-    {
-      "hash": "73e2770",
-      "date": "11/11/2026",
-      "message": "feat(crediario): conciliacao automatica e webhook Banco Inter com liberacao de limite instantanea"
-    },
-    {
-      "hash": "68cb850",
-      "date": "11/11/2026",
-      "message": "feat(crediario): migracao para o crediario 2.0 com integracao Banco Inter e regua WhatsApp"
-    },
-    {
-      "hash": "e4ffcde",
-      "date": "11/11/2026",
-      "message": "feat(pdv): suporte completo a operacao offline sem internet e contingencia instantanea"
     }
   ]
 }

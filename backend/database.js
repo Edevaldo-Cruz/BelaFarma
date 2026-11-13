@@ -2318,19 +2318,11 @@ try {
     } catch(e) {}
     console.log('✅ Central de Compras: Tabela compras_estoque_cache criada/verificada!');
 
-    // Sincronizar digifarma_products_cache com compras_estoque_cache para garantir preços e custos sempre vigentes
+    // Sincronizar dados operacionais (estoque e curva) mantendo preços do Digifarma como autoridade estrita
     try {
       db.exec(`
         UPDATE digifarma_products_cache 
         SET 
-          preco_venda = COALESCE(NULLIF((SELECT preco_venda_vigente FROM compras_estoque_cache WHERE compras_estoque_cache.produto_id = CAST(digifarma_products_cache.produto_id AS INTEGER)), 0), preco_venda),
-          preco_promocao = COALESCE((SELECT preco_promocional FROM compras_estoque_cache WHERE compras_estoque_cache.produto_id = CAST(digifarma_products_cache.produto_id AS INTEGER)), preco_promocao),
-          preco_normal = COALESCE(NULLIF((SELECT preco_normal FROM compras_estoque_cache WHERE compras_estoque_cache.produto_id = CAST(digifarma_products_cache.produto_id AS INTEGER)), 0), preco_normal),
-          preco_custo = COALESCE(
-            NULLIF((SELECT custo_unitario FROM compras_estoque_cache WHERE compras_estoque_cache.produto_id = CAST(digifarma_products_cache.produto_id AS INTEGER)), 0),
-            NULLIF((SELECT preco_unitario_ult_compra FROM compras_estoque_cache WHERE compras_estoque_cache.produto_id = CAST(digifarma_products_cache.produto_id AS INTEGER)), 0),
-            preco_custo
-          ),
           estoque_atual = COALESCE((SELECT saldo FROM compras_estoque_cache WHERE compras_estoque_cache.produto_id = CAST(digifarma_products_cache.produto_id AS INTEGER)), estoque_atual),
           curva = COALESCE((SELECT curva_abc FROM compras_estoque_cache WHERE compras_estoque_cache.produto_id = CAST(digifarma_products_cache.produto_id AS INTEGER)), curva),
           atualizado_em = datetime('now', 'localtime')
@@ -2338,7 +2330,7 @@ try {
           SELECT 1 FROM compras_estoque_cache WHERE compras_estoque_cache.produto_id = CAST(digifarma_products_cache.produto_id AS INTEGER)
         );
       `);
-      console.log('✅ Gestão de Preço: Cache Digifarma sincronizado com os preços vigentes!');
+      console.log('✅ Gestão de Catálogo: Saldo e curva sincronizados preservando autoridade de preços do Digifarma!');
     } catch (eSync) {
       console.warn('Aviso ao sincronizar digifarma_products_cache:', eSync.message);
     }

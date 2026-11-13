@@ -260,15 +260,26 @@ function listarPromocoesEscalonadas({ apenasAtivas = false, busca = '' } = {}) {
       p.cost_price,
       p.stock_qty
     FROM tiered_pricing t
-    LEFT JOIN products p ON (p.code = t.product_code OR p.barcode = t.barcode)
+    LEFT JOIN products p ON (
+      p.code = t.product_code 
+      OR p.code = CAST(t.product_id AS TEXT) 
+      OR (t.barcode IS NOT NULL AND p.barcode = t.barcode)
+    )
     WHERE 1=1
   `;
   const params = [];
 
   if (busca && busca.trim()) {
-    sql += ` AND (t.product_name LIKE ? OR t.barcode LIKE ? OR t.product_code LIKE ? OR p.name LIKE ?)`;
+    sql += ` AND (
+      t.product_name LIKE ? 
+      OR t.barcode LIKE ? 
+      OR t.product_code LIKE ? 
+      OR CAST(t.product_id AS TEXT) LIKE ? 
+      OR p.code LIKE ? 
+      OR p.name LIKE ?
+    )`;
     const term = `%${busca.trim()}%`;
-    params.push(term, term, term, term);
+    params.push(term, term, term, term, term, term);
   }
 
   sql += ` ORDER BY COALESCE(p.name, t.product_name) ASC, t.quantity ASC`;

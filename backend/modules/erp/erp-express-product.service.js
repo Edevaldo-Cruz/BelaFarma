@@ -237,7 +237,7 @@ async function sanearProdutoECadastrarDigifarma(taskId, {
 }
 
 /**
- * Sincroniza a tabela DESCONTO_ESCALONADO do Digifarma para o SQLite local
+ * Sincroniza a tabela DESCONTO_ESCALONADO e promoções Pague/Leve do Digifarma para o SQLite local
  * @returns {Promise<Object>} Resumo da sincronização
  */
 async function sincronizarPrecosEscalonadosDigifarma() {
@@ -257,29 +257,91 @@ async function sincronizarPrecosEscalonadosDigifarma() {
     WHERE D.QUANTIDADE > 1 AND D.VALOR_PACOTE > 0
   `, [], 20000);
 
-  if (!regrasDigi || regrasDigi.length === 0) {
+  // Busca também promoções do tipo Leve X Pague Y cadastradas diretamente em PRODUTOS
+  let regrasPagueLeve = [];
+  try {
+    regrasPagueLeve = await queryDigifarma(`
+      SELECT 
+        PRODUTO_ID,
+        PRODUTO,
+        COD_BARRAS,
+        PROD_PRVENDA,
+        PROMOCAO_PAGUE,
+        PROMOCAO_LEVE
+      FROM PRODUTOS
+      WHERE PROMOCAO_PAGUE > 0 
+        AND PROMOCAO_LEVE > PROMOCAO_PAGUE
+        AND PROD_ATIVO = 'S'
+        AND PROD_PRVENDA > 0
+    `, [], 20000);
+  } catch (errPagueLeve) {
+    console.warn('[Preços Escalonados] Aviso ao buscar PROMOCAO_PAGUE/LEVE:', errPagueLeve.message);
+  }
+
+  const todasRegras = [];
+  if (Array.isArray(regrasDigi)) {
+    for (const r of regrasDigi) {
+      todasRegras.push({
+        digifarma_id: r.DESCONTO_ESCALONADO_ID,
+        product_id: r.PRODUTO_ID,
+        product_code: String(r.PRODUTO_ID),
+        product_name: r.PRODUTO ? String(r.PRODUTO).trim() : 'PRODUTO',
+        barcode: r.COD_BARRAS ? String(r.COD_BARRAS).trim() : null,
+        quantity: parseInt(r.QUANTIDADE, 10),
+        package_price: parseFloat(r.VALOR_PACOTE)
+      });
+    }
+  }
+
+  if (Array.isArray(regrasPagueLeve)) {
+    for (const p of regrasPagueLeve) {
+      const pague = parseFloat(p.PROMOCAO_PAGUE);
+      const leve = parseInt(p.PROMOCAO_LEVE, 10);
+      const precoVenda = parseFloat(p.PROD_PRVENDA) || 0;
+      if (leve > 1 && pague > 0 && precoVenda > 0) {
+        const pacote = Math.round(pague * precoVenda * 100) / 100;
+        // Evita duplicar se já existir em DESCONTO_ESCALONADO
+        const jaExiste = todasRegras.some(r => r.product_id === p.PRODUTO_ID && r.quantity === leve);
+        if (!jaExiste) {
+          todasRegras.push({
+            digifarma_id: 900000 + p.PRODUTO_ID, // ID virtual para Pague/Leve
+            product_id: p.PRODUTO_ID,
+            product_code: String(p.PRODUTO_ID),
+            product_name: p.PRODUTO ? String(p.PRODUTO).trim() : 'PRODUTO',
+            barcode: p.COD_BARRAS ? String(p.COD_BARRAS).trim() : null,
+            quantity: leve,
+            package_price: pacote
+          });
+        }
+      }
+    }
+  }
+
+  if (todasRegras.length === 0) {
     return { success: true, total: 0, message: 'Nenhuma regra de preço escalonado encontrada no Digifarma.' };
   }
 
   const stmt = db.prepare(`
     INSERT OR REPLACE INTO tiered_pricing (
-      digifarma_id, product_id, barcode, product_name,
+      digifarma_id, product_id, product_code, barcode, product_name,
       quantity, package_price, unit_effective_price, active, synced_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, datetime('now', 'localtime'))
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, datetime('now', 'localtime'))
   `);
 
   const tx = db.transaction((regras) => {
     let inseridos = 0;
     for (const r of regras) {
-      const qtd = parseInt(r.QUANTIDADE, 10);
-      const pkgPrice = parseFloat(r.VALOR_PACOTE);
+      const qtd = r.quantity;
+      const pkgPrice = r.package_price;
       const unitEff = qtd > 0 ? (pkgPrice / qtd) : pkgPrice;
-      const codBarras = r.COD_BARRAS ? String(r.COD_BARRAS).trim() : null;
-      const nomeProd = r.PRODUTO ? String(r.PRODUTO).trim() : 'PRODUTO';
+      const codBarras = r.barcode || null;
+      const nomeProd = r.product_name || 'PRODUTO';
+      const prodCode = r.product_code || String(r.product_id);
 
       stmt.run(
-        r.DESCONTO_ESCALONADO_ID,
-        r.PRODUTO_ID,
+        r.digifarma_id,
+        r.product_id,
+        prodCode,
         codBarras,
         nomeProd,
         qtd,
@@ -291,7 +353,7 @@ async function sincronizarPrecosEscalonadosDigifarma() {
     return inseridos;
   });
 
-  const totalSincronizados = tx(regrasDigi);
+  const totalSincronizados = tx(todasRegras);
   console.log(`[Preços Escalonados] ✅ ${totalSincronizados} regras de preço escalonado sincronizadas com sucesso!`);
 
   return {
