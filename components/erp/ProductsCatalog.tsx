@@ -15,7 +15,8 @@ import {
   X,
   Database,
   ArrowUpDown,
-  Sparkles
+  Sparkles,
+  ShoppingCart
 } from 'lucide-react';
 import { useToast } from '../ToastContext';
 import { PromotionsManagementModal } from './PromotionsManagementModal';
@@ -54,9 +55,10 @@ interface StockStats {
 
 interface ProductsCatalogProps {
   user?: User;
+  onNavigate?: (view: string) => void;
 }
 
-export const ProductsCatalog: React.FC<ProductsCatalogProps> = ({ user }) => {
+export const ProductsCatalog: React.FC<ProductsCatalogProps> = ({ user, onNavigate }) => {
   const { addToast } = useToast();
   const isAdmin = !user || user.role === UserRole.ADM;
 
@@ -286,6 +288,17 @@ export const ProductsCatalog: React.FC<ProductsCatalogProps> = ({ user }) => {
         </div>
 
         <div className="flex items-center gap-2">
+          {onNavigate && (
+            <button
+              onClick={() => onNavigate('belinha-pdv')}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all shadow-sm cursor-pointer"
+              title="Voltar para a tela do PDV (Caixa)"
+            >
+              <ShoppingCart className="w-3.5 h-3.5" />
+              Voltar ao PDV
+            </button>
+          )}
+
           <button
             onClick={() => setIsPromotionsOpen(true)}
             className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 dark:text-amber-400 border border-amber-500/30 text-xs font-bold transition-all shadow-sm cursor-pointer"

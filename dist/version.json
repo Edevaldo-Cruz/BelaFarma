@@ -1,9 +1,19 @@
 {
   "version": "1.2.6",
-  "commitHash": "47063e6",
-  "commitMessage": "fix(pdv): correcao sistemica de precos e eliminacao de produtos duplicados com sufixo .0",
-  "buildTime": "13/11/2026, 15:00:29",
+  "commitHash": "f3b3b74",
+  "commitMessage": "feat(sync): propaga atualizacao de precos e estoque do Digifarma em cascata para a tabela nativa products",
+  "buildTime": "13/11/2026, 17:45:08",
   "recentCommits": [
+    {
+      "hash": "f3b3b74",
+      "date": "13/11/2026",
+      "message": "feat(sync): propaga atualizacao de precos e estoque do Digifarma em cascata para a tabela nativa products"
+    },
+    {
+      "hash": "cd28e75",
+      "date": "13/11/2026",
+      "message": "feat: adapta crediario para busca por nome sem nfc e adiciona extrato web protegido por cpf com pix"
+    },
     {
       "hash": "47063e6",
       "date": "13/11/2026",
@@ -53,16 +63,6 @@
       "hash": "8a24485",
       "date": "12/11/2026",
       "message": "fix(pdv): correcao de precos, integracao direta do Digifarma, desclassificacao de ibuprofeno como controlado e auto-importacao de produtos novos"
-    },
-    {
-      "hash": "9b3c2f4",
-      "date": "12/11/2026",
-      "message": "fix(pdv): desativa temporizador de logout por inatividade exclusivamente no PDV"
-    },
-    {
-      "hash": "5bd94cc",
-      "date": "12/11/2026",
-      "message": "fix(clipboard): polyfill universal para restaurar funcionamento de todos os botoes de copiar em rede local HTTP"
     }
   ]
 }

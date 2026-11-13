@@ -2161,6 +2161,22 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
             <span className="hidden lg:inline">{isSyncingCatalog ? 'Sincronizando...' : 'Sync Digifarma'}</span>
           </button>
 
+          {/* Catálogo Mestre de Produtos do ERP */}
+          <button
+            onClick={() => {
+              if (onNavigate) {
+                onNavigate('erp-produtos');
+              } else {
+                setIsSearchOpen(true);
+              }
+            }}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-200 border border-emerald-400/40 text-[11px] font-bold transition cursor-pointer"
+            title="Abrir Catálogo Geral de Produtos Cadastrados (64k+ itens, saldo e gestão de preços)"
+          >
+            <Package className="w-3.5 h-3.5 text-emerald-300" />
+            <span className="hidden sm:inline">Catálogo Produtos</span>
+          </button>
+
           {/* Promoções & Validade */}
           <button
             onClick={() => setIsPromotionsModalOpen(true)}

@@ -1522,7 +1522,7 @@ const App: React.FC = () => {
                 <ControlledMedicationsPortal />
               )}
               {currentView === "erp-produtos" && (
-                <ProductsCatalog user={user} />
+                <ProductsCatalog user={user} onNavigate={handleNavigate} />
               )}
               {currentView === "erp-promocoes" && (
                 <PromotionsManagerPage user={user} />
