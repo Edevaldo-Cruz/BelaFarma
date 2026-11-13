@@ -146,7 +146,7 @@ async function syncProdutos(db) {
         const custoCmv = cmv > 0 ? cmv : (pUlt > 0 ? pUlt : pCompra);
 
         insertOrReplaceStmt.run(
-          p.PRODUTO_ID,
+          String(p.PRODUTO_ID).trim().replace(/\.0+$/, ''),
           (p.PRODUTO || '').trim() + (p.APRESENTACAO ? ` ${(p.APRESENTACAO).trim()}` : ''),
           (p.COD_BARRAS || '').trim(),
           p.CATEGORIA_ID ? parseInt(p.CATEGORIA_ID) : null,
@@ -168,6 +168,45 @@ async function syncProdutos(db) {
     });
 
     insertMany(productsWithCurve);
+
+    // 🔄 Sincroniza em cascata para a tabela nativa products do Belinha ERP
+    try {
+      db.prepare(`
+        UPDATE products 
+        SET 
+          sale_price = (SELECT d.preco_normal FROM digifarma_products_cache d WHERE d.produto_id = products.code),
+          promo_price = (SELECT d.preco_promocao FROM digifarma_products_cache d WHERE d.produto_id = products.code),
+          cost_price = (SELECT d.preco_custo FROM digifarma_products_cache d WHERE d.produto_id = products.code),
+          stock_qty = (SELECT d.estoque_atual FROM digifarma_products_cache d WHERE d.produto_id = products.code),
+          curve = COALESCE((SELECT d.curva FROM digifarma_products_cache d WHERE d.produto_id = products.code), products.curve),
+          updated_at = datetime('now', 'localtime')
+        WHERE EXISTS (
+          SELECT 1 FROM digifarma_products_cache d WHERE d.produto_id = products.code
+        )
+      `).run();
+
+      db.prepare(`
+        INSERT OR IGNORE INTO products (
+          code, barcode, name, presentation, category_id,
+          sale_price, promo_price, cost_price, stock_qty, curve,
+          tributacao_monofasica, cst_pis, cst_cofins, aliquota_st, imposto_aliq, ncm, cest,
+          is_active, updated_at
+        )
+        SELECT 
+          d.produto_id, d.codigo_barras, d.descricao, '', d.categoria_id,
+          d.preco_normal, d.preco_promocao, d.preco_custo, d.estoque_atual, d.curva,
+          d.tributacao_monofasica, d.cst_pis, d.cst_cofins, d.aliquota_st, d.imposto_aliq, d.ncm, d.cest,
+          1, datetime('now', 'localtime')
+        FROM digifarma_products_cache d
+        WHERE d.produto_id NOT LIKE '%.0'
+          AND NOT EXISTS (SELECT 1 FROM products p WHERE p.code = d.produto_id)
+      `).run();
+
+      db.prepare("DELETE FROM products WHERE code LIKE '%.0'").run();
+      console.log('[Digifarma Sync] 🔄 Tabela nativa products 100% alinhada com Digifarma!');
+    } catch (eProd) {
+      console.warn('[Digifarma Sync] Aviso ao alinhar tabela products nativa:', eProd.message);
+    }
 
     // 🔄 Sincroniza saldo e status em compras_estoque_cache e dá baixa automática em faltas atendidas
     try {
