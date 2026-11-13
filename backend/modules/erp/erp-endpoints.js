@@ -128,6 +128,7 @@ router.get('/products/catalog', (req, res) => {
 
 router.get('/products', async (req, res) => {
   try {
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     const { limit, onlyWithStock } = req.query;
     const q = req.query.q || req.query.query || '';
     const prods = await buscarProdutos({
@@ -144,8 +145,13 @@ router.get('/products', async (req, res) => {
 router.post('/products/sync-digifarma', async (req, res) => {
   try {
     const resultado = await executarMigracaoErp({ forceCacheOnly: false });
-    // Limpeza de códigos obsoletos legados
-    db.prepare("DELETE FROM products WHERE code LIKE '%.0'").run();
+    // Limpeza e higienização profunda de códigos obsoletos legados
+    try {
+      db.prepare("DELETE FROM products WHERE code LIKE '%.0'").run();
+      db.prepare("UPDATE digifarma_products_cache SET produto_id = SUBSTR(produto_id, 1, INSTR(produto_id, '.0') - 1) WHERE produto_id LIKE '%.0'").run();
+      db.prepare("UPDATE pricing_suggestions SET produto_id = SUBSTR(produto_id, 1, INSTR(produto_id, '.0') - 1) WHERE produto_id LIKE '%.0'").run();
+      db.prepare("UPDATE tiered_pricing SET product_code = SUBSTR(product_code, 1, INSTR(product_code, '.0') - 1) WHERE product_code LIKE '%.0'").run();
+    } catch (eClean) {}
     res.json({ success: true, ...resultado });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -154,6 +160,7 @@ router.post('/products/sync-digifarma', async (req, res) => {
 
 router.get('/products/:code', (req, res) => {
   try {
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     const prod = obterProdutoPorCodigo(req.params.code);
     if (!prod) {
       return res.status(404).json({ success: false, error: 'Produto não encontrado.' });

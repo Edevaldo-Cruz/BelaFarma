@@ -114,7 +114,7 @@ async function executarMigracaoErp({ forceCacheOnly = false, resetTables = false
         const pUlt = parseFloat(p.VALOR_ULT_COMPRA || 0);
         const pCompra = parseFloat(p.PROD_PRCOMPRA || 0);
         const custo = cmv > 0 ? cmv : (pUlt > 0 ? pUlt : pCompra);
-        const pidStr = String(p.PRODUTO_ID);
+        const pidStr = String(p.PRODUTO_ID).trim().replace(/\.0+$/, '');
         const dtInicio = formatPromoDate(p.INICIO_PROMOCAO);
         const dtFim = formatPromoDate(p.TERMINO_PROMOCAO);
         const isPerm = p.PROMOCAO_PERMANENTE === 'S' || (!dtInicio && !dtFim && parseFloat(p.PROD_PRPROMOCAO || 0) > 0) ? 1 : 0;
@@ -174,7 +174,7 @@ async function executarMigracaoErp({ forceCacheOnly = false, resetTables = false
     `).all();
 
     produtosParaMigrar = cachedProducts.map(p => ({
-      code: String(p.code),
+      code: String(p.code || '').trim().replace(/\.0+$/, ''),
       barcode: (p.barcode || '').trim(),
       name: (p.full_desc || '').trim(),
       presentation: '',
@@ -242,6 +242,11 @@ async function executarMigracaoErp({ forceCacheOnly = false, resetTables = false
       updated_at = datetime('now', 'localtime')
   `);
 
+  // Remove quaisquer resíduos de códigos legados com .0 antes e após a gravação
+  try {
+    db.prepare("DELETE FROM products WHERE code LIKE '%.0'").run();
+  } catch (eDel) {}
+
   const insertProductsTransaction = db.transaction((prods) => {
     for (const p of prods) {
       if (!p.code || !p.name) continue;
@@ -251,6 +256,9 @@ async function executarMigracaoErp({ forceCacheOnly = false, resetTables = false
   });
 
   insertProductsTransaction(produtosParaMigrar);
+  try {
+    db.prepare("DELETE FROM products WHERE code LIKE '%.0'").run();
+  } catch (eDel) {}
   console.log(`[Migração ERP] ✅ ${productsMigrated} produtos consolidados na tabela nativa 'products'!`);
 
   // ==========================================

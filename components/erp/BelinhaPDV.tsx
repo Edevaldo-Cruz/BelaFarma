@@ -1088,11 +1088,24 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
     autocompleteDebounceRef.current = setTimeout(async () => {
       try {
         setIsAutocompleteLoading(true);
-        const res = await fetch(`/api/erp/products?q=${encodeURIComponent(raw)}&limit=6`);
+        const res = await fetch(`/api/erp/products?q=${encodeURIComponent(raw)}&limit=6&_t=${Date.now()}`, {
+          headers: { 'Cache-Control': 'no-cache' }
+        });
         if (res.ok) {
           const json = await res.json();
           if (json.success && Array.isArray(json.data)) {
-            setAutocompleteResults(json.data);
+            const seen = new Set<string>();
+            const deduped: ProductSearchResult[] = [];
+            for (const item of json.data) {
+              const codeClean = String(item.code || '').trim().replace(/\.0+$/, '');
+              const eanClean = String(item.barcode || '').trim();
+              const key = eanClean || codeClean;
+              if (seen.has(key) || (codeClean && seen.has(`code:${codeClean}`))) continue;
+              seen.add(key);
+              if (codeClean) seen.add(`code:${codeClean}`);
+              deduped.push({ ...item, code: codeClean });
+            }
+            setAutocompleteResults(deduped);
           }
         }
       } catch (err) {
@@ -1236,6 +1249,8 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
 
     const effectivePrice = prod.promo_price > 0 ? prod.promo_price : prod.sale_price;
     const costPrice = prod.cost_price || 0;
+    const cleanCode = String(prod.code || '').trim().replace(/\.0+$/, '');
+    const cleanBarcode = String(prod.barcode || '').trim();
 
     // Desconto automático para genéricos se o cliente estiver identificado
     let initialDiscount = 0;
@@ -1244,14 +1259,21 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
     }
 
     setCart(prev => {
-      const existingIdx = prev.findIndex(it => it.code === prod.code);
+      const existingIdx = prev.findIndex(it => {
+        const itCode = String(it.code || '').trim().replace(/\.0+$/, '');
+        const itBarcode = String(it.barcode || '').trim();
+        return itCode === cleanCode || (cleanBarcode && itBarcode && itBarcode === cleanBarcode);
+      });
       if (existingIdx >= 0) {
         const copy = [...prev];
         const newQty = copy[existingIdx].quantity + qty;
-        const unitPrice = copy[existingIdx].unit_price;
+        const unitPrice = effectivePrice; // Sempre alinha ao preço vigente mais recente
         const itemDisc = copy[existingIdx].discount || 0;
         copy[existingIdx] = {
           ...copy[existingIdx],
+          code: cleanCode,
+          barcode: cleanBarcode || copy[existingIdx].barcode,
+          unit_price: unitPrice,
           quantity: newQty,
           total_price: Math.round(newQty * (unitPrice - itemDisc) * 100) / 100
         };
@@ -1260,8 +1282,8 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
         return [
           ...prev,
           {
-            code: prod.code,
-            barcode: prod.barcode,
+            code: cleanCode,
+            barcode: cleanBarcode,
             name: prod.name,
             unit_price: effectivePrice,
             unit_cost: costPrice,
@@ -1281,8 +1303,8 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
     const isControlled = Boolean(prod.is_controlado || prod.recipe_type);
     if (isControlled) {
       const controlledItem: ControlledProductItem = {
-        code: prod.code,
-        barcode: prod.barcode,
+        code: cleanCode,
+        barcode: cleanBarcode,
         name: prod.name,
         quantity: qty,
         unit_price: effectivePrice,
@@ -2339,7 +2361,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
                         )}
                       </div>
                       <div className="text-[11px] text-slate-600 font-mono mt-0.5">
-                        Cód: <strong>{prod.code}</strong> | EAN: {prod.barcode || 'S/N'} | Estoque: <span className={prod.stock_qty > 0 ? 'text-emerald-700 font-black' : 'text-rose-600 font-bold'}>{prod.stock_qty} un</span>
+                        Cód: <strong>{String(prod.code).replace(/\.0+$/, '')}</strong> | EAN: {prod.barcode || 'S/N'} | Estoque: <span className={prod.stock_qty > 0 ? 'text-emerald-700 font-black' : 'text-rose-600 font-bold'}>{prod.stock_qty} un</span>
                         {prod.vendas_30d ? <span className="text-blue-700 font-bold ml-1.5">| {prod.vendas_30d} vend./mês</span> : null}
                       </div>
                     </div>

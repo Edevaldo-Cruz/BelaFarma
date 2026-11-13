@@ -67,7 +67,7 @@ async function syncSingleProductFromDigifarma(cleanQ) {
       const custo = cmv > 0 ? cmv : (pUlt > 0 ? pUlt : pCompra);
 
       const newProd = {
-        code: String(p.PRODUTO_ID),
+        code: String(p.PRODUTO_ID).trim().replace(/\.0+$/, ''),
         barcode: (p.COD_BARRAS || '').trim(),
         name: (p.PRODUTO || '').trim(),
         presentation: (p.APRESENTACAO || '').trim(),
@@ -167,7 +167,7 @@ async function buscarProdutos({ query = '', limit = 30, onlyWithStock = false } 
 
   // 3. Busca por termo ou início de código
   const words = cleanQ.split(/\s+/).filter(Boolean);
-  let whereClauses = ['p.is_active = 1'];
+  let whereClauses = ['p.is_active = 1', "p.code NOT LIKE '%.0'"];
   let params = [];
 
   if (words.length <= 1) {
@@ -204,14 +204,35 @@ async function buscarProdutos({ query = '', limit = 30, onlyWithStock = false } 
   `;
 
   params.push(cleanQ, cleanQ, limit);
-  return db.prepare(sql).all(...params).map(enrichProduct);
+  const rawResults = db.prepare(sql).all(...params).map(enrichProduct);
+
+  // Deduplicação resiliente por código canônico e EAN (elimina redundâncias e duplicatas)
+  const seenKeys = new Set();
+  const dedupedResults = [];
+  for (const item of rawResults) {
+    if (!item) continue;
+    const cleanCode = String(item.code || '').trim().replace(/\.0+$/, '');
+    const barcode = String(item.barcode || '').trim();
+    const primaryKey = barcode ? `ean:${barcode}` : `code:${cleanCode}`;
+    if (seenKeys.has(primaryKey) || (cleanCode && seenKeys.has(`code:${cleanCode}`))) {
+      continue;
+    }
+    seenKeys.add(primaryKey);
+    if (cleanCode) seenKeys.add(`code:${cleanCode}`);
+    dedupedResults.push({
+      ...item,
+      code: cleanCode
+    });
+  }
+
+  return dedupedResults;
 }
 
 /**
  * Busca um único produto pelo EAN ou Código
  */
 function obterProdutoPorCodigo(codigoOuEan) {
-  const clean = String(codigoOuEan || '').trim();
+  const clean = String(codigoOuEan || '').trim().replace(/\.0+$/, '');
   if (!clean) return null;
 
   const found = db.prepare(`
@@ -220,11 +241,15 @@ function obterProdutoPorCodigo(codigoOuEan) {
            COALESCE(c.vendas_10m, p.vendas_10m, 0) as vendas_10m
     FROM products p 
     LEFT JOIN compras_estoque_cache c ON (c.ean = p.barcode AND c.ean IS NOT NULL AND c.ean != '')
-    WHERE (p.barcode = ? OR p.code = ?) AND p.is_active = 1
+    WHERE (p.barcode = ? OR p.code = ? OR p.code = ?) AND p.is_active = 1
+    ORDER BY (p.code NOT LIKE '%.0') DESC
     LIMIT 1
-  `).get(clean, clean);
+  `).get(clean, clean, `${clean}.0`);
 
-  return enrichProduct(found);
+  if (!found) return null;
+  const enriched = enrichProduct(found);
+  if (enriched) enriched.code = String(enriched.code).replace(/\.0+$/, '');
+  return enriched;
 }
 
 /**

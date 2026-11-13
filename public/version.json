@@ -1,9 +1,14 @@
 {
   "version": "1.2.5",
-  "commitHash": "76c7405",
-  "commitMessage": "fix(routing): isolamento da rota do PDV (/pdv e #/pdv), adicao de botao para voltar ao sistema e auto-atualizacao v1.2.5",
-  "buildTime": "13/11/2026, 14:07:20",
+  "commitHash": "bdcc0d5",
+  "commitMessage": "build: atualizacao dos bundles do frontend e dist v1.2.5",
+  "buildTime": "13/11/2026, 14:45:52",
   "recentCommits": [
+    {
+      "hash": "bdcc0d5",
+      "date": "13/11/2026",
+      "message": "build: atualizacao dos bundles do frontend e dist v1.2.5"
+    },
     {
       "hash": "76c7405",
       "date": "13/11/2026",
@@ -58,11 +63,6 @@
       "hash": "23f623f",
       "date": "12/11/2026",
       "message": "fix(pdv): correcao universal do botao copiar comando e instalador via blob"
-    },
-    {
-      "hash": "727b038",
-      "date": "12/11/2026",
-      "message": "feat(pdv): botao no cabecalho do PDV para instalar executavel na area de trabalho"
     }
   ]
 }

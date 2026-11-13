@@ -53,6 +53,16 @@ function initErpDatabase() {
   db.prepare(`CREATE INDEX IF NOT EXISTS idx_products_active ON products (is_active)`).run();
   db.prepare(`CREATE INDEX IF NOT EXISTS idx_products_vendas ON products (vendas_30d, vendas_10m)`).run();
 
+  // Higienização sistêmica contínua de códigos corrompidos com sufixo .0 (evita produtos fantasmas duplicados)
+  try {
+    db.prepare("DELETE FROM products WHERE code LIKE '%.0'").run();
+    db.prepare("UPDATE digifarma_products_cache SET produto_id = SUBSTR(produto_id, 1, INSTR(produto_id, '.0') - 1) WHERE produto_id LIKE '%.0'").run();
+    db.prepare("UPDATE pricing_suggestions SET produto_id = SUBSTR(produto_id, 1, INSTR(produto_id, '.0') - 1) WHERE produto_id LIKE '%.0'").run();
+    db.prepare("UPDATE tiered_pricing SET product_code = SUBSTR(product_code, 1, INSTR(product_code, '.0') - 1) WHERE product_code LIKE '%.0'").run();
+  } catch (errSanitize) {
+    console.warn('[Belinha ERP DB] Aviso na sanitização de códigos com .0:', errSanitize.message);
+  }
+
   // 2. Vendas do PDV (Cabeçalho)
   db.prepare(`
     CREATE TABLE IF NOT EXISTS sales (
