@@ -1,9 +1,14 @@
 {
   "version": "1.2.6",
-  "commitHash": "4037e2b",
-  "commitMessage": "feat(pdv): adiciona botao e navegacao direta para o Catalogo de Produtos do ERP no cabecalho do PDV",
-  "buildTime": "13/11/2026, 18:15:59",
+  "commitHash": "a5a201f",
+  "commitMessage": "feat(pdv): tela crud produtos expressos, timer 15s no cupom, impressao f7 e qrcode na notinha",
+  "buildTime": "13/11/2026, 19:09:28",
   "recentCommits": [
+    {
+      "hash": "a5a201f",
+      "date": "13/11/2026",
+      "message": "feat(pdv): tela crud produtos expressos, timer 15s no cupom, impressao f7 e qrcode na notinha"
+    },
     {
       "hash": "4037e2b",
       "date": "13/11/2026",
@@ -58,11 +63,6 @@
       "hash": "21a74a0",
       "date": "12/11/2026",
       "message": "fix(fiscal): inclusao obrigatoria do grupo card em pagamentos com cartao de credito/debito (correcao Rejeicao SEFAZ 391)"
-    },
-    {
-      "hash": "64f5fbd",
-      "date": "12/11/2026",
-      "message": "fix(pdv): blindagem contra saida da tela do PDV e correcao da impressao direta do cupom fiscal NFC-e"
     }
   ]
 }

@@ -15,7 +15,8 @@ const {
   obterMetricasEstoque,
   obterProdutoPorCodigo,
   cadastrarProduto,
-  atualizarPrecoEEstoque
+  atualizarPrecoEEstoque,
+  vincularCodigoBarrasProduto
 } = require('./erp-products.service');
 
 const {
@@ -161,14 +162,27 @@ router.post('/products/sync-digifarma', async (req, res) => {
   }
 });
 
-router.get('/products/:code', (req, res) => {
+router.get('/products/:code', async (req, res) => {
   try {
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-    const prod = obterProdutoPorCodigo(req.params.code);
+    const prod = await obterProdutoPorCodigo(req.params.code);
     if (!prod) {
       return res.status(404).json({ success: false, error: 'Produto não encontrado.' });
     }
     res.json({ success: true, data: prod });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+router.post('/products/link-barcode', async (req, res) => {
+  try {
+    const { product_code, new_barcode } = req.body;
+    if (!product_code || !new_barcode) {
+      return res.status(400).json({ success: false, error: 'Código do produto e novo código de barras são obrigatórios.' });
+    }
+    const updated = await vincularCodigoBarrasProduto(product_code, new_barcode);
+    res.json({ success: true, data: updated });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }

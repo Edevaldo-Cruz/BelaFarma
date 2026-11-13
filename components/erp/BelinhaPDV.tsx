@@ -46,7 +46,8 @@ import {
   Copy,
   MonitorDown,
   Pause,
-  Play
+  Play,
+  Link2
 } from 'lucide-react';
 import { useToast } from '../ToastContext';
 import { BelaFarmaLogo } from '../BelaFarmaLogo';
@@ -239,15 +240,21 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
   const [isPendingCheckout, setIsPendingCheckout] = useState(false);
   const sellerKeyInputRef = useRef<HTMLInputElement>(null);
 
-  // Modal de Produto Não Cadastrado / Cadastro Expresso Provisório [F7 / Bip não encontrado]
+  // Modal de Produto Não Cadastrado / Cadastro Expresso Provisório / Vínculo ao Digifarma
   const [isUnregisteredModalOpen, setIsUnregisteredModalOpen] = useState(false);
+  const [unregisteredModalMode, setUnregisteredModalMode] = useState<'link' | 'express'>('link');
   const [unregisteredBarcode, setUnregisteredBarcode] = useState('');
   const [unregisteredName, setUnregisteredName] = useState('');
   const [unregisteredPrice, setUnregisteredPrice] = useState('');
   const [unregisteredQuantity, setUnregisteredQuantity] = useState(1);
   const [unregisteredCategory, setUnregisteredCategory] = useState<'cosmetico' | 'acessorio' | 'medicamento'>('cosmetico');
+  const [linkSearchQuery, setLinkSearchQuery] = useState('');
+  const [linkSearchResults, setLinkSearchResults] = useState<ProductSearchResult[]>([]);
+  const [isLinkSearching, setIsLinkSearching] = useState(false);
+  const [isLinkingBarcode, setIsLinkingBarcode] = useState(false);
   const unregisteredPriceInputRef = useRef<HTMLInputElement>(null);
   const unregisteredNameInputRef = useRef<HTMLInputElement>(null);
+  const linkSearchInputRef = useRef<HTMLInputElement>(null);
 
   // Preços Escalonados por Quantidade (DESCONTO_ESCALONADO Digifarma)
   const [tieredRules, setTieredRules] = useState<any[]>(TIERED_PRICING_SEED);
@@ -833,17 +840,82 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
     return () => clearInterval(timer);
   }, [completedSale, isCountdownPaused, focusBarcodeInput]);
 
-  // Abertura da modal de produto não cadastrado / sem código de barras (*123)
+  // Abertura da modal de produto não cadastrado / sem código de barras (*123) / vínculo ao Digifarma
   const handleOpenUnregisteredModal = useCallback((barcode: string, qty: number = 1) => {
-    setUnregisteredBarcode(barcode);
+    const cleanB = String(barcode || '').trim();
+    setUnregisteredBarcode(cleanB);
     setUnregisteredName('');
     setUnregisteredPrice('');
     setUnregisteredQuantity(qty > 0 ? qty : 1);
+    setLinkSearchQuery('');
+    setLinkSearchResults([]);
+
+    if (cleanB.startsWith('*')) {
+      setUnregisteredModalMode('express');
+      setTimeout(() => {
+        unregisteredNameInputRef.current?.focus();
+      }, 100);
+    } else {
+      setUnregisteredModalMode('link');
+      setTimeout(() => {
+        linkSearchInputRef.current?.focus();
+      }, 100);
+    }
     setIsUnregisteredModalOpen(true);
-    setTimeout(() => {
-      unregisteredNameInputRef.current?.focus();
-    }, 100);
   }, []);
+
+  // Busca rápida de produtos para vincular o EAN
+  const searchProductsToLink = async (q: string) => {
+    const clean = q.trim();
+    if (clean.length < 2) {
+      setLinkSearchResults([]);
+      return;
+    }
+    setIsLinkSearching(true);
+    try {
+      const res = await fetch(`/api/erp/products?q=${encodeURIComponent(clean)}&limit=15`);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && Array.isArray(json.data)) {
+          setLinkSearchResults(json.data);
+        }
+      }
+    } catch (e) {
+    } finally {
+      setIsLinkSearching(false);
+    }
+  };
+
+  // Vincula o código de barras bipado diretamente ao produto do Digifarma
+  const handleLinkBarcodeToProduct = async (productToLink: ProductSearchResult) => {
+    if (!productToLink || !unregisteredBarcode) return;
+    try {
+      setIsLinkingBarcode(true);
+      const cleanBarcode = unregisteredBarcode.replace(/\s+/g, '');
+      const res = await fetch('/api/erp/products/link-barcode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          product_code: productToLink.code,
+          new_barcode: cleanBarcode
+        })
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        throw new Error(json.error || 'Falha ao vincular código de barras.');
+      }
+      
+      const updatedProduct = json.data || productToLink;
+      addItemToCart(updatedProduct, unregisteredQuantity);
+      addToast(`🔗 EAN ${cleanBarcode} vinculado a ${updatedProduct.name}!`, 'success', 4000);
+      setIsUnregisteredModalOpen(false);
+      focusBarcodeInput();
+    } catch (err: any) {
+      addToast(err.message || 'Erro ao vincular código de barras.', 'error');
+    } finally {
+      setIsLinkingBarcode(false);
+    }
+  };
 
   // Confirmação de inclusão do produto expresso provisório (Blindagem Fiscal SEFAZ + Fila de Saneamento)
   const handleConfirmUnregisteredProduct = async (e?: React.FormEvent) => {
@@ -1256,8 +1328,11 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
       }
     }
 
+    const cleanCodeToSearch = codeToSearch.replace(/\s+/g, '');
+    const targetCode = cleanCodeToSearch || codeToSearch;
+
     try {
-      const res = await fetch(`/api/erp/products/${encodeURIComponent(codeToSearch)}`);
+      const res = await fetch(`/api/erp/products/${encodeURIComponent(targetCode)}`);
       if (res.ok) {
         const json = await res.json();
         if (json.success && json.data) {
@@ -1274,7 +1349,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
       }
 
       // Se não achou exato pelo endpoint direto, tenta a busca rápida por query
-      const searchRes = await fetch(`/api/erp/products?q=${encodeURIComponent(codeToSearch)}&limit=1`);
+      const searchRes = await fetch(`/api/erp/products?q=${encodeURIComponent(targetCode)}&limit=1`);
       if (searchRes.ok) {
         const searchJson = await searchRes.json();
         if (searchJson.success && searchJson.data && searchJson.data.length > 0) {
@@ -1291,8 +1366,8 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
       }
 
       // PRODUTO NÃO ENCONTRADO NO BANCO DE DADOS:
-      // Abre a modal de entrada manual do produto não cadastrado para informar valor e criar tarefa
-      handleOpenUnregisteredModal(codeToSearch, multiplier);
+      // Abre a modal inteligente para vincular a produto existente do Digifarma OU cadastrar expresso
+      handleOpenUnregisteredModal(targetCode, multiplier);
       setBarcodeInput('');
       setAutocompleteResults([]);
     } catch (err: any) {
@@ -4734,15 +4809,24 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
       )}
 
       {/* ========================================================================= */}
-      {/* MODAL 11: CADASTRO EXPRESSO NO CAIXA & SANEAMENTO FISCAL SEFAZ             */}
+      {/* MODAL 11: VÍNCULO AO DIGIFARMA OU CADASTRO EXPRESSO NO CAIXA              */}
       {/* ========================================================================= */}
       {isUnregisteredModalOpen && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border-2 border-emerald-500/70 rounded-3xl shadow-2xl max-w-md w-full p-6 animate-in fade-in zoom-in-95 duration-150">
+          <div className="bg-slate-900 border-2 border-emerald-500/70 rounded-3xl shadow-2xl max-w-lg w-full p-6 animate-in fade-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
               <h3 className="font-black text-sm text-white flex items-center gap-2">
-                <Zap className="w-5 h-5 text-amber-400" />
-                Cadastro Expresso no Caixa • Blindagem Fiscal
+                {unregisteredModalMode === 'link' ? (
+                  <>
+                    <Link2 className="w-5 h-5 text-blue-400" />
+                    Vincular Código a Produto do Digifarma
+                  </>
+                ) : (
+                  <>
+                    <Zap className="w-5 h-5 text-amber-400" />
+                    Cadastro Expresso no Caixa • Blindagem Fiscal
+                  </>
+                )}
               </h3>
               <button 
                 onClick={() => {
@@ -4755,145 +4839,287 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
               </button>
             </div>
 
-            <div className="mb-4 bg-emerald-950/40 border border-emerald-600/40 rounded-xl p-3 flex items-start gap-2.5 text-xs text-emerald-200/90 leading-relaxed">
-              <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-              <span>
-                Item emitido na SEFAZ com regra oficial <strong>SEM GTIN</strong> e NCM provisório. Fila de saneamento gerada automaticamente na retaguarda.
-              </span>
+            {/* Abas Alternadoras: Vincular ao Digifarma vs Cadastro Expresso */}
+            <div className="flex rounded-xl bg-slate-950 p-1 border border-slate-800 mb-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setUnregisteredModalMode('link');
+                  setTimeout(() => linkSearchInputRef.current?.focus(), 100);
+                }}
+                className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-black flex items-center justify-center gap-1.5 transition-all ${
+                  unregisteredModalMode === 'link'
+                    ? 'bg-blue-600 text-white shadow-md'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Link2 className="w-3.5 h-3.5" />
+                Vincular a Produto Existente
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setUnregisteredModalMode('express');
+                  setTimeout(() => unregisteredNameInputRef.current?.focus(), 100);
+                }}
+                className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-black flex items-center justify-center gap-1.5 transition-all ${
+                  unregisteredModalMode === 'express'
+                    ? 'bg-emerald-600 text-white shadow-md'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Zap className="w-3.5 h-3.5" />
+                Novo Cadastro Expresso
+              </button>
             </div>
 
-            <form onSubmit={handleConfirmUnregisteredProduct} className="space-y-3.5">
-              {/* Seleção de Categoria Rápida / NCM Provisório */}
-              <div>
-                <label className="block text-[11px] font-bold text-slate-400 uppercase mb-1.5">
-                  Classificação Rápida:
-                </label>
-                <div className="grid grid-cols-3 gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => setUnregisteredCategory('cosmetico')}
-                    className={`py-1.5 px-2 rounded-lg text-[11px] font-bold transition-all border ${
-                      unregisteredCategory === 'cosmetico'
-                        ? 'bg-purple-950 border-purple-500 text-purple-200 shadow-sm'
-                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    Cosméticos
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setUnregisteredCategory('acessorio')}
-                    className={`py-1.5 px-2 rounded-lg text-[11px] font-bold transition-all border ${
-                      unregisteredCategory === 'acessorio'
-                        ? 'bg-blue-950 border-blue-500 text-blue-200 shadow-sm'
-                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    Acessórios
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setUnregisteredCategory('medicamento')}
-                    className={`py-1.5 px-2 rounded-lg text-[11px] font-bold transition-all border ${
-                      unregisteredCategory === 'medicamento'
-                        ? 'bg-emerald-950 border-emerald-500 text-emerald-200 shadow-sm'
-                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    Medicamentos
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-400 uppercase mb-1">
-                  Nome / Descrição do Produto:
-                </label>
-                <input
-                  ref={unregisteredNameInputRef}
-                  type="text"
-                  value={unregisteredName}
-                  onChange={(e) => setUnregisteredName(e.target.value)}
-                  placeholder="Ex: Pinça Anatômica Ponta Fina"
-                  required
-                  className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-slate-100 text-sm font-semibold focus:outline-none focus:border-amber-400"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-400 uppercase mb-1">
-                    Valor de Venda (R$):
-                  </label>
-                  <input
-                    ref={unregisteredPriceInputRef}
-                    type="text"
-                    inputMode="decimal"
-                    value={unregisteredPrice}
-                    onChange={(e) => setUnregisteredPrice(e.target.value)}
-                    placeholder="0,00"
-                    required
-                    className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border-2 border-emerald-500/60 text-emerald-300 font-mono text-lg font-black focus:outline-none focus:border-emerald-400 text-right"
-                  />
+            {unregisteredModalMode === 'link' ? (
+              /* ABA DE VÍNCULO AO DIGIFARMA */
+              <div className="space-y-3.5">
+                <div className="bg-blue-950/40 border border-blue-600/40 rounded-xl p-3 flex items-start gap-2.5 text-xs text-blue-200/90 leading-relaxed">
+                  <AlertCircle className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
+                  <div>
+                    Código bipado: <strong className="text-white font-mono bg-blue-900/60 px-1.5 py-0.5 rounded border border-blue-700">{unregisteredBarcode}</strong>.
+                    <p className="mt-1 text-[11px] text-blue-300">
+                      Bipou uma cartela ou item com código diferente? Busque abaixo o produto no Digifarma para associar este EAN permanentemente e aplicar o preço oficial.
+                    </p>
+                  </div>
                 </div>
 
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-400 uppercase mb-1">
-                    Quantidade:
-                  </label>
-                  <div className="flex items-center bg-slate-950 border border-slate-700 rounded-xl overflow-hidden">
-                    <button
-                      type="button"
-                      onClick={() => setUnregisteredQuantity(prev => Math.max(1, prev - 1))}
-                      className="px-3 py-2.5 text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
-                    >
-                      <Minus className="w-4 h-4" />
-                    </button>
+                <div className="flex gap-2">
+                  <div className="flex-1 relative">
+                    <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                    <input
+                      ref={linkSearchInputRef}
+                      type="text"
+                      value={linkSearchQuery}
+                      onChange={(e) => {
+                        setLinkSearchQuery(e.target.value);
+                        searchProductsToLink(e.target.value);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          searchProductsToLink(linkSearchQuery);
+                        }
+                      }}
+                      placeholder="Buscar por nome ou código (ex: dipirona, 106442)..."
+                      className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-slate-100 text-sm font-semibold focus:outline-none focus:border-blue-400"
+                    />
+                  </div>
+                  <div className="flex items-center bg-slate-950 border border-slate-700 rounded-xl px-2">
+                    <span className="text-[10px] text-slate-400 font-bold uppercase mr-1">Qtd:</span>
                     <input
                       type="number"
                       min="1"
                       value={unregisteredQuantity}
                       onChange={(e) => setUnregisteredQuantity(Math.max(1, parseInt(e.target.value, 10) || 1))}
-                      className="w-full bg-transparent text-center font-mono font-bold text-slate-200 text-sm focus:outline-none"
+                      className="w-12 bg-transparent text-center font-mono font-bold text-slate-200 text-sm focus:outline-none"
                     />
-                    <button
-                      type="button"
-                      onClick={() => setUnregisteredQuantity(prev => prev + 1)}
-                      className="px-3 py-2.5 text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
-                    >
-                      <Plus className="w-4 h-4" />
-                    </button>
                   </div>
                 </div>
-              </div>
 
-              {unregisteredBarcode && !unregisteredBarcode.startsWith('*') && (
-                <div className="text-[11px] font-mono text-slate-400 flex items-center justify-between px-1">
-                  <span>Código Lido:</span>
-                  <span className="text-slate-300 font-bold">{unregisteredBarcode}</span>
+                {/* Lista de Resultados da Busca */}
+                <div className="max-h-60 overflow-y-auto divide-y divide-slate-800 border border-slate-800 rounded-xl bg-slate-950/70">
+                  {isLinkSearching ? (
+                    <div className="p-4 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
+                      <RefreshCw className="w-4 h-4 animate-spin text-blue-400" />
+                      Consultando banco de dados...
+                    </div>
+                  ) : linkSearchResults.length === 0 ? (
+                    <div className="p-4 text-center text-xs text-slate-500">
+                      {linkSearchQuery.length >= 2 ? 'Nenhum produto encontrado com este termo.' : 'Digite pelo menos 2 letras do nome ou código do produto.'}
+                    </div>
+                  ) : (
+                    linkSearchResults.map((prod) => (
+                      <div
+                        key={prod.code}
+                        className="p-3 hover:bg-slate-800/80 transition-colors flex items-center justify-between gap-3 group"
+                      >
+                        <div className="min-w-0">
+                          <div className="font-bold text-xs text-slate-100 group-hover:text-blue-300 truncate">
+                            {prod.name}
+                          </div>
+                          <div className="text-[10px] font-mono text-slate-400 mt-0.5">
+                            Cód: <strong>{prod.code}</strong> | EAN: {prod.barcode || 'S/N'} | Estoque: <span className={prod.stock_qty > 0 ? 'text-emerald-400 font-bold' : 'text-rose-400'}>{prod.stock_qty} un</span>
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0 flex items-center gap-2">
+                          <div className="font-mono text-xs font-black text-emerald-400">
+                            R$ {(prod.promo_price > 0 ? prod.promo_price : prod.sale_price).toFixed(2)}
+                          </div>
+                          <button
+                            type="button"
+                            disabled={isLinkingBarcode}
+                            onClick={() => handleLinkBarcodeToProduct(prod)}
+                            className="py-1 px-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-[11px] font-bold shadow transition-all flex items-center gap-1"
+                          >
+                            {isLinkingBarcode ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Link2 className="w-3 h-3" />}
+                            Vincular
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
-              )}
 
-              <div className="flex gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsUnregisteredModalOpen(false);
-                    focusBarcodeInput();
-                  }}
-                  className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-all"
-                >
-                  Cancelar [ESC]
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black transition-all shadow-md flex items-center justify-center gap-1.5"
-                >
-                  <CheckCircle2 className="w-4 h-4" />
-                  Incluir no Caixa [ENTER]
-                </button>
+                <div className="flex justify-end pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsUnregisteredModalOpen(false);
+                      focusBarcodeInput();
+                    }}
+                    className="py-2 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-all"
+                  >
+                    Fechar [ESC]
+                  </button>
+                </div>
               </div>
-            </form>
+            ) : (
+              /* ABA DE CADASTRO EXPRESSO TRADICIONAL */
+              <>
+                <div className="mb-4 bg-emerald-950/40 border border-emerald-600/40 rounded-xl p-3 flex items-start gap-2.5 text-xs text-emerald-200/90 leading-relaxed">
+                  <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                  <span>
+                    Item emitido na SEFAZ com regra oficial <strong>SEM GTIN</strong> e NCM provisório. Fila de saneamento gerada automaticamente na retaguarda.
+                  </span>
+                </div>
+
+                <form onSubmit={handleConfirmUnregisteredProduct} className="space-y-3.5">
+                  {/* Seleção de Categoria Rápida / NCM Provisório */}
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-400 uppercase mb-1.5">
+                      Classificação Rápida:
+                    </label>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setUnregisteredCategory('cosmetico')}
+                        className={`py-1.5 px-2 rounded-lg text-[11px] font-bold transition-all border ${
+                          unregisteredCategory === 'cosmetico'
+                            ? 'bg-purple-950 border-purple-500 text-purple-200 shadow-sm'
+                            : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        Cosméticos
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setUnregisteredCategory('acessorio')}
+                        className={`py-1.5 px-2 rounded-lg text-[11px] font-bold transition-all border ${
+                          unregisteredCategory === 'acessorio'
+                            ? 'bg-blue-950 border-blue-500 text-blue-200 shadow-sm'
+                            : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        Acessórios
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setUnregisteredCategory('medicamento')}
+                        className={`py-1.5 px-2 rounded-lg text-[11px] font-bold transition-all border ${
+                          unregisteredCategory === 'medicamento'
+                            ? 'bg-emerald-950 border-emerald-500 text-emerald-200 shadow-sm'
+                            : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        Medicamentos
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-400 uppercase mb-1">
+                      Nome / Descrição do Produto:
+                    </label>
+                    <input
+                      ref={unregisteredNameInputRef}
+                      type="text"
+                      value={unregisteredName}
+                      onChange={(e) => setUnregisteredName(e.target.value)}
+                      placeholder="Ex: Pinça Anatômica Ponta Fina"
+                      required
+                      className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-slate-100 text-sm font-semibold focus:outline-none focus:border-amber-400"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-400 uppercase mb-1">
+                        Valor de Venda (R$):
+                      </label>
+                      <input
+                        ref={unregisteredPriceInputRef}
+                        type="text"
+                        inputMode="decimal"
+                        value={unregisteredPrice}
+                        onChange={(e) => setUnregisteredPrice(e.target.value)}
+                        placeholder="0,00"
+                        required
+                        className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border-2 border-emerald-500/60 text-emerald-300 font-mono text-lg font-black focus:outline-none focus:border-emerald-400 text-right"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-400 uppercase mb-1">
+                        Quantidade:
+                      </label>
+                      <div className="flex items-center bg-slate-950 border border-slate-700 rounded-xl overflow-hidden">
+                        <button
+                          type="button"
+                          onClick={() => setUnregisteredQuantity(prev => Math.max(1, prev - 1))}
+                          className="px-3 py-2.5 text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                        >
+                          <Minus className="w-4 h-4" />
+                        </button>
+                        <input
+                          type="number"
+                          min="1"
+                          value={unregisteredQuantity}
+                          onChange={(e) => setUnregisteredQuantity(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                          className="w-full bg-transparent text-center font-mono font-bold text-slate-200 text-sm focus:outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setUnregisteredQuantity(prev => prev + 1)}
+                          className="px-3 py-2.5 text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                        >
+                          <Plus className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {unregisteredBarcode && !unregisteredBarcode.startsWith('*') && (
+                    <div className="text-[11px] font-mono text-slate-400 flex items-center justify-between px-1">
+                      <span>Código Lido:</span>
+                      <span className="text-slate-300 font-bold">{unregisteredBarcode}</span>
+                    </div>
+                  )}
+
+                  <div className="flex gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsUnregisteredModalOpen(false);
+                        focusBarcodeInput();
+                      }}
+                      className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-all"
+                    >
+                      Cancelar [ESC]
+                    </button>
+                    <button
+                      type="submit"
+                      className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black transition-all shadow-md flex items-center justify-center gap-1.5"
+                    >
+                      <CheckCircle2 className="w-4 h-4" />
+                      Incluir no Caixa [ENTER]
+                    </button>
+                  </div>
+                </form>
+              </>
+            )}
           </div>
         </div>
       )}
