@@ -227,6 +227,86 @@ function createCardEndpoints(db, whatsappService = null) {
   });
 
   /**
+   * 2b. POST /api/cards/issue
+   * Cadastro rápido e abertura de conta de crediário por Nome, Telefone, CPF e Vencimento.
+   */
+  router.post('/issue', (req, res) => {
+    try {
+      const { customerName, phone, cpf, creditLimit, dueDay } = req.body;
+      if (!customerName || !String(customerName).trim()) {
+        return res.status(400).json({ error: 'Nome do cliente é obrigatório.' });
+      }
+
+      const cleanName = String(customerName).trim();
+      const cleanPhone = phone ? String(phone).replace(/\D/g, '') : '';
+      const cleanCpf = cpf ? String(cpf).replace(/\D/g, '') : '';
+      const limit = Number(creditLimit || 300);
+      const due = [10, 20].includes(Number(dueDay)) ? Number(dueDay) : 20;
+
+      let customerId = null;
+      let existingCustomer = null;
+      if (cleanCpf) {
+        existingCustomer = db.prepare('SELECT id FROM customers WHERE REPLACE(REPLACE(REPLACE(cpf, ".", ""), "-", ""), " ", "") = ?').get(cleanCpf);
+      }
+      if (!existingCustomer && cleanPhone) {
+        existingCustomer = db.prepare('SELECT id FROM customers WHERE REPLACE(REPLACE(REPLACE(REPLACE(phone, "(", ""), ")", ""), "-", ""), " ", "") = ?').get(cleanPhone);
+      }
+      if (!existingCustomer) {
+        existingCustomer = db.prepare('SELECT id FROM customers WHERE UPPER(name) = ?').get(cleanName.toUpperCase());
+      }
+
+      if (existingCustomer) {
+        customerId = existingCustomer.id;
+      } else {
+        customerId = `cust_${Date.now()}`;
+        db.prepare(`
+          INSERT INTO customers (id, name, phone, cpf, creditLimit, dueDay, createdAt, updatedAt)
+          VALUES (?, ?, ?, ?, ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime'))
+        `).run(customerId, cleanName, cleanPhone, cleanCpf, limit, due);
+      }
+
+      let existingCard = db.prepare('SELECT id FROM belafarma_cards WHERE customer_id = ? OR (cpf != "" AND cpf = ?)').get(customerId, cleanCpf);
+      if (existingCard) {
+        db.prepare(`
+          UPDATE belafarma_cards
+          SET credit_limit = ?, due_day = ?, customer_name = ?, phone = COALESCE(NULLIF(?, ''), phone), cpf = COALESCE(NULLIF(?, ''), cpf), updated_at = datetime('now', 'localtime')
+          WHERE id = ?
+        `).run(limit, due, cleanName, cleanPhone, cleanCpf, existingCard.id);
+
+        return res.json({
+          success: true,
+          cardId: existingCard.id,
+          message: 'Cadastro atualizado com sucesso!'
+        });
+      }
+
+      const cardNumber = generateCardNumber();
+      const info = db.prepare(`
+        INSERT INTO belafarma_cards (
+          customer_id, customer_name, phone, cpf, card_number,
+          credit_limit, used_limit, due_day, closing_offset_days, status,
+          active_fee_amount, late_fine_percent, late_interest_monthly_percent,
+          created_at, updated_at
+        ) VALUES (
+          ?, ?, ?, ?, ?,
+          ?, 0, ?, 10, 'active',
+          0, 2.0, 2.9,
+          datetime('now', 'localtime'), datetime('now', 'localtime')
+        )
+      `).run(customerId, cleanName, cleanPhone, cleanCpf, cardNumber, limit, due);
+
+      res.json({
+        success: true,
+        cardId: info.lastInsertRowid,
+        message: 'Conta de crediário aberta com sucesso!'
+      });
+    } catch (err) {
+      console.error('[Crediário] Erro ao cadastrar cliente:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  /**
    * 3. GET /api/cards/:cardId/details
    * Retorna perfil completo do cliente, extrato e todas as faturas.
    */
@@ -948,6 +1028,12 @@ function createCardEndpoints(db, whatsappService = null) {
           `_(Ou realize o pagamento diretamente no balcão da farmácia)_\n\n`;
       }
 
+      const hostUrl = req.get('x-forwarded-host') || req.get('host') || 'chatbot-jtsj.onrender.com';
+      const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
+      const faturaLink = `${protocol}://${hostUrl}/fatura/${invoice.id}`;
+
+      msg += `🔗 *Para ver o extrato completo com todos os itens, acesse:*\n${faturaLink}\n\n`;
+
       msg += `Qualquer dúvida estamos à disposição! Muito obrigado pela parceria e preferência! 💚`;
 
       await baileys.sendText(cleanPhone, msg);
@@ -1080,6 +1166,89 @@ function createCardEndpoints(db, whatsappService = null) {
       const result = await bancoInterService.criarWebhook(webhookUrl);
       res.json(result);
     } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  /**
+   * 15. GET /api/cards/public/invoice/:invoiceId
+   * Dados públicos da fatura para o cliente (sem expor itens antes da validação de segurança).
+   */
+  router.get('/public/invoice/:invoiceId', (req, res) => {
+    try {
+      const { invoiceId } = req.params;
+      const invoice = db.prepare('SELECT * FROM card_invoices WHERE id = ?').get(invoiceId);
+      if (!invoice) {
+        return res.status(404).json({ error: 'Fatura não encontrada.' });
+      }
+
+      const card = db.prepare('SELECT id, customer_name, cpf, phone FROM belafarma_cards WHERE id = ?').get(invoice.card_id);
+      if (!card) {
+        return res.status(404).json({ error: 'Conta de crediário não encontrada.' });
+      }
+
+      const firstName = (card.customer_name || '').split(' ')[0];
+      const cleanCpf = (card.cpf || '').replace(/\D/g, '');
+      const hasCpf = Boolean(cleanCpf.length >= 3);
+      const saldoRestante = Math.max(0, Number((invoice.total_due - invoice.paid_amount).toFixed(2)));
+
+      res.json({
+        success: true,
+        invoice: {
+          id: invoice.id,
+          customer_first_name: firstName,
+          total_due: invoice.total_due,
+          paid_amount: invoice.paid_amount,
+          balance: saldoRestante,
+          due_date: invoice.due_date,
+          status: invoice.status,
+          pix_copia_cola: invoice.pix_copia_cola,
+          has_cpf: hasCpf
+        }
+      });
+    } catch (err) {
+      console.error('[Crediário Público] Erro:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  /**
+   * 16. POST /api/cards/public/invoice/:invoiceId/unlock
+   * Confirmação dos 3 primeiros dígitos do CPF para liberar o extrato detalhado de itens.
+   */
+  router.post('/public/invoice/:invoiceId/unlock', (req, res) => {
+    try {
+      const { invoiceId } = req.params;
+      const { cpfDigits } = req.body;
+
+      const invoice = db.prepare('SELECT * FROM card_invoices WHERE id = ?').get(invoiceId);
+      if (!invoice) {
+        return res.status(404).json({ error: 'Fatura não encontrada.' });
+      }
+
+      const card = db.prepare('SELECT id, customer_name, cpf FROM belafarma_cards WHERE id = ?').get(invoice.card_id);
+      if (!card) {
+        return res.status(404).json({ error: 'Conta de crediário não encontrada.' });
+      }
+
+      const cleanCpf = (card.cpf || '').replace(/\D/g, '');
+      const cleanDigits = String(cpfDigits || '').replace(/\D/g, '');
+
+      if (cleanCpf.length >= 3) {
+        if (!cleanDigits || !cleanCpf.startsWith(cleanDigits)) {
+          return res.status(403).json({ error: 'Os 3 dígitos informados não conferem com o cadastro.' });
+        }
+      }
+
+      const items = db.prepare('SELECT * FROM card_invoice_items WHERE invoice_id = ? ORDER BY purchased_at ASC').all(invoiceId);
+
+      res.json({
+        success: true,
+        customer_name: card.customer_name,
+        items
+      });
+    } catch (err) {
+      console.error('[Crediário Público Unlock] Erro:', err);
       res.status(500).json({ error: err.message });
     }
   });

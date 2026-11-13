@@ -20,6 +20,7 @@ import { BoletoBudgetSummaryModal } from "./components/BoletoBudgetSummaryModal"
 import { DaysInDebt } from "./components/DaysInDebt";
 import { CrediarioReport } from "./components/CrediarioReport";
 import { CrediarioHub } from "./components/CrediarioHub";
+import { CrediarioPublicInvoice } from "./components/CrediarioPublicInvoice";
 import { TaskManagementPage } from "./components/TaskManagementPage";
 import { FixedAccountsPage } from "./components/FixedAccountsPage";
 import { CustomersPage } from "./components/CustomersPage";
@@ -1366,6 +1367,28 @@ const App: React.FC = () => {
         initialShowSplash={showSplash}
       />
     );
+  }
+
+  // Rota pública de fatura de crediário para o cliente (WhatsApp / link direto)
+  const isInvoicePublicRoute =
+    window.location.pathname.startsWith('/fatura/') ||
+    window.location.hash.startsWith('#/fatura/') ||
+    window.location.search.includes('fatura=');
+
+  if (isInvoicePublicRoute) {
+    let invoiceId = '';
+    if (window.location.pathname.startsWith('/fatura/')) {
+      invoiceId = window.location.pathname.replace('/fatura/', '').split('/')[0];
+    } else if (window.location.hash.startsWith('#/fatura/')) {
+      invoiceId = window.location.hash.replace('#/fatura/', '').split('?')[0];
+    } else {
+      const params = new URLSearchParams(window.location.search);
+      invoiceId = params.get('fatura') || '';
+    }
+
+    if (invoiceId) {
+      return <CrediarioPublicInvoice invoiceId={invoiceId} />;
+    }
   }
 
   if (!user)

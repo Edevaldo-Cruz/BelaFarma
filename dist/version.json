@@ -1,9 +1,14 @@
 {
-  "version": "1.2.5",
-  "commitHash": "bdcc0d5",
-  "commitMessage": "build: atualizacao dos bundles do frontend e dist v1.2.5",
-  "buildTime": "13/11/2026, 14:45:52",
+  "version": "1.2.6",
+  "commitHash": "47063e6",
+  "commitMessage": "fix(pdv): correcao sistemica de precos e eliminacao de produtos duplicados com sufixo .0",
+  "buildTime": "13/11/2026, 15:00:29",
   "recentCommits": [
+    {
+      "hash": "47063e6",
+      "date": "13/11/2026",
+      "message": "fix(pdv): correcao sistemica de precos e eliminacao de produtos duplicados com sufixo .0"
+    },
     {
       "hash": "bdcc0d5",
       "date": "13/11/2026",
@@ -58,11 +63,6 @@
       "hash": "5bd94cc",
       "date": "12/11/2026",
       "message": "fix(clipboard): polyfill universal para restaurar funcionamento de todos os botoes de copiar em rede local HTTP"
-    },
-    {
-      "hash": "23f623f",
-      "date": "12/11/2026",
-      "message": "fix(pdv): correcao universal do botao copiar comando e instalador via blob"
     }
   ]
 }

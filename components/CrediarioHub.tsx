@@ -111,7 +111,7 @@ export const CrediarioHub: React.FC<CrediarioHubProps> = ({ initialTab = 'titulo
   const [isProcessingDebtPay, setIsProcessingDebtPay] = useState(false);
 
   // ==========================================
-  // ESTADOS - ABA 3: CARTÕES BELAFARMA / NFC
+  // ESTADOS - ABA 3: CONTAS DE CLIENTES & LIMITES
   // ==========================================
   const [cards, setCards] = useState<CardSummary[]>([]);
   const [loadingCards, setLoadingCards] = useState(false);
@@ -119,6 +119,24 @@ export const CrediarioHub: React.FC<CrediarioHubProps> = ({ initialTab = 'titulo
   const [cardsDashboard, setCardsDashboard] = useState<any>(null);
   const [selectedCardIdForProfile, setSelectedCardIdForProfile] = useState<number | null>(null);
   const [isCardProfileOpen, setIsCardProfileOpen] = useState(false);
+
+  // Cliente Ativo selecionado no Balcão
+  const [activeBalcaoCard, setActiveBalcaoCard] = useState<CardSummary | null>(null);
+
+  // Modal de Lançamento de Compra
+  const [isSaleModalOpen, setIsSaleModalOpen] = useState(false);
+  const [saleAmount, setSaleAmount] = useState('');
+  const [saleDescription, setSaleDescription] = useState('Compra no Balcão BelaFarma');
+  const [isAuthorizingSale, setIsAuthorizingSale] = useState(false);
+
+  // Modal de Cadastro Rápido de Novo Cliente
+  const [isNewAccountModalOpen, setIsNewAccountModalOpen] = useState(false);
+  const [newCustName, setNewCustName] = useState('');
+  const [newCustPhone, setNewCustPhone] = useState('');
+  const [newCustCpf, setNewCustCpf] = useState('');
+  const [newCustLimit, setNewCustLimit] = useState('300');
+  const [newCustDueDay, setNewCustDueDay] = useState<'10' | '20'>('20');
+  const [isSavingNewAccount, setIsSavingNewAccount] = useState(false);
 
   // ==========================================
   // UTILITÁRIOS DE FORMATAÇÃO
@@ -554,6 +572,117 @@ export const CrediarioHub: React.FC<CrediarioHubProps> = ({ initialTab = 'titulo
     }
   };
 
+  // ==========================================
+  // AÇÕES - ATENDIMENTO DE BALCÃO (POR NOME)
+  // ==========================================
+  const handleAuthorizeBalcaoSale = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeBalcaoCard) return;
+    const val = parseFloat(saleAmount);
+    if (isNaN(val) || val <= 0) {
+      addToast('Informe um valor de compra válido.', 'warning');
+      return;
+    }
+
+    if (val > activeBalcaoCard.available_credit) {
+      addToast(`Limite insuficiente! Disponível: ${formatCurrency(activeBalcaoCard.available_credit)}`, 'warning');
+      return;
+    }
+
+    setIsAuthorizingSale(true);
+    try {
+      const res = await fetch('/api/cards/authorize-sale', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cardId: activeBalcaoCard.id,
+          amount: val,
+          description: saleDescription || 'Compra no Balcão BelaFarma'
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.authorized) {
+        addToast(`Compra de ${formatCurrency(val)} lançada no crediário com sucesso!`, 'success');
+        setIsSaleModalOpen(false);
+        setSaleAmount('');
+        setSaleDescription('Compra no Balcão BelaFarma');
+        // Atualizar dados
+        fetchCards(cardSearchTerm);
+        // Atualiza o card ativo
+        setActiveBalcaoCard(prev => prev ? {
+          ...prev,
+          used_limit: prev.used_limit + val,
+          available_credit: Math.max(0, prev.available_credit - val)
+        } : null);
+      } else {
+        addToast(data.reason || data.error || 'Erro ao autorizar venda.', 'error');
+      }
+    } catch (err) {
+      addToast('Erro de conexão ao autorizar compra.', 'error');
+    } finally {
+      setIsAuthorizingSale(false);
+    }
+  };
+
+  const handleUpdateDueDay = async (cardId: number, dueDay: number) => {
+    try {
+      const res = await fetch(`/api/cards/${cardId}/update-profile`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dueDay })
+      });
+      if (res.ok) {
+        addToast(`Vencimento atualizado para todo dia ${dueDay}!`, 'success');
+        fetchCards(cardSearchTerm);
+        setActiveBalcaoCard(prev => prev && prev.id === cardId ? { ...prev, due_day: dueDay } : prev);
+      } else {
+        addToast('Erro ao atualizar vencimento.', 'error');
+      }
+    } catch {
+      addToast('Erro de conexão ao atualizar vencimento.', 'error');
+    }
+  };
+
+  const handleSaveNewAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newCustName.trim()) {
+      addToast('Nome do cliente é obrigatório.', 'warning');
+      return;
+    }
+
+    setIsSavingNewAccount(true);
+    try {
+      const res = await fetch('/api/cards/issue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customerName: newCustName.trim(),
+          phone: newCustPhone.trim(),
+          cpf: newCustCpf.trim(),
+          creditLimit: parseFloat(newCustLimit) || 300,
+          dueDay: parseInt(newCustDueDay) || 20
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        addToast('Conta de Crediário aberta com sucesso!', 'success');
+        setIsNewAccountModalOpen(false);
+        setNewCustName('');
+        setNewCustPhone('');
+        setNewCustCpf('');
+        setNewCustLimit('300');
+        setNewCustDueDay('20');
+        fetchCards();
+      } else {
+        addToast(data.error || 'Erro ao abrir conta de crediário.', 'error');
+      }
+    } catch {
+      addToast('Erro de conexão ao cadastrar cliente.', 'error');
+    } finally {
+      setIsSavingNewAccount(false);
+    }
+  };
+
   return (
     <div className="w-full space-y-6 animate-in fade-in duration-300">
       {/* ==========================================
@@ -574,7 +703,7 @@ export const CrediarioHub: React.FC<CrediarioHubProps> = ({ initialTab = 'titulo
               </span>
             </div>
             <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mt-0.5">
-              Gestão centralizada de contas a receber, cobrança WhatsApp, devedores e cartão fidelidade NFC
+              Gestão centralizada de contas a receber, cobrança WhatsApp, devedores e limites de clientes
             </p>
           </div>
         </div>
@@ -666,14 +795,14 @@ export const CrediarioHub: React.FC<CrediarioHubProps> = ({ initialTab = 'titulo
           </p>
         </div>
 
-        {/* Cartão Fidelidade / NFC */}
+        {/* Contas de Clientes */}
         <div className="bg-white dark:bg-slate-900 rounded-2xl p-5 border border-slate-200 dark:border-slate-800 shadow-2xs">
           <div className="flex items-center justify-between mb-2">
             <span className="text-[11px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Cartão BelaFarma (NFC)
+              Contas de Clientes Ativas
             </span>
             <div className="p-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600">
-              <Wifi className="w-4 h-4" />
+              <Users className="w-4 h-4" />
             </div>
           </div>
           <p className="text-2xl font-black text-slate-800 dark:text-white">
@@ -732,8 +861,8 @@ export const CrediarioHub: React.FC<CrediarioHubProps> = ({ initialTab = 'titulo
               : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
           }`}
         >
-          <Wifi className="w-4 h-4" />
-          <span>Cartão BelaFarma & NFC</span>
+          <Users className="w-4 h-4" />
+          <span>Contas & Limites</span>
         </button>
       </div>
 
@@ -1033,49 +1162,207 @@ export const CrediarioHub: React.FC<CrediarioHubProps> = ({ initialTab = 'titulo
       )}
 
       {/* ==========================================
-          CONTEÚDO DA ABA 3: CARTÃO BELAFARMA & NFC
+          CONTEÚDO DA ABA 3: CONTAS DE CLIENTES & LIMITES
          ========================================== */}
       {activeTab === 'cartoes' && (
         <div className="space-y-6 animate-in fade-in duration-200">
-          {/* Terminal NFC Integrado */}
-          <CrediarioNfcWidget />
+          {/* PAINEL DE ATENDIMENTO DE BALCÃO POR NOME */}
+          <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-800 pb-4">
+              <div>
+                <h3 className="text-base font-black uppercase text-slate-900 dark:text-white flex items-center gap-2">
+                  <Users className="w-5 h-5 text-red-600" />
+                  Atendimento de Balcão (Crediário)
+                </h3>
+                <p className="text-xs text-slate-400">
+                  Consulte limites, lance compras e envie faturas por Nome ou Telefone (sem necessidade de cartão físico)
+                </p>
+              </div>
 
-          {/* Listagem Rápida de Cartões BelaFarma */}
+              <button
+                type="button"
+                onClick={() => setIsNewAccountModalOpen(true)}
+                className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold text-xs shadow-xs hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                <span>+ Novo Cliente no Crediário</span>
+              </button>
+            </div>
+
+            {/* Input de Busca Rápida por Nome */}
+            <div className="relative">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Digite o Nome, Apelido, Telefone ou CPF do cliente..."
+                value={cardSearchTerm}
+                onChange={e => {
+                  setCardSearchTerm(e.target.value);
+                  fetchCards(e.target.value);
+                }}
+                className="w-full pl-12 pr-4 py-3.5 bg-slate-50 dark:bg-slate-800/80 border-2 border-slate-200 dark:border-slate-700 rounded-2xl text-sm font-semibold text-slate-900 dark:text-white outline-none focus:border-red-500 shadow-2xs"
+              />
+            </div>
+
+            {/* Card do Cliente Ativo Selecionado */}
+            {activeBalcaoCard ? (
+              <div className="p-5 rounded-2xl bg-gradient-to-br from-slate-50 to-slate-100/70 dark:from-slate-800/60 dark:to-slate-800/30 border border-slate-200 dark:border-slate-700 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 rounded-2xl bg-red-600 text-white font-black text-lg flex items-center justify-center shrink-0 shadow-sm">
+                      {activeBalcaoCard.customer_name.charAt(0).toUpperCase()}
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h4 className="text-base font-black text-slate-900 dark:text-white uppercase">
+                          {activeBalcaoCard.customer_name}
+                        </h4>
+                        <span className="px-2 py-0.2 rounded-md text-[10px] font-black uppercase bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-400">
+                          Conta Ativa
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3 text-xs text-slate-500 mt-0.5">
+                        {activeBalcaoCard.phone && (
+                          <span className="inline-flex items-center gap-1 font-mono">
+                            <Phone className="w-3 h-3 text-emerald-600" />
+                            {activeBalcaoCard.phone}
+                          </span>
+                        )}
+                        {activeBalcaoCard.cpf ? (
+                          <span className="font-mono text-[11px] text-slate-400">CPF: {activeBalcaoCard.cpf}</span>
+                        ) : (
+                          <span className="text-[10px] font-bold text-amber-600 bg-amber-50 dark:bg-amber-950/40 px-2 py-0.2 rounded">
+                            CPF não cadastrado
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Vencimento Selecionado: Dia 10 ou Dia 20 */}
+                  <div className="flex items-center gap-1.5 p-1 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700">
+                    <span className="text-[10px] font-black uppercase text-slate-400 px-2">Vencimento:</span>
+                    <button
+                      type="button"
+                      onClick={() => handleUpdateDueDay(activeBalcaoCard.id, 10)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                        activeBalcaoCard.due_day === 10
+                          ? 'bg-red-600 text-white shadow-2xs'
+                          : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                      }`}
+                    >
+                      Dia 10
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleUpdateDueDay(activeBalcaoCard.id, 20)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                        activeBalcaoCard.due_day === 20
+                          ? 'bg-red-600 text-white shadow-2xs'
+                          : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                      }`}
+                    >
+                      Dia 20
+                    </button>
+                  </div>
+                </div>
+
+                {/* Métricas de Limite em 3 Blocos */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 text-center">
+                    <span className="text-[10px] font-black uppercase text-slate-400 block">Limite Total</span>
+                    <span className="text-lg font-black text-slate-800 dark:text-white">
+                      {formatCurrency(activeBalcaoCard.credit_limit)}
+                    </span>
+                  </div>
+
+                  <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 text-center">
+                    <span className="text-[10px] font-black uppercase text-slate-400 block">Saldo em Uso</span>
+                    <span className="text-lg font-black text-amber-600">
+                      {formatCurrency(activeBalcaoCard.used_limit)}
+                    </span>
+                  </div>
+
+                  <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 text-center">
+                    <span className="text-[10px] font-black uppercase text-slate-400 block">Disponível para Compras</span>
+                    <span className="text-lg font-black text-emerald-600">
+                      {formatCurrency(activeBalcaoCard.available_credit)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Botões de Ação Imediata */}
+                <div className="flex items-center gap-2 flex-wrap pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSaleAmount('');
+                      setIsSaleModalOpen(true);
+                    }}
+                    className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-black shadow-xs transition-colors cursor-pointer"
+                  >
+                    <Receipt className="w-4 h-4" />
+                    <span>Lançar Compra a Prazo</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedCardIdForProfile(activeBalcaoCard.id);
+                      setIsCardProfileOpen(true);
+                    }}
+                    className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-slate-900 dark:bg-slate-800 hover:bg-slate-800 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
+                  >
+                    <Eye className="w-4 h-4" />
+                    <span>Ver Extrato Completo & Faturas</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setActiveBalcaoCard(null)}
+                    className="ml-auto px-3 py-2 text-xs font-bold text-slate-400 hover:text-slate-600 transition-colors"
+                  >
+                    Limpar Seleção
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="p-6 rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-800 text-center space-y-1">
+                <Users className="w-8 h-8 text-slate-400 mx-auto mb-1" />
+                <p className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                  Nenhum cliente selecionado no balcão
+                </p>
+                <p className="text-[11px] text-slate-400">
+                  Digite o nome no campo de busca ou clique em um cliente na tabela abaixo para lançar compras e consultar o extrato.
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Listagem Geral de Contas de Clientes */}
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs overflow-hidden">
             <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <h3 className="text-sm font-black uppercase text-slate-800 dark:text-white">
-                  Cartões Fidelidade & Private Label
+                  Contas de Clientes Cadastrados
                 </h3>
                 <p className="text-xs text-slate-400">
-                  Gerenciamento de limites e clientes portadores
+                  Limites concedidos e vencimentos organizados
                 </p>
               </div>
-
-              <div className="relative w-full sm:w-72">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder="Filtrar cartão por nome/CPF..."
-                  value={cardSearchTerm}
-                  onChange={e => {
-                    setCardSearchTerm(e.target.value);
-                    fetchCards(e.target.value);
-                  }}
-                  className="w-full pl-9 pr-4 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium text-slate-900 dark:text-white outline-none focus:border-red-500"
-                />
-              </div>
+              <span className="text-xs font-bold text-slate-500">
+                {cards.length} clientes listados
+              </span>
             </div>
 
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 text-[11px] font-black uppercase text-slate-500 dark:text-slate-400">
-                    <th className="px-4 py-3 whitespace-nowrap">Cartão / UID</th>
+                    <th className="px-4 py-3 whitespace-nowrap">Vencimento</th>
                     <th className="px-4 py-3 whitespace-nowrap">Cliente</th>
-                    <th className="px-4 py-3 whitespace-nowrap">Telefone / CPF</th>
+                    <th className="px-4 py-3 whitespace-nowrap">Telefone / WhatsApp</th>
                     <th className="px-4 py-3 text-right whitespace-nowrap">Limite Total</th>
-                    <th className="px-4 py-3 text-right whitespace-nowrap">Limite Usado</th>
+                    <th className="px-4 py-3 text-right whitespace-nowrap">Saldo em Uso</th>
                     <th className="px-4 py-3 text-right whitespace-nowrap">Disponível</th>
                     <th className="px-4 py-3 text-center whitespace-nowrap">Ações</th>
                   </tr>
@@ -1085,34 +1372,37 @@ export const CrediarioHub: React.FC<CrediarioHubProps> = ({ initialTab = 'titulo
                     <tr>
                       <td colSpan={7} className="py-12 text-center text-slate-400 font-semibold">
                         <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-red-600" />
-                        Carregando cartões...
+                        Carregando contas de clientes...
                       </td>
                     </tr>
                   ) : cards.length === 0 ? (
                     <tr>
                       <td colSpan={7} className="py-12 text-center text-slate-500 font-medium">
-                        Nenhum cartão BelaFarma encontrado.
+                        Nenhum cliente encontrado. Digite outro nome ou cadastre um novo cliente.
                       </td>
                     </tr>
                   ) : (
                     cards.map(c => (
                       <tr key={c.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
-                        <td className="px-4 py-2.5 whitespace-nowrap">
-                          <div className="font-mono text-xs font-bold text-slate-700 dark:text-slate-300">
-                            {c.card_number || 'Sem número'}
-                          </div>
-                          {c.card_uid && (
-                            <span className="text-[10px] text-slate-400 font-mono">UID: {c.card_uid}</span>
-                          )}
+                        <td className="px-4 py-2.5 whitespace-nowrap font-black text-slate-700 dark:text-slate-300">
+                          <span className="px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-[11px]">
+                            Dia {c.due_day || 20}
+                          </span>
                         </td>
 
-                        <td className="px-4 py-2.5 font-black uppercase text-slate-900 dark:text-white truncate max-w-[200px]">
+                        <td className="px-4 py-2.5 font-black uppercase text-slate-900 dark:text-white truncate max-w-[220px]">
                           {c.customer_name}
                         </td>
 
                         <td className="px-4 py-2.5 whitespace-nowrap text-slate-500 text-[11px]">
-                          <div>{c.phone || '-'}</div>
-                          {c.cpf && <div className="font-mono text-[10px] text-slate-400">{c.cpf}</div>}
+                          {c.phone ? (
+                            <span className="inline-flex items-center gap-1 font-mono">
+                              <Phone className="w-3 h-3 text-emerald-600" />
+                              {c.phone}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400">-</span>
+                          )}
                         </td>
 
                         <td className="px-4 py-2.5 text-right whitespace-nowrap font-medium text-slate-600 dark:text-slate-300">
@@ -1128,18 +1418,32 @@ export const CrediarioHub: React.FC<CrediarioHubProps> = ({ initialTab = 'titulo
                         </td>
 
                         <td className="px-4 py-2.5 text-center whitespace-nowrap">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSelectedCardIdForProfile(c.id);
-                              setIsCardProfileOpen(true);
-                            }}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 text-xs font-bold transition-colors cursor-pointer"
-                            title="Ver faturas, extrato e opções do cartão"
-                          >
-                            <Eye className="w-3.5 h-3.5" />
-                            <span>Perfil</span>
-                          </button>
+                          <div className="inline-flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setActiveBalcaoCard(c);
+                                window.scrollTo({ top: 0, behavior: 'smooth' });
+                              }}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-400 hover:bg-red-100 font-bold text-xs transition-colors cursor-pointer"
+                              title="Selecionar para atendimento no balcão"
+                            >
+                              <span>Atender</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedCardIdForProfile(c.id);
+                                setIsCardProfileOpen(true);
+                              }}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 text-xs font-bold transition-colors cursor-pointer"
+                              title="Ver faturas, extrato e opções da conta"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                              <span>Perfil</span>
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))
@@ -1148,6 +1452,184 @@ export const CrediarioHub: React.FC<CrediarioHubProps> = ({ initialTab = 'titulo
               </table>
             </div>
           </div>
+
+          {/* MODAL: LANÇAR COMPRA NO BALCÃO */}
+          {isSaleModalOpen && activeBalcaoCard && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+              <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl p-6 space-y-4 shadow-2xl border border-slate-200 dark:border-slate-800">
+                <div className="text-center space-y-1">
+                  <h3 className="text-lg font-black uppercase text-slate-900 dark:text-white">
+                    Lançar Compra a Prazo
+                  </h3>
+                  <p className="text-xs text-slate-500 font-bold">{activeBalcaoCard.customer_name}</p>
+                </div>
+
+                <div className="p-3 bg-slate-50 dark:bg-slate-800 rounded-xl flex justify-between items-center text-xs">
+                  <span className="font-bold text-slate-400 uppercase">Limite Disponível</span>
+                  <span className="font-black text-emerald-600 text-base">
+                    {formatCurrency(activeBalcaoCard.available_credit)}
+                  </span>
+                </div>
+
+                <form onSubmit={handleAuthorizeBalcaoSale} className="space-y-3">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black uppercase text-slate-400 ml-1">
+                      Valor da Compra (R$)*
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="0,00"
+                      autoFocus
+                      required
+                      value={saleAmount}
+                      onChange={e => setSaleAmount(e.target.value)}
+                      className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-700 rounded-2xl font-black text-2xl text-center outline-none focus:border-red-500"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black uppercase text-slate-400 ml-1">
+                      Descrição / Produtos
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Ex: Medicamentos de Uso Contínuo"
+                      value={saleDescription}
+                      onChange={e => setSaleDescription(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold outline-none focus:border-red-500"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 pt-2">
+                    <button
+                      type="button"
+                      disabled={isAuthorizingSale}
+                      onClick={() => setIsSaleModalOpen(false)}
+                      className="py-3 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl font-bold text-xs"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isAuthorizingSale || !saleAmount || parseFloat(saleAmount) <= 0}
+                      className="py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-xs shadow-md disabled:opacity-50"
+                    >
+                      {isAuthorizingSale ? 'Lançando...' : 'Confirmar Venda'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* MODAL: NOVO CLIENTE NO CREDIÁRIO */}
+          {isNewAccountModalOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+              <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl p-6 space-y-4 shadow-2xl border border-slate-200 dark:border-slate-800">
+                <div className="text-center space-y-1">
+                  <h3 className="text-lg font-black uppercase text-slate-900 dark:text-white">
+                    Abrir Conta de Crediário
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Sem cartões plásticos: identificação rápida por nome no balcão
+                  </p>
+                </div>
+
+                <form onSubmit={handleSaveNewAccount} className="space-y-3">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black uppercase text-slate-400 ml-1">
+                      Nome Completo do Cliente*
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Ex: Maria Aparecida da Silva"
+                      value={newCustName}
+                      onChange={e => setNewCustName(e.target.value)}
+                      className="w-full px-3 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold outline-none focus:border-red-500 uppercase"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black uppercase text-slate-400 ml-1">
+                        WhatsApp / Celular
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Ex: (35) 99999-9999"
+                        value={newCustPhone}
+                        onChange={e => setNewCustPhone(e.target.value)}
+                        className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold outline-none focus:border-red-500 font-mono"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black uppercase text-slate-400 ml-1">
+                        CPF (Opcional)
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="000.000.000-00"
+                        value={newCustCpf}
+                        onChange={e => setNewCustCpf(e.target.value)}
+                        className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold outline-none focus:border-red-500 font-mono"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black uppercase text-slate-400 ml-1">
+                        Limite Inicial (R$)
+                      </label>
+                      <input
+                        type="number"
+                        step="50"
+                        placeholder="300"
+                        value={newCustLimit}
+                        onChange={e => setNewCustLimit(e.target.value)}
+                        className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold outline-none focus:border-red-500"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black uppercase text-slate-400 ml-1">
+                        Vencimento da Fatura
+                      </label>
+                      <select
+                        value={newCustDueDay}
+                        onChange={e => setNewCustDueDay(e.target.value as '10' | '20')}
+                        className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold outline-none focus:border-red-500"
+                      >
+                        <option value="10">Todo dia 10</option>
+                        <option value="20">Todo dia 20</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 pt-3">
+                    <button
+                      type="button"
+                      disabled={isSavingNewAccount}
+                      onClick={() => setIsNewAccountModalOpen(false)}
+                      className="py-3 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl font-bold text-xs"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isSavingNewAccount || !newCustName.trim()}
+                      className="py-3 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-xl font-bold text-xs shadow-md disabled:opacity-50"
+                    >
+                      {isSavingNewAccount ? 'Cadastrando...' : 'Criar Conta'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
