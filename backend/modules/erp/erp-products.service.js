@@ -274,6 +274,31 @@ async function buscarProdutos({ query = '', limit = 30, onlyWithStock = false } 
 }
 
 /**
+ * Busca síncrona ultra-rápida de um único produto no SQLite local (para checkout, transações e validações)
+ */
+function obterProdutoPorCodigoSync(codigoOuEan) {
+  const raw = String(codigoOuEan || '').trim().replace(/\.0+$/, '');
+  const cleanNoSpaces = raw.replace(/\s+/g, '');
+  if (!raw && !cleanNoSpaces) return null;
+
+  const found = db.prepare(`
+    SELECT p.*,
+           COALESCE(c.vendas_30d, p.vendas_30d, 0) as vendas_30d,
+           COALESCE(c.vendas_10m, p.vendas_10m, 0) as vendas_10m
+    FROM products p 
+    LEFT JOIN compras_estoque_cache c ON (c.ean = p.barcode AND c.ean IS NOT NULL AND c.ean != '')
+    WHERE (p.barcode = ? OR p.barcode = ? OR p.code = ? OR p.code = ? OR p.code = ?) AND p.is_active = 1
+    ORDER BY (p.code NOT LIKE '%.0') DESC
+    LIMIT 1
+  `).get(raw, cleanNoSpaces, raw, cleanNoSpaces, `${raw}.0`);
+
+  if (!found) return null;
+  const enriched = enrichProduct(found);
+  if (enriched) enriched.code = String(enriched.code).replace(/\.0+$/, '');
+  return enriched;
+}
+
+/**
  * Busca um único produto pelo EAN ou Código (com fallback assíncrono ao Digifarma)
  */
 async function obterProdutoPorCodigo(codigoOuEan) {
@@ -674,6 +699,7 @@ module.exports = {
   buscarProdutosPaginados,
   obterMetricasEstoque,
   obterProdutoPorCodigo,
+  obterProdutoPorCodigoSync,
   cadastrarProduto,
   atualizarPrecoEEstoque,
   vincularCodigoBarrasProduto

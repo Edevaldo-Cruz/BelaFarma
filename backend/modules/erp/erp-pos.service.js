@@ -4,7 +4,7 @@
  */
 
 const { db } = require('./erp-database');
-const { obterProdutoPorCodigo } = require('./erp-products.service');
+const { obterProdutoPorCodigo, obterProdutoPorCodigoSync } = require('./erp-products.service');
 const { recordSaleRecipes } = require('./controlled-medications.service');
 
 /**
@@ -40,11 +40,21 @@ function registrarVenda(payload) {
 
   for (const it of items) {
     const qtd = Math.max(1, parseFloat(it.quantity) || 1);
-    const prod = obterProdutoPorCodigo(it.code || it.product_code || it.barcode);
-    const precoUnit = Math.max(0, parseFloat(it.unit_price) || (prod ? (prod.promo_price > 0 ? prod.promo_price : prod.sale_price) : 0));
-    const custoUnit = Math.max(0, parseFloat(it.unit_cost) || (prod ? prod.cost_price : 0));
+    const prod = obterProdutoPorCodigoSync(it.code || it.product_code || it.barcode);
+
+    // Preço unitário com proteção estrita contra NaN
+    const rawPrice = parseFloat(it.unit_price);
+    const fallbackPrice = prod ? ((parseFloat(prod.promo_price) > 0) ? parseFloat(prod.promo_price) : parseFloat(prod.sale_price)) : 0;
+    const precoUnit = (!isNaN(rawPrice) && rawPrice >= 0) ? rawPrice : (!isNaN(fallbackPrice) ? fallbackPrice : 0);
+
+    // Custo unitário com proteção estrita contra NaN e NULL (garante integridade do NOT NULL do SQLite)
+    const rawCost = parseFloat(it.unit_cost);
+    const fallbackCost = prod && !isNaN(parseFloat(prod.cost_price)) ? parseFloat(prod.cost_price) : 0;
+    const custoUnit = (!isNaN(rawCost) && rawCost >= 0) ? rawCost : fallbackCost;
+
     const subtotal = Math.round((qtd * precoUnit) * 100) / 100;
     const totalCusto = Math.round((qtd * custoUnit) * 100) / 100;
+    const lucro = Math.round((subtotal - totalCusto) * 100) / 100;
 
     totalItemsValue += subtotal;
 
@@ -54,14 +64,14 @@ function registrarVenda(payload) {
 
     processedItems.push({
       product_code: prodCode,
-      barcode: prod ? prod.barcode : (it.barcode || ''),
+      barcode: prod ? (prod.barcode || '') : (it.barcode || ''),
       product_name: prodName,
       quantity: qtd,
-      unit_price: precoUnit,
-      total_price: subtotal,
-      unit_cost: custoUnit,
-      total_cost: totalCusto,
-      profit: Math.round((subtotal - totalCusto) * 100) / 100,
+      unit_price: isNaN(precoUnit) ? 0 : precoUnit,
+      total_price: isNaN(subtotal) ? 0 : subtotal,
+      unit_cost: isNaN(custoUnit) ? 0 : custoUnit,
+      total_cost: isNaN(totalCusto) ? 0 : totalCusto,
+      profit: isNaN(lucro) ? 0 : lucro,
       is_unregistered: isUnregistered
     });
   }
@@ -188,17 +198,17 @@ function registrarVenda(payload) {
         it.product_code || `ITEM-${i + 1}`,
         it.barcode || '',
         it.product_name || 'PRODUTO NÃO IDENTIFICADO',
-        it.quantity,
-        it.unit_price,
-        it.total_price,
-        it.unit_cost,
-        it.total_cost,
-        it.profit,
+        it.quantity ?? 1,
+        it.unit_price ?? 0,
+        it.total_price ?? 0,
+        it.unit_cost ?? 0,
+        it.total_cost ?? 0,
+        it.profit ?? 0,
         it.is_unregistered || 0
       );
 
       // Baixa no estoque físico
-      updateStockStmt.run(it.quantity, it.product_code);
+      updateStockStmt.run(it.quantity ?? 1, it.product_code);
     }
 
     // C. Gravar formas de pagamento
@@ -569,20 +579,27 @@ function criarPreVenda(payload) {
 
   for (const it of items) {
     const qtd = Math.max(1, parseFloat(it.quantity) || 1);
-    const prod = obterProdutoPorCodigo(it.code || it.product_code || it.barcode);
-    const preco = Math.max(0, parseFloat(it.unit_price) || (prod ? (prod.promo_price > 0 ? prod.promo_price : prod.sale_price) : 0));
-    const custo = Math.max(0, parseFloat(it.unit_cost) || (prod ? prod.cost_price : 0));
+    const prod = obterProdutoPorCodigoSync(it.code || it.product_code || it.barcode);
+
+    const rawPrice = parseFloat(it.unit_price);
+    const fallbackPrice = prod ? ((parseFloat(prod.promo_price) > 0) ? parseFloat(prod.promo_price) : parseFloat(prod.sale_price)) : 0;
+    const preco = (!isNaN(rawPrice) && rawPrice >= 0) ? rawPrice : (!isNaN(fallbackPrice) ? fallbackPrice : 0);
+
+    const rawCost = parseFloat(it.unit_cost);
+    const fallbackCost = prod && !isNaN(parseFloat(prod.cost_price)) ? parseFloat(prod.cost_price) : 0;
+    const custo = (!isNaN(rawCost) && rawCost >= 0) ? rawCost : fallbackCost;
+
     const subtotal = Math.round((qtd * preco) * 100) / 100;
 
     totalItems += subtotal;
     processed.push({
       product_code: prod ? prod.code : String(it.code || it.product_code || it.barcode).trim(),
-      barcode: prod ? prod.barcode : (it.barcode || ''),
+      barcode: prod ? (prod.barcode || '') : (it.barcode || ''),
       product_name: prod ? prod.name : String(it.product_name || it.name || 'PRODUTO').trim(),
       quantity: qtd,
-      unit_price: preco,
-      total_price: subtotal,
-      unit_cost: custo,
+      unit_price: isNaN(preco) ? 0 : preco,
+      total_price: isNaN(subtotal) ? 0 : subtotal,
+      unit_cost: isNaN(custo) ? 0 : custo,
       recipe_type: it.recipe_type || null,
       recipe_label: it.recipe_label || null
     });
@@ -623,12 +640,12 @@ function criarPreVenda(payload) {
         `${preSaleId}-${i + 1}`,
         preSaleId,
         it.product_code,
-        it.barcode,
+        it.barcode || '',
         it.product_name,
-        it.quantity,
-        it.unit_price,
-        it.total_price,
-        it.unit_cost,
+        it.quantity ?? 1,
+        it.unit_price ?? 0,
+        it.total_price ?? 0,
+        it.unit_cost ?? 0,
         it.recipe_type,
         it.recipe_label
       );

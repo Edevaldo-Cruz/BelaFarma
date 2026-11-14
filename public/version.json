@@ -1,9 +1,14 @@
 {
   "version": "1.2.6",
-  "commitHash": "8c8883f",
-  "commitMessage": "feat(financeiro): nova rotina de Caixa Inteligente e Rendimento da Sobra no CDI",
-  "buildTime": "14/11/2026, 10:01:46",
+  "commitHash": "45ad89c",
+  "commitMessage": "fix(erp): correcao no cadastro de produtos, eliminacao de timeout do firebird e sincronizacao bidirecional de codigo de barras",
+  "buildTime": "14/11/2026, 14:52:46",
   "recentCommits": [
+    {
+      "hash": "45ad89c",
+      "date": "14/11/2026",
+      "message": "fix(erp): correcao no cadastro de produtos, eliminacao de timeout do firebird e sincronizacao bidirecional de codigo de barras"
+    },
     {
       "hash": "8c8883f",
       "date": "14/11/2026",
@@ -58,11 +63,6 @@
       "hash": "e5ab2f4",
       "date": "13/11/2026",
       "message": "fix(sync): atualizacao completa da tabela products via Firebird com datas de promocao e curva ABC"
-    },
-    {
-      "hash": "b382085",
-      "date": "13/11/2026",
-      "message": "feat(promocoes): tela completa de gestao de promocoes e precos escalonados no menu principal (PromotionsManagerPage)"
     }
   ]
 }
