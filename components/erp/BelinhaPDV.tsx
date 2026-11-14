@@ -246,13 +246,20 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
   const [unregisteredBarcode, setUnregisteredBarcode] = useState('');
   const [unregisteredName, setUnregisteredName] = useState('');
   const [unregisteredPrice, setUnregisteredPrice] = useState('');
+  const [unregisteredCostPrice, setUnregisteredCostPrice] = useState('');
   const [unregisteredQuantity, setUnregisteredQuantity] = useState(1);
   const [unregisteredCategory, setUnregisteredCategory] = useState<'cosmetico' | 'acessorio' | 'medicamento'>('cosmetico');
+  const [unregisteredNcm, setUnregisteredNcm] = useState('33049990');
+  const [unregisteredCest, setUnregisteredCest] = useState('');
+  const [unregisteredSyncDigifarma, setUnregisteredSyncDigifarma] = useState(true);
+  const [isSavingUnregistered, setIsSavingUnregistered] = useState(false);
+  const [showAdvancedFiscal, setShowAdvancedFiscal] = useState(false);
   const [linkSearchQuery, setLinkSearchQuery] = useState('');
   const [linkSearchResults, setLinkSearchResults] = useState<ProductSearchResult[]>([]);
   const [isLinkSearching, setIsLinkSearching] = useState(false);
   const [isLinkingBarcode, setIsLinkingBarcode] = useState(false);
   const unregisteredPriceInputRef = useRef<HTMLInputElement>(null);
+  const unregisteredCostPriceInputRef = useRef<HTMLInputElement>(null);
   const unregisteredNameInputRef = useRef<HTMLInputElement>(null);
   const linkSearchInputRef = useRef<HTMLInputElement>(null);
 
@@ -841,19 +848,33 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
   }, [completedSale, isCountdownPaused, focusBarcodeInput]);
 
   // Abertura da modal de produto não cadastrado / sem código de barras (*123) / vínculo ao Digifarma
-  const handleOpenUnregisteredModal = useCallback((barcode: string, qty: number = 1) => {
+  const handleOpenUnregisteredModal = useCallback((barcode: string, qty: number = 1, initialName: string = '') => {
     const cleanB = String(barcode || '').trim();
-    setUnregisteredBarcode(cleanB);
-    setUnregisteredName('');
+    const isTextSearch = Boolean(initialName) || (cleanB.length > 0 && !cleanB.startsWith('*') && isNaN(Number(cleanB)));
+    const targetName = initialName || (isTextSearch ? cleanB : '');
+    const targetBarcode = isTextSearch ? '' : (cleanB.startsWith('*') ? '' : cleanB);
+
+    setUnregisteredBarcode(targetBarcode);
+    setUnregisteredName(targetName);
     setUnregisteredPrice('');
+    setUnregisteredCostPrice('');
     setUnregisteredQuantity(qty > 0 ? qty : 1);
+    setUnregisteredCategory('cosmetico');
+    setUnregisteredNcm('33049990');
+    setUnregisteredCest('');
+    setUnregisteredSyncDigifarma(true);
+    setShowAdvancedFiscal(false);
     setLinkSearchQuery('');
     setLinkSearchResults([]);
 
-    if (cleanB.startsWith('*')) {
+    if (isTextSearch || cleanB.startsWith('*') || !cleanB) {
       setUnregisteredModalMode('express');
       setTimeout(() => {
-        unregisteredNameInputRef.current?.focus();
+        if (targetName) {
+          unregisteredPriceInputRef.current?.focus();
+        } else {
+          unregisteredNameInputRef.current?.focus();
+        }
       }, 100);
     } else {
       setUnregisteredModalMode('link');
@@ -917,7 +938,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
     }
   };
 
-  // Confirmação de inclusão do produto expresso provisório (Blindagem Fiscal SEFAZ + Fila de Saneamento)
+  // Confirmação de inclusão do produto expresso provisório & Sincronização com o Digifarma
   const handleConfirmUnregisteredProduct = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     const cleanPrice = unregisteredPrice.replace(',', '.').trim();
@@ -931,9 +952,12 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
 
     const name = unregisteredName.trim() || `Produto Expresso (${unregisteredBarcode || 'S/ Código'})`;
     const isAvulsoShortcut = unregisteredBarcode.startsWith('*');
+    const finalBarcode = isAvulsoShortcut ? '' : unregisteredBarcode.trim();
+    const costNum = parseFloat(unregisteredCostPrice.replace(',', '.').trim()) || 0;
 
+    setIsSavingUnregistered(true);
     try {
-      // 1. Cadastra formalmente como produto expresso no ERP e gera tarefa de saneamento fiscal
+      // 1. Cadastra formalmente como produto expresso no ERP e opcionalmente sincroniza no Digifarma
       const res = await fetch('/api/erp/pos/quick-product', {
         method: 'POST',
         headers: { 
@@ -943,8 +967,12 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
         body: JSON.stringify({
           name,
           sale_price: priceNum,
-          barcode_read: isAvulsoShortcut ? '' : unregisteredBarcode,
+          cost_price: costNum,
+          barcode_read: finalBarcode,
           category: unregisteredCategory,
+          ncm: unregisteredNcm,
+          cest: unregisteredCest,
+          sync_to_digifarma: unregisteredSyncDigifarma,
           user_name: currentSeller?.name || 'Caixa'
         })
       });
@@ -961,7 +989,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
         barcode: prod.barcode,
         name: prod.name,
         unit_price: prod.sale_price,
-        unit_cost: 0,
+        unit_cost: prod.cost_price || costNum,
         quantity: unregisteredQuantity,
         discount: 0,
         total_price: Math.round(unregisteredQuantity * prod.sale_price * 100) / 100,
@@ -975,7 +1003,12 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
 
       setCart(prev => [...prev, newItem]);
       setIsUnregisteredModalOpen(false);
-      addToast(`⚡ ${unregisteredQuantity}x ${name.substring(0, 24)} adicionado! Tarefa de saneamento fiscal gerada.`, 'success', 3000);
+      
+      if (prod.digifarma_synced) {
+        addToast(`✅ ${unregisteredQuantity}x "${name.substring(0, 24)}" cadastrado no Digifarma (Cód: ${prod.code}) e incluído no caixa!`, 'success', 4500);
+      } else {
+        addToast(`⚡ ${unregisteredQuantity}x "${name.substring(0, 24)}" adicionado no caixa! Fila de saneamento criada.`, 'info', 4000);
+      }
 
       // 2. Cria também a tarefa geral do sistema para alerta no quadro
       try {
@@ -988,25 +1021,28 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
             title: `Saneamento Fiscal: ${name}`,
             description: `Produto cadastrado de forma expressa no PDV pelo operador ${currentSeller?.name || 'Caixa'}.\n` +
               `• Valor: R$ ${priceNum.toFixed(2)}\n` +
-              `• Código Provisório: ${prod.code}\n` +
-              `• Código Lido: ${unregisteredBarcode}\n` +
-              `• NCM Provisório: ${prod.ncm}\n` +
-              `Ação: Preencher NCM definitivo, custo real e sincronizar no Digifarma.`,
+              `• Custo: R$ ${costNum.toFixed(2)}\n` +
+              `• Código: ${prod.code}\n` +
+              `• Código Lido: ${unregisteredBarcode || 'Sem Código'}\n` +
+              `• Sincronizado no Digifarma: ${prod.digifarma_synced ? 'SIM' : 'NÃO (Pendente)'}\n` +
+              `• NCM: ${prod.ncm}`,
             assignedUser: 'all_users',
             creator: creatorId,
-            priority: 'Urgente',
-            status: 'A Fazer',
+            priority: prod.digifarma_synced ? 'Baixa' : 'Urgente',
+            status: prod.digifarma_synced ? 'Concluído' : 'A Fazer',
             dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0],
             creationDate: new Date().toISOString(),
-            color: 'red'
+            color: prod.digifarma_synced ? 'green' : 'red'
           })
         }).catch(() => {});
       } catch {}
-    } catch (err: any) {
-      addToast(`Erro ao registrar: ${err.message}`, 'error');
-    }
 
-    focusBarcodeInput();
+      focusBarcodeInput();
+    } catch (err: any) {
+      addToast(err.message || 'Erro ao registrar produto.', 'error');
+    } finally {
+      setIsSavingUnregistered(false);
+    }
   };
 
   // Identificação do vendedor por chave de acesso/login
@@ -2596,6 +2632,54 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
                     </div>
                   </div>
                 ))}
+
+                {/* Opção ao final da lista para cadastrar caso não seja nenhum dos itens */}
+                {barcodeInput.trim().length >= 2 && (
+                  <div
+                    onClick={() => {
+                      handleOpenUnregisteredModal('', 1, barcodeInput.trim());
+                      setBarcodeInput('');
+                      setAutocompleteResults([]);
+                    }}
+                    className="p-2.5 bg-slate-50 hover:bg-slate-100 cursor-pointer flex items-center justify-between transition-colors border-t border-slate-200 text-xs text-slate-700 font-bold"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Plus className="w-4 h-4 text-emerald-600" />
+                      <span>Não é nenhum desses? <strong>Cadastrar "{barcodeInput.trim()}" sem código</strong></span>
+                    </div>
+                    <span className="px-2 py-0.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-black uppercase">
+                      + Criar Produto
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Menu Suspenso de Sugestão Direta quando a busca por texto não encontrar nenhum produto */}
+            {autocompleteResults.length === 0 && barcodeInput.trim().length >= 2 && !barcodeInput.includes('*') && isNaN(Number(barcodeInput.trim())) && (
+              <div className="absolute left-2.5 right-2.5 top-14 z-30 bg-white border-2 border-emerald-600 rounded-xl shadow-2xl p-3 animate-in fade-in zoom-in-95 duration-100">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-bold text-slate-800">
+                      Nenhum produto cadastrado com: <strong className="text-emerald-700 font-mono">"{barcodeInput.trim()}"</strong>
+                    </p>
+                    <p className="text-[11px] text-slate-500">
+                      Deseja cadastrar agora no PDV e enviar diretamente para o Digifarma?
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleOpenUnregisteredModal('', 1, barcodeInput.trim());
+                      setBarcodeInput('');
+                      setAutocompleteResults([]);
+                    }}
+                    className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shadow-md cursor-pointer transition shrink-0"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Criar sem código
+                  </button>
+                </div>
               </div>
             )}
 
@@ -3442,8 +3526,27 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
                   <tbody className="divide-y divide-slate-800 font-mono">
                     {searchResults.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="py-8 text-center text-slate-500 font-sans">
-                          {searchQuery ? 'Nenhum produto encontrado com este termo.' : 'Digite o termo de busca acima e clique em Buscar.'}
+                        <td colSpan={5} className="py-8 text-center text-slate-400 font-sans">
+                          {searchQuery.trim() ? (
+                            <div className="max-w-md mx-auto space-y-3">
+                              <p className="text-sm font-medium text-slate-300">
+                                Nenhum produto encontrado com "{searchQuery}".
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setIsSearchOpen(false);
+                                  handleOpenUnregisteredModal('', 1, searchQuery.trim());
+                                }}
+                                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs rounded-xl inline-flex items-center gap-2 shadow-md transition cursor-pointer"
+                              >
+                                <Plus className="w-4 h-4" />
+                                Cadastrar "{searchQuery}" sem código de barras
+                              </button>
+                            </div>
+                          ) : (
+                            'Digite o termo de busca acima e clique em Buscar.'
+                          )}
                         </td>
                       </tr>
                     ) : (
@@ -4977,25 +5080,47 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
                 </div>
               </div>
             ) : (
-              /* ABA DE CADASTRO EXPRESSO TRADICIONAL */
+              /* ABA DE CADASTRO EXPRESSO INTELIGENTE COM DIGIFARMA */
               <>
-                <div className="mb-4 bg-emerald-950/40 border border-emerald-600/40 rounded-xl p-3 flex items-start gap-2.5 text-xs text-emerald-200/90 leading-relaxed">
-                  <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                  <span>
-                    Item emitido na SEFAZ com regra oficial <strong>SEM GTIN</strong> e NCM provisório. Fila de saneamento gerada automaticamente na retaguarda.
-                  </span>
+                {/* Identificação de Código de Barras vs Sem Código */}
+                <div className="mb-3 p-2.5 rounded-xl bg-slate-950/80 border border-slate-800 text-xs flex items-center justify-between">
+                  {unregisteredBarcode && !unregisteredBarcode.startsWith('*') ? (
+                    <>
+                      <div className="flex items-center gap-2">
+                        <Barcode className="w-4 h-4 text-emerald-400" />
+                        <span className="text-slate-400 font-mono text-[11px]">Código de barras:</span>
+                        <span className="text-emerald-300 font-mono font-bold">{unregisteredBarcode}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setUnregisteredBarcode('')}
+                        className="text-[10px] text-amber-400 hover:text-amber-300 underline font-medium"
+                      >
+                        Remover código (tornar sem código)
+                      </button>
+                    </>
+                  ) : (
+                    <div className="flex items-center gap-2 text-amber-300 font-semibold text-xs">
+                      <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
+                      <span>✨ Produto Sem Código de Barras (Gerado interno e SEFAZ &quot;SEM GTIN&quot;)</span>
+                    </div>
+                  )}
                 </div>
 
-                <form onSubmit={handleConfirmUnregisteredProduct} className="space-y-3.5">
-                  {/* Seleção de Categoria Rápida / NCM Provisório */}
+                <form onSubmit={handleConfirmUnregisteredProduct} className="space-y-3">
+                  {/* Seleção de Categoria Rápida (Auto-preenche NCM) */}
                   <div>
-                    <label className="block text-[11px] font-bold text-slate-400 uppercase mb-1.5">
-                      Classificação Rápida:
+                    <label className="block text-[11px] font-bold text-slate-400 uppercase mb-1.5 flex items-center justify-between">
+                      <span>Categoria Rápida:</span>
+                      <span className="text-[10px] font-normal text-slate-500">Auto-preenche tributação e NCM</span>
                     </label>
                     <div className="grid grid-cols-3 gap-1.5">
                       <button
                         type="button"
-                        onClick={() => setUnregisteredCategory('cosmetico')}
+                        onClick={() => {
+                          setUnregisteredCategory('cosmetico');
+                          setUnregisteredNcm('33049990');
+                        }}
                         className={`py-1.5 px-2 rounded-lg text-[11px] font-bold transition-all border ${
                           unregisteredCategory === 'cosmetico'
                             ? 'bg-purple-950 border-purple-500 text-purple-200 shadow-sm'
@@ -5006,7 +5131,10 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
                       </button>
                       <button
                         type="button"
-                        onClick={() => setUnregisteredCategory('acessorio')}
+                        onClick={() => {
+                          setUnregisteredCategory('acessorio');
+                          setUnregisteredNcm('39269090');
+                        }}
                         className={`py-1.5 px-2 rounded-lg text-[11px] font-bold transition-all border ${
                           unregisteredCategory === 'acessorio'
                             ? 'bg-blue-950 border-blue-500 text-blue-200 shadow-sm'
@@ -5017,7 +5145,10 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
                       </button>
                       <button
                         type="button"
-                        onClick={() => setUnregisteredCategory('medicamento')}
+                        onClick={() => {
+                          setUnregisteredCategory('medicamento');
+                          setUnregisteredNcm('30049099');
+                        }}
                         className={`py-1.5 px-2 rounded-lg text-[11px] font-bold transition-all border ${
                           unregisteredCategory === 'medicamento'
                             ? 'bg-emerald-950 border-emerald-500 text-emerald-200 shadow-sm'
@@ -5029,25 +5160,33 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
                     </div>
                   </div>
 
+                  {/* Nome do Produto com limite de 60 caracteres (padrão Digifarma) */}
                   <div>
-                    <label className="block text-[11px] font-bold text-slate-400 uppercase mb-1">
-                      Nome / Descrição do Produto:
-                    </label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[11px] font-bold text-slate-400 uppercase">
+                        Nome / Descrição do Produto:
+                      </label>
+                      <span className={`text-[10px] font-mono ${unregisteredName.length > 55 ? 'text-amber-400 font-bold' : 'text-slate-500'}`}>
+                        {unregisteredName.length}/60 carac. (Digifarma)
+                      </span>
+                    </div>
                     <input
                       ref={unregisteredNameInputRef}
                       type="text"
+                      maxLength={60}
                       value={unregisteredName}
                       onChange={(e) => setUnregisteredName(e.target.value)}
                       placeholder="Ex: Pinça Anatômica Ponta Fina"
                       required
-                      className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-slate-100 text-sm font-semibold focus:outline-none focus:border-amber-400"
+                      className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-slate-100 text-sm font-semibold focus:outline-none focus:border-amber-400"
                     />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-[11px] font-bold text-slate-400 uppercase mb-1">
-                        Valor de Venda (R$):
+                  {/* Preços e Quantidade */}
+                  <div className="grid grid-cols-12 gap-2">
+                    <div className="col-span-5">
+                      <label className="block text-[10px] font-bold text-emerald-400 uppercase mb-1">
+                        Preço Venda (R$)*:
                       </label>
                       <input
                         ref={unregisteredPriceInputRef}
@@ -5057,64 +5196,147 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
                         onChange={(e) => setUnregisteredPrice(e.target.value)}
                         placeholder="0,00"
                         required
-                        className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border-2 border-emerald-500/60 text-emerald-300 font-mono text-lg font-black focus:outline-none focus:border-emerald-400 text-right"
+                        className="w-full px-2.5 py-2 rounded-xl bg-slate-950 border-2 border-emerald-500/60 text-emerald-300 font-mono text-base font-black focus:outline-none focus:border-emerald-400 text-right"
                       />
                     </div>
 
-                    <div>
-                      <label className="block text-[11px] font-bold text-slate-400 uppercase mb-1">
-                        Quantidade:
+                    <div className="col-span-4">
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">
+                        Custo (R$):
                       </label>
-                      <div className="flex items-center bg-slate-950 border border-slate-700 rounded-xl overflow-hidden">
+                      <input
+                        ref={unregisteredCostPriceInputRef}
+                        type="text"
+                        inputMode="decimal"
+                        value={unregisteredCostPrice}
+                        onChange={(e) => setUnregisteredCostPrice(e.target.value)}
+                        placeholder="Opcional"
+                        className="w-full px-2.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-slate-200 font-mono text-sm focus:outline-none focus:border-slate-500 text-right"
+                      />
+                    </div>
+
+                    <div className="col-span-3">
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">
+                        Qtd:
+                      </label>
+                      <div className="flex items-center bg-slate-950 border border-slate-700 rounded-xl overflow-hidden h-[38px]">
                         <button
                           type="button"
                           onClick={() => setUnregisteredQuantity(prev => Math.max(1, prev - 1))}
-                          className="px-3 py-2.5 text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                          className="px-2 h-full text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
                         >
-                          <Minus className="w-4 h-4" />
+                          <Minus className="w-3 h-3" />
                         </button>
                         <input
                           type="number"
                           min="1"
                           value={unregisteredQuantity}
                           onChange={(e) => setUnregisteredQuantity(Math.max(1, parseInt(e.target.value, 10) || 1))}
-                          className="w-full bg-transparent text-center font-mono font-bold text-slate-200 text-sm focus:outline-none"
+                          className="w-full bg-transparent text-center font-mono font-bold text-slate-200 text-xs focus:outline-none"
                         />
                         <button
                           type="button"
                           onClick={() => setUnregisteredQuantity(prev => prev + 1)}
-                          className="px-3 py-2.5 text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                          className="px-2 h-full text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
                         >
-                          <Plus className="w-4 h-4" />
+                          <Plus className="w-3 h-3" />
                         </button>
                       </div>
                     </div>
                   </div>
 
-                  {unregisteredBarcode && !unregisteredBarcode.startsWith('*') && (
-                    <div className="text-[11px] font-mono text-slate-400 flex items-center justify-between px-1">
-                      <span>Código Lido:</span>
-                      <span className="text-slate-300 font-bold">{unregisteredBarcode}</span>
-                    </div>
-                  )}
+                  {/* Integração Digifarma & Campos Automáticos */}
+                  <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
+                    <label className="flex items-center gap-2 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={unregisteredSyncDigifarma}
+                        onChange={(e) => setUnregisteredSyncDigifarma(e.target.checked)}
+                        className="rounded border-slate-700 bg-slate-900 text-emerald-500 focus:ring-0 w-4 h-4 cursor-pointer"
+                      />
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-slate-200">
+                        <Database className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Gravar no Digifarma (Firebird) imediatamente</span>
+                      </div>
+                    </label>
 
-                  <div className="flex gap-2 pt-2">
+                    {/* Resumo dos campos que o sistema preenche sozinho no Digifarma */}
+                    <div className="text-[11px] text-slate-400 bg-slate-900/80 rounded-lg p-2 border border-slate-800/80 leading-relaxed">
+                      <span className="text-emerald-400 font-semibold">⚡ Preenchimento automático: </span>
+                      Fornecedor (232 DIVERSOS) • PIS/COFINS (01) • Estoque inicial (1 un) • Comissão (Geral) • Ativo (S) • Tributação (1).
+                    </div>
+
+                    {/* Dados Fiscais (NCM / CEST) */}
+                    <div className="pt-1 border-t border-slate-800/60">
+                      <button
+                        type="button"
+                        onClick={() => setShowAdvancedFiscal(!showAdvancedFiscal)}
+                        className="text-[11px] text-cyan-400 hover:text-cyan-300 font-semibold flex items-center justify-between w-full"
+                      >
+                        <span>Campos Fiscais (NCM: {unregisteredNcm || '33049990'}{unregisteredCest ? ` / CEST: ${unregisteredCest}` : ''})</span>
+                        <span className="text-[10px] text-slate-500">{showAdvancedFiscal ? '▲ Ocultar' : '▼ Personalizar'}</span>
+                      </button>
+
+                      {showAdvancedFiscal && (
+                        <div className="grid grid-cols-2 gap-2 mt-2 pt-2 border-t border-slate-800/40">
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">
+                              NCM (8 dígitos):
+                            </label>
+                            <input
+                              type="text"
+                              maxLength={8}
+                              value={unregisteredNcm}
+                              onChange={(e) => setUnregisteredNcm(e.target.value.replace(/\D/g, ''))}
+                              placeholder="33049990"
+                              className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-200 font-mono text-xs focus:outline-none focus:border-cyan-400"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">
+                              CEST (7 dígitos - Opcional):
+                            </label>
+                            <input
+                              type="text"
+                              maxLength={7}
+                              value={unregisteredCest}
+                              onChange={(e) => setUnregisteredCest(e.target.value.replace(/\D/g, ''))}
+                              placeholder="Opcional"
+                              className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-200 font-mono text-xs focus:outline-none focus:border-cyan-400"
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2 pt-1">
                     <button
                       type="button"
                       onClick={() => {
                         setIsUnregisteredModalOpen(false);
                         focusBarcodeInput();
                       }}
-                      className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-all"
+                      className="flex-1 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-all"
                     >
                       Cancelar [ESC]
                     </button>
                     <button
                       type="submit"
-                      className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black transition-all shadow-md flex items-center justify-center gap-1.5"
+                      disabled={isSavingUnregistered}
+                      className="flex-1 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-black transition-all shadow-md flex items-center justify-center gap-1.5"
                     >
-                      <CheckCircle2 className="w-4 h-4" />
-                      Incluir no Caixa [ENTER]
+                      {isSavingUnregistered ? (
+                        <>
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                          <span>Gravando...</span>
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle2 className="w-4 h-4" />
+                          <span>Cadastrar & Lançar no Caixa [ENTER]</span>
+                        </>
+                      )}
                     </button>
                   </div>
                 </form>

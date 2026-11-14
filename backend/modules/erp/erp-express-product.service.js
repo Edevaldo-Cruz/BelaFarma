@@ -18,19 +18,33 @@ const NCMS_PROVISORIOS = {
 
 /**
  * Cadastra um produto expresso no PDV em menos de 5 segundos
+ * Suporta sincronização imediata no Digifarma (Firebird) e geração de tarefa de saneamento
  * @param {Object} param0 
- * @returns {Object} Produto cadastrado pronto para adicionar ao carrinho
+ * @returns {Promise<Object>} Produto cadastrado pronto para adicionar ao carrinho
  */
-function cadastrarProdutoExpresso({ name, sale_price, barcode_read = '', category = 'cosmetico', user_name = 'Caixa' }) {
+async function cadastrarProdutoExpresso({ 
+  name, 
+  sale_price, 
+  cost_price = 0,
+  barcode_read = '', 
+  category = 'cosmetico', 
+  ncm = '',
+  cest = '',
+  sync_to_digifarma = true,
+  user_name = 'Caixa' 
+}) {
   initErpDatabase();
 
   const nomeLimpo = String(name || '').trim().toUpperCase();
   const precoVenda = Math.max(0.01, parseFloat(sale_price) || 0);
+  const precoCusto = Math.max(0, parseFloat(cost_price) || 0);
   const barcode = String(barcode_read || '').trim();
   const catInfo = NCMS_PROVISORIOS[category.toLowerCase()] || NCMS_PROVISORIOS['cosmetico'];
+  const ncmFinal = String(ncm || catInfo.ncm || '33049990').replace(/\D/g, '').slice(0, 8);
+  const cestFinal = String(cest || '').replace(/\D/g, '').slice(0, 7);
 
   if (!nomeLimpo) {
-    throw new Error('O nome do produto é obrigatório para o cadastro expresso.');
+    throw new Error('O nome do produto é obrigatório para o cadastro.');
   }
 
   // Gera um código sequencial interno único
@@ -41,12 +55,80 @@ function cadastrarProdutoExpresso({ name, sale_price, barcode_read = '', categor
   // Se o código de barras bipado for vazio ou inválido, usa o código interno
   const barcodeFinal = barcode || productCode;
 
-  // 1. Cria a tarefa na fila de saneamento fiscal
+  let digifarmaResult = null;
+  let digiProductId = null;
+
+  // 1. Sincronização direta com o Digifarma se solicitado
+  if (sync_to_digifarma) {
+    try {
+      const maxIdRows = await queryDigifarma('SELECT COALESCE(MAX(PRODUTO_ID), 0) AS MAX_ID FROM PRODUTOS', [], 8000);
+      const nextId = (maxIdRows && maxIdRows[0] && maxIdRows[0].MAX_ID ? parseInt(maxIdRows[0].MAX_ID, 10) : 100000) + 1;
+      
+      const isMonofasico = (category === 'cosmetico' || category === 'medicamento') ? 'S' : 'N';
+      const catId = category === 'medicamento' ? 2 : (category === 'acessorio' ? 7 : 6);
+
+      const insertSql = `
+        INSERT INTO PRODUTOS (
+          PRODUTO_ID,
+          PRODUTO,
+          COD_BARRAS,
+          NCM,
+          CEST,
+          PROD_PRVENDA,
+          PROD_PRCOMPRA,
+          VALOR_ULT_COMPRA,
+          PROD_CMV,
+          PROD_SALDO,
+          PROD_ATIVO,
+          TRIBUTACAO_MONOFASICA,
+          FORNECEDOR_ID,
+          CATEGORIA_ID,
+          TRIBUTACAO_ID,
+          PADRAO_COMISSAO_ID,
+          CST_PIS,
+          CST_COFINS
+        ) VALUES (
+          ${nextId},
+          '${nomeLimpo.replace(/'/g, "''").slice(0, 60)}',
+          '${barcodeFinal.replace(/'/g, '').slice(0, 20)}',
+          '${ncmFinal}',
+          ${cestFinal ? `'${cestFinal}'` : 'NULL'},
+          ${precoVenda.toFixed(2)},
+          ${precoCusto.toFixed(2)},
+          ${precoCusto.toFixed(2)},
+          ${precoCusto.toFixed(2)},
+          1.000,
+          'S',
+          '${isMonofasico}',
+          232,
+          ${catId},
+          1,
+          2,
+          '01',
+          '01'
+        )
+      `;
+
+      await queryDigifarma(insertSql, [], 10000);
+      digiProductId = nextId;
+      digifarmaResult = { success: true, digifarma_product_id: nextId };
+      console.log(`[Cadastro Expresso] ✅ Produto inserido com sucesso no Digifarma (PRODUTO_ID = ${nextId})`);
+    } catch (errDigi) {
+      console.warn('[Cadastro Expresso] ⚠️ Digifarma indisponível ou falhou, mantendo produto em fila para saneamento:', errDigi.message);
+      digifarmaResult = { success: false, error: errDigi.message };
+    }
+  }
+
+  const isSynced = digifarmaResult && digifarmaResult.success ? 1 : 0;
+  const taskStatus = isSynced ? 'SANEADO' : 'PENDENTE';
+
+  // 2. Cria a tarefa na fila de saneamento fiscal
   const stmtTask = db.prepare(`
     INSERT INTO product_sanitization_tasks (
       product_code, barcode_read, product_name, sale_price, cost_price,
-      ncm_provisional, category, status, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, 0, ?, ?, 'PENDENTE', datetime('now', 'localtime'), datetime('now', 'localtime'))
+      ncm_provisional, ncm_definitive, cest_definitive, category, status,
+      digifarma_synced, digifarma_product_id, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime'))
   `);
 
   const taskResult = stmtTask.run(
@@ -54,13 +136,19 @@ function cadastrarProdutoExpresso({ name, sale_price, barcode_read = '', categor
     barcodeFinal,
     nomeLimpo,
     precoVenda,
+    precoCusto,
     catInfo.ncm,
-    catInfo.descricao
+    ncmFinal,
+    cestFinal || null,
+    catInfo.descricao,
+    taskStatus,
+    isSynced,
+    digiProductId
   );
 
   const taskId = taskResult.lastInsertRowid;
 
-  // 2. Se a tabela 'products' existir no banco principal (SQLite), insere ou atualiza
+  // 3. Se a tabela 'products' existir no banco principal (SQLite), insere ou atualiza
   try {
     const hasProducts = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='products'").get();
     if (hasProducts) {
@@ -68,34 +156,41 @@ function cadastrarProdutoExpresso({ name, sale_price, barcode_read = '', categor
         INSERT OR REPLACE INTO products (
           code, barcode, name, sale_price, cost_price, ncm,
           stock_qty, is_active, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, 0, ?, 999, 1, datetime('now', 'localtime'), datetime('now', 'localtime'))
+        ) VALUES (?, ?, ?, ?, ?, ?, 999, 1, datetime('now', 'localtime'), datetime('now', 'localtime'))
       `).run(
-        productCode,
+        digiProductId ? String(digiProductId) : productCode,
         barcodeFinal,
         nomeLimpo,
         precoVenda,
-        catInfo.ncm
+        precoCusto,
+        ncmFinal
       );
     }
   } catch (err) {
     console.warn('[Cadastro Expresso] Aviso ao registrar em products:', err.message);
   }
 
-  console.log(`[Cadastro Expresso] ⚡ Produto provisório criado: "${nomeLimpo}" (R$ ${precoVenda.toFixed(2)}) - Código: ${productCode} - Tarefa #${taskId}`);
+  console.log(`[Cadastro Expresso] ⚡ Produto criado: "${nomeLimpo}" (R$ ${precoVenda.toFixed(2)}) - Código: ${digiProductId || productCode} - Tarefa #${taskId}`);
 
   return {
-    id: productCode,
-    code: productCode,
+    id: digiProductId ? String(digiProductId) : productCode,
+    code: digiProductId ? String(digiProductId) : productCode,
     product_code: productCode,
+    digifarma_product_id: digiProductId,
     name: nomeLimpo,
     product_name: nomeLimpo,
     barcode: barcodeFinal,
     price: precoVenda,
     sale_price: precoVenda,
+    cost_price: precoCusto,
     unit_price: precoVenda,
-    ncm: catInfo.ncm,
-    is_provisional: true,
-    sem_gtin: true,
+    ncm: ncmFinal,
+    cest: cestFinal,
+    category: catInfo.descricao,
+    is_provisional: !isSynced,
+    sem_gtin: !barcode,
+    digifarma_synced: isSynced,
+    digifarma: digifarmaResult,
     task_id: taskId
   };
 }

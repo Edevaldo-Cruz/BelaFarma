@@ -536,10 +536,10 @@ router.post('/pos/pre-sales/:id/consume', (req, res) => {
 // ==========================================
 // CADASTRO EXPRESSO & SANEAMENTO FISCAL (PDV)
 // ==========================================
-router.post('/pos/quick-product', (req, res) => {
+router.post('/pos/quick-product', async (req, res) => {
   try {
     const userName = req.headers['x-user-name'] || req.body.user_name || 'Caixa';
-    const prod = cadastrarProdutoExpresso({
+    const prod = await cadastrarProdutoExpresso({
       ...req.body,
       user_name: userName
     });
@@ -575,10 +575,10 @@ router.get('/sanitization/tasks/summary', (req, res) => {
   }
 });
 
-router.post('/sanitization/tasks', (req, res) => {
+router.post('/sanitization/tasks', async (req, res) => {
   try {
     const userName = req.headers['x-user-name'] || req.body.user_name || 'Caixa';
-    const result = cadastrarProdutoExpresso({
+    const result = await cadastrarProdutoExpresso({
       ...req.body,
       user_name: userName
     });

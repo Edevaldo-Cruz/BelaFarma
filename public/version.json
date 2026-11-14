@@ -1,9 +1,14 @@
 {
   "version": "1.2.6",
-  "commitHash": "a5a201f",
-  "commitMessage": "feat(pdv): tela crud produtos expressos, timer 15s no cupom, impressao f7 e qrcode na notinha",
-  "buildTime": "13/11/2026, 19:09:28",
+  "commitHash": "6851f53",
+  "commitMessage": "fix(pdv): normalizacao de espacos em ean, correcao overflow firebird e vinculo direto com digifarma no caixa",
+  "buildTime": "14/11/2026, 08:07:59",
   "recentCommits": [
+    {
+      "hash": "6851f53",
+      "date": "13/11/2026",
+      "message": "fix(pdv): normalizacao de espacos em ean, correcao overflow firebird e vinculo direto com digifarma no caixa"
+    },
     {
       "hash": "a5a201f",
       "date": "13/11/2026",
@@ -58,11 +63,6 @@
       "hash": "52fb8fd",
       "date": "13/11/2026",
       "message": "feat: unifica modulo de crediario em central unica e corrige dropdowns do menu no topo"
-    },
-    {
-      "hash": "21a74a0",
-      "date": "12/11/2026",
-      "message": "fix(fiscal): inclusao obrigatoria do grupo card em pagamentos com cartao de credito/debito (correcao Rejeicao SEFAZ 391)"
     }
   ]
 }
