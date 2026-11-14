@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Wallet, TrendingUp, Calendar, ArrowUpRight, ChevronDown, ChevronUp, CheckCircle2, AlertTriangle, Clock, Archive, DollarSign, Barcode } from 'lucide-react';
+import { Wallet, TrendingUp, Calendar, ArrowUpRight, ChevronDown, ChevronUp, CheckCircle2, AlertTriangle, Clock, Archive, DollarSign, Barcode, PiggyBank, Sparkles } from 'lucide-react';
 import { Order, OrderStatus, Installment, Boleto, BoletoStatus, FixedAccount, User, MonthlyLimit, CashClosingRecord } from '../types';
 import { TransactionDetailsModal } from './TransactionDetailsModal';
 import { FinancialArchive } from './FinancialArchive';
@@ -8,6 +8,7 @@ import { FixedAccountsPage } from './FixedAccountsPage';
 import { DaysInDebt } from './DaysInDebt';
 import { ProvisionsPanel } from './ProvisionsPanel';
 import { BoletoScannerTab } from './BoletoScannerTab';
+import { CaixaInteligenteView } from './CaixaInteligenteView';
 
 interface FinancialProps {
   user: User;
@@ -22,7 +23,7 @@ interface FinancialProps {
   onLog: (action: string, details: string) => void;
   cashClosings: CashClosingRecord[];
   onOpenBudgetSummary: () => void;
-  initialTab?: 'overview' | 'payable' | 'fixed' | 'debt' | 'provisions' | 'scanner';
+  initialTab?: 'overview' | 'payable' | 'fixed' | 'debt' | 'provisions' | 'scanner' | 'caixa-inteligente';
 }
 
 type Transaction = Order | Boleto | (FixedAccount & { isFixed: true, targetDate: string });
@@ -50,7 +51,7 @@ export const Financial: React.FC<FinancialProps> = ({
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [isDetailsVisible, setIsDetailsVisible] = useState<Record<string, boolean>>({});
   const [showArchive, setShowArchive] = useState(false);
-  const [activeTab, setActiveTab] = useState<'overview' | 'payable' | 'fixed' | 'debt' | 'provisions' | 'scanner'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'overview' | 'payable' | 'fixed' | 'debt' | 'provisions' | 'scanner' | 'caixa-inteligente'>(initialTab);
 
 
   const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -263,6 +264,17 @@ export const Financial: React.FC<FinancialProps> = ({
         >
           Progresso de Provisões
         </button>
+        <button 
+          onClick={() => setActiveTab('caixa-inteligente')}
+          className={`flex items-center gap-1.5 px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${
+            activeTab === 'caixa-inteligente' 
+              ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-md' 
+              : 'text-indigo-500 hover:text-indigo-700 dark:hover:text-indigo-300 font-black'
+          }`}
+        >
+          <PiggyBank className="w-3.5 h-3.5" />
+          Caixa Inteligente & Rendimento
+        </button>
       </nav>
 
       {activeTab === 'overview' && (
@@ -466,6 +478,19 @@ export const Financial: React.FC<FinancialProps> = ({
             onAddBoleto={onAddBoleto}
             onLog={onLog}
             existingBoletos={boletos}
+          />
+        </div>
+      )}
+
+      {activeTab === 'caixa-inteligente' && (
+        <div className="animate-in fade-in slide-in-from-bottom-2 duration-500">
+          <CaixaInteligenteView
+            user={user}
+            boletos={boletos}
+            fixedAccounts={fixedAccounts}
+            cashClosings={cashClosings}
+            onLog={onLog}
+            onUpdateBoletoStatus={onUpdateBoletoStatus}
           />
         </div>
       )}

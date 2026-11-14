@@ -1,9 +1,14 @@
 {
   "version": "1.2.6",
-  "commitHash": "6851f53",
-  "commitMessage": "fix(pdv): normalizacao de espacos em ean, correcao overflow firebird e vinculo direto com digifarma no caixa",
-  "buildTime": "14/11/2026, 08:07:59",
+  "commitHash": "fe7196f",
+  "commitMessage": "feat(pdv): cadastro expresso com integracao direta no digifarma e produtos sem codigo de barras",
+  "buildTime": "14/11/2026, 08:59:10",
   "recentCommits": [
+    {
+      "hash": "fe7196f",
+      "date": "14/11/2026",
+      "message": "feat(pdv): cadastro expresso com integracao direta no digifarma e produtos sem codigo de barras"
+    },
     {
       "hash": "6851f53",
       "date": "13/11/2026",
@@ -58,11 +63,6 @@
       "hash": "4522082",
       "date": "13/11/2026",
       "message": "fix(precos-promocoes): blindagem contra sobrescrita de precos, sincronizacao estrita com Digifarma e correcao da busca de promocoes escalonadas (produtos 32775 e 6370)"
-    },
-    {
-      "hash": "52fb8fd",
-      "date": "13/11/2026",
-      "message": "feat: unifica modulo de crediario em central unica e corrige dropdowns do menu no topo"
     }
   ]
 }
