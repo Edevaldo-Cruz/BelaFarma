@@ -1,9 +1,14 @@
 {
   "version": "1.2.6",
-  "commitHash": "fe7196f",
-  "commitMessage": "feat(pdv): cadastro expresso com integracao direta no digifarma e produtos sem codigo de barras",
-  "buildTime": "14/11/2026, 08:59:10",
+  "commitHash": "8c8883f",
+  "commitMessage": "feat(financeiro): nova rotina de Caixa Inteligente e Rendimento da Sobra no CDI",
+  "buildTime": "14/11/2026, 10:01:46",
   "recentCommits": [
+    {
+      "hash": "8c8883f",
+      "date": "14/11/2026",
+      "message": "feat(financeiro): nova rotina de Caixa Inteligente e Rendimento da Sobra no CDI"
+    },
     {
       "hash": "fe7196f",
       "date": "14/11/2026",
@@ -58,11 +63,6 @@
       "hash": "b382085",
       "date": "13/11/2026",
       "message": "feat(promocoes): tela completa de gestao de promocoes e precos escalonados no menu principal (PromotionsManagerPage)"
-    },
-    {
-      "hash": "4522082",
-      "date": "13/11/2026",
-      "message": "fix(precos-promocoes): blindagem contra sobrescrita de precos, sincronizacao estrita com Digifarma e correcao da busca de promocoes escalonadas (produtos 32775 e 6370)"
     }
   ]
 }

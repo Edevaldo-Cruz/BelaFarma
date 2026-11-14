@@ -188,18 +188,18 @@ router.post('/products/link-barcode', async (req, res) => {
   }
 });
 
-router.post('/products', (req, res) => {
+router.post('/products', async (req, res) => {
   try {
-    const novo = cadastrarProduto(req.body);
+    const novo = await cadastrarProduto(req.body);
     res.status(201).json({ success: true, data: novo });
   } catch (err) {
     res.status(400).json({ success: false, error: err.message });
   }
 });
 
-router.patch('/products/:code', (req, res) => {
+router.patch('/products/:code', async (req, res) => {
   try {
-    const updated = atualizarPrecoEEstoque(req.params.code, req.body);
+    const updated = await atualizarPrecoEEstoque(req.params.code, req.body);
     res.json({ success: true, data: updated });
   } catch (err) {
     res.status(400).json({ success: false, error: err.message });

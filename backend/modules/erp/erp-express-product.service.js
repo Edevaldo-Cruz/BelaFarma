@@ -61,11 +61,13 @@ async function cadastrarProdutoExpresso({
   // 1. Sincronização direta com o Digifarma se solicitado
   if (sync_to_digifarma) {
     try {
-      const maxIdRows = await queryDigifarma('SELECT COALESCE(MAX(PRODUTO_ID), 0) AS MAX_ID FROM PRODUTOS', [], 8000);
-      const nextId = (maxIdRows && maxIdRows[0] && maxIdRows[0].MAX_ID ? parseInt(maxIdRows[0].MAX_ID, 10) : 100000) + 1;
+      const maxIdRows = await queryDigifarma('SELECT FIRST 1 PRODUTO_ID FROM PRODUTOS ORDER BY PRODUTO_ID DESC', [], 4000);
+      const nextId = (maxIdRows && maxIdRows[0] && maxIdRows[0].PRODUTO_ID ? parseInt(maxIdRows[0].PRODUTO_ID, 10) : 100000) + 1;
       
       const isMonofasico = (category === 'cosmetico' || category === 'medicamento') ? 'S' : 'N';
       const catId = category === 'medicamento' ? 2 : (category === 'acessorio' ? 7 : 6);
+
+      const cleanBarcodeFb = String(barcodeFinal || '').replace(/'/g, '').replace(/\s+/g, '').slice(0, 14);
 
       const insertSql = `
         INSERT INTO PRODUTOS (
@@ -90,7 +92,7 @@ async function cadastrarProdutoExpresso({
         ) VALUES (
           ${nextId},
           '${nomeLimpo.replace(/'/g, "''").slice(0, 60)}',
-          '${barcodeFinal.replace(/'/g, '').slice(0, 20)}',
+          '${cleanBarcodeFb}',
           '${ncmFinal}',
           ${cestFinal ? `'${cestFinal}'` : 'NULL'},
           ${precoVenda.toFixed(2)},
@@ -109,7 +111,7 @@ async function cadastrarProdutoExpresso({
         )
       `;
 
-      await queryDigifarma(insertSql, [], 10000);
+      await queryDigifarma(insertSql, [], 6000);
       digiProductId = nextId;
       digifarmaResult = { success: true, digifarma_product_id: nextId };
       console.log(`[Cadastro Expresso] ✅ Produto inserido com sucesso no Digifarma (PRODUTO_ID = ${nextId})`);
@@ -152,19 +154,46 @@ async function cadastrarProdutoExpresso({
   try {
     const hasProducts = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='products'").get();
     if (hasProducts) {
+      const finalCode = digiProductId ? String(digiProductId) : productCode;
       db.prepare(`
         INSERT OR REPLACE INTO products (
           code, barcode, name, sale_price, cost_price, ncm,
           stock_qty, is_active, created_at, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, 999, 1, datetime('now', 'localtime'), datetime('now', 'localtime'))
       `).run(
-        digiProductId ? String(digiProductId) : productCode,
+        finalCode,
         barcodeFinal,
         nomeLimpo,
         precoVenda,
         precoCusto,
         ncmFinal
       );
+
+      try {
+        db.prepare(`
+          INSERT OR REPLACE INTO digifarma_products_cache (
+            produto_id, descricao, codigo_barras, categoria_id, estoque_atual,
+            preco_venda, preco_custo, preco_promocao, preco_normal, curva,
+            tributacao_monofasica, cst_pis, cst_cofins, ncm, cest, atualizado_em
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
+        `).run(
+          finalCode,
+          nomeLimpo,
+          barcodeFinal,
+          catId,
+          999,
+          precoVenda,
+          precoCusto,
+          0,
+          precoVenda,
+          'C',
+          isMonofasico,
+          '01',
+          '01',
+          ncmFinal,
+          cestFinal || null
+        );
+      } catch (eCache) {}
     }
   } catch (err) {
     console.warn('[Cadastro Expresso] Aviso ao registrar em products:', err.message);
@@ -341,9 +370,11 @@ async function sanearProdutoECadastrarDigifarma(taskId, {
 
   if (sync_to_digifarma) {
     try {
-      // 1. Obtém o próximo PRODUTO_ID no Digifarma
-      const maxIdRows = await queryDigifarma('SELECT COALESCE(MAX(PRODUTO_ID), 0) AS MAX_ID FROM PRODUTOS', [], 10000);
-      const nextId = (maxIdRows && maxIdRows[0] && maxIdRows[0].MAX_ID ? parseInt(maxIdRows[0].MAX_ID, 10) : 100000) + 1;
+      // 1. Obtém o próximo PRODUTO_ID no Digifarma com índice rápido
+      const maxIdRows = await queryDigifarma('SELECT FIRST 1 PRODUTO_ID FROM PRODUTOS ORDER BY PRODUTO_ID DESC', [], 4000);
+      const nextId = (maxIdRows && maxIdRows[0] && maxIdRows[0].PRODUTO_ID ? parseInt(maxIdRows[0].PRODUTO_ID, 10) : 100000) + 1;
+
+      const cleanBarcodeFb = String(task.barcode_read || task.product_code || '').replace(/'/g, '').replace(/\s+/g, '').slice(0, 14);
 
       // 2. Insere na tabela PRODUTOS do Digifarma
       const insertSql = `
@@ -363,7 +394,7 @@ async function sanearProdutoECadastrarDigifarma(taskId, {
         ) VALUES (
           ${nextId},
           '${nomeFinal.replace(/'/g, "''").slice(0, 60)}',
-          '${(task.barcode_read || task.product_code).replace(/'/g, '').slice(0, 20)}',
+          '${cleanBarcodeFb}',
           '${ncmLimpo}',
           ${cest_definitive ? `'${String(cest_definitive).replace(/\D/g, '').slice(0, 7)}'` : 'NULL'},
           ${precoVendaFinal.toFixed(2)},

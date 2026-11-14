@@ -308,9 +308,9 @@ async function obterProdutoPorCodigo(codigoOuEan) {
 }
 
 /**
- * Cadastra um novo produto no Belinha ERP
+ * Cadastra um novo produto no Belinha ERP e sincroniza com o Digifarma
  */
-function cadastrarProduto(dados) {
+async function cadastrarProduto(dados) {
   const {
     code,
     barcode,
@@ -328,15 +328,76 @@ function cadastrarProduto(dados) {
     recipe_type = null
   } = dados;
 
-  if (!name) {
+  if (!name || !String(name).trim()) {
     throw new Error('O nome do produto é obrigatório.');
   }
 
-  const finalCode = code || String(Date.now());
-  const finalBarcode = barcode || finalCode;
+  const cleanName = String(name).trim().toUpperCase();
+  const cleanBarcode = barcode ? String(barcode).trim().replace(/\s+/g, '') : '';
+  const precoVenda = Math.max(0, parseFloat(sale_price) || 0);
+  const precoPromo = Math.max(0, parseFloat(promo_price) || 0);
+  const precoCusto = Math.max(0, parseFloat(cost_price) || 0);
+  const qtdEstoque = parseFloat(stock_qty) || 0;
+  const ncmFinal = String(ncm || '33049990').replace(/\D/g, '').slice(0, 8);
+  const cestFinal = cest ? String(cest).replace(/\D/g, '').slice(0, 7) : null;
+
+  let finalCode = code ? String(code).trim().replace(/\.0+$/, '') : null;
+  let digiProductId = null;
+
+  // Se não foi fornecido código, tenta obter o próximo ID no Digifarma
+  if (!finalCode) {
+    try {
+      const { queryDigifarma } = require('../../services/digifarma.service');
+      const maxRows = await queryDigifarma('SELECT FIRST 1 PRODUTO_ID FROM PRODUTOS ORDER BY PRODUTO_ID DESC', [], 3500);
+      const nextId = (maxRows && maxRows[0] && maxRows[0].PRODUTO_ID ? parseInt(maxRows[0].PRODUTO_ID, 10) : 100000) + 1;
+
+      const cleanBarcodeFb = cleanBarcode.slice(0, 14);
+      const insertSql = `
+        INSERT INTO PRODUTOS (
+          PRODUTO_ID, PRODUTO, COD_BARRAS, NCM, CEST,
+          PROD_PRVENDA, PROD_PRCOMPRA, VALOR_ULT_COMPRA, PROD_CMV, PROD_SALDO,
+          PROD_ATIVO, TRIBUTACAO_MONOFASICA, FORNECEDOR_ID, CATEGORIA_ID,
+          TRIBUTACAO_ID, PADRAO_COMISSAO_ID, CST_PIS, CST_COFINS
+        ) VALUES (
+          ${nextId},
+          '${cleanName.replace(/'/g, "''").slice(0, 60)}',
+          '${cleanBarcodeFb}',
+          '${ncmFinal}',
+          ${cestFinal ? `'${cestFinal}'` : 'NULL'},
+          ${precoVenda.toFixed(2)},
+          ${precoCusto.toFixed(2)},
+          ${precoCusto.toFixed(2)},
+          ${precoCusto.toFixed(2)},
+          ${qtdEstoque.toFixed(3)},
+          'S',
+          'N',
+          232,
+          ${category_id || 6},
+          1,
+          2,
+          '01',
+          '01'
+        )
+      `;
+      await queryDigifarma(insertSql, [], 5000);
+      digiProductId = nextId;
+      finalCode = String(nextId);
+      console.log(`[Belinha ERP] ✅ Produto ${cleanName} gravado no Digifarma com PRODUTO_ID = ${nextId}`);
+    } catch (errDigi) {
+      console.warn('[Belinha ERP] Aviso ao cadastrar no Digifarma (mantendo cadastro local):', errDigi.message);
+    }
+  }
+
+  if (!finalCode) {
+    const timestamp = Date.now().toString().slice(-6);
+    const randomSuffix = Math.floor(100 + Math.random() * 900);
+    finalCode = `PRD${timestamp}${randomSuffix}`;
+  }
+
+  const finalBarcode = cleanBarcode || finalCode;
 
   db.prepare(`
-    INSERT INTO products (
+    INSERT OR REPLACE INTO products (
       code, barcode, name, presentation, category_id,
       sale_price, promo_price, cost_price, stock_qty,
       ncm, cest, psicotropico, antimicrobiano, recipe_type,
@@ -350,27 +411,54 @@ function cadastrarProduto(dados) {
   `).run(
     finalCode,
     finalBarcode,
-    name.trim().toUpperCase(),
+    cleanName,
     presentation.trim(),
-    category_id,
-    parseFloat(sale_price) || 0,
-    parseFloat(promo_price) || 0,
-    parseFloat(cost_price) || 0,
-    parseFloat(stock_qty) || 0,
-    ncm,
-    cest,
+    category_id || (digiProductId ? 6 : null),
+    precoVenda,
+    precoPromo,
+    precoCusto,
+    qtdEstoque,
+    ncmFinal,
+    cestFinal,
     psicotropico === 'S' || psicotropico === true || psicotropico === '1' ? 'S' : 'N',
     antimicrobiano === 'S' || antimicrobiano === true || antimicrobiano === '1' ? 'S' : 'N',
     recipe_type || null
   );
 
-  return obterProdutoPorCodigo(finalCode);
+  // Mantém também o cache do Digifarma sincronizado
+  try {
+    db.prepare(`
+      INSERT OR REPLACE INTO digifarma_products_cache (
+        produto_id, descricao, codigo_barras, categoria_id, estoque_atual,
+        preco_venda, preco_custo, preco_promocao, preco_normal, curva,
+        tributacao_monofasica, cst_pis, cst_cofins, ncm, cest, atualizado_em
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
+    `).run(
+      finalCode,
+      cleanName,
+      finalBarcode,
+      category_id || 6,
+      qtdEstoque,
+      precoPromo > 0 ? precoPromo : precoVenda,
+      precoCusto,
+      precoPromo,
+      precoVenda,
+      'C',
+      'N',
+      '01',
+      '01',
+      ncmFinal,
+      cestFinal
+    );
+  } catch (eC) {}
+
+  return await obterProdutoPorCodigo(finalCode);
 }
 
 /**
  * Ajusta preço de venda, saldo de estoque, código de barras ou classificação sanitária de um produto
  */
-function atualizarPrecoEEstoque(code, { barcode, sale_price, promo_price, stock_qty, cost_price, name, psicotropico, antimicrobiano, recipe_type }) {
+async function atualizarPrecoEEstoque(code, { barcode, sale_price, promo_price, stock_qty, cost_price, name, psicotropico, antimicrobiano, recipe_type }) {
   const updates = [];
   const params = [];
 
@@ -412,7 +500,7 @@ function atualizarPrecoEEstoque(code, { barcode, sale_price, promo_price, stock_
   }
 
   if (updates.length === 0) {
-    return obterProdutoPorCodigo(code);
+    return await obterProdutoPorCodigo(code);
   }
 
   updates.push("updated_at = datetime('now', 'localtime')");
@@ -422,7 +510,7 @@ function atualizarPrecoEEstoque(code, { barcode, sale_price, promo_price, stock_
     UPDATE products SET ${updates.join(', ')} WHERE code = ?
   `).run(...params);
 
-  return obterProdutoPorCodigo(code);
+  return await obterProdutoPorCodigo(code);
 }
 
 /**
@@ -450,6 +538,21 @@ async function vincularCodigoBarrasProduto(code, newBarcode) {
       WHERE produto_id = ?
     `).run(cleanBarcode, cleanCode);
   } catch (e) {}
+
+  // 3. Atualiza também no Digifarma (Firebird) se o produto for numérico
+  if (/^\d+$/.test(cleanCode) && Number(cleanCode) <= 2147483647) {
+    try {
+      const { queryDigifarma } = require('../../services/digifarma.service');
+      await queryDigifarma(
+        `UPDATE PRODUTOS SET COD_BARRAS = ? WHERE PRODUTO_ID = ?`,
+        [cleanBarcode.slice(0, 14), parseInt(cleanCode, 10)],
+        4000
+      );
+      console.log(`[Belinha ERP] ⚡ Código de barras atualizado no Digifarma Firebird para o produto #${cleanCode}!`);
+    } catch (eFb) {
+      console.warn('[Belinha ERP] Aviso ao atualizar código de barras no Firebird:', eFb.message);
+    }
+  }
 
   console.log(`[Belinha ERP] 🔗 Código de barras ${cleanBarcode} vinculado com sucesso ao produto #${cleanCode}!`);
   return await obterProdutoPorCodigo(cleanCode);
