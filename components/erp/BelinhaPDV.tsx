@@ -47,14 +47,16 @@ import {
   MonitorDown,
   Pause,
   Play,
-  Link2
+  Link2,
+  ChevronDown,
+  SlidersHorizontal
 } from 'lucide-react';
 import { useToast } from '../ToastContext';
 import { BelaFarmaLogo } from '../BelaFarmaLogo';
 import { DanfeNfceModal } from './DanfeNfceModal';
 import { FiscalSettingsModal } from './FiscalSettingsModal';
 import { PromotionsManagementModal } from './PromotionsManagementModal';
-import { imprimirCupomVenda, imprimirDanfeNfce, imprimirComprovanteMovimentacaoCaixa } from '../../utils/thermalPrinter';
+import { imprimirCupomVenda, imprimirDanfeNfce, imprimirComprovanteMovimentacaoCaixa, imprimirComprovanteOrcamento } from '../../utils/thermalPrinter';
 import { ControlledRecipeModal, ControlledProductItem, ControlledRecipeData } from './ControlledRecipeModal';
 import { useThermalPrintSpooler } from './useThermalPrintSpooler';
 import { TIERED_PRICING_SEED } from './tieredPricingSeed';
@@ -259,6 +261,23 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
   const [isLinkSearching, setIsLinkSearching] = useState(false);
   const [isLinkingBarcode, setIsLinkingBarcode] = useState(false);
   const unregisteredPriceInputRef = useRef<HTMLInputElement>(null);
+  const [isMoreOptionsMenuOpen, setIsMoreOptionsMenuOpen] = useState(false);
+  const [isStatusMenuOpen, setIsStatusMenuOpen] = useState(false);
+  const moreOptionsMenuRef = useRef<HTMLDivElement>(null);
+  const statusMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (moreOptionsMenuRef.current && !moreOptionsMenuRef.current.contains(e.target as Node)) {
+        setIsMoreOptionsMenuOpen(false);
+      }
+      if (statusMenuRef.current && !statusMenuRef.current.contains(e.target as Node)) {
+        setIsStatusMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
   const unregisteredCostPriceInputRef = useRef<HTMLInputElement>(null);
   const unregisteredNameInputRef = useRef<HTMLInputElement>(null);
   const linkSearchInputRef = useRef<HTMLInputElement>(null);
@@ -1143,8 +1162,8 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
         setIsSearchOpen(true);
         setTimeout(() => searchInputRef.current?.focus(), 100);
       }
-      // F3 ou F6 -> Cliente / Convênio / Crediário (Digifarma F3)
-      else if (e.key === 'F3' || e.key === 'F6') {
+      // F3 -> Cliente / Convênio / Crediário
+      else if (e.key === 'F3') {
         e.preventDefault();
         setIsCustomerModalOpen(true);
       }
@@ -1159,24 +1178,24 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
         e.preventDefault();
         handleOpenSellerModal();
       }
-      // F7 -> Desconto Geral (%) ou Valor
-      else if (e.key === 'F7') {
+      // F6 -> Desconto Geral (%) ou Valor (Atalho Padronizado sem Conflito)
+      else if (e.key === 'F6') {
         e.preventDefault();
         setIsDiscountModalOpen(true);
+      }
+      // F7 -> Orçamentos do Balcão (Salvar Carrinho ou Puxar Orçamento Aberto para Venda)
+      else if (e.key === 'F7') {
+        e.preventDefault();
+        fetchPreSales();
+        setIsPreSaleModalOpen(true);
       }
       // F8 -> Finalizar Venda / Pagamento Rápido (Digifarma F8)
       else if (e.key === 'F8') {
         e.preventDefault();
         handleStartCheckout();
       }
-      // F9 -> Puxar Pré-Venda / Balcão / WhatsApp (Digifarma Pré-Venda)
-      else if (e.key === 'F9') {
-        e.preventDefault();
-        fetchPreSales();
-        setIsPreSaleModalOpen(true);
-      }
-      // F10 ou F12 -> Cancelar Venda / Consultar Vendas do Dia
-      else if (e.key === 'F10' || e.key === 'F12') {
+      // F9 ou F10 -> Cancelar Venda / Consultar Vendas do Dia (Atalho Padronizado)
+      else if (e.key === 'F9' || e.key === 'F10' || e.key === 'F12') {
         e.preventDefault();
         handleOpenRecentSales();
       }
@@ -1185,9 +1204,11 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
         e.preventDefault();
         toggleFullscreen();
       }
-      // ESC -> Fechar qualquer modal aberta ou limpar cupom
+      // ESC -> Fechar qualquer menu, modal aberta ou limpar cupom
       else if (e.key === 'Escape') {
-        if (tieredOfferModal.isOpen) handleDismissTieredOffer();
+        if (isMoreOptionsMenuOpen) setIsMoreOptionsMenuOpen(false);
+        else if (isStatusMenuOpen) setIsStatusMenuOpen(false);
+        else if (tieredOfferModal.isOpen) handleDismissTieredOffer();
         else if (isSafeDiscountModalOpen) setIsSafeDiscountModalOpen(false);
         else if (isPromotionsModalOpen) setIsPromotionsModalOpen(false);
         else if (isCashMovementModalOpen) setIsCashMovementModalOpen(false);
@@ -1367,6 +1388,22 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
     const cleanCodeToSearch = codeToSearch.replace(/\s+/g, '');
     const targetCode = cleanCodeToSearch || codeToSearch;
 
+    // Atalho direto: Se o operador bipar ou digitar um código de orçamento (ex: ORC-1001 ou PRE-...)
+    if (targetCode.toUpperCase().startsWith('ORC') || targetCode.toUpperCase().startsWith('PRE')) {
+      try {
+        const quoteRes = await fetch(`/api/erp/pos/pre-sales/${encodeURIComponent(targetCode)}`);
+        if (quoteRes.ok) {
+          const quoteJson = await quoteRes.json();
+          if (quoteJson.success && quoteJson.data && quoteJson.data.status === 'ABERTA') {
+            await handleImportPreSale(quoteJson.data);
+            setBarcodeInput('');
+            setAutocompleteResults([]);
+            return;
+          }
+        }
+      } catch {}
+    }
+
     try {
       const res = await fetch(`/api/erp/products/${encodeURIComponent(targetCode)}`);
       if (res.ok) {
@@ -1399,6 +1436,22 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
           }
           return;
         }
+      }
+
+      // Se for número curto (ex: 1001), verifica se é código de orçamento aberto antes de abrir cadastro expresso
+      if (/^\d{3,6}$/.test(targetCode)) {
+        try {
+          const quoteRes = await fetch(`/api/erp/pos/pre-sales/${encodeURIComponent(targetCode)}`);
+          if (quoteRes.ok) {
+            const quoteJson = await quoteRes.json();
+            if (quoteJson.success && quoteJson.data && quoteJson.data.status === 'ABERTA') {
+              await handleImportPreSale(quoteJson.data);
+              setBarcodeInput('');
+              setAutocompleteResults([]);
+              return;
+            }
+          }
+        } catch {}
       }
 
       // PRODUTO NÃO ENCONTRADO NO BANCO DE DADOS:
@@ -1760,7 +1813,32 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
 
       const json = await res.json();
       if (res.ok && json.success) {
-        addToast(`📋 Pré-Venda #${json.pre_sale_id} gerada com sucesso!`, 'success');
+        const quoteCode = json.short_code || json.pre_sale_id;
+        addToast(`📋 Orçamento #${quoteCode} gerado com sucesso!`, 'success', 4500);
+
+        // Imprime automaticamente o comprovante térmico do orçamento
+        try {
+          imprimirComprovanteOrcamento({
+            orcamento_id: json.pre_sale_id,
+            short_code: json.short_code,
+            data_hora: new Date().toLocaleString('pt-BR'),
+            cliente_nome: selectedCustomer?.name || customerNameInput || 'Consumidor Balcão',
+            vendedor_nome: currentSeller?.name || 'Balcão',
+            itens: cart.map(it => ({
+              nome: it.name,
+              quantidade: it.quantity,
+              preco_unitario: it.unit_price,
+              subtotal: it.total_price,
+              codigo: it.code
+            })),
+            total_itens: totalQuantity,
+            desconto: totalDiscount,
+            total_liquido: totalFinal
+          });
+        } catch (ePrint) {
+          console.error('Erro ao imprimir filipeta do orçamento:', ePrint);
+        }
+
         setCart([]);
         setDiscount(0);
         setDiscountPercent(0);
@@ -1771,10 +1849,51 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
         setIsPreSaleModalOpen(false);
         focusBarcodeInput();
       } else {
-        addToast(json.error || 'Erro ao gerar pré-venda.', 'error');
+        addToast(json.error || 'Erro ao gerar orçamento.', 'error');
       }
     } catch {
       addToast('Erro ao comunicar com o servidor.', 'error');
+    }
+  };
+
+  const handleCancelPreSale = async (preSaleId: string | number) => {
+    try {
+      const res = await fetch(`/api/erp/pos/pre-sales/${preSaleId}/cancel`, {
+        method: 'POST'
+      });
+      if (res.ok) {
+        addToast(`Orçamento #${preSaleId} cancelado.`, 'info');
+        fetchPreSales();
+      } else {
+        addToast('Erro ao cancelar orçamento.', 'error');
+      }
+    } catch {
+      addToast('Erro de comunicação.', 'error');
+    }
+  };
+
+  const handlePrintExistingQuote = (ps: any) => {
+    try {
+      imprimirComprovanteOrcamento({
+        orcamento_id: ps.id,
+        short_code: ps.short_code,
+        data_hora: ps.created_at ? new Date(ps.created_at).toLocaleString('pt-BR') : new Date().toLocaleString('pt-BR'),
+        cliente_nome: ps.customer_name || 'Consumidor Balcão',
+        vendedor_nome: ps.seller_name || 'Balcão',
+        itens: (ps.items || []).map((it: any) => ({
+          nome: it.product_name || it.name,
+          quantidade: it.quantity,
+          preco_unitario: it.unit_price,
+          subtotal: it.total_price,
+          codigo: it.product_code || it.code
+        })),
+        total_itens: ps.items?.length || 1,
+        desconto: ps.discount_value || 0,
+        total_liquido: ps.total_value || 0
+      });
+      addToast(`🖨️ Filipeta do orçamento #${ps.short_code || ps.id} enviada para impressão!`, 'info');
+    } catch (e) {
+      addToast('Erro ao imprimir orçamento.', 'error');
     }
   };
 
@@ -2206,11 +2325,14 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
   return (
     <div className={`flex flex-col ${isPdvAppMode ? 'h-screen w-screen rounded-none border-0' : 'h-[calc(100vh-4.25rem)] sm:h-[calc(100vh-4.5rem)] w-full rounded-xl border border-slate-300'} bg-[#e8eef5] text-slate-800 font-sans select-none overflow-hidden shadow-xl`}>
       
-      {/* 1. CABEÇALHO SUPERIOR ESTILO SOFTWARE NATIVO DE FARMÁCIA */}
-      <header className="bg-gradient-to-r from-[#0b2545] via-[#0f3460] to-[#0b2e26] border-b-2 border-emerald-500 px-3 sm:px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-xs text-white shadow-md shrink-0">
-        {/* Identidade Bela Farma Sul, Status do Caixa e Vendedor */}
+      {/* ========================================================================= */}
+      {/* 1. NOVO CABEÇALHO DO PDV EM 2 NÍVEIS (DESIGN SYSTEM MODERNO & ALTO CONTRASTE) */}
+      {/* ========================================================================= */}
+      
+      {/* NÍVEL 1: BARRA DE IDENTIDADE, STATUS UNIFICADO & TOTALIZADOR GIGANTE */}
+      <header className="bg-gradient-to-r from-[#0b2545] via-[#0d2e53] to-[#08201a] border-b border-slate-700/80 px-3 sm:px-4 py-1.5 flex items-center justify-between gap-3 text-xs text-white shadow-md shrink-0">
+        {/* Esquerda: Voltar, Identidade, Caixa e Vendedor */}
         <div className="flex items-center gap-2.5 sm:gap-3 flex-wrap">
-          {/* Botão para Sair do PDV e Voltar ao Painel Geral da BelaFarma */}
           <button
             type="button"
             onClick={() => {
@@ -2222,19 +2344,19 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
                 window.location.pathname = '/';
               }
             }}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-rose-600 text-white font-black text-xs border border-white/20 hover:border-rose-400 transition-all cursor-pointer shadow-sm group"
-            title="Sair do Caixa e Voltar ao Painel Geral do BelaFarma"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/10 hover:bg-rose-600/90 text-white font-bold text-xs border border-white/20 hover:border-rose-400 transition-all cursor-pointer shadow-sm group"
+            title="Sair do Caixa e Voltar ao Painel Geral da BelaFarma"
           >
-            <ArrowLeft className="w-4 h-4 text-amber-300 group-hover:text-white transition-colors" />
-            <span>Voltar ao Sistema</span>
+            <ArrowLeft className="w-3.5 h-3.5 text-amber-300 group-hover:text-white transition-colors" />
+            <span className="hidden sm:inline">Voltar</span>
           </button>
 
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2">
             <BelaFarmaLogo size="sm" lightMode showSubtext={false} className="shrink-0 drop-shadow" />
             <div className="leading-tight">
-              <div className="font-black text-sm sm:text-base tracking-tight text-white flex items-center gap-1.5">
+              <div className="font-black text-sm tracking-tight text-white flex items-center gap-1.5">
                 <span>BELINHA PDV</span>
-                <span className="text-[10px] font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 px-1.5 py-0.5 rounded uppercase">
+                <span className="text-[9px] font-mono bg-emerald-500/25 text-emerald-300 border border-emerald-400/40 px-1 py-0.2 rounded font-black uppercase">
                   PRO v5.0
                 </span>
                 {isPdvAppMode && (
@@ -2243,260 +2365,386 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
                   </span>
                 )}
               </div>
-              <div className="text-[10px] text-slate-300 font-medium tracking-wide uppercase">
-                Frente de Caixa Fiscal • Drogaria Bela Farma Sul
+              <div className="text-[9px] text-slate-300 font-medium tracking-wide uppercase hidden sm:block">
+                Drogaria Bela Farma Sul
               </div>
             </div>
           </div>
 
-          <div className="h-6 w-[1px] bg-white/15 hidden sm:block" />
+          <div className="h-5 w-[1px] bg-white/20 hidden md:block" />
 
           {/* Status do Caixa */}
-          <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md border font-black text-[11px] tracking-wide shadow-sm ${
+          <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border font-black text-[11px] tracking-wide shadow-sm ${
             cart.length > 0
               ? 'bg-amber-500/20 text-amber-300 border-amber-400/50'
               : 'bg-emerald-500/20 text-emerald-300 border-emerald-400/50'
           }`}>
             <Zap className={`w-3.5 h-3.5 ${cart.length > 0 ? 'text-amber-300 animate-bounce' : 'text-emerald-300 animate-pulse'}`} />
-            <span>{cart.length > 0 ? `CAIXA 01 • EM VENDA (${totalQuantity} ITENS)` : 'CAIXA 01 • LIVRE'}</span>
+            <span>{cart.length > 0 ? `CAIXA 01 • EM VENDA` : 'CAIXA 01 • LIVRE'}</span>
           </div>
 
-          {/* Vendedor em Destaque (Fixo no terminal) */}
+          {/* Vendedor Identificado */}
           <button
             onClick={handleOpenSellerModal}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs font-bold transition-all shadow-sm cursor-pointer ${
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-bold transition-all shadow-sm cursor-pointer ${
               currentSeller
-                ? 'bg-emerald-950/60 border-emerald-400/60 text-emerald-200 hover:bg-emerald-900/80 shadow-emerald-950/40'
+                ? 'bg-emerald-950/70 border-emerald-400/60 text-emerald-200 hover:bg-emerald-900/80 shadow-emerald-950/40'
                 : 'bg-amber-500 text-slate-950 border-amber-300 hover:bg-amber-400 animate-pulse font-black'
             }`}
             title="Vendedor fixo neste terminal. Clique ou pressione F5 para trocar"
           >
             <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
-            <span>{currentSeller ? `Vendedor: ${currentSeller.name}` : 'Identificar Vendedor'}</span>
-            {currentSeller && (
-              <span className="text-[9px] font-mono bg-emerald-500/30 text-emerald-300 px-1 py-0.2 rounded uppercase font-black tracking-wider border border-emerald-400/30">
-                FIXO
-              </span>
-            )}
-            <kbd className="text-[10px] bg-black/40 text-white px-1 py-0.5 rounded font-mono">F5</kbd>
+            <span className="truncate max-w-[130px]">{currentSeller ? currentSeller.name : 'Identificar Vendedor'}</span>
+            <kbd className="text-[9px] bg-black/40 text-white px-1 py-0.5 rounded font-mono">F5</kbd>
           </button>
         </div>
 
-        {/* Pílulas Compactas de Status (SEFAZ / Digifarma / SNGPC / Impressora) + Relógio + Controles de Janela */}
-        <div className="flex items-center flex-wrap gap-1.5">
-          {/* Pílula de Modo Sem Internet / Contingência */}
-          <button
-            onClick={() => toggleOfflineMode(!isOfflineMode)}
-            className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-bold border transition cursor-pointer ${
-              isOfflineMode
-                ? 'bg-amber-500 text-slate-950 border-amber-300 animate-pulse font-black'
-                : 'bg-white/10 hover:bg-white/20 text-emerald-300 border-white/15'
-            }`}
-            title={
-              isOfflineMode
-                ? 'Modo Sem Internet ATIVADO. Todas as vendas saem imediatamente em Contingência Offline com QR-Code. Clique para voltar ao modo Online.'
-                : 'Modo Online ativo. Clique para forçar o Modo Sem Internet (Contingência Instantânea).'
-            }
-          >
-            {isOfflineMode ? (
-              <>
-                <WifiOff className="w-3.5 h-3.5 text-slate-950 shrink-0" />
-                <span>SEM INTERNET</span>
-              </>
-            ) : (
-              <>
-                <Wifi className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                <span className="hidden lg:inline">Online</span>
-              </>
-            )}
-          </button>
-
-          {/* Pílula SEFAZ-MG */}
-          <button
-            onClick={() => setIsFiscalSettingsOpen(true)}
-            className="flex items-center gap-1 px-2 py-1 rounded-md bg-white/10 hover:bg-white/20 border border-white/15 text-[11px] font-semibold text-emerald-300 transition cursor-pointer"
-            title="SEFAZ-MG NFC-e Ativa (Online + Contingência Offline com QR-Code). Clique para Configurações Fiscais."
-          >
-            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-            <span>SEFAZ-MG</span>
-          </button>
-
-          {/* Pílula Digifarma Sync */}
-          <button
-            onClick={handleOpenRecentSales}
-            className="flex items-center gap-1 px-2 py-1 rounded-md bg-white/10 hover:bg-white/20 border border-white/15 text-[11px] font-semibold text-sky-300 transition cursor-pointer"
-            title="Sincronização em Tempo Real com o Banco Firebird do Digifarma"
-          >
-            <Database className="w-3.5 h-3.5 text-sky-400" />
-            <span className="hidden md:inline">Digifarma Sync</span>
-          </button>
-
-          {/* Atalho para Produtos Expressos PDV */}
-          {onNavigate && (
+        {/* Centro / Direita: Status Unificado, Relógio e Totalizador Gigante */}
+        <div className="flex items-center gap-2 sm:gap-3">
+          {/* Pílula Unificada de Status do Sistema com Popover */}
+          <div className="relative" ref={statusMenuRef}>
             <button
-              onClick={() => onNavigate('erp-express-products')}
-              className={`flex items-center gap-1 px-2 py-1 rounded-md border text-[11px] font-bold transition cursor-pointer ${
-                pendingExpressCount > 0
-                  ? 'bg-amber-500/25 text-amber-200 border-amber-400/60 hover:bg-amber-500/35 shadow-sm shadow-amber-950/40'
-                  : 'bg-white/10 hover:bg-white/20 text-slate-300 border-white/15'
+              onClick={() => setIsStatusMenuOpen(prev => !prev)}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-bold transition cursor-pointer shadow-sm ${
+                isOfflineMode
+                  ? 'bg-amber-500/25 text-amber-200 border-amber-400/60'
+                  : 'bg-white/10 hover:bg-white/15 text-emerald-300 border-white/20'
               }`}
-              title="Visualizar produtos cadastrados expressamente no PDV para saneamento no Digifarma"
+              title="Status do Sistema: SEFAZ, Digifarma, Impressora e Rede. Clique para detalhes."
             >
-              <Zap className={`w-3.5 h-3.5 ${pendingExpressCount > 0 ? 'text-amber-400' : 'text-slate-400'}`} />
-              <span className="hidden lg:inline">Expressos</span>
-              {pendingExpressCount > 0 && (
-                <span className="bg-amber-500 text-slate-950 font-black px-1.5 py-0.2 rounded-full text-[10px]">
-                  {pendingExpressCount}
-                </span>
-              )}
+              <span className={`w-2 h-2 rounded-full ${isOfflineMode ? 'bg-amber-400 animate-pulse' : 'bg-emerald-400 animate-pulse'}`} />
+              <span className="hidden md:inline">{isOfflineMode ? 'Contingência Offline' : 'Sistema Conectado'}</span>
+              <ChevronDown className="w-3 h-3 text-slate-300" />
             </button>
-          )}
 
-          {/* Pílula SNGPC */}
-          <div
-            className="hidden xl:flex items-center gap-1 px-2 py-1 rounded-md bg-white/5 border border-white/10 text-[11px] text-slate-200"
-            title="Controle Sanitário Portaria 344 / SNGPC Anvisa Ativo"
-          >
-            <ShieldCheck className="w-3.5 h-3.5 text-teal-300" />
-            <span>SNGPC</span>
+            {/* Menu Suspenso de Status do Sistema */}
+            {isStatusMenuOpen && (
+              <div className="absolute left-0 sm:right-0 sm:left-auto top-full mt-2 w-72 bg-slate-900/95 backdrop-blur-md border border-slate-700/80 rounded-xl shadow-2xl p-3 z-50 text-slate-200 space-y-2 animate-in fade-in zoom-in-95 duration-150">
+                <div className="text-[11px] font-black uppercase tracking-wider text-slate-400 border-b border-slate-800 pb-1.5 flex items-center justify-between">
+                  <span>Status dos Serviços</span>
+                  <span className="text-[9px] text-emerald-400 font-mono">ONLINE</span>
+                </div>
+
+                <div className="space-y-1.5 text-xs">
+                  {/* SEFAZ-MG */}
+                  <div className="flex items-center justify-between p-1.5 rounded-lg bg-slate-800/60 border border-slate-700/50">
+                    <div className="flex items-center gap-1.5">
+                      <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                      <span className="font-bold">SEFAZ-MG NFC-e</span>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setIsStatusMenuOpen(false);
+                        setIsFiscalSettingsOpen(true);
+                      }}
+                      className="text-[10px] bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 px-2 py-0.5 rounded border border-emerald-400/30 font-bold"
+                    >
+                      Ajustes
+                    </button>
+                  </div>
+
+                  {/* Digifarma Sync */}
+                  <div className="flex items-center justify-between p-1.5 rounded-lg bg-slate-800/60 border border-slate-700/50">
+                    <div className="flex items-center gap-1.5">
+                      <Database className="w-4 h-4 text-sky-400" />
+                      <span className="font-bold">Digifarma Firebird</span>
+                    </div>
+                    <span className="text-[10px] text-sky-300 font-bold">Conectado</span>
+                  </div>
+
+                  {/* Modo Sem Internet */}
+                  <div className="flex items-center justify-between p-1.5 rounded-lg bg-slate-800/60 border border-slate-700/50">
+                    <div className="flex items-center gap-1.5">
+                      {isOfflineMode ? <WifiOff className="w-4 h-4 text-amber-400" /> : <Wifi className="w-4 h-4 text-emerald-400" />}
+                      <span className="font-bold">{isOfflineMode ? 'Modo Offline' : 'Rede Externa'}</span>
+                    </div>
+                    <button
+                      onClick={() => toggleOfflineMode(!isOfflineMode)}
+                      className={`text-[10px] px-2 py-0.5 rounded border font-black transition ${
+                        isOfflineMode
+                          ? 'bg-amber-500 text-slate-950 border-amber-300'
+                          : 'bg-white/10 text-slate-300 border-white/20 hover:text-white'
+                      }`}
+                    >
+                      {isOfflineMode ? 'Ativado' : 'Forçar'}
+                    </button>
+                  </div>
+
+                  {/* Impressora MP-4200 */}
+                  <div className="flex items-center justify-between p-1.5 rounded-lg bg-slate-800/60 border border-slate-700/50">
+                    <div className="flex items-center gap-1.5">
+                      <Printer className="w-4 h-4 text-teal-400" />
+                      <span className="font-bold">MP-4200 TH</span>
+                    </div>
+                    <button
+                      onClick={() => toggleAutoPrint(!autoPrintCupom)}
+                      className="text-[10px] bg-slate-700 hover:bg-slate-600 px-2 py-0.5 rounded border border-slate-600 font-bold text-slate-200"
+                    >
+                      {autoPrintCupom ? 'Auto' : 'Manual'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
-
-          {/* Pílula Impressora Bematech Auto/Manual */}
-          <button
-            onClick={() => toggleAutoPrint(!autoPrintCupom)}
-            className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-bold transition border cursor-pointer ${
-              autoPrintCupom
-                ? 'bg-emerald-500/20 text-emerald-200 border-emerald-400/50'
-                : 'bg-white/10 text-slate-300 border-white/15 hover:text-white'
-            }`}
-            title="Alternar Impressão Automática na Bematech MP-4200 TH ao finalizar venda"
-          >
-            <Printer className={`w-3.5 h-3.5 ${autoPrintCupom ? 'text-emerald-300' : 'text-slate-400'}`} />
-            <span>{autoPrintCupom ? 'MP-4200 Auto' : 'MP-4200 Manual'}</span>
-          </button>
-
-          {/* Pílula Estação Caixa / Rede */}
-          <button
-            onClick={() => togglePrinterStation(!isPrinterStation)}
-            className={`hidden sm:flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-bold transition border cursor-pointer ${
-              isPrinterStation
-                ? 'bg-blue-500/25 text-blue-200 border-blue-400/50'
-                : 'bg-amber-500/20 text-amber-200 border-amber-400/40'
-            }`}
-            title={
-              isPrinterStation
-                ? 'Este computador é a Estação Física da Bematech. Clique para alterar.'
-                : 'Este computador envia cupons via Rede para a Bematech do Caixa.'
-            }
-          >
-            <span className={`w-2 h-2 rounded-full ${isPrinterStation ? 'bg-blue-300 animate-pulse' : 'bg-amber-300'}`} />
-            <span>{isPrinterStation ? 'Estação Caixa' : 'Spooler Rede'}</span>
-          </button>
-
-          {/* Botão Sincronizar Digifarma */}
-          <button
-            onClick={handleSyncDigifarmaCatalog}
-            disabled={isSyncingCatalog}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-blue-600/30 hover:bg-blue-600/50 text-blue-200 border border-blue-400/40 text-[11px] font-bold transition cursor-pointer disabled:opacity-50"
-            title="Sincronizar produtos, novos cadastros e preços atualizados do Digifarma"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 text-blue-300 ${isSyncingCatalog ? 'animate-spin' : ''}`} />
-            <span className="hidden lg:inline">{isSyncingCatalog ? 'Sincronizando...' : 'Sync Digifarma'}</span>
-          </button>
-
-          {/* Catálogo Mestre de Produtos do ERP */}
-          <button
-            onClick={() => {
-              if (onNavigate) {
-                onNavigate('erp-produtos');
-              } else {
-                setIsSearchOpen(true);
-              }
-            }}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-200 border border-emerald-400/40 text-[11px] font-bold transition cursor-pointer"
-            title="Abrir Catálogo Geral de Produtos Cadastrados (64k+ itens, saldo e gestão de preços)"
-          >
-            <Package className="w-3.5 h-3.5 text-emerald-300" />
-            <span className="hidden sm:inline">Catálogo Produtos</span>
-          </button>
-
-          {/* Promoções & Validade */}
-          <button
-            onClick={() => setIsPromotionsModalOpen(true)}
-            className="flex items-center gap-1 px-2 py-1 rounded-md bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-400/40 text-[11px] font-bold transition cursor-pointer"
-            title="Central de Promoções com Validade e Preços Escalonados"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-            <span className="hidden lg:inline">Promoções</span>
-          </button>
-
-          {/* Botão para Instalar Executável do PDV na Área de Trabalho */}
-          <button
-            onClick={() => setIsInstallAppModalOpen(true)}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-[11px] border border-emerald-400/50 shadow-sm transition-all cursor-pointer hover:shadow-emerald-500/20"
-            title="Instalar o Botão / Executável do PDV na Área de Trabalho deste Computador"
-          >
-            <Download className="w-3.5 h-3.5 text-white" />
-            <span className="hidden sm:inline">Instalar no Desktop</span>
-          </button>
-
-          {/* Vendas do Dia (Histórico e Conferência Interna do Caixa [F7]) */}
-          <button
-            onClick={handleOpenRecentSales}
-            className="flex items-center gap-1 px-2 py-1 rounded-md bg-white/10 hover:bg-white/20 text-white border border-white/15 text-[11px] font-bold transition cursor-pointer"
-            title="Abrir Histórico e Conferência de Vendas do PDV [F7]"
-          >
-            <Receipt className="w-3.5 h-3.5 text-emerald-300" />
-            <span className="hidden md:inline">Vendas [F7]</span>
-          </button>
 
           {/* Relógio Digital */}
-          <div className="font-mono text-[11px] font-bold text-white bg-black/35 px-2.5 py-1 rounded-md border border-white/15">
-            <span>{currentTime.toLocaleDateString('pt-BR')}</span>
-            <span className="text-emerald-300 ml-1.5">{currentTime.toLocaleTimeString('pt-BR')}</span>
+          <div className="hidden xl:flex font-mono text-[11px] font-bold text-white bg-black/40 px-2.5 py-1 rounded-lg border border-white/15 items-center gap-1.5">
+            <Clock className="w-3.5 h-3.5 text-slate-300" />
+            <span>{currentTime.toLocaleTimeString('pt-BR')}</span>
           </div>
 
-          {/* Controles de Janela do Terminal (Minimizar, Tela Cheia F11) */}
-          <div className="flex items-center gap-1 pl-1 border-l border-white/15">
-            {isTauriWindow && (
-              <button
-                onClick={handleMinimizeWindow}
-                className="p-1.5 rounded-md bg-white/10 hover:bg-white/20 text-slate-200 border border-white/15 transition cursor-pointer"
-                title="Minimizar Janela"
-              >
-                <Minus className="w-3.5 h-3.5" />
-              </button>
-            )}
-
-            <button
-              onClick={toggleFullscreen}
-              className="flex items-center gap-1 px-2 py-1 rounded-md bg-white/10 hover:bg-white/20 text-white border border-white/15 text-[11px] font-bold transition cursor-pointer"
-              title="Alternar Modo Tela Cheia (F11)"
-            >
-              {isFullscreen ? <Minimize2 className="w-3.5 h-3.5 text-amber-300" /> : <Maximize2 className="w-3.5 h-3.5 text-emerald-300" />}
-              <span className="hidden xl:inline">F11</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                localStorage.setItem('belinha_current_view', 'dashboard');
-                if (onNavigate) {
-                  onNavigate('dashboard');
-                } else {
-                  window.location.hash = '';
-                  window.location.pathname = '/';
-                }
-              }}
-              className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-rose-600/70 hover:bg-rose-600 text-white border border-rose-400/50 text-[11px] font-bold transition cursor-pointer shadow-sm"
-              title="Sair do Caixa e Voltar ao Painel Geral da BelaFarma"
-            >
-              <LogOut className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Sair</span>
-            </button>
+          {/* ========================================================= */}
+          {/* DISPLAY TOTALIZADOR GIGANTE NO TOPO DIREITO (DESTAQUE MÁXIMO) */}
+          {/* ========================================================= */}
+          <div className="bg-gradient-to-br from-slate-950 via-[#07241d] to-[#041a15] border-2 border-emerald-400/90 rounded-xl px-3.5 py-1 sm:py-1.5 shadow-lg shadow-emerald-950/50 flex items-center gap-3">
+            <div className="text-right">
+              <div className="text-[9px] font-black uppercase tracking-wider text-emerald-300 flex items-center justify-end gap-1">
+                <ShoppingCart className="w-3 h-3 text-emerald-400" />
+                <span>TOTAL A PAGAR</span>
+              </div>
+              <div className="text-[10px] text-slate-300 font-mono font-medium">
+                {totalVolumes} un • {cart.length} itens
+              </div>
+            </div>
+            <div className="h-8 w-[2px] bg-emerald-500/30" />
+            <div className="font-mono font-black text-2xl sm:text-3xl text-emerald-400 tracking-tight drop-shadow select-all">
+              R$ {totalFinal.toFixed(2)}
+            </div>
           </div>
         </div>
       </header>
+
+      {/* ========================================================================= */}
+      {/* NÍVEL 2: BARRA DE ATALHOS RÁPIDOS DE VENDA & MENU DESKTOP "MAIS OPÇÕES" */}
+      {/* ========================================================================= */}
+      <nav className="bg-gradient-to-r from-[#0d2a4a] via-[#103660] to-[#0c2e26] border-b-2 border-emerald-500/60 px-3 sm:px-4 py-1.5 flex flex-wrap items-center justify-between gap-2 shadow-sm shrink-0 text-white">
+        {/* Lado Esquerdo: Ações Rápidas de Balcão / Caixa com visual tátil */}
+        <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+          {/* [F2] Buscar Produto */}
+          <button
+            onClick={() => {
+              setIsSearchOpen(true);
+              setTimeout(() => searchInputRef.current?.focus(), 100);
+            }}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 border border-white/20 text-xs font-bold transition shadow-sm cursor-pointer group"
+            title="Abrir Catálogo / Pesquisa Inteligente de Produtos (F2)"
+          >
+            <kbd className="bg-black/40 text-emerald-300 font-black px-1.5 py-0.5 rounded text-[10px] font-mono group-hover:bg-emerald-500 group-hover:text-slate-950 transition-colors">F2</kbd>
+            <span>Buscar Produto</span>
+          </button>
+
+          {/* [F6] Desconto Geral */}
+          <button
+            onClick={() => setIsDiscountModalOpen(true)}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/40 text-amber-200 text-xs font-bold transition shadow-sm cursor-pointer group"
+            title="Aplicar Desconto Geral no Cupom em % ou R$ (F6)"
+          >
+            <kbd className="bg-amber-400 text-slate-950 font-black px-1.5 py-0.5 rounded text-[10px] font-mono">F6</kbd>
+            <span>Desconto</span>
+          </button>
+
+          {/* [F7] Orçamentos do Balcão */}
+          <button
+            onClick={() => {
+              fetchPreSales();
+              setIsPreSaleModalOpen(true);
+            }}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-400/40 text-indigo-200 text-xs font-bold transition shadow-sm cursor-pointer group"
+            title="Salvar Carrinho como Orçamento ou Puxar Orçamento Aberto para Venda (F7)"
+          >
+            <kbd className="bg-indigo-400 text-slate-950 font-black px-1.5 py-0.5 rounded text-[10px] font-mono">F7</kbd>
+            <span>Orçamentos</span>
+            {preSalesList.length > 0 && (
+              <span className="bg-indigo-500 text-white font-black px-1.5 py-0.2 rounded-full text-[10px]">
+                {preSalesList.length}
+              </span>
+            )}
+          </button>
+
+          {/* [F8] Finalizar Venda */}
+          <button
+            onClick={() => handleStartCheckout()}
+            disabled={cart.length === 0}
+            className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white text-xs font-black border border-emerald-400 shadow-md transition cursor-pointer group"
+            title="Finalizar Venda e Receber Pagamento (F8)"
+          >
+            <kbd className="bg-white text-emerald-950 font-black px-1.5 py-0.5 rounded text-[10px] font-mono">F8</kbd>
+            <span>Finalizar Venda</span>
+          </button>
+
+          {/* [F9] Histórico de Vendas & Cancelamentos */}
+          <button
+            onClick={handleOpenRecentSales}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 border border-white/20 text-xs font-bold transition shadow-sm cursor-pointer group"
+            title="Histórico de Vendas, Reimpressão de Cupons e Cancelamentos do Dia (F9)"
+          >
+            <kbd className="bg-slate-300 text-slate-950 font-black px-1.5 py-0.5 rounded text-[10px] font-mono">F9</kbd>
+            <span>Vendas do Dia</span>
+          </button>
+
+          {/* [ESC] Cancelar Cupom */}
+          {cart.length > 0 && (
+            <button
+              onClick={() => setIsClearCartModalOpen(true)}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-rose-600/30 hover:bg-rose-600/50 border border-rose-400/50 text-rose-200 text-xs font-bold transition cursor-pointer"
+              title="Cancelar cupom e limpar todos os itens atuais (ESC)"
+            >
+              <kbd className="bg-rose-500 text-white font-black px-1.5 py-0.5 rounded text-[10px] font-mono">ESC</kbd>
+              <span>Cancelar Cupom</span>
+            </button>
+          )}
+        </div>
+
+        {/* Lado Direito: Menu Dropdown "Mais Opções" */}
+        <div className="relative flex items-center gap-1.5" ref={moreOptionsMenuRef}>
+          <button
+            onClick={() => setIsMoreOptionsMenuOpen(prev => !prev)}
+            className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-white/15 hover:bg-white/25 border border-white/30 text-white text-xs font-black transition cursor-pointer shadow-sm"
+            title="Mais Opções e Configurações do Terminal"
+          >
+            <SlidersHorizontal className="w-3.5 h-3.5 text-amber-300" />
+            <span>Mais Opções</span>
+            <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isMoreOptionsMenuOpen ? 'rotate-180' : ''}`} />
+          </button>
+
+          {/* Dropdown Menu Suspenso estilo Shadcn */}
+          {isMoreOptionsMenuOpen && (
+            <div className="absolute right-0 top-full mt-2 w-64 bg-slate-900/95 backdrop-blur-md border border-slate-700/80 rounded-xl shadow-2xl p-1.5 z-50 text-slate-200 animate-in fade-in zoom-in-95 duration-150">
+              <div className="text-[10px] font-black uppercase tracking-wider text-slate-400 px-2 py-1.5 border-b border-slate-800">
+                Ações Administrativas
+              </div>
+
+              {/* Catálogo Geral */}
+              <button
+                onClick={() => {
+                  setIsMoreOptionsMenuOpen(false);
+                  if (onNavigate) {
+                    onNavigate('erp-produtos');
+                  } else {
+                    setIsSearchOpen(true);
+                  }
+                }}
+                className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-slate-800 text-left text-xs font-bold transition text-slate-200 hover:text-emerald-300"
+              >
+                <Package className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>Catálogo Geral de Produtos</span>
+              </button>
+
+              {/* Produtos Expressos */}
+              {onNavigate && (
+                <button
+                  onClick={() => {
+                    setIsMoreOptionsMenuOpen(false);
+                    onNavigate('erp-express-products');
+                  }}
+                  className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-slate-800 text-left text-xs font-bold transition text-slate-200 hover:text-amber-300"
+                >
+                  <div className="flex items-center gap-2">
+                    <Zap className="w-4 h-4 text-amber-400 shrink-0" />
+                    <span>Produtos Expressos</span>
+                  </div>
+                  {pendingExpressCount > 0 && (
+                    <span className="bg-amber-500 text-slate-950 font-black px-1.5 py-0.2 rounded-full text-[10px]">
+                      {pendingExpressCount}
+                    </span>
+                  )}
+                </button>
+              )}
+
+              {/* Promoções & Preços Escalonados */}
+              <button
+                onClick={() => {
+                  setIsMoreOptionsMenuOpen(false);
+                  setIsPromotionsModalOpen(true);
+                }}
+                className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-slate-800 text-left text-xs font-bold transition text-slate-200 hover:text-amber-300"
+              >
+                <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
+                <span>Promoções & Escalonados</span>
+              </button>
+
+              {/* SNGPC / Portaria 344 */}
+              <button
+                onClick={() => {
+                  setIsMoreOptionsMenuOpen(false);
+                  if (controlledItemsInCart.length > 0) {
+                    setIsControlledRecipeOpen(true);
+                  } else {
+                    addToast('Controle Sanitário Portaria 344 / SNGPC Ativo no Caixa.', 'info');
+                  }
+                }}
+                className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-slate-800 text-left text-xs font-bold transition text-slate-200 hover:text-teal-300"
+              >
+                <ShieldCheck className="w-4 h-4 text-teal-400 shrink-0" />
+                <span>Controle SNGPC / Portaria 344</span>
+              </button>
+
+              <div className="h-[1px] bg-slate-800 my-1" />
+
+              {/* Sincronizar Digifarma */}
+              <button
+                onClick={() => {
+                  setIsMoreOptionsMenuOpen(false);
+                  handleSyncDigifarmaCatalog();
+                }}
+                disabled={isSyncingCatalog}
+                className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-slate-800 text-left text-xs font-bold transition text-slate-200 hover:text-sky-300 disabled:opacity-50"
+              >
+                <RefreshCw className={`w-4 h-4 text-sky-400 shrink-0 ${isSyncingCatalog ? 'animate-spin' : ''}`} />
+                <span>{isSyncingCatalog ? 'Sincronizando...' : 'Sincronizar Digifarma'}</span>
+              </button>
+
+              {/* Instalar Desktop */}
+              <button
+                onClick={() => {
+                  setIsMoreOptionsMenuOpen(false);
+                  setIsInstallAppModalOpen(true);
+                }}
+                className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-slate-800 text-left text-xs font-bold transition text-slate-200 hover:text-emerald-300"
+              >
+                <Download className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>Instalar no Desktop</span>
+              </button>
+
+              {/* Tela Cheia F11 */}
+              <button
+                onClick={() => {
+                  setIsMoreOptionsMenuOpen(false);
+                  toggleFullscreen();
+                }}
+                className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-slate-800 text-left text-xs font-bold transition text-slate-200"
+              >
+                <div className="flex items-center gap-2">
+                  {isFullscreen ? <Minimize2 className="w-4 h-4 text-amber-300 shrink-0" /> : <Maximize2 className="w-4 h-4 text-emerald-300 shrink-0" />}
+                  <span>{isFullscreen ? 'Sair de Tela Cheia' : 'Modo Tela Cheia'}</span>
+                </div>
+                <kbd className="bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded text-[10px] font-mono">F11</kbd>
+              </button>
+
+              <div className="h-[1px] bg-slate-800 my-1" />
+
+              {/* Sair do Caixa */}
+              <button
+                onClick={() => {
+                  setIsMoreOptionsMenuOpen(false);
+                  localStorage.setItem('belinha_current_view', 'dashboard');
+                  if (onNavigate) {
+                    onNavigate('dashboard');
+                  } else {
+                    window.location.hash = '';
+                    window.location.pathname = '/';
+                  }
+                }}
+                className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-rose-950/50 text-left text-xs font-bold transition text-rose-300 hover:text-rose-200"
+              >
+                <LogOut className="w-4 h-4 text-rose-400 shrink-0" />
+                <span>Sair do Caixa</span>
+              </button>
+            </div>
+          )}
+        </div>
+      </nav>
 
       {/* AVISO DE OPERAÇÃO SEM INTERNET / CONTINGÊNCIA OFFLINE */}
       {isOfflineMode && (
@@ -3082,9 +3330,9 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
                 <button
                   onClick={() => setIsDiscountModalOpen(true)}
                   className="text-[10px] bg-amber-100 hover:bg-amber-200 px-2 py-0.5 rounded border border-amber-300 text-amber-900 font-black cursor-pointer"
-                  title="Aplicar Desconto Manual (F7)"
+                  title="Aplicar Desconto Geral no Cupom (F6)"
                 >
-                  F7 Desconto
+                  F6 Desconto
                 </button>
               </div>
               
@@ -3414,8 +3662,19 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
             onClick={() => setIsDiscountModalOpen(true)}
             className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 px-2.5 py-1 rounded border border-white/15 transition cursor-pointer"
           >
-            <kbd className="bg-amber-400 text-slate-950 font-black px-1.5 py-0.5 rounded text-[10px] font-mono">F7</kbd>
+            <kbd className="bg-amber-400 text-slate-950 font-black px-1.5 py-0.5 rounded text-[10px] font-mono">F6</kbd>
             <span className="font-bold">Desconto</span>
+          </button>
+
+          <button
+            onClick={() => {
+              fetchPreSales();
+              setIsPreSaleModalOpen(true);
+            }}
+            className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 px-2.5 py-1 rounded border border-white/15 transition cursor-pointer"
+          >
+            <kbd className="bg-indigo-300 text-slate-950 font-black px-1.5 py-0.5 rounded text-[10px] font-mono">F7</kbd>
+            <span className="font-bold">Orçamentos</span>
           </button>
 
           <button
@@ -3428,22 +3687,11 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
           </button>
 
           <button
-            onClick={() => {
-              fetchPreSales();
-              setIsPreSaleModalOpen(true);
-            }}
-            className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 px-2.5 py-1 rounded border border-white/15 transition cursor-pointer"
-          >
-            <kbd className="bg-indigo-300 text-slate-950 font-black px-1.5 py-0.5 rounded text-[10px] font-mono">F9</kbd>
-            <span className="font-bold">Pré-Venda</span>
-          </button>
-
-          <button
             onClick={handleOpenRecentSales}
             className="flex items-center gap-1.5 bg-rose-600/80 hover:bg-rose-500 px-2.5 py-1 rounded border border-rose-400/50 transition cursor-pointer"
           >
-            <kbd className="bg-white text-rose-950 font-black px-1.5 py-0.5 rounded text-[10px] font-mono">F10</kbd>
-            <span className="font-bold">Cancelar / Histórico</span>
+            <kbd className="bg-white text-rose-950 font-black px-1.5 py-0.5 rounded text-[10px] font-mono">F9</kbd>
+            <span className="font-bold">Vendas do Dia</span>
           </button>
 
           <button
@@ -4324,7 +4572,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
                 </div>
                 <div>
                   <h3 className="text-base font-black text-slate-100">
-                    Últimas Vendas • Cancelar & Consultar (F7)
+                    Últimas Vendas • Cancelar & Consultar (F9)
                   </h3>
                   <p className="text-xs text-slate-400">Selecione uma venda para cancelar e estornar o estoque na hora</p>
                 </div>
@@ -5507,22 +5755,27 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
       )}
 
       {/* ========================================================================= */}
-      {/* MODAL 12: PRÉ-VENDAS E ORÇAMENTOS (BALCÃO / WHATSAPP) [F9] */}
+      {/* MODAL 12: ORÇAMENTOS E PRÉ-VENDAS DO BALCÃO [F7] */}
       {/* ========================================================================= */}
       {isPreSaleModalOpen && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-2xl w-full p-5 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
+          <div className="bg-slate-900 border border-slate-700 rounded-3xl max-w-2xl w-full p-5 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div className="flex items-center gap-2">
-                <FileText className="w-5 h-5 text-indigo-400" />
-                <h3 className="font-black text-sm text-slate-100">Pré-Vendas & Orçamentos do Balcão [F9]</h3>
+                <div className="w-8 h-8 rounded-xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center font-bold">
+                  <FileText className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-black text-sm text-slate-100">Orçamentos & Pré-Vendas do Balcão [F7]</h3>
+                  <p className="text-[11px] text-slate-400">Gere orçamentos rápidos com código curto para faturar no caixa</p>
+                </div>
               </div>
               <button 
                 onClick={() => {
                   setIsPreSaleModalOpen(false);
                   focusBarcodeInput();
                 }}
-                className="text-slate-400 hover:text-white"
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -5530,24 +5783,29 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
 
             {/* Ação para Salvar o Carrinho Atual como Orçamento */}
             {cart.length > 0 && (
-              <div className="bg-indigo-950/40 border border-indigo-800/60 p-3 rounded-xl flex items-center justify-between">
+              <div className="bg-gradient-to-r from-indigo-950/60 to-slate-900 border border-indigo-700/60 p-3.5 rounded-2xl flex items-center justify-between gap-3 shadow-md">
                 <div>
-                  <div className="text-xs font-bold text-indigo-200">Deseja transformar o carrinho atual em pré-venda?</div>
-                  <div className="text-[11px] text-indigo-300/80">Salva os {cart.length} itens atuais como orçamento para faturar depois.</div>
+                  <div className="text-xs font-black text-indigo-200">Salvar carrinho atual como Orçamento</div>
+                  <div className="text-[11px] text-indigo-300/80">
+                    Gera filipeta térmica com código curto ({cart.length} itens • R$ {totalFinal.toFixed(2)}) para o cliente pagar depois.
+                  </div>
                 </div>
                 <button
                   onClick={handleSaveAsPreSale}
-                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-lg shadow-sm"
+                  className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black rounded-xl shadow-md transition-all flex items-center gap-1.5 shrink-0"
                 >
-                  Salvar Orçamento
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>Salvar & Imprimir</span>
                 </button>
               </div>
             )}
 
-            {/* Lista de Pré-Vendas Abertas */}
+            {/* Lista de Orçamentos Abertos */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-400">Pré-Vendas Aguardando Faturamento ({preSalesList.length}):</span>
+                <span className="text-xs font-bold text-slate-400 flex items-center gap-1.5">
+                  <span>Orçamentos Aguardando Caixa ({preSalesList.length}):</span>
+                </span>
                 <button
                   onClick={fetchPreSales}
                   className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 font-semibold"
@@ -5560,23 +5818,25 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
               {isLoadingPreSales ? (
                 <div className="py-8 text-center text-slate-500 flex flex-col items-center gap-2">
                   <RefreshCw className="w-6 h-6 animate-spin text-indigo-400" />
-                  <span className="text-xs font-medium">Buscando pré-vendas...</span>
+                  <span className="text-xs font-medium">Buscando orçamentos...</span>
                 </div>
               ) : preSalesList.length === 0 ? (
-                <div className="py-8 text-center bg-slate-950 rounded-xl border border-slate-800 text-slate-500 text-xs">
-                  Nenhuma pré-venda ou orçamento pendente no momento.
+                <div className="py-8 text-center bg-slate-950 rounded-2xl border border-slate-800 text-slate-500 text-xs">
+                  Nenhum orçamento pendente no momento.
                 </div>
               ) : (
-                <div className="max-h-72 overflow-y-auto space-y-2 pr-1">
+                <div className="max-h-80 overflow-y-auto space-y-2 pr-1">
                   {preSalesList.map((ps: any) => (
                     <div
                       key={ps.id}
-                      className="bg-slate-950 hover:bg-slate-850 p-3 rounded-xl border border-slate-800 hover:border-indigo-600/70 transition flex items-center justify-between gap-3"
+                      className="bg-slate-950 hover:bg-slate-850 p-3 rounded-2xl border border-slate-800 hover:border-indigo-500/70 transition flex items-center justify-between gap-3 shadow-sm group"
                     >
-                      <div className="space-y-0.5">
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono text-xs font-bold text-indigo-300">#{ps.id}</span>
-                          <span className="text-xs font-black text-slate-200">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-mono text-xs font-black bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded-md border border-indigo-500/40">
+                            CÓDIGO: {ps.short_code || ps.id}
+                          </span>
+                          <span className="text-xs font-bold text-slate-200">
                             {ps.customer_name || 'Consumidor Balcão'}
                           </span>
                         </div>
@@ -5589,16 +5849,40 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-3">
-                        <span className="font-mono font-black text-sm text-emerald-400">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono font-black text-sm text-emerald-400 mr-1">
                           R$ {Number(ps.total_value).toFixed(2)}
                         </span>
+                        
+                        {/* Imprimir Comprovante */}
                         <button
+                          type="button"
+                          onClick={() => handlePrintExistingQuote(ps)}
+                          className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl transition"
+                          title="Imprimir filipeta térmica deste orçamento"
+                        >
+                          <Printer className="w-3.5 h-3.5" />
+                        </button>
+
+                        {/* Carregar no Caixa */}
+                        <button
+                          type="button"
                           onClick={() => handleImportPreSale(ps)}
-                          className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg shadow-sm flex items-center gap-1"
+                          className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black rounded-xl shadow-md flex items-center gap-1.5 transition"
+                          title="Carregar itens no carrinho e faturar (Enter)"
                         >
                           <ShoppingCart className="w-3.5 h-3.5" />
-                          <span>Puxar</span>
+                          <span>Carregar no Caixa</span>
+                        </button>
+
+                        {/* Cancelar Orçamento */}
+                        <button
+                          type="button"
+                          onClick={() => handleCancelPreSale(ps.short_code || ps.id)}
+                          className="p-2 bg-slate-800/80 hover:bg-rose-900/60 text-slate-400 hover:text-rose-300 rounded-xl transition"
+                          title="Cancelar e descartar este orçamento"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
                     </div>
@@ -5607,7 +5891,8 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
               )}
             </div>
 
-            <div className="pt-2 border-t border-slate-800 flex justify-end">
+            <div className="pt-2 border-t border-slate-800 flex justify-between items-center text-xs text-slate-400">
+              <span>Dica: Digite o código do orçamento (ex: <strong>1001</strong>) no campo principal para carregar direto.</span>
               <button
                 type="button"
                 onClick={() => {

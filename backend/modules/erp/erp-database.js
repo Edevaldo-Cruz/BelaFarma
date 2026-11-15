@@ -268,6 +268,7 @@ function initErpDatabase() {
   db.prepare(`
     CREATE TABLE IF NOT EXISTS pre_sales (
       id TEXT PRIMARY KEY,
+      short_code INTEGER,
       customer_id TEXT,
       customer_name TEXT,
       seller_id TEXT,
@@ -282,7 +283,11 @@ function initErpDatabase() {
       sale_id TEXT
     )
   `).run();
+  try {
+    db.prepare("ALTER TABLE pre_sales ADD COLUMN short_code INTEGER").run();
+  } catch (e) {}
   db.prepare(`CREATE INDEX IF NOT EXISTS idx_pre_sales_status ON pre_sales (status)`).run();
+  db.prepare(`CREATE INDEX IF NOT EXISTS idx_pre_sales_short_code ON pre_sales (short_code)`).run();
 
   db.prepare(`
     CREATE TABLE IF NOT EXISTS pre_sale_items (

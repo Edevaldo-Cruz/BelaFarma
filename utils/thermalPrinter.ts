@@ -789,6 +789,200 @@ export function imprimirComprovanteMovimentacaoCaixa(mov: MovimentacaoCaixaData)
   });
 }
 
+export interface ComprovanteOrcamentoData {
+  orcamento_id: string | number;
+  short_code?: number | string;
+  data_hora: string;
+  cliente_nome?: string;
+  vendedor_nome?: string;
+  itens: Array<{
+    nome: string;
+    quantidade: number;
+    preco_unitario: number;
+    subtotal: number;
+    codigo?: string;
+  }>;
+  total_itens: number;
+  desconto?: number;
+  total_liquido: number;
+  observacoes?: string;
+}
+
+/**
+ * Imprime Comprovante Térmico de Orçamento do Balcão
+ */
+export function imprimirComprovanteOrcamento(orc: ComprovanteOrcamentoData) {
+  const itemsHtml = orc.itens
+    .map(
+      (it) => `
+      <div class="item-row">
+        <div class="item-desc">${it.quantidade}x ${escapeHtml(it.nome)}</div>
+        <div class="item-val">R$ ${it.subtotal.toFixed(2)}</div>
+      </div>
+    `
+    )
+    .join('');
+
+  const displayCode = orc.short_code ? `#${orc.short_code}` : `#${orc.orcamento_id}`;
+
+  const html = `
+    <!DOCTYPE html>
+    <html lang="pt-BR">
+    <head>
+      <meta charset="utf-8">
+      <title>Orçamento ${displayCode}</title>
+      <style>
+        @page {
+          size: 80mm auto;
+          margin: 0;
+        }
+        @media print {
+          html, body {
+            width: 72mm !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            filter: contrast(300%) grayscale(100%);
+          }
+        }
+        * {
+          box-sizing: border-box;
+          margin: 0;
+          padding: 0;
+          color: #000000 !important;
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+        }
+        body {
+          font-family: 'Courier New', Courier, monospace, 'DejaVu Sans Mono';
+          font-size: 11px;
+          line-height: 1.25;
+          padding: 3mm 4mm;
+          background: #fff;
+          font-weight: 700;
+          -webkit-font-smoothing: antialiased;
+        }
+        .header {
+          text-align: center;
+          margin-bottom: 5px;
+        }
+        .title {
+          font-size: 14px;
+          font-weight: 900;
+          text-transform: uppercase;
+        }
+        .subtitle {
+          font-size: 10px;
+          font-weight: 700;
+        }
+        .badge-box {
+          border: 2px dashed #000;
+          padding: 4px;
+          margin: 6px 0;
+          text-align: center;
+        }
+        .code-title {
+          font-size: 10px;
+          font-weight: 800;
+        }
+        .code-num {
+          font-size: 18px;
+          font-weight: 900;
+          letter-spacing: 1px;
+        }
+        .divider {
+          border-top: 1px dashed #000000;
+          margin: 5px 0;
+        }
+        .item-row {
+          display: flex;
+          justify-content: space-between;
+          font-size: 11px;
+          margin-bottom: 2px;
+          font-weight: 800;
+        }
+        .item-desc {
+          width: 72%;
+          word-break: break-word;
+        }
+        .item-val {
+          width: 28%;
+          text-align: right;
+          font-weight: 900;
+        }
+        .total-row {
+          display: flex;
+          justify-content: space-between;
+          font-size: 13px;
+          font-weight: 900;
+          margin-top: 4px;
+        }
+        .footer {
+          margin-top: 8px;
+          text-align: center;
+          font-size: 9px;
+          font-weight: 700;
+        }
+        .cut-space {
+          height: 18mm;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <div class="title">DROGARIA BELA FARMA</div>
+        <div class="subtitle">BELA FARMA SUL • MATRIZ</div>
+        <div class="subtitle">CNPJ: 37.822.476/0001-09</div>
+      </div>
+
+      <div class="badge-box">
+        <div class="code-title">ORÇAMENTO DE BALCÃO</div>
+        <div class="code-num">CÓDIGO: ${orc.short_code || orc.orcamento_id}</div>
+      </div>
+
+      <div style="font-size: 10px; margin-bottom: 4px;">
+        <div>DATA: ${orc.data_hora}</div>
+        <div>VENDEDOR: ${escapeHtml(orc.vendedor_nome || 'Balcão')}</div>
+        <div>CLIENTE: ${escapeHtml(orc.cliente_nome || 'Consumidor Final')}</div>
+      </div>
+
+      <div class="divider"></div>
+      <div style="font-size: 10px; font-weight: 900; margin-bottom: 3px;">ITENS DO ORÇAMENTO:</div>
+      ${itemsHtml}
+
+      <div class="divider"></div>
+      <div style="font-size: 11px; display: flex; justify-content: space-between;">
+        <span>SUBTOTAL:</span>
+        <span>R$ ${(orc.total_liquido + (orc.desconto || 0)).toFixed(2)}</span>
+      </div>
+      ${orc.desconto && orc.desconto > 0 ? `
+      <div style="font-size: 11px; display: flex; justify-content: space-between; color: #000;">
+        <span>DESCONTO:</span>
+        <span>- R$ ${Number(orc.desconto).toFixed(2)}</span>
+      </div>
+      ` : ''}
+      <div class="total-row">
+        <span>TOTAL:</span>
+        <span>R$ ${Number(orc.total_liquido).toFixed(2)}</span>
+      </div>
+
+      <div class="divider"></div>
+      <div class="footer">
+        <div>* NÃO É DOCUMENTO FISCAL *</div>
+        <div style="margin-top: 3px;">ORÇAMENTO VÁLIDO POR 48 HORAS</div>
+        <div style="margin-top: 2px;">Para faturar, informe o código <strong>${orc.short_code || orc.orcamento_id}</strong> no caixa.</div>
+      </div>
+      <div class="cut-space"></div>
+    </body>
+    </html>
+  `;
+
+  despacharImpressaoTermica(html, `Orcamento_${orc.short_code || orc.orcamento_id}`, {
+    print_type: 'ORCAMENTO',
+    quote_id: orc.orcamento_id,
+    short_code: orc.short_code
+  });
+}
+
 function escapeHtml(text: string | null | undefined): string {
   if (!text) return '';
   return String(text)

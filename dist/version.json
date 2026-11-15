@@ -1,9 +1,14 @@
 {
   "version": "1.2.6",
-  "commitHash": "45ad89c",
-  "commitMessage": "fix(erp): correcao no cadastro de produtos, eliminacao de timeout do firebird e sincronizacao bidirecional de codigo de barras",
-  "buildTime": "14/11/2026, 14:52:46",
+  "commitHash": "ba0ac80",
+  "commitMessage": "fix(pdv): correcao do erro NOT NULL constraint failed sale_items.unit_cost e eliminacao de duplicidades no autocomplete",
+  "buildTime": "15/11/2026, 12:17:57",
   "recentCommits": [
+    {
+      "hash": "ba0ac80",
+      "date": "14/11/2026",
+      "message": "fix(pdv): correcao do erro NOT NULL constraint failed sale_items.unit_cost e eliminacao de duplicidades no autocomplete"
+    },
     {
       "hash": "45ad89c",
       "date": "14/11/2026",
@@ -58,11 +63,6 @@
       "hash": "76c7405",
       "date": "13/11/2026",
       "message": "fix(routing): isolamento da rota do PDV (/pdv e #/pdv), adicao de botao para voltar ao sistema e auto-atualizacao v1.2.5"
-    },
-    {
-      "hash": "e5ab2f4",
-      "date": "13/11/2026",
-      "message": "fix(sync): atualizacao completa da tabela products via Firebird com datas de promocao e curva ABC"
     }
   ]
 }

@@ -570,10 +570,13 @@ function criarPreVenda(payload) {
   } = payload;
 
   if (!Array.isArray(items) || items.length === 0) {
-    throw new Error('A pré-venda deve conter pelo menos 1 item.');
+    throw new Error('O orçamento deve conter pelo menos 1 item.');
   }
 
-  const preSaleId = `PRE-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+  // Gera short_code sequencial (ex: 1001, 1002, 1003...) para digitação rápida no caixa
+  const maxRow = db.prepare('SELECT MAX(short_code) as maxCode FROM pre_sales').get();
+  const nextShortCode = (maxRow && maxRow.maxCode && maxRow.maxCode >= 1000) ? (maxRow.maxCode + 1) : 1001;
+  const preSaleId = `ORC-${nextShortCode}`;
   let totalItems = 0;
   const processed = [];
 
@@ -612,11 +615,12 @@ function criarPreVenda(payload) {
   const tx = db.transaction(() => {
     db.prepare(`
       INSERT INTO pre_sales (
-        id, customer_id, customer_name, seller_id, seller_name,
+        id, short_code, customer_id, customer_name, seller_id, seller_name,
         total_items_value, discount_value, total_value, notes, status, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ABERTA', datetime('now', 'localtime'))
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ABERTA', datetime('now', 'localtime'))
     `).run(
       preSaleId,
+      nextShortCode,
       customer_id || null,
       customer_name || null,
       seller_id || null,
@@ -656,7 +660,9 @@ function criarPreVenda(payload) {
 
   return {
     success: true,
+    id: preSaleId,
     pre_sale_id: preSaleId,
+    short_code: nextShortCode,
     total_value: total,
     items_count: processed.length
   };
@@ -683,17 +689,43 @@ function listarPreVendas({ status = 'ABERTA', limit = 30 } = {}) {
 }
 
 /**
- * Puxa uma pré-venda específica com seus itens
+ * Puxa um orçamento / pré-venda específico com seus itens (por id ou short_code)
  */
-function obterPreVenda(id) {
-  const ps = db.prepare('SELECT * FROM pre_sales WHERE id = ?').get(id);
+function obterPreVenda(idOrCode) {
+  const cleanId = String(idOrCode || '').trim();
+  const numCode = parseInt(cleanId.replace(/\D/g, ''), 10) || 0;
+
+  const ps = db.prepare(`
+    SELECT * FROM pre_sales 
+    WHERE id = ? OR short_code = ? OR id = ? OR id = ?
+    ORDER BY created_at DESC 
+    LIMIT 1
+  `).get(cleanId, numCode, `ORC-${cleanId}`, `ORC-${numCode}`);
+
   if (!ps) return null;
 
-  const items = db.prepare('SELECT * FROM pre_sale_items WHERE pre_sale_id = ?').all(id);
+  const items = db.prepare('SELECT * FROM pre_sale_items WHERE pre_sale_id = ?').all(ps.id);
   return {
     ...ps,
     items
   };
+}
+
+/**
+ * Cancela um orçamento
+ */
+function cancelarPreVenda(idOrCode) {
+  const cleanId = String(idOrCode || '').trim();
+  const numCode = parseInt(cleanId.replace(/\D/g, ''), 10) || 0;
+
+  db.prepare(`
+    UPDATE pre_sales
+    SET status = 'CANCELADA',
+        consumed_at = datetime('now', 'localtime')
+    WHERE id = ? OR short_code = ? OR id = ? OR id = ?
+  `).run(cleanId, numCode, `ORC-${cleanId}`, `ORC-${numCode}`);
+
+  return { success: true };
 }
 
 /**
@@ -767,6 +799,7 @@ module.exports = {
   criarPreVenda,
   listarPreVendas,
   obterPreVenda,
+  cancelarPreVenda,
   consumirPreVenda,
   consultarStatusCrediarioCliente
 };

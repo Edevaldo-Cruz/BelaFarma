@@ -28,6 +28,7 @@ const {
   criarPreVenda,
   listarPreVendas,
   obterPreVenda,
+  cancelarPreVenda,
   consumirPreVenda,
   consultarStatusCrediarioCliente
 } = require('./erp-pos.service');
@@ -527,6 +528,24 @@ router.post('/pos/pre-sales/:id/consume', (req, res) => {
   try {
     const { sale_id } = req.body;
     const resultado = consumirPreVenda(req.params.id, sale_id);
+    res.json(resultado);
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+router.delete('/pos/pre-sales/:id', (req, res) => {
+  try {
+    const resultado = cancelarPreVenda(req.params.id);
+    res.json(resultado);
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+router.post('/pos/pre-sales/:id/cancel', (req, res) => {
+  try {
+    const resultado = cancelarPreVenda(req.params.id);
     res.json(resultado);
   } catch (err) {
     res.status(400).json({ success: false, error: err.message });
