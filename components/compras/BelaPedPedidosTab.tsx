@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { ClipboardList, RefreshCw, AlertTriangle } from 'lucide-react';
+import { ClipboardList, RefreshCw, AlertTriangle, TrendingDown, Sparkles } from 'lucide-react';
+import BelaPedEconomiaModal from './BelaPedEconomiaModal';
 import { useToast } from '../ToastContext';
 
 interface Pedido {
@@ -40,6 +41,7 @@ const PedidosTab: React.FC = () => {
   const [totais, setTotais] = useState<Record<string, number>>({});
   const [alertas, setAlertas] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [economiaModalOpen, setEconomiaModalOpen] = useState(false);
 
   const carregar = useCallback(async () => {
     setLoading(true);
@@ -134,9 +136,18 @@ const PedidosTab: React.FC = () => {
             <span className="text-sm font-black text-white">{brl(Number(tot))}</span>
           </div>
         ))}
-        <button onClick={carregar} disabled={loading} className="ml-auto flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-cyan-300 text-xs font-bold cursor-pointer">
-          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /> Atualizar
-        </button>
+        <div className="ml-auto flex items-center gap-2">
+          <button
+            onClick={() => setEconomiaModalOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-950/60 hover:bg-emerald-900 border border-emerald-700 text-emerald-300 text-xs font-black cursor-pointer shadow-sm transition-all"
+          >
+            <TrendingDown className="w-4 h-4 text-emerald-400" />
+            <span>Painel de Economia</span>
+          </button>
+          <button onClick={carregar} disabled={loading} className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-cyan-300 text-xs font-bold cursor-pointer">
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /> Atualizar
+          </button>
+        </div>
       </div>
 
       <div className="bg-[#0e1626] rounded-2xl border border-slate-800 overflow-x-auto">

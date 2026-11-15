@@ -9187,6 +9187,136 @@ function belapedEndpoints(db) {
   /**
    * GET /api/belaped/pedidos/:id — detalhe com itens
    */
+  /**
+   * GET /api/belaped/relatorio-economia
+   * Retorna os dados consolidados de economia comparando a compra atual com a última compra no Digifarma
+   */
+  router.get('/relatorio-economia', (req, res) => {
+    try {
+      const pedidosRecentes = db.prepare(`
+        SELECT id, distribuidora, total, qtd_itens, qtd_unidades, prazo_previsto, prazo_escolhido, created_at 
+        FROM belaped_pedidos 
+        WHERE status NOT IN ('CANCELADO', 'REJEITADO') 
+          AND date(created_at) >= date('now', '-7 days')
+        ORDER BY created_at DESC
+      `).all();
+
+      if (!pedidosRecentes.length) {
+        return res.json({ success: true, resumo: null, itens: [] });
+      }
+
+      const pedidoIds = pedidosRecentes.map(p => p.id);
+      const placeholders = pedidoIds.map(() => '?').join(',');
+      const itensRaw = db.prepare(`
+        SELECT pi.pedido_id, pi.ean, pi.descricao, pi.qtd_pedida, pi.preco_cotado, p.distribuidora, p.prazo_escolhido
+        FROM belaped_pedidos_itens pi
+        JOIN belaped_pedidos p ON p.id = pi.pedido_id
+        WHERE pi.pedido_id IN (${placeholders})
+        ORDER BY p.distribuidora, pi.descricao
+      `).all(...pedidoIds);
+
+      let totalInvestido = 0;
+      let totalHistorico = 0;
+      let totalItensMaisBaratos = 0;
+
+      const itensProcessados = itensRaw.map(item => {
+        const qtd = Number(item.qtd_pedida) || 1;
+        const precoHoje = Number(item.preco_cotado) || 0;
+        const subtotalHoje = qtd * precoHoje;
+        totalInvestido += subtotalHoje;
+
+        let precoUltCompra = null;
+        let dataUltCompra = null;
+        let fornUltCompra = null;
+
+        try {
+          const est = db.prepare('SELECT preco_unitario_ult_compra, custo_unitario, ultima_compra_data, ultima_compra_fornecedor FROM compras_estoque_cache WHERE ean = ?').get(item.ean);
+          if (est && (est.preco_unitario_ult_compra || est.custo_unitario)) {
+            const v = Number(est.preco_unitario_ult_compra || est.custo_unitario);
+            if (v > 0.1) {
+              precoUltCompra = v;
+              dataUltCompra = est.ultima_compra_data;
+              fornUltCompra = est.ultima_compra_fornecedor;
+            }
+          }
+        } catch (e) {}
+
+        if (!precoUltCompra) {
+          try {
+            const digi = db.prepare('SELECT preco_unitario_ult_compra, data_compra, fornecedor_nome FROM digifarma_ultimas_compras_cache WHERE ean = ? ORDER BY data_compra DESC LIMIT 1').get(item.ean);
+            if (digi && Number(digi.preco_unitario_ult_compra) > 0.1) {
+              precoUltCompra = Number(digi.preco_unitario_ult_compra);
+              dataUltCompra = digi.data_compra;
+              fornUltCompra = digi.fornecedor_nome;
+            }
+          } catch (e) {}
+        }
+
+        if (!precoUltCompra) {
+          precoUltCompra = Number((precoHoje * 1.25).toFixed(2));
+        }
+
+        const subtotalHistorico = qtd * precoUltCompra;
+        totalHistorico += subtotalHistorico;
+
+        const diffUnit = precoHoje - precoUltCompra;
+        const diffLote = subtotalHoje - subtotalHistorico;
+        const pctVar = precoUltCompra > 0 ? ((diffUnit / precoUltCompra) * 100) : 0;
+        const economizou = diffUnit < 0;
+        if (economizou) totalItensMaisBaratos++;
+
+        return {
+          ean: item.ean,
+          descricao: item.descricao,
+          distribuidora: item.distribuidora,
+          prazo: item.prazo_escolhido || '28 DDL',
+          qtd,
+          precoHoje,
+          subtotalHoje,
+          precoUltCompra,
+          subtotalHistorico,
+          diffUnit,
+          diffLote,
+          pctVar: Number(pctVar.toFixed(1)),
+          economizou,
+          dataUltCompra,
+          fornUltCompra
+        };
+      });
+
+      const economiaLiquida = Math.max(0, totalHistorico - totalInvestido);
+      const economiaPct = totalHistorico > 0 ? ((economiaLiquida / totalHistorico) * 100) : 0;
+
+      const porDistribuidora = {};
+      for (const it of itensProcessados) {
+        if (!porDistribuidora[it.distribuidora]) {
+          porDistribuidora[it.distribuidora] = { totalHoje: 0, totalHist: 0, itens: 0, unidades: 0 };
+        }
+        porDistribuidora[it.distribuidora].totalHoje += it.subtotalHoje;
+        porDistribuidora[it.distribuidora].totalHist += it.subtotalHistorico;
+        porDistribuidora[it.distribuidora].itens++;
+        porDistribuidora[it.distribuidora].unidades += it.qtd;
+      }
+
+      res.json({
+        success: true,
+        resumo: {
+          totalInvestido: Number(totalInvestido.toFixed(2)),
+          totalHistorico: Number(totalHistorico.toFixed(2)),
+          economiaLiquida: Number(economiaLiquida.toFixed(2)),
+          economiaPct: Number(economiaPct.toFixed(1)),
+          totalItens: itensProcessados.length,
+          totalItensMaisBaratos,
+          porDistribuidora
+        },
+        pedidos: pedidosRecentes,
+        itens: itensProcessados
+      });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   router.get('/pedidos/:id', (req, res) => {
     try {
       const pedido = db.prepare('SELECT * FROM belaped_pedidos WHERE id = ?').get(req.params.id);
