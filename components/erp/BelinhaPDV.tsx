@@ -49,7 +49,10 @@ import {
   Play,
   Link2,
   ChevronDown,
-  SlidersHorizontal
+  SlidersHorizontal,
+  Calendar,
+  Filter,
+  Eye
 } from 'lucide-react';
 import { useToast } from '../ToastContext';
 import { BelaFarmaLogo } from '../BelaFarmaLogo';
@@ -439,7 +442,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
     };
   }, [addToast]);
 
-  // Modal de Histórico e Cancelamento Rápido no PDV [F7]
+  // Modal de Histórico e Cancelamento Rápido no PDV [F9]
   const [isRecentSalesOpen, setIsRecentSalesOpen] = useState<boolean>(false);
   const [recentSales, setRecentSales] = useState<any[]>([]);
   const [isLoadingRecent, setIsLoadingRecent] = useState<boolean>(false);
@@ -447,6 +450,22 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
   const [cancelReason, setCancelReason] = useState<string>('');
   const [isCancelling, setIsCancelling] = useState<boolean>(false);
   const [isEmittingFiscal, setIsEmittingFiscal] = useState<boolean>(false);
+
+  // Filtros avançados para listagem de vendas por período [F9]
+  const getTodayDateStr = () => {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const [salesStartDate, setSalesStartDate] = useState<string>(getTodayDateStr);
+  const [salesEndDate, setSalesEndDate] = useState<string>(getTodayDateStr);
+  const [salesStatusFilter, setSalesStatusFilter] = useState<string>('TODOS');
+  const [salesPaymentFilter, setSalesPaymentFilter] = useState<string>('TODOS');
+  const [salesSearchQuery, setSalesSearchQuery] = useState<string>('');
+  const [salesPeriodPreset, setSalesPeriodPreset] = useState<'HOJE' | 'ONTEM' | '7DIAS' | 'MES' | 'CUSTOM'>('HOJE');
 
   // Inspeção de Itens da Venda e Exclusão Individual (Padrão Digifarma)
   const [inspectedSaleDetail, setInspectedSaleDetail] = useState<any | null>(null);
@@ -2093,22 +2112,107 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
     }
   };
 
-  // Buscar vendas recentes do dia para consulta/cancelamento rápido [F7]
-  const fetchRecentSales = async () => {
+  // Buscar vendas do período selecionado para consulta em tabela e cancelamento [F9]
+  const fetchRecentSales = async (
+    customStart?: string,
+    customEnd?: string,
+    customStatus?: string,
+    customPayment?: string
+  ) => {
     setIsLoadingRecent(true);
     try {
-      const today = new Date().toISOString().split('T')[0];
-      const res = await fetch(`/api/erp/sales?dataInicio=${today}&dataFim=${today}&limit=20`);
+      const start = customStart !== undefined ? customStart : salesStartDate;
+      const end = customEnd !== undefined ? customEnd : salesEndDate;
+      const status = customStatus !== undefined ? customStatus : salesStatusFilter;
+      const payment = customPayment !== undefined ? customPayment : salesPaymentFilter;
+
+      const params = new URLSearchParams();
+      if (start) params.append('dataInicio', start);
+      if (end) params.append('dataFim', end);
+      if (status && status !== 'TODOS') params.append('status', status);
+      if (payment && payment !== 'TODOS') params.append('paymentMethod', payment);
+      params.append('limit', '300');
+
+      const res = await fetch(`/api/erp/sales?${params.toString()}`);
       if (res.ok) {
         const json = await res.json();
         setRecentSales(json.data || []);
+      } else {
+        addToast('Erro ao carregar vendas do período.', 'error');
       }
     } catch (e) {
-      addToast('Erro ao carregar últimas vendas.', 'error');
+      addToast('Erro ao carregar histórico de vendas.', 'error');
     } finally {
       setIsLoadingRecent(false);
     }
   };
+
+  const applyPeriodPreset = (preset: 'HOJE' | 'ONTEM' | '7DIAS' | 'MES') => {
+    setSalesPeriodPreset(preset);
+    const d = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const format = (date: Date) => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+
+    let start = format(d);
+    let end = format(d);
+
+    if (preset === 'ONTEM') {
+      const ontem = new Date();
+      ontem.setDate(ontem.getDate() - 1);
+      start = format(ontem);
+      end = format(ontem);
+    } else if (preset === '7DIAS') {
+      const seteDias = new Date();
+      seteDias.setDate(seteDias.getDate() - 6);
+      start = format(seteDias);
+      end = format(d);
+    } else if (preset === 'MES') {
+      const inicioMes = new Date(d.getFullYear(), d.getMonth(), 1);
+      start = format(inicioMes);
+      end = format(d);
+    }
+
+    setSalesStartDate(start);
+    setSalesEndDate(end);
+    fetchRecentSales(start, end, salesStatusFilter, salesPaymentFilter);
+  };
+
+  // Lista filtrada na visualização por busca rápida (cliente, ID cupom, vendedor, CPF)
+  const filteredSalesList = useMemo(() => {
+    let list = recentSales;
+    if (salesSearchQuery.trim()) {
+      const q = salesSearchQuery.toLowerCase().trim();
+      list = list.filter((s: any) => {
+        const idMatch = String(s.id).toLowerCase().includes(q);
+        const clientMatch = s.customer_name?.toLowerCase().includes(q);
+        const sellerMatch = s.seller_name?.toLowerCase().includes(q) || s.user_name?.toLowerCase().includes(q);
+        const docMatch = s.customer_document?.includes(q);
+        const nfeMatch = String(s.nfe_number || '').includes(q);
+        return idMatch || clientMatch || sellerMatch || docMatch || nfeMatch;
+      });
+    }
+    return list;
+  }, [recentSales, salesSearchQuery]);
+
+  // Totalizadores do período filtrado
+  const salesSummary = useMemo(() => {
+    const totalVendas = filteredSalesList.length;
+    const concluidas = filteredSalesList.filter((s: any) => s.status !== 'CANCELADA');
+    const canceladas = filteredSalesList.filter((s: any) => s.status === 'CANCELADA');
+
+    const totalFaturado = concluidas.reduce((acc: number, s: any) => acc + (Number(s.total_value) || 0), 0);
+    const totalCancelado = canceladas.reduce((acc: number, s: any) => acc + (Number(s.total_value) || 0), 0);
+    const ticketMedio = concluidas.length > 0 ? totalFaturado / concluidas.length : 0;
+
+    return {
+      totalVendas,
+      concluidasCount: concluidas.length,
+      canceladasCount: canceladas.length,
+      totalFaturado,
+      totalCancelado,
+      ticketMedio
+    };
+  }, [filteredSalesList]);
 
   const handleOpenRecentSales = () => {
     setIsRecentSalesOpen(true);
@@ -4562,32 +4666,39 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
       )}
 
       {/* ========================================================================= */}
-      {/* MODAL 6: HISTÓRICO RÁPIDO & CANCELAMENTO DE VENDAS [F7] */}
+      {/* MODAL 6: HISTÓRICO, CONSULTA EM TABELA & CANCELAMENTO DE VENDAS [F9] */}
       {/* ========================================================================= */}
       {isRecentSalesOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-3xl shadow-2xl max-w-2xl w-full p-5 max-h-[85vh] flex flex-col animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-3">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-xl bg-rose-500/10 text-rose-400 flex items-center justify-center font-bold">
-                  <RotateCcw className="w-4 h-4" />
+        <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-3xl shadow-2xl max-w-7xl w-full p-4 sm:p-5 max-h-[92vh] flex flex-col animate-in fade-in zoom-in-95 duration-150">
+            {/* Cabeçalho do Modal */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-3 gap-2">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-rose-500/10 text-rose-400 flex items-center justify-center font-bold">
+                  <RotateCcw className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-base font-black text-slate-100">
-                    Últimas Vendas • Cancelar & Consultar (F9)
+                  <h3 className="text-base font-black text-slate-100 flex items-center gap-2">
+                    Consulta & Gestão de Vendas
+                    <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 border border-slate-700">
+                      F9
+                    </span>
                   </h3>
-                  <p className="text-xs text-slate-400">Selecione uma venda para cancelar e estornar o estoque na hora</p>
+                  <p className="text-xs text-slate-400">
+                    Histórico detalhado por período, reimpressão de cupons com QR Code, DANFE NFC-e e cancelamento rápido
+                  </p>
                 </div>
               </div>
+
               <div className="flex items-center gap-2">
                 <button
                   onClick={handleSyncPendingDigifarma}
                   disabled={isSyncingDigifarma}
-                  className="px-2.5 py-1.5 rounded-xl bg-sky-950/80 hover:bg-sky-900 border border-sky-800/80 text-sky-300 text-xs font-bold flex items-center gap-1.5 transition-colors disabled:opacity-50 cursor-pointer shadow-sm"
+                  className="px-3 py-1.5 rounded-xl bg-sky-950/80 hover:bg-sky-900 border border-sky-800/80 text-sky-300 text-xs font-bold flex items-center gap-1.5 transition-colors disabled:opacity-50 cursor-pointer shadow-sm"
                   title="Reprocessar e enviar vendas pendentes para o Digifarma"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${isSyncingDigifarma ? 'animate-spin' : ''}`} />
-                  Sincronizar Digifarma
+                  <span className="hidden sm:inline">Sincronizar Digifarma</span>
                 </button>
                 <button
                   onClick={() => {
@@ -4597,23 +4708,24 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
                     setItemToCancelInPdv(null);
                     focusBarcodeInput();
                   }}
-                  className="p-1.5 rounded-lg text-slate-400 hover:text-white"
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+                  title="Fechar (ESC)"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
             </div>
 
-            {/* Listagem de Vendas ou Detalhes da Venda Selecionada */}
+            {/* Sub-visão: Detalhes e Itens da Venda Inspecionada */}
             {inspectedSaleDetail ? (
               <div className="flex-1 flex flex-col overflow-hidden animate-in fade-in duration-150">
                 <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-800 text-xs">
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => setInspectedSaleDetail(null)}
-                      className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs flex items-center gap-1 transition"
+                      className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs flex items-center gap-1 transition cursor-pointer"
                     >
-                      ← Voltar à lista
+                      ← Voltar à tabela de vendas
                     </button>
                     <span className="font-bold text-slate-200">
                       Itens do Cupom #{inspectedSaleDetail.id}
@@ -4753,7 +4865,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
                     <div className="flex justify-end gap-2 pt-2 border-t border-rose-900/60">
                       <button
                         onClick={() => setItemToCancelInPdv(null)}
-                        className="px-3 py-1 rounded-lg text-xs font-bold text-slate-400 hover:bg-slate-800"
+                        className="px-3 py-1 rounded-lg text-xs font-bold text-slate-400 hover:bg-slate-800 cursor-pointer"
                       >
                         Cancelar
                       </button>
@@ -4770,109 +4882,394 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
                 )}
               </div>
             ) : (
-              <div className="flex-1 overflow-y-auto space-y-2 pr-1">
-                {isLoadingRecent ? (
-                  <div className="text-center py-10 text-slate-500 text-xs">Carregando histórico do dia...</div>
-                ) : recentSales.length === 0 ? (
-                  <div className="text-center py-10 text-slate-500 text-xs">Nenhuma venda realizada hoje até o momento.</div>
-                ) : (
-                  recentSales.map((s) => (
-                    <div
-                      key={s.id}
-                      className={`p-3 rounded-2xl border flex items-center justify-between gap-3 ${
-                        s.status === 'CANCELADA'
-                          ? 'bg-rose-950/20 border-rose-900/40 opacity-75'
-                          : 'bg-slate-950 border-slate-800'
-                      }`}
-                    >
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono font-bold text-xs text-slate-200">
-                            #{s.id}
-                          </span>
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${
-                            s.status === 'CANCELADA'
-                              ? 'bg-rose-900/60 text-rose-300'
-                              : 'bg-emerald-950/60 text-emerald-300'
-                          }`}>
-                            {s.status}
-                          </span>
-                          <span className="text-[11px] text-slate-400">
-                            {s.sale_time}
-                          </span>
-                          {s.digifarma_sync_status === 'SINCRONIZADO' ? (
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-sky-950/70 text-sky-400 border border-sky-800/70 flex items-center gap-1">
-                              Digifarma #{s.digifarma_venda_id || 'OK'}
-                            </span>
-                          ) : (
-                            <button
-                              title={s.digifarma_sync_error ? `Erro Digifarma: ${s.digifarma_sync_error}` : 'Pendente de envio ao Digifarma (Clique para tentar sincronizar agora)'}
-                              onClick={() => handleSyncSingleSale(s.id)}
-                              className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-950/70 text-amber-300 border border-amber-800/70 hover:bg-amber-900 flex items-center gap-1 cursor-pointer transition-colors"
-                            >
-                              Digifarma: Pendente <RefreshCw className="w-2.5 h-2.5" />
-                            </button>
-                          )}
-                        </div>
-                        <div className="text-xs text-slate-400 mt-0.5">
-                          {s.total_items} item(s) • Pagto: <strong className="text-slate-300">{s.payment_methods}</strong>
-                          {s.customer_name ? ` • Cliente: ${s.customer_name}` : ''}
-                        </div>
-                        {s.cancellation_reason && (
-                          <div className="text-[10px] text-rose-400 mt-0.5 italic">
-                            Motivo: {s.cancellation_reason}
-                          </div>
-                        )}
+              <div className="flex-1 flex flex-col min-h-0 space-y-3">
+                {/* 1. Barra de Filtros de Período e Busca */}
+                <div className="p-3 bg-slate-950/70 border border-slate-800 rounded-2xl flex flex-col gap-2.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    {/* Presets Rápidos de Período */}
+                    <div className="flex items-center gap-1.5 bg-slate-900/90 p-1 rounded-xl border border-slate-800">
+                      <button
+                        type="button"
+                        onClick={() => applyPeriodPreset('HOJE')}
+                        className={`px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+                          salesPeriodPreset === 'HOJE'
+                            ? 'bg-blue-600 text-white shadow-sm'
+                            : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                        }`}
+                      >
+                        Hoje
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => applyPeriodPreset('ONTEM')}
+                        className={`px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+                          salesPeriodPreset === 'ONTEM'
+                            ? 'bg-blue-600 text-white shadow-sm'
+                            : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                        }`}
+                      >
+                        Ontem
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => applyPeriodPreset('7DIAS')}
+                        className={`px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+                          salesPeriodPreset === '7DIAS'
+                            ? 'bg-blue-600 text-white shadow-sm'
+                            : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                        }`}
+                      >
+                        7 Dias
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => applyPeriodPreset('MES')}
+                        className={`px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+                          salesPeriodPreset === 'MES'
+                            ? 'bg-blue-600 text-white shadow-sm'
+                            : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                        }`}
+                      >
+                        Este Mês
+                      </button>
+                    </div>
+
+                    {/* Inputs de Data (De / Até) */}
+                    <div className="flex items-center gap-2 text-xs">
+                      <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-800 px-2.5 py-1 rounded-xl">
+                        <span className="text-slate-400 font-bold">De:</span>
+                        <input
+                          type="date"
+                          value={salesStartDate}
+                          onChange={(e) => {
+                            setSalesStartDate(e.target.value);
+                            setSalesPeriodPreset('CUSTOM');
+                          }}
+                          className="bg-transparent text-slate-200 font-mono text-xs focus:outline-none cursor-pointer"
+                        />
                       </div>
-
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="text-base font-black font-mono text-emerald-400 mr-1">
-                          R$ {Number(s.total_value).toFixed(2)}
-                        </span>
-                        
-                        <button
-                          onClick={() => handleInspectSale(s.id)}
-                          className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs flex items-center gap-1 border border-slate-700 shadow-sm transition-colors cursor-pointer"
-                          title="Ver itens e excluir item individual (Padrão Digifarma)"
-                        >
-                          <Receipt className="w-3.5 h-3.5 text-sky-400" />
-                          Itens
-                        </button>
-
-                        <button
-                          onClick={() => handlePrintSaleReceipt(s)}
-                          className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs flex items-center gap-1 border border-slate-700 shadow-sm transition-colors cursor-pointer"
-                          title="Reimprimir Cupom / Notinha desta venda (com QR Code de consulta)"
-                        >
-                          <Printer className="w-3.5 h-3.5 text-emerald-400" />
-                          Cupom
-                        </button>
-
-                        {(s.nfe_number || s.fiscal_status === 'EMITIDO' || s.fiscal_status === 'CONTINGENCIA') && (
-                          <button
-                            onClick={() => handleOpenDanfeFromList(s)}
-                            className="px-2.5 py-1.5 rounded-xl bg-emerald-700/60 hover:bg-emerald-600 text-emerald-100 font-bold text-xs flex items-center gap-1 border border-emerald-600/50 shadow-sm transition-colors cursor-pointer"
-                            title={`Visualizar / Imprimir DANFE NFC-e #${s.nfe_number || ''}`}
-                          >
-                            <QrCode className="w-3.5 h-3.5 text-emerald-300" />
-                            NFC-e
-                          </button>
-                        )}
-
-                        {s.status !== 'CANCELADA' && (
-                          <button
-                            onClick={() => setSaleToCancel(s)}
-                            className="px-2.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center gap-1 shadow-sm transition-colors cursor-pointer"
-                            title="Cancelar toda a venda e estornar estoque completo"
-                          >
-                            <RotateCcw className="w-3.5 h-3.5" />
-                            Cancelar
-                          </button>
-                        )}
+                      <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-800 px-2.5 py-1 rounded-xl">
+                        <span className="text-slate-400 font-bold">Até:</span>
+                        <input
+                          type="date"
+                          value={salesEndDate}
+                          onChange={(e) => {
+                            setSalesEndDate(e.target.value);
+                            setSalesPeriodPreset('CUSTOM');
+                          }}
+                          className="bg-transparent text-slate-200 font-mono text-xs focus:outline-none cursor-pointer"
+                        />
                       </div>
                     </div>
-                  ))
-                )}
+                  </div>
+
+                  {/* Linha 2 de Filtros: Status, Pagamento, Busca e Botão Atualizar */}
+                  <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-850">
+                    {/* Status */}
+                    <select
+                      value={salesStatusFilter}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setSalesStatusFilter(val);
+                        fetchRecentSales(salesStartDate, salesEndDate, val, salesPaymentFilter);
+                      }}
+                      className="px-2.5 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-200 font-medium focus:outline-none focus:border-blue-500 cursor-pointer"
+                    >
+                      <option value="TODOS">Todos os Status</option>
+                      <option value="CONCLUIDA">Concluídas</option>
+                      <option value="CANCELADA">Canceladas</option>
+                    </select>
+
+                    {/* Forma de Pagamento */}
+                    <select
+                      value={salesPaymentFilter}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setSalesPaymentFilter(val);
+                        fetchRecentSales(salesStartDate, salesEndDate, salesStatusFilter, val);
+                      }}
+                      className="px-2.5 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-200 font-medium focus:outline-none focus:border-blue-500 cursor-pointer"
+                    >
+                      <option value="TODOS">Todos os Pagamentos</option>
+                      <option value="DINHEIRO">Dinheiro</option>
+                      <option value="CARTAO_DEBITO">Cartão Débito</option>
+                      <option value="CARTAO_CREDITO">Cartão Crédito</option>
+                      <option value="PIX">PIX</option>
+                      <option value="CREDIARIO">Crediário / Convênio</option>
+                    </select>
+
+                    {/* Busca Rápida */}
+                    <div className="flex-1 min-w-[200px] relative">
+                      <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        value={salesSearchQuery}
+                        onChange={(e) => setSalesSearchQuery(e.target.value)}
+                        placeholder="Filtrar por cupom, cliente, vendedor ou CPF..."
+                        className="w-full pl-8 pr-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                      />
+                      {salesSearchQuery && (
+                        <button
+                          type="button"
+                          onClick={() => setSalesSearchQuery('')}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Botão Atualizar */}
+                    <button
+                      type="button"
+                      onClick={() => fetchRecentSales()}
+                      disabled={isLoadingRecent}
+                      className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm transition cursor-pointer"
+                      title="Aplicar filtros e atualizar vendas"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${isLoadingRecent ? 'animate-spin' : ''}`} />
+                      <span>Filtrar</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* 2. Resumo Totalizador do Período */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  <div className="p-2.5 rounded-xl bg-slate-950/60 border border-slate-800/80 flex flex-col">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Total Faturado</span>
+                    <span className="text-base sm:text-lg font-mono font-black text-emerald-400">
+                      R$ {salesSummary.totalFaturado.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+
+                  <div className="p-2.5 rounded-xl bg-slate-950/60 border border-slate-800/80 flex flex-col">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Vendas Concluídas</span>
+                    <span className="text-base sm:text-lg font-mono font-bold text-slate-200">
+                      {salesSummary.concluidasCount} <span className="text-xs text-slate-400 font-normal">de {salesSummary.totalVendas}</span>
+                    </span>
+                  </div>
+
+                  <div className="p-2.5 rounded-xl bg-slate-950/60 border border-slate-800/80 flex flex-col">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Ticket Médio</span>
+                    <span className="text-base sm:text-lg font-mono font-bold text-blue-400">
+                      R$ {salesSummary.ticketMedio.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+
+                  <div className="p-2.5 rounded-xl bg-slate-950/60 border border-slate-800/80 flex flex-col">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Canceladas</span>
+                    <span className="text-base sm:text-lg font-mono font-bold text-rose-400">
+                      {salesSummary.canceladasCount} <span className="text-xs font-normal text-rose-300/70">(R$ {salesSummary.totalCancelado.toFixed(2)})</span>
+                    </span>
+                  </div>
+                </div>
+
+                {/* 3. Tabela de Alta Densidade de Vendas */}
+                <div className="flex-1 overflow-x-auto overflow-y-auto min-h-[300px] border border-slate-800 rounded-2xl bg-slate-950/70 shadow-inner">
+                  {isLoadingRecent ? (
+                    <div className="flex flex-col items-center justify-center py-16 text-slate-400 text-xs gap-2">
+                      <RefreshCw className="w-5 h-5 animate-spin text-blue-400" />
+                      <span>Carregando vendas do período...</span>
+                    </div>
+                  ) : filteredSalesList.length === 0 ? (
+                    <div className="text-center py-16 text-slate-500 text-xs">
+                      Nenhuma venda encontrada para o período e filtros selecionados.
+                    </div>
+                  ) : (
+                    <table className="w-full border-collapse text-left text-xs">
+                      <thead className="sticky top-0 z-10 bg-slate-900 border-b border-slate-800 shadow-sm">
+                        <tr>
+                          <th className="whitespace-nowrap px-3 py-2 text-[11px] font-black uppercase text-slate-400 w-24">
+                            Cupom
+                          </th>
+                          <th className="whitespace-nowrap px-3 py-2 text-[11px] font-black uppercase text-slate-400 w-32">
+                            Data / Hora
+                          </th>
+                          <th className="whitespace-nowrap px-3 py-2 text-[11px] font-black uppercase text-slate-400">
+                            Cliente / Vendedor
+                          </th>
+                          <th className="whitespace-nowrap px-3 py-2 text-[11px] font-black uppercase text-slate-400 text-center w-16">
+                            Itens
+                          </th>
+                          <th className="whitespace-nowrap px-3 py-2 text-[11px] font-black uppercase text-slate-400 w-36">
+                            Pagamento
+                          </th>
+                          <th className="whitespace-nowrap px-3 py-2 text-[11px] font-black uppercase text-slate-400 w-48">
+                            Situação & Fiscal
+                          </th>
+                          <th className="whitespace-nowrap px-3 py-2 text-[11px] font-black uppercase text-slate-400 text-right w-28">
+                            Total (R$)
+                          </th>
+                          <th className="whitespace-nowrap px-3 py-2 text-[11px] font-black uppercase text-slate-400 text-center w-36">
+                            Ações
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/50">
+                        {filteredSalesList.map((s) => {
+                          const isCancelled = s.status === 'CANCELADA';
+                          const hasDanfe = s.nfe_number || s.fiscal_status === 'EMITIDO' || s.fiscal_status === 'CONTINGENCIA';
+
+                          return (
+                            <tr
+                              key={s.id}
+                              className={`hover:bg-slate-850/80 transition-colors h-10 ${
+                                isCancelled ? 'bg-rose-950/15 text-slate-400' : 'bg-transparent text-slate-200'
+                              }`}
+                            >
+                              {/* Coluna 1: Cupom / ID */}
+                              <td className="px-3 py-1.5 whitespace-nowrap">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="font-mono font-bold text-xs text-slate-200">
+                                    #{s.id}
+                                  </span>
+                                  {s.origin === 'DIGIFARMA' && (
+                                    <span className="px-1 py-0.2 rounded text-[9px] font-bold bg-sky-950 text-sky-400 border border-sky-800">
+                                      DIGI
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+
+                              {/* Coluna 2: Data / Hora */}
+                              <td className="px-3 py-1.5 whitespace-nowrap font-mono text-[11px] text-slate-400">
+                                {s.sale_date ? s.sale_date.split('-').reverse().slice(0, 2).join('/') : '--/--'} • {s.sale_time || '--:--'}
+                              </td>
+
+                              {/* Coluna 3: Cliente / Vendedor (1 Linha Compacta) */}
+                              <td className="px-3 py-1.5">
+                                <div className="flex items-center gap-1.5 text-xs truncate max-w-[280px]">
+                                  <span className={`font-semibold truncate ${isCancelled ? 'line-through text-slate-500' : 'text-slate-100'}`}>
+                                    {s.customer_name || 'Consumidor Final'}
+                                  </span>
+                                  {(s.seller_name || s.user_name) && (
+                                    <span className="text-[11px] text-slate-400 truncate hidden md:inline">
+                                      • Vend: {s.seller_name || s.user_name}
+                                    </span>
+                                  )}
+                                  {s.customer_document && (
+                                    <span className="text-[10px] text-slate-400 font-mono hidden lg:inline">
+                                      • CPF: {s.customer_document}
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+
+                              {/* Coluna 4: Total de Itens */}
+                              <td className="px-3 py-1.5 text-center whitespace-nowrap">
+                                <span className="inline-block px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[11px] font-mono font-bold text-slate-300">
+                                  {s.total_items || 1} un
+                                </span>
+                              </td>
+
+                              {/* Coluna 5: Meio de Pagamento */}
+                              <td className="px-3 py-1.5 whitespace-nowrap">
+                                <span className="text-[11px] text-slate-300 font-medium truncate block max-w-[140px]" title={s.payment_methods || 'Dinheiro'}>
+                                  {s.payment_methods || 'Dinheiro'}
+                                </span>
+                              </td>
+
+                              {/* Coluna 6: Situação & Status Fiscal */}
+                              <td className="px-3 py-1.5 whitespace-nowrap">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span
+                                    className={`px-1.5 py-0.5 rounded text-[10px] font-black uppercase ${
+                                      isCancelled
+                                        ? 'bg-rose-900/60 text-rose-300 border border-rose-800/80'
+                                        : 'bg-emerald-950/60 text-emerald-300 border border-emerald-800/80'
+                                    }`}
+                                    title={s.cancellation_reason ? `Motivo: ${s.cancellation_reason}` : undefined}
+                                  >
+                                    {s.status}
+                                  </span>
+
+                                  {hasDanfe && (
+                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-950/70 text-blue-300 border border-blue-800/70">
+                                      NFC-e #{s.nfe_number || 'OK'}
+                                    </span>
+                                  )}
+
+                                  {s.digifarma_sync_status === 'SINCRONIZADO' ? (
+                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-sky-950/70 text-sky-400 border border-sky-800/70">
+                                      Digi #{s.digifarma_venda_id || 'OK'}
+                                    </span>
+                                  ) : !isCancelled && (
+                                    <button
+                                      type="button"
+                                      title={s.digifarma_sync_error ? `Erro Digifarma: ${s.digifarma_sync_error}` : 'Pendente de envio ao Digifarma (Clique para tentar sincronizar agora)'}
+                                      onClick={() => handleSyncSingleSale(s.id)}
+                                      className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-950/70 text-amber-300 border border-amber-800/70 hover:bg-amber-900 flex items-center gap-1 cursor-pointer transition-colors"
+                                    >
+                                      Pendente <RefreshCw className="w-2.5 h-2.5" />
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+
+                              {/* Coluna 7: Valor Total (Alinhado à Direita) */}
+                              <td className="px-3 py-1.5 text-right whitespace-nowrap">
+                                <span className={`font-mono font-bold text-sm ${
+                                  isCancelled ? 'line-through text-rose-400/80' : 'text-emerald-400'
+                                }`}>
+                                  R$ {Number(s.total_value).toFixed(2)}
+                                </span>
+                              </td>
+
+                              {/* Coluna 8: Ações Enxutas por Ícone com Tooltips */}
+                              <td className="px-3 py-1.5 text-center whitespace-nowrap">
+                                <div className="inline-flex items-center gap-1">
+                                  {/* Ver Itens */}
+                                  <button
+                                    type="button"
+                                    onClick={() => handleInspectSale(s.id)}
+                                    className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-sky-400 border border-slate-800 hover:border-slate-700 transition cursor-pointer"
+                                    title="Ver itens e exclusão individual (Padrão Digifarma)"
+                                  >
+                                    <Receipt className="w-3.5 h-3.5" />
+                                  </button>
+
+                                  {/* Reimprimir Cupom Térmico */}
+                                  <button
+                                    type="button"
+                                    onClick={() => handlePrintSaleReceipt(s)}
+                                    className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-emerald-400 border border-slate-800 hover:border-slate-700 transition cursor-pointer"
+                                    title="Reimprimir Cupom / Notinha térmica desta venda (com QR Code)"
+                                  >
+                                    <Printer className="w-3.5 h-3.5" />
+                                  </button>
+
+                                  {/* Abrir DANFE NFC-e */}
+                                  {hasDanfe && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenDanfeFromList(s)}
+                                      className="p-1.5 rounded-lg bg-emerald-950/60 hover:bg-emerald-900 text-emerald-300 border border-emerald-800/80 transition cursor-pointer"
+                                      title={`Visualizar / Imprimir DANFE NFC-e #${s.nfe_number || ''}`}
+                                    >
+                                      <QrCode className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+
+                                  {/* Cancelar Venda Completa */}
+                                  {!isCancelled && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setSaleToCancel(s)}
+                                      className="p-1.5 rounded-lg bg-rose-950/60 hover:bg-rose-900 text-rose-300 border border-rose-800/80 transition cursor-pointer"
+                                      title="Cancelar toda a venda e estornar estoque completo"
+                                    >
+                                      <RotateCcw className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
               </div>
             )}
 

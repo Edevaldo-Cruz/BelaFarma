@@ -1,9 +1,14 @@
 {
   "version": "1.2.6",
-  "commitHash": "c239261",
-  "commitMessage": "fix(pdv): correcao da variavel totalVolumes para totalQuantity no card totalizador do cabecalho",
-  "buildTime": "15/11/2026, 12:33:56",
+  "commitHash": "1597b6e",
+  "commitMessage": "fix(pdv): definicao explicita de totalVolume e totalVolumes com novo bundle de producao",
+  "buildTime": "15/11/2026, 12:43:12",
   "recentCommits": [
+    {
+      "hash": "1597b6e",
+      "date": "15/11/2026",
+      "message": "fix(pdv): definicao explicita de totalVolume e totalVolumes com novo bundle de producao"
+    },
     {
       "hash": "c239261",
       "date": "15/11/2026",
@@ -58,11 +63,6 @@
       "hash": "cd28e75",
       "date": "13/11/2026",
       "message": "feat: adapta crediario para busca por nome sem nfc e adiciona extrato web protegido por cpf com pix"
-    },
-    {
-      "hash": "47063e6",
-      "date": "13/11/2026",
-      "message": "fix(pdv): correcao sistemica de precos e eliminacao de produtos duplicados com sufixo .0"
     }
   ]
 }
