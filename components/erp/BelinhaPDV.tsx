@@ -712,6 +712,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
   const totalDiscount = useMemo(() => itemDiscounts + generalDiscountAmount + tieredSavingsTotal, [itemDiscounts, generalDiscountAmount, tieredSavingsTotal]);
   const totalFinal = useMemo(() => Math.max(0, Math.round((subtotal - totalDiscount) * 100) / 100), [subtotal, totalDiscount]);
   const totalQuantity = useMemo(() => cart.reduce((acc, it) => acc + it.quantity, 0), [cart]);
+  const totalVolume = totalQuantity;
   const totalVolumes = totalQuantity;
 
   // Cálculo de Margem e Desconto Seguro Anti-Prejuízo (Piso: Custo + 10%)

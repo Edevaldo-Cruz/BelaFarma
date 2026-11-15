@@ -1,9 +1,14 @@
 {
   "version": "1.2.6",
-  "commitHash": "bc6f30a",
-  "commitMessage": "feat(pdv): novo cabecalho em 2 niveis, totalizador gigante no topo, correcao do conflito F7 e rotina de orcamento rapido com conversao em venda",
-  "buildTime": "15/11/2026, 12:26:48",
+  "commitHash": "c239261",
+  "commitMessage": "fix(pdv): correcao da variavel totalVolumes para totalQuantity no card totalizador do cabecalho",
+  "buildTime": "15/11/2026, 12:33:56",
   "recentCommits": [
+    {
+      "hash": "c239261",
+      "date": "15/11/2026",
+      "message": "fix(pdv): correcao da variavel totalVolumes para totalQuantity no card totalizador do cabecalho"
+    },
     {
       "hash": "bc6f30a",
       "date": "15/11/2026",
@@ -58,11 +63,6 @@
       "hash": "47063e6",
       "date": "13/11/2026",
       "message": "fix(pdv): correcao sistemica de precos e eliminacao de produtos duplicados com sufixo .0"
-    },
-    {
-      "hash": "bdcc0d5",
-      "date": "13/11/2026",
-      "message": "build: atualizacao dos bundles do frontend e dist v1.2.5"
     }
   ]
 }
