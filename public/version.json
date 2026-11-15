@@ -1,9 +1,14 @@
 {
   "version": "1.2.6",
-  "commitHash": "ba0ac80",
-  "commitMessage": "fix(pdv): correcao do erro NOT NULL constraint failed sale_items.unit_cost e eliminacao de duplicidades no autocomplete",
-  "buildTime": "15/11/2026, 12:17:57",
+  "commitHash": "bc6f30a",
+  "commitMessage": "feat(pdv): novo cabecalho em 2 niveis, totalizador gigante no topo, correcao do conflito F7 e rotina de orcamento rapido com conversao em venda",
+  "buildTime": "15/11/2026, 12:26:48",
   "recentCommits": [
+    {
+      "hash": "bc6f30a",
+      "date": "15/11/2026",
+      "message": "feat(pdv): novo cabecalho em 2 niveis, totalizador gigante no topo, correcao do conflito F7 e rotina de orcamento rapido com conversao em venda"
+    },
     {
       "hash": "ba0ac80",
       "date": "14/11/2026",
@@ -58,11 +63,6 @@
       "hash": "bdcc0d5",
       "date": "13/11/2026",
       "message": "build: atualizacao dos bundles do frontend e dist v1.2.5"
-    },
-    {
-      "hash": "76c7405",
-      "date": "13/11/2026",
-      "message": "fix(routing): isolamento da rota do PDV (/pdv e #/pdv), adicao de botao para voltar ao sistema e auto-atualizacao v1.2.5"
     }
   ]
 }
