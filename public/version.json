@@ -1,9 +1,14 @@
 {
   "version": "1.2.6",
-  "commitHash": "9a938fb",
-  "commitMessage": "feat(belaped): adiciona painel visual de economia e comparativo com ultima compra",
-  "buildTime": "16/11/2026, 08:29:00",
+  "commitHash": "1f5420e",
+  "commitMessage": "feat(provisoes): incluir categorias de contas fixas e fornecedores/cmv, e cadastrar contrato Geraldo 70k",
+  "buildTime": "16/11/2026, 08:57:29",
   "recentCommits": [
+    {
+      "hash": "1f5420e",
+      "date": "16/11/2026",
+      "message": "feat(provisoes): incluir categorias de contas fixas e fornecedores/cmv, e cadastrar contrato Geraldo 70k"
+    },
     {
       "hash": "9a938fb",
       "date": "15/11/2026",
@@ -58,11 +63,6 @@
       "hash": "a5a201f",
       "date": "13/11/2026",
       "message": "feat(pdv): tela crud produtos expressos, timer 15s no cupom, impressao f7 e qrcode na notinha"
-    },
-    {
-      "hash": "4037e2b",
-      "date": "13/11/2026",
-      "message": "feat(pdv): adiciona botao e navegacao direta para o Catalogo de Produtos do ERP no cabecalho do PDV"
     }
   ]
 }

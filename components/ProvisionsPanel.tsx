@@ -516,6 +516,10 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
     let pendingTax = 0;
     let paidReserve = 0;
     let pendingReserve = 0;
+    let paidFixed = 0;
+    let pendingFixed = 0;
+    let paidCmv = 0;
+    let pendingCmv = 0;
 
     monthClosings.forEach(c => {
       const cred = Number(c.totalCrediario) || 0;
@@ -526,6 +530,8 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
       let valP = netSales * activeRates.prolabore;
       let valT = netSales * activeRates.tax;
       let valR = netSales * activeRates.reserve;
+      let valF = netSales * activeRates.custoFixo;
+      let valC = netSales * activeRates.cmv;
 
       if (provisionRateMode === 'mix' && salesMixData?.dailyBreakdown?.[key]) {
         const d = salesMixData.dailyBreakdown[key];
@@ -537,6 +543,8 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
       const pPaid = paidProvisionsDates.includes(`prolabore-${key}`) || paidProvisionsDates.includes(`prolabore-${c.date}`);
       const tPaid = paidProvisionsDates.includes(`tax-${key}`) || paidProvisionsDates.includes(`tax-${c.date}`);
       const rPaid = paidProvisionsDates.includes(`reserve-${key}`) || paidProvisionsDates.includes(`reserve-${c.date}`);
+      const fPaid = paidProvisionsDates.includes(`fixed-${key}`) || paidProvisionsDates.includes(`fixed-${c.date}`);
+      const cPaid = paidProvisionsDates.includes(`cmv-${key}`) || paidProvisionsDates.includes(`cmv-${c.date}`);
 
       if (pPaid) {
         paidProlabore += valP;
@@ -555,6 +563,18 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
       } else if (!isPast2ndDay) {
         pendingReserve += valR;
       }
+
+      if (fPaid) {
+        paidFixed += valF;
+      } else if (!isPast2ndDay) {
+        pendingFixed += valF;
+      }
+
+      if (cPaid) {
+        paidCmv += valC;
+      } else if (!isPast2ndDay) {
+        pendingCmv += valC;
+      }
     });
 
     return {
@@ -564,8 +584,12 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
       pendingTax,
       paidReserve,
       pendingReserve,
-      totalPaid: paidProlabore + paidTax + paidReserve,
-      totalPending: pendingProlabore + pendingTax + pendingReserve
+      paidFixed,
+      pendingFixed,
+      paidCmv,
+      pendingCmv,
+      totalPaid: paidProlabore + paidTax + paidReserve + paidFixed + paidCmv,
+      totalPending: pendingProlabore + pendingTax + pendingReserve + pendingFixed + pendingCmv
     };
   }, [monthClosings, paidProvisionsDates, activeRates, provisionRateMode, salesMixData]);
 
@@ -575,9 +599,13 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
       paidProvisionsDates.includes(`prolabore-${key}`) ||
       paidProvisionsDates.includes(`tax-${key}`) ||
       paidProvisionsDates.includes(`reserve-${key}`) ||
+      paidProvisionsDates.includes(`fixed-${key}`) ||
+      paidProvisionsDates.includes(`cmv-${key}`) ||
       paidProvisionsDates.includes(`prolabore-${date}`) ||
       paidProvisionsDates.includes(`tax-${date}`) ||
-      paidProvisionsDates.includes(`reserve-${date}`)
+      paidProvisionsDates.includes(`reserve-${date}`) ||
+      paidProvisionsDates.includes(`fixed-${date}`) ||
+      paidProvisionsDates.includes(`cmv-${date}`)
     );
   };
 
@@ -586,7 +614,9 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
     const p = paidProvisionsDates.includes(`prolabore-${key}`) || paidProvisionsDates.includes(`prolabore-${date}`);
     const t = paidProvisionsDates.includes(`tax-${key}`) || paidProvisionsDates.includes(`tax-${date}`);
     const r = paidProvisionsDates.includes(`reserve-${key}`) || paidProvisionsDates.includes(`reserve-${date}`);
-    return p && t && r;
+    const f = paidProvisionsDates.includes(`fixed-${key}`) || paidProvisionsDates.includes(`fixed-${date}`);
+    const c = paidProvisionsDates.includes(`cmv-${key}`) || paidProvisionsDates.includes(`cmv-${date}`);
+    return p && t && r && f && c;
   };
 
   const provisionedClosingsCount = useMemo(() => {
@@ -663,7 +693,7 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
             <PiggyBank className="w-7 h-7 text-emerald-600" /> Caixinhas de Provisão
           </h1>
           <p className="text-slate-500 font-medium text-sm mt-1">
-            Separação diária sobre o faturamento à vista (s/ crediário): Pró-labore ({displayProlaborePct.toFixed(1)}%), Impostos ({displayTaxPct.toFixed(1)}%) e Lucro/Reserva ({displayReservePct.toFixed(1)}%).
+            Separação diária sobre o faturamento à vista (s/ crediário): Contas Fixas ({activeRates.custoFixoPctDisplay.toFixed(1)}%), Pró-labore ({displayProlaborePct.toFixed(1)}%), Impostos ({displayTaxPct.toFixed(1)}%), Fornecedores/CMV ({activeRates.cmvPctDisplay.toFixed(1)}%) e Lucro/Reserva ({displayReservePct.toFixed(1)}%).
           </p>
         </div>
         
@@ -1442,18 +1472,24 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-slate-50/80 border-b border-slate-100">
-                  <th className="px-6 py-3.5 text-[10px] font-black text-slate-500 uppercase tracking-widest">Data</th>
-                  <th className="px-6 py-3.5 text-[10px] font-black text-slate-500 uppercase tracking-widest text-right">Faturamento (s/ Crediário)</th>
-                  <th className="px-6 py-3.5 text-[10px] font-black text-emerald-700 uppercase tracking-widest text-center">
+                  <th className="px-3.5 py-3.5 text-[10px] font-black text-slate-500 uppercase tracking-widest whitespace-nowrap">Data</th>
+                  <th className="px-3.5 py-3.5 text-[10px] font-black text-slate-500 uppercase tracking-widest text-right whitespace-nowrap">Faturamento (s/ Crediário)</th>
+                  <th className="px-3.5 py-3.5 text-[10px] font-black text-amber-700 uppercase tracking-widest text-center whitespace-nowrap">
+                    Contas Fixas ({activeRates.custoFixoPctDisplay.toFixed(1)}%)
+                  </th>
+                  <th className="px-3.5 py-3.5 text-[10px] font-black text-emerald-700 uppercase tracking-widest text-center whitespace-nowrap">
                     Pró-labore ({displayProlaborePct.toFixed(1)}%)
                   </th>
-                  <th className="px-6 py-3.5 text-[10px] font-black text-blue-700 uppercase tracking-widest text-center">
+                  <th className="px-3.5 py-3.5 text-[10px] font-black text-blue-700 uppercase tracking-widest text-center whitespace-nowrap">
                     Impostos ({displayTaxPct.toFixed(1)}%)
                   </th>
-                  <th className="px-6 py-3.5 text-[10px] font-black text-purple-700 uppercase tracking-widest text-center">
+                  <th className="px-3.5 py-3.5 text-[10px] font-black text-slate-700 uppercase tracking-widest text-center whitespace-nowrap">
+                    Fornecedores/CMV ({activeRates.cmvPctDisplay.toFixed(1)}%)
+                  </th>
+                  <th className="px-3.5 py-3.5 text-[10px] font-black text-purple-700 uppercase tracking-widest text-center whitespace-nowrap">
                     Reserva/Lucro ({displayReservePct.toFixed(1)}%)
                   </th>
-                  <th className="px-6 py-3.5 text-[10px] font-black text-slate-700 uppercase tracking-widest text-right">Total Provisionado (Dia)</th>
+                  <th className="px-3.5 py-3.5 text-[10px] font-black text-slate-700 uppercase tracking-widest text-right whitespace-nowrap">Total Provisionado (Dia)</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -1467,25 +1503,33 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
                   const dayProlaborePct = dayMix ? dayMix.effectiveProlaborePct : activeRates.prolaborePctDisplay;
                   const dayTaxPct = dayMix ? dayMix.effectiveImpostosPct : activeRates.taxPctDisplay;
                   const dayReservePct = dayMix ? dayMix.effectiveLucroPct : activeRates.reservePctDisplay;
+                  const dayFixedPct = activeRates.custoFixoPctDisplay;
+                  const dayCmvPct = activeRates.cmvPctDisplay;
 
+                  const valFixed = sales * (dayFixedPct / 100);
                   const valProlabore = sales * (dayProlaborePct / 100);
                   const valTax = sales * (dayTaxPct / 100);
+                  const valCmv = sales * (dayCmvPct / 100);
                   const valReserve = sales * (dayReservePct / 100);
-                  const valDayTotal = valProlabore + valTax + valReserve;
+                  const valDayTotal = valFixed + valProlabore + valTax + valCmv + valReserve;
 
                   const { dateFormatted, weekday } = formatClosingDate(c.date);
 
+                  const isFixedPaid = paidProvisionsDates.includes(`fixed-${dateKey}`) || paidProvisionsDates.includes(`fixed-${c.date}`);
                   const isProlaborePaid = paidProvisionsDates.includes(`prolabore-${dateKey}`) || paidProvisionsDates.includes(`prolabore-${c.date}`);
                   const isTaxPaid = paidProvisionsDates.includes(`tax-${dateKey}`) || paidProvisionsDates.includes(`tax-${c.date}`);
+                  const isCmvPaid = paidProvisionsDates.includes(`cmv-${dateKey}`) || paidProvisionsDates.includes(`cmv-${c.date}`);
                   const isReservePaid = paidProvisionsDates.includes(`reserve-${dateKey}`) || paidProvisionsDates.includes(`reserve-${c.date}`);
 
                   const valDayProvisioned = 
+                    (isFixedPaid ? valFixed : 0) +
                     (isProlaborePaid ? valProlabore : 0) +
                     (isTaxPaid ? valTax : 0) +
+                    (isCmvPaid ? valCmv : 0) +
                     (isReservePaid ? valReserve : 0);
 
-                  const isFullyPaid = isProlaborePaid && isTaxPaid && isReservePaid;
-                  const isAnyPaid = isProlaborePaid || isTaxPaid || isReservePaid;
+                  const isFullyPaid = isFixedPaid && isProlaborePaid && isTaxPaid && isCmvPaid && isReservePaid;
+                  const isAnyPaid = isFixedPaid || isProlaborePaid || isTaxPaid || isCmvPaid || isReservePaid;
                   const isPast2ndDay = isDatePastSecondDay(c.date);
 
                   return (
@@ -1502,7 +1546,7 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
                       }`}
                     >
                       {/* Data */}
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      <td className="px-3.5 py-3.5 whitespace-nowrap">
                         <div className="flex items-center gap-3">
                           {isFullyPaid ? (
                             <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0 shadow-xs" title="100% Provisionado" />
@@ -1527,7 +1571,7 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
                       </td>
 
                       {/* Faturamento */}
-                      <td className="px-6 py-4 text-right font-black text-slate-900 text-sm whitespace-nowrap">
+                      <td className="px-3.5 py-3.5 text-right font-black text-slate-900 text-sm whitespace-nowrap">
                         <div>{formatBRL(sales)}</div>
                         {cred > 0 && (
                           <span className="text-[10px] text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded font-semibold inline-block mt-0.5">
@@ -1552,8 +1596,44 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
                         )}
                       </td>
 
+                      {/* Contas Fixas */}
+                      <td className="px-3.5 py-3.5 text-center whitespace-nowrap">
+                        {isFixedPaid ? (
+                          <button
+                            onClick={() => handleToggleProvision(`fixed-${dateKey}`)}
+                            disabled={isUpdating}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border shadow-xs bg-amber-600 text-white border-amber-600 hover:bg-amber-700"
+                            title="Clique para alternar entre Separado e Pendente"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>{formatBRL(valFixed)}</span>
+                            <span className="text-[10px] opacity-75 font-medium">(Separado)</span>
+                          </button>
+                        ) : isPast2ndDay ? (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-medium text-slate-400 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700" title="Não provisionado no prazo de 2 dias (descartado)">
+                            <XCircle className="w-3 h-3 text-slate-400" />
+                            <span className="line-through opacity-70">{formatBRL(valFixed)}</span>
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Descartado</span>
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => handleToggleProvision(`fixed-${dateKey}`)}
+                            disabled={isUpdating}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border shadow-xs bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100"
+                            title="Clique para alternar entre Separado e Pendente"
+                          >
+                            <Clock className="w-3.5 h-3.5 text-amber-600" />
+                            <span>{formatBRL(valFixed)}</span>
+                            <span className="text-[10px] opacity-75 font-medium">(Pendente)</span>
+                          </button>
+                        )}
+                        <span className="text-[10px] text-slate-400 font-semibold block mt-0.5">
+                          {dayFixedPct.toFixed(1)}%
+                        </span>
+                      </td>
+
                       {/* Pró-labore */}
-                      <td className="px-6 py-4 text-center whitespace-nowrap">
+                      <td className="px-3.5 py-3.5 text-center whitespace-nowrap">
                         {isProlaborePaid ? (
                           <button
                             onClick={() => handleToggleProvision(`prolabore-${dateKey}`)}
@@ -1599,7 +1679,7 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
                       </td>
 
                       {/* Impostos */}
-                      <td className="px-6 py-4 text-center whitespace-nowrap">
+                      <td className="px-3.5 py-3.5 text-center whitespace-nowrap">
                         {isTaxPaid ? (
                           <button
                             onClick={() => handleToggleProvision(`tax-${dateKey}`)}
@@ -1634,8 +1714,44 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
                         </span>
                       </td>
 
+                      {/* Fornecedores / Boletos CMV */}
+                      <td className="px-3.5 py-3.5 text-center whitespace-nowrap">
+                        {isCmvPaid ? (
+                          <button
+                            onClick={() => handleToggleProvision(`cmv-${dateKey}`)}
+                            disabled={isUpdating}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border shadow-xs bg-slate-700 text-white border-slate-700 hover:bg-slate-800"
+                            title="Clique para alternar entre Separado e Pendente"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>{formatBRL(valCmv)}</span>
+                            <span className="text-[10px] opacity-75 font-medium">(Separado)</span>
+                          </button>
+                        ) : isPast2ndDay ? (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-medium text-slate-400 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700" title="Não provisionado no prazo de 2 dias (descartado)">
+                            <XCircle className="w-3 h-3 text-slate-400" />
+                            <span className="line-through opacity-70">{formatBRL(valCmv)}</span>
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Descartado</span>
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => handleToggleProvision(`cmv-${dateKey}`)}
+                            disabled={isUpdating}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border shadow-xs bg-slate-100 text-slate-800 border-slate-200 hover:bg-slate-200"
+                            title="Clique para alternar entre Separado e Pendente"
+                          >
+                            <Clock className="w-3.5 h-3.5 text-slate-600" />
+                            <span>{formatBRL(valCmv)}</span>
+                            <span className="text-[10px] opacity-75 font-medium">(Pendente)</span>
+                          </button>
+                        )}
+                        <span className="text-[10px] text-slate-400 font-semibold block mt-0.5">
+                          {dayCmvPct.toFixed(1)}%
+                        </span>
+                      </td>
+
                       {/* Reserva */}
-                      <td className="px-6 py-4 text-center whitespace-nowrap">
+                      <td className="px-3.5 py-3.5 text-center whitespace-nowrap">
                         {isReservePaid ? (
                           <button
                             onClick={() => handleToggleProvision(`reserve-${dateKey}`)}
@@ -1671,7 +1787,7 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
                       </td>
 
                       {/* Total Dia */}
-                      <td className="px-6 py-4 text-right whitespace-nowrap">
+                      <td className="px-3.5 py-3.5 text-right whitespace-nowrap">
                         <span className={`font-black text-sm block ${valDayProvisioned > 0 ? 'text-emerald-700' : 'text-slate-700'}`}>
                           {formatBRL(valDayProvisioned > 0 ? valDayProvisioned : valDayTotal)}
                         </span>
