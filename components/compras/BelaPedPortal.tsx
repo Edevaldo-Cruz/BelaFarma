@@ -67,6 +67,7 @@ import {
 import { User } from '../../types';
 import { useToast } from '../ToastContext';
 import PedidosTab from './BelaPedPedidosTab';
+import BelaPedEconomiaModal from './BelaPedEconomiaModal';
 import BelaPedResumoTremor from './BelaPedResumoTremor';
 import BelaPedSimuladorGiro from './BelaPedSimuladorGiro';
 import { BelaPedRobotMonitor } from './BelaPedRobotMonitor';
@@ -334,6 +335,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
   // Estados para Auditoria Segura de Prazos de Boletos e Pedidos Mínimos
   const [auditandoPrazos, setAuditandoPrazos] = useState(false);
   const [modalAuditoriaAberta, setModalAuditoriaAberta] = useState(false);
+  const [modalEconomiaAberta, setModalEconomiaAberta] = useState(false);
   const [dadosAuditoria, setDadosAuditoria] = useState<{ historico: any[]; resumoPortais: any[] } | null>(null);
 
   // Estados para Gestão de Campanhas Especiais da Distrimed
@@ -4086,6 +4088,16 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
             <Sparkles className="w-3.5 h-3.5 text-cyan-400 group-hover:scale-110 transition-transform" />
             <span>v{typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.2.0'}</span>
             <span className="text-slate-500">#{typeof __COMMIT_HASH__ !== 'undefined' ? __COMMIT_HASH__ : 'dev'}</span>
+          </button>
+
+          {/* Botão do Painel de Economia no Header */}
+          <button
+            onClick={() => setModalEconomiaAberta(true)}
+            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-500/50 text-emerald-300 text-xs font-black transition-all shadow-md cursor-pointer"
+            title="Abrir o Painel Visual de Economia & Comparativo com Última Compra"
+          >
+            <TrendingDown className="w-3.5 h-3.5 text-emerald-400" />
+            <span className="hidden sm:inline">Painel de Economia</span>
           </button>
 
           {/* Botão de Exibir Apenas a Tabela no Header */}
@@ -8516,6 +8528,11 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
         descricao={modalConcorrentesEssencia.produto?.descricao || ''}
         custoUnitario={modalConcorrentesEssencia.produto?.custo_unitario}
         saldo={modalConcorrentesEssencia.produto?.saldo}
+      />
+
+      <BelaPedEconomiaModal
+        isOpen={modalEconomiaAberta}
+        onClose={() => setModalEconomiaAberta(false)}
       />
 
       <BelaPedPrecoHistoricoModal
