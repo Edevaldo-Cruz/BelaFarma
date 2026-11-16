@@ -5263,30 +5263,59 @@ function belapedEndpoints(db) {
       // 2. Pontos históricos de compras reais registradas no Digifarma (notas fiscais)
       if (ean || produto_id) {
         try {
-          const rowsNf = db.prepare(`
+          const rowsDigi = db.prepare(`
             SELECT 
-              data_compra as data,
-              fornecedor,
-              preco_unitario as preco
-            FROM compras_itens_historico
-            WHERE (ean = ? OR produto_id = ?) AND preco_unitario > 0
+              data_compra,
+              fornecedor_nome,
+              preco_unitario_ult_compra as preco
+            FROM digifarma_ultimas_compras_cache
+            WHERE (ean = ? OR produto_id = ?) AND preco_unitario_ult_compra > 0.05
             ORDER BY data_compra ASC
           `).all(String(ean || '').trim(), Number(produto_id || 0));
 
-          rowsNf.forEach(r => {
-            if (r.data) {
-              const dataClean = String(r.data).split('T')[0];
+          rowsDigi.forEach(r => {
+            if (r.data_compra) {
+              const dataClean = String(r.data_compra).split('T')[0].split(' ')[0];
               const d = new Date(dataClean + 'T12:00:00');
               pontosHistorico.push({
                 data: dataClean,
-                fornecedor: r.fornecedor || 'Nota Fiscal (NF)',
+                fornecedor: r.fornecedor_nome ? `NF - ${r.fornecedor_nome.slice(0, 16)}` : 'Nota Fiscal (NF)',
                 preco: Number(r.preco),
                 origem: 'COMPRA_NF',
                 diaSemana: isNaN(d.getTime()) ? 0 : d.getDay()
               });
             }
           });
-        } catch (nfErr) {}
+        } catch (nfErr) {
+          console.warn('[historico-precos-produto] Aviso ao ler compras Digifarma:', nfErr.message);
+        }
+      }
+
+      // 2.1. Pontos de pedidos realizados no BelaPed
+      if (ean) {
+        try {
+          const rowsPedidos = db.prepare(`
+            SELECT pi.preco_cotado as preco, p.distribuidora as fornecedor, p.created_at as data
+            FROM belaped_pedidos_itens pi
+            JOIN belaped_pedidos p ON p.id = pi.pedido_id
+            WHERE pi.ean = ? AND pi.preco_cotado > 0
+            ORDER BY p.created_at ASC
+          `).all(String(ean).trim());
+
+          rowsPedidos.forEach(r => {
+            const dataClean = String(r.data).split(' ')[0];
+            const d = new Date(dataClean + 'T12:00:00');
+            pontosHistorico.push({
+              data: dataClean,
+              fornecedor: r.fornecedor,
+              preco: Number(r.preco),
+              origem: 'PEDIDO_BELAPED',
+              diaSemana: isNaN(d.getTime()) ? 0 : d.getDay()
+            });
+          });
+        } catch (pedErr) {
+          console.warn('[historico-precos-produto] Aviso ao ler pedidos BelaPed:', pedErr.message);
+        }
       }
 
       // 3. Se ainda tiver poucos pontos (ex: robô rodou hoje pela primeira vez), inclui a cotação real atual

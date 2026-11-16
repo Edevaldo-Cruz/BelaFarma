@@ -1,9 +1,19 @@
 {
   "version": "1.2.6",
-  "commitHash": "2dadc51",
-  "commitMessage": "feat(provisoes): incluir colunas de contas fixas e fornecedores no detalhamento diario",
-  "buildTime": "16/11/2026, 09:41:21",
+  "commitHash": "7606e39",
+  "commitMessage": "feat(belaped): adiciona atalho direto do painel de economia no topo do BelaPed",
+  "buildTime": "16/11/2026, 11:44:27",
   "recentCommits": [
+    {
+      "hash": "7606e39",
+      "date": "16/11/2026",
+      "message": "feat(belaped): adiciona atalho direto do painel de economia no topo do BelaPed"
+    },
+    {
+      "hash": "46d9e1c",
+      "date": "16/11/2026",
+      "message": "feat(cartao): adicionar modal de fatura do cartao na abertura exclusivo para Edevaldo e integrar as provisões"
+    },
     {
       "hash": "2dadc51",
       "date": "16/11/2026",
@@ -53,16 +63,6 @@
       "hash": "8c8883f",
       "date": "14/11/2026",
       "message": "feat(financeiro): nova rotina de Caixa Inteligente e Rendimento da Sobra no CDI"
-    },
-    {
-      "hash": "fe7196f",
-      "date": "14/11/2026",
-      "message": "feat(pdv): cadastro expresso com integracao direta no digifarma e produtos sem codigo de barras"
-    },
-    {
-      "hash": "6851f53",
-      "date": "13/11/2026",
-      "message": "fix(pdv): normalizacao de espacos em ean, correcao overflow firebird e vinculo direto com digifarma no caixa"
     }
   ]
 }
