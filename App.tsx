@@ -83,6 +83,7 @@ import { InboundInvoices } from "./components/erp/InboundInvoices";
 import { ControlledMedicationsPortal } from "./components/erp/ControlledMedicationsPortal";
 import { FiscalAccountingView } from "./components/FiscalAccountingView";
 import { PromotionsManagerPage } from "./components/erp/PromotionsManagerPage";
+import { CreditCardPromptModal } from "./components/CreditCardPromptModal";
 
 
 import {
@@ -234,6 +235,7 @@ const App: React.FC = () => {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [isTeraModalOpen, setIsTeraModalOpen] = useState(false);
   const [isCardMachineModalOpen, setIsCardMachineModalOpen] = useState(false);
+  const [isCreditCardModalOpen, setIsCreditCardModalOpen] = useState(false);
   const [isEstoqueIdealModalOpen, setIsEstoqueIdealModalOpen] = useState(false);
   const [isMuralOpen, setIsMuralOpen] = useState(false);
   const [startupQueue, setStartupQueue] = useState<StartupModalItem[]>([]);
@@ -747,6 +749,41 @@ const App: React.FC = () => {
       };
     }
   }, [user, isMobile]);
+
+  // Checagem de Fatura do Cartão de Crédito exclusiva para Edevaldo ao iniciar
+  useEffect(() => {
+    if (!user) return;
+    const isEdevaldo = (user.name || '').toLowerCase().includes('edevaldo');
+    if (!isEdevaldo) return;
+
+    const checkCreditCardPrompt = () => {
+      try {
+        const now = new Date();
+        const currentYear = now.getFullYear();
+        const currentMonthStr = String(now.getMonth() + 1).padStart(2, '0');
+        const monthKey = `${currentYear}-${currentMonthStr}`;
+
+        // Exibe uma vez ao iniciar a sessão do navegador
+        const sessionShown = sessionStorage.getItem(`belafarma_cc_prompt_session_${monthKey}`);
+        if (!sessionShown) {
+          sessionStorage.setItem(`belafarma_cc_prompt_session_${monthKey}`, 'true');
+          setTimeout(() => {
+            setIsCreditCardModalOpen(true);
+          }, 1200);
+        }
+      } catch (err) {
+        console.error('Erro na checagem de inicialização da fatura do cartão:', err);
+      }
+    };
+
+    checkCreditCardPrompt();
+
+    const handleOpenCCModal = () => setIsCreditCardModalOpen(true);
+    window.addEventListener('belafarma_open_credit_card_modal', handleOpenCCModal);
+    return () => {
+      window.removeEventListener('belafarma_open_credit_card_modal', handleOpenCCModal);
+    };
+  }, [user]);
 
   // Check upcoming appointment notifications periodically
   const notifiedAppointmentsRef = useRef<Set<string>>(new Set());
@@ -1836,6 +1873,18 @@ const App: React.FC = () => {
           fetchData();
         }}
       />
+
+      {/* Modal de Fatura do Cartão de Crédito exclusivo para Edevaldo */}
+      {user && (user.name || '').toLowerCase().includes('edevaldo') && (
+        <CreditCardPromptModal
+          isOpen={isCreditCardModalOpen}
+          onClose={() => setIsCreditCardModalOpen(false)}
+          onSuccess={() => {
+            fetchData();
+          }}
+          userName={user.name}
+        />
+      )}
 
       {/* Modal / Mural de Pendências e Produtos Parados 90d+ */}
       {user && (

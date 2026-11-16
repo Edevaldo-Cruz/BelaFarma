@@ -1,9 +1,14 @@
 {
   "version": "1.2.6",
-  "commitHash": "1f5420e",
-  "commitMessage": "feat(provisoes): incluir categorias de contas fixas e fornecedores/cmv, e cadastrar contrato Geraldo 70k",
-  "buildTime": "16/11/2026, 08:57:29",
+  "commitHash": "2dadc51",
+  "commitMessage": "feat(provisoes): incluir colunas de contas fixas e fornecedores no detalhamento diario",
+  "buildTime": "16/11/2026, 09:41:21",
   "recentCommits": [
+    {
+      "hash": "2dadc51",
+      "date": "16/11/2026",
+      "message": "feat(provisoes): incluir colunas de contas fixas e fornecedores no detalhamento diario"
+    },
     {
       "hash": "1f5420e",
       "date": "16/11/2026",
@@ -58,11 +63,6 @@
       "hash": "6851f53",
       "date": "13/11/2026",
       "message": "fix(pdv): normalizacao de espacos em ean, correcao overflow firebird e vinculo direto com digifarma no caixa"
-    },
-    {
-      "hash": "a5a201f",
-      "date": "13/11/2026",
-      "message": "feat(pdv): tela crud produtos expressos, timer 15s no cupom, impressao f7 e qrcode na notinha"
     }
   ]
 }

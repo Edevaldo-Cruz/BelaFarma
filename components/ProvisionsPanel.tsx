@@ -188,6 +188,29 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
   });
   const [isPricingExpanded, setIsPricingExpanded] = useState(true);
   const [simClosingValue, setSimClosingValue] = useState<string>('');
+  const [creditCardInvoice, setCreditCardInvoice] = useState<number>(1511.66);
+
+  // Busca o valor da fatura do cartão para o mês
+  const fetchCreditCardInvoice = async () => {
+    try {
+      const monthStr = String(selectedMonth + 1).padStart(2, '0');
+      const res = await fetch(`/api/settings/credit_card_invoice_${selectedYear}_${monthStr}`);
+      if (res.ok) {
+        const d = await res.json();
+        if (d && d.value && Number(d.value) > 0) {
+          setCreditCardInvoice(Number(d.value));
+          return;
+        }
+      }
+      const resCur = await fetch('/api/settings/credit_card_current_invoice');
+      if (resCur.ok) {
+        const dCur = await resCur.json();
+        if (dCur && dCur.value && Number(dCur.value) > 0) {
+          setCreditCardInvoice(Number(dCur.value));
+        }
+      }
+    } catch (e) {}
+  };
 
   // Busca configurações de datas de provisões pagas
   const fetchPaidDates = async () => {
@@ -289,6 +312,7 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
   useEffect(() => {
     fetchSalesMix();
     fetchProlaboreInssSummary();
+    fetchCreditCardInvoice();
   }, [selectedMonth, selectedYear]);
 
   useEffect(() => {
@@ -306,11 +330,21 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
       }
     };
 
+    const handleCCUpdated = (e: any) => {
+      if (e.detail && e.detail.value) {
+        setCreditCardInvoice(Number(e.detail.value));
+      } else {
+        fetchCreditCardInvoice();
+      }
+    };
+
     window.addEventListener('belafarma_provisions_updated', handleProvisionsUpdated);
     window.addEventListener('belafarma_provision_mode_changed', handleModeChanged);
+    window.addEventListener('belafarma_credit_card_updated', handleCCUpdated);
     return () => {
       window.removeEventListener('belafarma_provisions_updated', handleProvisionsUpdated);
       window.removeEventListener('belafarma_provision_mode_changed', handleModeChanged);
+      window.removeEventListener('belafarma_credit_card_updated', handleCCUpdated);
     };
   }, []);
 
@@ -1017,8 +1051,13 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
                       <div className="text-xl font-black text-white mt-1">
                         {formatBRL(simCustoFixo)}
                       </div>
-                      <p className="text-[11px] text-amber-200 mt-2 pt-2 border-t border-amber-500/30">
-                        PRONAMPE, Aluguel e energia.
+                      <p className="text-[11px] text-amber-200 mt-2 pt-2 border-t border-amber-500/30 flex items-center justify-between">
+                        <span>PRONAMPE, Aluguel e energia.</span>
+                        {creditCardInvoice > 0 && (
+                          <span className="text-[10px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded font-mono">
+                            Cartão: {formatBRL(creditCardInvoice)}
+                          </span>
+                        )}
                       </p>
                     </div>
 
@@ -1129,19 +1168,36 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
         </div>
 
         {/* Card 4: Contas Fixas Operacionais */}
-        <div className="bg-gradient-to-br from-amber-50 to-orange-50/50 rounded-2xl p-5 border border-amber-100 shadow-sm relative overflow-hidden">
-          <div className="flex justify-between items-start">
-            <span className="text-[10px] font-black text-amber-800 uppercase tracking-widest flex items-center gap-1">
-              <Building2 className="w-3.5 h-3.5 text-amber-600" /> Contas Fixas
-            </span>
-            <span className="text-[9px] font-bold px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded">
-              {activeRates.custoFixoPctDisplay.toFixed(1)}%
-            </span>
+        <div className="bg-gradient-to-br from-amber-50 to-orange-50/50 rounded-2xl p-5 border border-amber-100 shadow-sm relative overflow-hidden flex flex-col justify-between">
+          <div>
+            <div className="flex justify-between items-start">
+              <span className="text-[10px] font-black text-amber-800 uppercase tracking-widest flex items-center gap-1">
+                <Building2 className="w-3.5 h-3.5 text-amber-600" /> Contas Fixas
+              </span>
+              <span className="text-[9px] font-bold px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded">
+                {activeRates.custoFixoPctDisplay.toFixed(1)}%
+              </span>
+            </div>
+            <div className="mt-2">
+              <h3 className="text-xl font-black text-amber-950 tracking-tight">{formatBRL(custoFixoTotal)}</h3>
+              <p className="text-[10px] text-amber-700 mt-1">Aluguel, PRONAMPE, Luz e Cartão</p>
+            </div>
           </div>
-          <div className="mt-2">
-            <h3 className="text-xl font-black text-amber-950 tracking-tight">{formatBRL(custoFixoTotal)}</h3>
-            <p className="text-[10px] text-amber-700 mt-1">Aluguel, PRONAMPE e luz</p>
-          </div>
+          {creditCardInvoice > 0 && (
+            <div className="mt-3 pt-2 border-t border-amber-200/60 flex items-center justify-between text-[10px]">
+              <span className="text-amber-900 font-bold flex items-center gap-1 truncate">
+                💳 Cartão (Dia 16): <strong>{formatBRL(creditCardInvoice)}</strong>
+              </span>
+              <button
+                type="button"
+                onClick={() => window.dispatchEvent(new CustomEvent('belafarma_open_credit_card_modal'))}
+                className="text-[9px] font-black text-amber-800 hover:text-amber-950 bg-amber-200/80 hover:bg-amber-300 px-2 py-0.5 rounded-lg transition-all shadow-xs shrink-0 ml-1"
+                title="Clique para alterar o valor da fatura do cartão"
+              >
+                Alterar
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Card 5: Boletos / Reposição de Mercadorias (CMV) */}
