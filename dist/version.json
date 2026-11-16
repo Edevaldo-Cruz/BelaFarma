@@ -1,9 +1,14 @@
 {
   "version": "1.2.6",
-  "commitHash": "164b447",
-  "commitMessage": "feat(pdv): tabela de alta densidade para listagem de vendas com filtro por periodo",
-  "buildTime": "15/11/2026, 12:56:31",
+  "commitHash": "9a938fb",
+  "commitMessage": "feat(belaped): adiciona painel visual de economia e comparativo com ultima compra",
+  "buildTime": "16/11/2026, 08:29:00",
   "recentCommits": [
+    {
+      "hash": "9a938fb",
+      "date": "15/11/2026",
+      "message": "feat(belaped): adiciona painel visual de economia e comparativo com ultima compra"
+    },
     {
       "hash": "164b447",
       "date": "15/11/2026",
@@ -58,11 +63,6 @@
       "hash": "4037e2b",
       "date": "13/11/2026",
       "message": "feat(pdv): adiciona botao e navegacao direta para o Catalogo de Produtos do ERP no cabecalho do PDV"
-    },
-    {
-      "hash": "f3b3b74",
-      "date": "13/11/2026",
-      "message": "feat(sync): propaga atualizacao de precos e estoque do Digifarma em cascata para a tabela nativa products"
     }
   ]
 }
