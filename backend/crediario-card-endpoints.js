@@ -136,14 +136,26 @@ function createCardEndpoints(db, whatsappService = null) {
           ORDER BY used_limit DESC, customer_name ASC LIMIT 25
         `).all();
       } else {
-        const cleanQ = q.replace(/\D/g, '');
-        cards = db.prepare(`
-          SELECT id, customer_id, customer_name, phone, cpf, card_number, card_uid,
-                 credit_limit, used_limit, status, due_day, active_fee_amount
-          FROM belafarma_cards
-          WHERE customer_name LIKE ? OR phone LIKE ? OR cpf LIKE ? OR card_uid LIKE ?
-          ORDER BY customer_name ASC LIMIT 25
-        `).all(`%${q}%`, `%${cleanQ || q}%`, `%${cleanQ || q}%`, `%${q}%`);
+        const cleanDigits = q.replace(/\D/g, '');
+        if (cleanDigits.length >= 3) {
+          // Busca por telefone, CPF ou UID
+          cards = db.prepare(`
+            SELECT id, customer_id, customer_name, phone, cpf, card_number, card_uid,
+                   credit_limit, used_limit, status, due_day, active_fee_amount
+            FROM belafarma_cards
+            WHERE customer_name LIKE ? OR phone LIKE ? OR cpf LIKE ? OR card_uid LIKE ?
+            ORDER BY customer_name ASC LIMIT 25
+          `).all(`%${q}%`, `%${cleanDigits}%`, `%${cleanDigits}%`, `%${q}%`);
+        } else {
+          // Busca somente por nome ou UID textual
+          cards = db.prepare(`
+            SELECT id, customer_id, customer_name, phone, cpf, card_number, card_uid,
+                   credit_limit, used_limit, status, due_day, active_fee_amount
+            FROM belafarma_cards
+            WHERE customer_name LIKE ? OR card_uid LIKE ?
+            ORDER BY customer_name ASC LIMIT 25
+          `).all(`%${q}%`, `%${q}%`);
+        }
       }
 
       // Enriquecer com métricas de crédito e faturas
