@@ -2,11 +2,12 @@
 title Belinha - Bela Farma Sul (Servidor Backend com Auto-Recuperacao 24/7)
 color 0A
 chcp 65001 >nul
-cd /d "%~dp0"
+cd /d "F:\Documentos\Desenvolvimento\BelaFarma"
 
 echo ======================================================================
 echo       🌸 DROGARIA BELA FARMA - SERVIDOR BACKEND COM AUTO-RECUPERACAO 24/7
 echo ======================================================================
+echo [PASTA ATUAL] %CD%
 echo.
 
 :loop
