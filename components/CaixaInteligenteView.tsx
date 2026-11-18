@@ -103,9 +103,12 @@ export const CaixaInteligenteView: React.FC<CaixaInteligenteViewProps> = ({
   useEffect(() => {
     const fetchProvisionsData = async () => {
       try {
+        const token = localStorage.getItem('belinha_auth_token');
+        const headers: HeadersInit = token ? { 'Authorization': `Bearer ${token}` } : {};
+
         const [resDates, resAvg] = await Promise.all([
-          fetch('/api/settings/paid_provisions_dates'),
-          fetch('/api/price-manager/customizations/averages')
+          fetch('/api/settings/paid_provisions_dates', { headers }),
+          fetch('/api/price-manager/customizations/averages', { headers })
         ]);
         if (resDates.ok) {
           const d = await resDates.json();
@@ -163,7 +166,7 @@ export const CaixaInteligenteView: React.FC<CaixaInteligenteViewProps> = ({
 
   // Provisões pendentes acumuladas do mês atual que ainda não foram retiradas/pagas
   const { provisoesPendentesAcumuladas, provisaoDiariaMedia } = useMemo(() => {
-    const provDiaria = mediaDiariaVendas * ((prolaborePct + reservePct) / 100);
+    const provDiaria = (mediaDiariaVendas || 0) * (((prolaborePct || 0) + (reservePct || 0)) / 100);
 
     if (!cashClosings || cashClosings.length === 0) {
       return { provisoesPendentesAcumuladas: 0, provisaoDiariaMedia: provDiaria };
@@ -173,30 +176,33 @@ export const CaixaInteligenteView: React.FC<CaixaInteligenteViewProps> = ({
     const now = new Date();
     const currentYear = now.getFullYear();
     const currentMonth = now.getMonth();
+    const isPaidArray = Array.isArray(paidProvisionsDates);
 
     cashClosings.forEach(c => {
-      if (!c.date) return;
-      const d = new Date(c.date);
+      if (!c || !c.date) return;
+      const rawDateStr = String(c.date);
+      const d = new Date(rawDateStr);
+      if (isNaN(d.getTime())) return;
       if (d.getFullYear() !== currentYear || d.getMonth() !== currentMonth) return;
 
-      const dateKey = c.date.split('T')[0];
+      const dateKey = rawDateStr.split('T')[0];
       const cred = Number(c.totalCrediario) || 0;
       const netSales = Math.max(0, (Number(c.totalSales) || 0) - cred);
       if (netSales <= 0) return;
 
-      const valProlabore = netSales * (prolaborePct / 100);
-      const valReserve = netSales * (reservePct / 100);
+      const valProlabore = netSales * ((prolaborePct || 0) / 100);
+      const valReserve = netSales * ((reservePct || 0) / 100);
 
-      const isProlaborePaid = paidProvisionsDates.includes(`prolabore-${dateKey}`) || paidProvisionsDates.includes(`prolabore-${c.date}`);
-      const isReservePaid = paidProvisionsDates.includes(`reserve-${dateKey}`) || paidProvisionsDates.includes(`reserve-${c.date}`);
+      const isProlaborePaid = isPaidArray && (paidProvisionsDates.includes(`prolabore-${dateKey}`) || paidProvisionsDates.includes(`prolabore-${rawDateStr}`));
+      const isReservePaid = isPaidArray && (paidProvisionsDates.includes(`reserve-${dateKey}`) || paidProvisionsDates.includes(`reserve-${rawDateStr}`));
 
       if (!isProlaborePaid) pendingTotal += valProlabore;
       if (!isReservePaid) pendingTotal += valReserve;
     });
 
     return {
-      provisoesPendentesAcumuladas: pendingTotal,
-      provisaoDiariaMedia: provDiaria
+      provisoesPendentesAcumuladas: isNaN(pendingTotal) ? 0 : pendingTotal,
+      provisaoDiariaMedia: isNaN(provDiaria) ? 0 : provDiaria
     };
   }, [cashClosings, paidProvisionsDates, prolaborePct, reservePct, mediaDiariaVendas]);
 
@@ -265,18 +271,6 @@ export const CaixaInteligenteView: React.FC<CaixaInteligenteViewProps> = ({
           pago: c.pago
         }));
 
-      // Provisão diária estimada que precisa ser retida/separada para Pró-Labore e Reserva
-      // (somente em dias úteis com vendas estimadas)
-      let provisaoCaixinhasDia = 0;
-      if (considerarProvisoes && !isFimDeSemana) {
-        const vendasEstimadasDia = totalEntradasPrevistas > 0 
-          ? (totalEntradasPrevistas / (percentualDigital || 0.68)) 
-          : mediaDiariaVendas;
-        provisaoCaixinhasDia = vendasEstimadasDia * ((prolaborePct + reservePct) / 100);
-      }
-
-      const totalSaidas = contasDoDia.reduce((acc, c) => acc + c.valor, 0) + provisaoCaixinhasDia;
-
       // Entradas previstas no banco:
       // Fim de semana não compensa dinheiro no banco (vai para segunda/terça)
       let totalEntradasPrevistas = 0;
@@ -288,6 +282,18 @@ export const CaixaInteligenteView: React.FC<CaixaInteligenteViewProps> = ({
           totalEntradasPrevistas = entradaDigitalDiaria;
         }
       }
+
+      // Provisão diária estimada que precisa ser retida/separada para Pró-Labore e Reserva
+      // (somente em dias úteis com vendas estimadas)
+      let provisaoCaixinhasDia = 0;
+      if (considerarProvisoes && !isFimDeSemana) {
+        const vendasEstimadasDia = totalEntradasPrevistas > 0 
+          ? (totalEntradasPrevistas / (percentualDigital || 0.68)) 
+          : mediaDiariaVendas;
+        provisaoCaixinhasDia = vendasEstimadasDia * ((prolaborePct + reservePct) / 100);
+      }
+
+      const totalSaidas = contasDoDia.reduce((acc, c) => acc + c.valor, 0) + provisaoCaixinhasDia;
 
       saldoCorrente = saldoCorrente + totalEntradasPrevistas - totalSaidas;
 

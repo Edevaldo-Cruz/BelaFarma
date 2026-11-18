@@ -1,9 +1,14 @@
 {
   "version": "1.2.6",
-  "commitHash": "dfe325b",
-  "commitMessage": "fix(crediario): corrigir busca por nome no balcao ignorando filtro vazio de numeros",
-  "buildTime": "18/11/2026, 20:07:25",
+  "commitHash": "081aec6",
+  "commitMessage": "feat(caixa-inteligente): integrar provisoes das caixinhas no calculo do colchao e sobra livre",
+  "buildTime": "18/11/2026, 20:37:05",
   "recentCommits": [
+    {
+      "hash": "081aec6",
+      "date": "18/11/2026",
+      "message": "feat(caixa-inteligente): integrar provisoes das caixinhas no calculo do colchao e sobra livre"
+    },
     {
       "hash": "dfe325b",
       "date": "17/11/2026",
@@ -58,11 +63,6 @@
       "hash": "1597b6e",
       "date": "15/11/2026",
       "message": "fix(pdv): definicao explicita de totalVolume e totalVolumes com novo bundle de producao"
-    },
-    {
-      "hash": "c239261",
-      "date": "15/11/2026",
-      "message": "fix(pdv): correcao da variavel totalVolumes para totalQuantity no card totalizador do cabecalho"
     }
   ]
 }
