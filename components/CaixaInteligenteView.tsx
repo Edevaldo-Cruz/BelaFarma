@@ -38,6 +38,7 @@ interface DiaFluxo {
   diaSemana: string;
   isFimDeSemana: boolean;
   contasDoDia: { nome: string; valor: number; tipo: 'boleto' | 'fixa'; pago: boolean }[];
+  provisaoCaixinhas: number;
   totalSaidas: number;
   totalEntradasPrevistas: number;
   saldoProjetado: number;
@@ -89,6 +90,58 @@ export const CaixaInteligenteView: React.FC<CaixaInteligenteViewProps> = ({
   // Copiado feedback
   const [copiedAmount, setCopiedAmount] = useState<boolean>(false);
 
+  // Provisões das Caixinhas: controle de separação e integração
+  const [paidProvisionsDates, setPaidProvisionsDates] = useState<string[]>([]);
+  const [considerarProvisoes, setConsiderarProvisoes] = useState<boolean>(() => {
+    const salvo = localStorage.getItem('belafarma_caixa_considerar_provisoes');
+    return salvo !== null ? salvo === 'true' : true; // Padrão: SEMPRE considerar provisões
+  });
+  const [prolaborePct, setProlaborePct] = useState<number>(11.1);
+  const [reservePct, setReservePct] = useState<number>(12.5);
+
+  // Busca dados de provisões pagas e médias de precificação
+  useEffect(() => {
+    const fetchProvisionsData = async () => {
+      try {
+        const [resDates, resAvg] = await Promise.all([
+          fetch('/api/settings/paid_provisions_dates'),
+          fetch('/api/price-manager/customizations/averages')
+        ]);
+        if (resDates.ok) {
+          const d = await resDates.json();
+          if (d && d.value) {
+            try {
+              const parsed = JSON.parse(d.value);
+              if (Array.isArray(parsed)) setPaidProvisionsDates(parsed);
+            } catch(e) {}
+          }
+        }
+        if (resAvg.ok) {
+          const avg = await resAvg.json();
+          if (avg && avg.success && avg.simpleAverages) {
+            if (avg.simpleAverages.proLaboreTotalPct > 0) setProlaborePct(avg.simpleAverages.proLaboreTotalPct);
+            if (avg.simpleAverages.margemLiquidaPct > 0) setReservePct(avg.simpleAverages.margemLiquidaPct);
+          }
+        }
+      } catch (err) {
+        console.error('Erro ao buscar dados de provisões no Caixa Inteligente:', err);
+      }
+    };
+    fetchProvisionsData();
+  }, []);
+
+  const toggleConsiderarProvisoes = () => {
+    const novoValor = !considerarProvisoes;
+    setConsiderarProvisoes(novoValor);
+    localStorage.setItem('belafarma_caixa_considerar_provisoes', novoValor.toString());
+    addToast(
+      novoValor 
+        ? '🛡️ Provisões das Caixinhas (Pró-Labore & Reserva) ATIVADAS no cálculo do caixa!' 
+        : '⚠️ Provisões das Caixinhas desativadas (visão bruta do banco).',
+      novoValor ? 'success' : 'warning'
+    );
+  };
+
   // Média diária de vendas e proporção digital
   const { mediaDiariaVendas, percentualDigital } = useMemo(() => {
     if (!cashClosings || cashClosings.length === 0) {
@@ -107,6 +160,45 @@ export const CaixaInteligenteView: React.FC<CaixaInteligenteViewProps> = ({
 
   // Entrada diária estimada no banco (Pix + Cartões Débito/Crédito)
   const entradaDigitalDiaria = mediaDiariaVendas * percentualDigital;
+
+  // Provisões pendentes acumuladas do mês atual que ainda não foram retiradas/pagas
+  const { provisoesPendentesAcumuladas, provisaoDiariaMedia } = useMemo(() => {
+    const provDiaria = mediaDiariaVendas * ((prolaborePct + reservePct) / 100);
+
+    if (!cashClosings || cashClosings.length === 0) {
+      return { provisoesPendentesAcumuladas: 0, provisaoDiariaMedia: provDiaria };
+    }
+
+    let pendingTotal = 0;
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth();
+
+    cashClosings.forEach(c => {
+      if (!c.date) return;
+      const d = new Date(c.date);
+      if (d.getFullYear() !== currentYear || d.getMonth() !== currentMonth) return;
+
+      const dateKey = c.date.split('T')[0];
+      const cred = Number(c.totalCrediario) || 0;
+      const netSales = Math.max(0, (Number(c.totalSales) || 0) - cred);
+      if (netSales <= 0) return;
+
+      const valProlabore = netSales * (prolaborePct / 100);
+      const valReserve = netSales * (reservePct / 100);
+
+      const isProlaborePaid = paidProvisionsDates.includes(`prolabore-${dateKey}`) || paidProvisionsDates.includes(`prolabore-${c.date}`);
+      const isReservePaid = paidProvisionsDates.includes(`reserve-${dateKey}`) || paidProvisionsDates.includes(`reserve-${c.date}`);
+
+      if (!isProlaborePaid) pendingTotal += valProlabore;
+      if (!isReservePaid) pendingTotal += valReserve;
+    });
+
+    return {
+      provisoesPendentesAcumuladas: pendingTotal,
+      provisaoDiariaMedia: provDiaria
+    };
+  }, [cashClosings, paidProvisionsDates, prolaborePct, reservePct, mediaDiariaVendas]);
 
   // ─── Mapeamento de Contas e Boletos ──────────────────────────────
   const contasDetalhadas = useMemo(() => {
@@ -173,7 +265,17 @@ export const CaixaInteligenteView: React.FC<CaixaInteligenteViewProps> = ({
           pago: c.pago
         }));
 
-      const totalSaidas = contasDoDia.reduce((acc, c) => acc + c.valor, 0);
+      // Provisão diária estimada que precisa ser retida/separada para Pró-Labore e Reserva
+      // (somente em dias úteis com vendas estimadas)
+      let provisaoCaixinhasDia = 0;
+      if (considerarProvisoes && !isFimDeSemana) {
+        const vendasEstimadasDia = totalEntradasPrevistas > 0 
+          ? (totalEntradasPrevistas / (percentualDigital || 0.68)) 
+          : mediaDiariaVendas;
+        provisaoCaixinhasDia = vendasEstimadasDia * ((prolaborePct + reservePct) / 100);
+      }
+
+      const totalSaidas = contasDoDia.reduce((acc, c) => acc + c.valor, 0) + provisaoCaixinhasDia;
 
       // Entradas previstas no banco:
       // Fim de semana não compensa dinheiro no banco (vai para segunda/terça)
@@ -202,6 +304,7 @@ export const CaixaInteligenteView: React.FC<CaixaInteligenteViewProps> = ({
         diaSemana,
         isFimDeSemana,
         contasDoDia,
+        provisaoCaixinhas: provisaoCaixinhasDia,
         totalSaidas,
         totalEntradasPrevistas,
         saldoProjetado: saldoCorrente,
@@ -210,7 +313,7 @@ export const CaixaInteligenteView: React.FC<CaixaInteligenteViewProps> = ({
     }
 
     return dias;
-  }, [saldoBanco, contasDetalhadas, entradaDigitalDiaria, colchaoSeguranca]);
+  }, [saldoBanco, contasDetalhadas, entradaDigitalDiaria, colchaoSeguranca, considerarProvisoes, percentualDigital, mediaDiariaVendas, prolaborePct, reservePct]);
 
   // ─── Cálculos do Colchão Essencial & Sobra ─────────────────────────
   // Contas dos próximos N dias (diasCoberturaEssencial)
@@ -227,11 +330,12 @@ export const CaixaInteligenteView: React.FC<CaixaInteligenteViewProps> = ({
   }, [contasProximosDias]);
 
   // Valor Essencial que precisa ficar na conta hoje:
-  // Necessidade líquida dos próximos dias + margem de segurança configurada
+  // Necessidade líquida dos próximos dias (contas + provisões diárias) + margem de segurança configurada + provisões pendentes acumuladas que devem ser retidas
   const valorEssencialRecomendado = useMemo(() => {
     const deficitProximo = Math.max(0, totalSaidasProximosDias - totalEntradasProximosDias);
-    return Math.max(colchaoSeguranca, deficitProximo + (colchaoSeguranca * 0.5));
-  }, [totalSaidasProximosDias, totalEntradasProximosDias, colchaoSeguranca]);
+    const retencaoProvisoesPendentes = considerarProvisoes ? provisoesPendentesAcumuladas : 0;
+    return Math.max(colchaoSeguranca, deficitProximo + (colchaoSeguranca * 0.5) + retencaoProvisoesPendentes);
+  }, [totalSaidasProximosDias, totalEntradasProximosDias, colchaoSeguranca, considerarProvisoes, provisoesPendentesAcumuladas]);
 
   // Sobra Disponível Hoje para Render ou Devolver
   const sobraDisponivel = saldoBanco - valorEssencialRecomendado;
@@ -297,6 +401,32 @@ export const CaixaInteligenteView: React.FC<CaixaInteligenteViewProps> = ({
               Esta rotina calcula exatamente o saldo necessário para blindar a farmácia contra o cheque especial 
               e indica quanto você pode transferir para uma conta que rende 100% do CDI (ou amortizar dinheiro de terceiros).
             </p>
+
+            {/* Toggle de Inclusão de Provisões no Cálculo */}
+            <div className="flex flex-wrap items-center gap-3 pt-2">
+              <button
+                type="button"
+                onClick={toggleConsiderarProvisoes}
+                className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 border shadow-sm ${
+                  considerarProvisoes 
+                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-400/40 hover:bg-emerald-500/30' 
+                    : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-slate-200'
+                }`}
+                title="Clique para alternar se o cálculo deve considerar as caixinhas de provisões (Pró-labore e Reserva)"
+              >
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Provisões das Caixinhas: {considerarProvisoes ? 'CONSIDERADAS NO CÁLCULO' : 'IGNORADAS'}</span>
+              </button>
+            </div>
+
+            {considerarProvisoes && (
+              <div className="text-[11px] text-indigo-200/90 flex flex-wrap items-center gap-3 bg-indigo-950/60 px-3.5 py-2 rounded-xl border border-indigo-500/30">
+                <span>🛡️ <strong>Pró-Labore ({prolaborePct.toFixed(1)}%) + Reserva ({reservePct.toFixed(1)}%)</strong> retidos na projeção: ~R$ {provisaoDiariaMedia.toFixed(2)}/dia</span>
+                {provisoesPendentesAcumuladas > 0 && (
+                  <span className="text-amber-300 font-bold">• Pendente de separação acumulado: R$ {provisoesPendentesAcumuladas.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Card Resumo da Sobra em Destaque */}
@@ -308,7 +438,9 @@ export const CaixaInteligenteView: React.FC<CaixaInteligenteViewProps> = ({
               R$ {Math.abs(sobraDisponivel).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
             <span className="text-[11px] text-slate-400 mt-1">
-              {sobraDisponivel >= 0 ? 'Rendimento 0% no banco -> Ponha no CDI' : 'Deposite do cofre para evitar juros'}
+              {sobraDisponivel >= 0 
+                ? (considerarProvisoes ? 'Sobra líquida (após contas e provisões)' : 'Rendimento 0% no banco -> Ponha no CDI') 
+                : 'Deposite do cofre para evitar juros'}
             </span>
             {sobraDisponivel > 0 && (
               <button
@@ -325,7 +457,7 @@ export const CaixaInteligenteView: React.FC<CaixaInteligenteViewProps> = ({
       </div>
 
       {/* ─── CARDS DE PILARES FINANCEIROS ───────────────────────────────── */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         {/* Saldo na Conta Corrente */}
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm relative group">
           <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-2">
@@ -386,7 +518,30 @@ export const CaixaInteligenteView: React.FC<CaixaInteligenteViewProps> = ({
             R$ {valorEssencialRecomendado.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
           <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-            Mínimo obrigatório para cobrir contas sem cheque especial
+            {considerarProvisoes 
+              ? 'Mínimo para cobrir contas + provisões sem sufoco'
+              : 'Mínimo obrigatório para cobrir contas sem cheque especial'}
+          </p>
+        </div>
+
+        {/* Caixinhas de Provisão (Pró-Labore & Reserva) */}
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
+          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-2">
+            <span className="text-xs font-bold uppercase tracking-wider flex items-center gap-1.5">
+              <PiggyBank className="w-4 h-4 text-indigo-500" />
+              Caixinhas (Pró+Reserva)
+            </span>
+            <span className="text-[10px] bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded-full font-bold">
+              {(prolaborePct + reservePct).toFixed(1)}% das vendas
+            </span>
+          </div>
+          <div className="text-2xl font-black font-mono text-indigo-600 dark:text-indigo-400">
+            R$ {provisaoDiariaMedia.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-xs font-normal text-slate-500">/dia</span>
+          </div>
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+            {provisoesPendentesAcumuladas > 0 
+              ? `R$ ${provisoesPendentesAcumuladas.toFixed(0)} pendentes retidos no essencial`
+              : 'Provisões do mês em dia'}
           </p>
         </div>
 
@@ -623,7 +778,7 @@ export const CaixaInteligenteView: React.FC<CaixaInteligenteViewProps> = ({
                       </span>
                     </td>
                     <td className="py-2.5 px-3 max-w-[280px]">
-                      {d.contasDoDia.length === 0 ? (
+                      {d.contasDoDia.length === 0 && (!considerarProvisoes || d.provisaoCaixinhas <= 0) ? (
                         <span className="text-slate-400 text-[11px]">Nenhuma conta vencendo</span>
                       ) : (
                         <div className="flex flex-wrap gap-1">
@@ -637,11 +792,30 @@ export const CaixaInteligenteView: React.FC<CaixaInteligenteViewProps> = ({
                               <span className="text-slate-500 font-mono">(R$ {c.valor.toFixed(0)})</span>
                             </span>
                           ))}
+                          {considerarProvisoes && d.provisaoCaixinhas > 0 && (
+                            <span 
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/40 text-[10px] text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/40"
+                              title={`Provisão diária retida para Pró-Labore (${prolaborePct.toFixed(1)}%) e Reserva (${reservePct.toFixed(1)}%)`}
+                            >
+                              <PiggyBank className="w-3 h-3 text-emerald-600" />
+                              <span className="font-bold">Caixinhas</span>
+                              <span className="font-mono font-bold">(R$ {d.provisaoCaixinhas.toFixed(0)})</span>
+                            </span>
+                          )}
                         </div>
                       )}
                     </td>
                     <td className="py-2.5 px-3 text-right font-mono font-bold text-rose-500">
-                      {d.totalSaidas > 0 ? `- R$ ${d.totalSaidas.toFixed(2)}` : '—'}
+                      {d.totalSaidas > 0 ? (
+                        <div>
+                          <div>- R$ {d.totalSaidas.toFixed(2)}</div>
+                          {considerarProvisoes && d.provisaoCaixinhas > 0 && (
+                            <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold block" title="Retenção de Pró-labore e Reserva">
+                              (incl. R$ {d.provisaoCaixinhas.toFixed(0)} caixinhas)
+                            </span>
+                          )}
+                        </div>
+                      ) : '—'}
                     </td>
                     <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-500">
                       {d.totalEntradasPrevistas > 0 ? `+ R$ ${d.totalEntradasPrevistas.toFixed(2)}` : '—'}

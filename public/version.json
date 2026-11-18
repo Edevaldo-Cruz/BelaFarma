@@ -1,9 +1,29 @@
 {
   "version": "1.2.6",
-  "commitHash": "7606e39",
-  "commitMessage": "feat(belaped): adiciona atalho direto do painel de economia no topo do BelaPed",
-  "buildTime": "16/11/2026, 11:44:27",
+  "commitHash": "dfe325b",
+  "commitMessage": "fix(crediario): corrigir busca por nome no balcao ignorando filtro vazio de numeros",
+  "buildTime": "18/11/2026, 20:07:25",
   "recentCommits": [
+    {
+      "hash": "dfe325b",
+      "date": "17/11/2026",
+      "message": "fix(crediario): corrigir busca por nome no balcao ignorando filtro vazio de numeros"
+    },
+    {
+      "hash": "4fd1404",
+      "date": "17/11/2026",
+      "message": "fix: ajustar diretorio absoluto no script INICIAR_BELINHA"
+    },
+    {
+      "hash": "5b47545",
+      "date": "17/11/2026",
+      "message": "build: atualizacao do dist com central unificada de crediario"
+    },
+    {
+      "hash": "384cef2",
+      "date": "16/11/2026",
+      "message": "feat(belaped): lista interativa de economia com totalizadores e grafico ao clicar no produto"
+    },
     {
       "hash": "7606e39",
       "date": "16/11/2026",
@@ -43,26 +63,6 @@
       "hash": "c239261",
       "date": "15/11/2026",
       "message": "fix(pdv): correcao da variavel totalVolumes para totalQuantity no card totalizador do cabecalho"
-    },
-    {
-      "hash": "bc6f30a",
-      "date": "15/11/2026",
-      "message": "feat(pdv): novo cabecalho em 2 niveis, totalizador gigante no topo, correcao do conflito F7 e rotina de orcamento rapido com conversao em venda"
-    },
-    {
-      "hash": "ba0ac80",
-      "date": "14/11/2026",
-      "message": "fix(pdv): correcao do erro NOT NULL constraint failed sale_items.unit_cost e eliminacao de duplicidades no autocomplete"
-    },
-    {
-      "hash": "45ad89c",
-      "date": "14/11/2026",
-      "message": "fix(erp): correcao no cadastro de produtos, eliminacao de timeout do firebird e sincronizacao bidirecional de codigo de barras"
-    },
-    {
-      "hash": "8c8883f",
-      "date": "14/11/2026",
-      "message": "feat(financeiro): nova rotina de Caixa Inteligente e Rendimento da Sobra no CDI"
     }
   ]
 }

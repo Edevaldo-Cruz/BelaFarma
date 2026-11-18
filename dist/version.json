@@ -1,9 +1,24 @@
 {
   "version": "1.2.6",
-  "commitHash": "384cef2",
-  "commitMessage": "feat(belaped): lista interativa de economia com totalizadores e grafico ao clicar no produto",
-  "buildTime": "17/11/2026, 10:01:08",
+  "commitHash": "dfe325b",
+  "commitMessage": "fix(crediario): corrigir busca por nome no balcao ignorando filtro vazio de numeros",
+  "buildTime": "18/11/2026, 20:07:25",
   "recentCommits": [
+    {
+      "hash": "dfe325b",
+      "date": "17/11/2026",
+      "message": "fix(crediario): corrigir busca por nome no balcao ignorando filtro vazio de numeros"
+    },
+    {
+      "hash": "4fd1404",
+      "date": "17/11/2026",
+      "message": "fix: ajustar diretorio absoluto no script INICIAR_BELINHA"
+    },
+    {
+      "hash": "5b47545",
+      "date": "17/11/2026",
+      "message": "build: atualizacao do dist com central unificada de crediario"
+    },
     {
       "hash": "384cef2",
       "date": "16/11/2026",
@@ -48,21 +63,6 @@
       "hash": "c239261",
       "date": "15/11/2026",
       "message": "fix(pdv): correcao da variavel totalVolumes para totalQuantity no card totalizador do cabecalho"
-    },
-    {
-      "hash": "bc6f30a",
-      "date": "15/11/2026",
-      "message": "feat(pdv): novo cabecalho em 2 niveis, totalizador gigante no topo, correcao do conflito F7 e rotina de orcamento rapido com conversao em venda"
-    },
-    {
-      "hash": "ba0ac80",
-      "date": "14/11/2026",
-      "message": "fix(pdv): correcao do erro NOT NULL constraint failed sale_items.unit_cost e eliminacao de duplicidades no autocomplete"
-    },
-    {
-      "hash": "45ad89c",
-      "date": "14/11/2026",
-      "message": "fix(erp): correcao no cadastro de produtos, eliminacao de timeout do firebird e sincronizacao bidirecional de codigo de barras"
     }
   ]
 }
