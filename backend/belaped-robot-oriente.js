@@ -1,5 +1,7 @@
 const puppeteer = require('puppeteer');
 const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const { validarCorrespondenciaProduto } = require('./belaped-validador.js');
 const farmacoMatcher = require('./belaped-farmaco-matcher.js');
 const motorEssencia = require('./belaped-motor-essencia.js');
@@ -65,6 +67,7 @@ class OrienteRobot {
     }
 
     const execPath = findChromeExecutable();
+    const tempUserDataDir = path.join(os.tmpdir(), 'puppeteer_oriente_' + Date.now());
     console.log(`[OrienteRobot] Iniciando navegador Puppeteer (${execPath || 'default'})...`);
     this.browser = await puppeteer.launch({
       headless: this.headless,
@@ -77,7 +80,8 @@ class OrienteRobot {
         '--disable-accelerated-2d-canvas',
         '--no-first-run',
         '--no-zygote',
-        '--start-minimized'
+        '--start-minimized',
+        `--user-data-dir=${tempUserDataDir}`
       ]
     });
 

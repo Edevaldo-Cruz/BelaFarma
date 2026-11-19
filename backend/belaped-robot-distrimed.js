@@ -1,6 +1,7 @@
 const puppeteer = require('puppeteer');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const farmacoMatcher = require('./belaped-farmaco-matcher');
 const motorEssencia = require('./belaped-motor-essencia');
 
@@ -55,6 +56,7 @@ class DistrimedRobot {
 
   async iniciar() {
     const execPath = findChromeExecutable();
+    const tempUserDataDir = path.join(os.tmpdir(), 'puppeteer_distrimed_' + Date.now());
     console.log(`[DistrimedRobot] Iniciando navegador Puppeteer (${execPath || 'default'})...`);
     this.browser = await puppeteer.launch({
       headless: this.headless,
@@ -67,7 +69,8 @@ class DistrimedRobot {
         '--disable-accelerated-2d-canvas',
         '--no-first-run',
         '--no-zygote',
-        '--start-minimized'
+        '--start-minimized',
+        `--user-data-dir=${tempUserDataDir}`
       ]
     });
 

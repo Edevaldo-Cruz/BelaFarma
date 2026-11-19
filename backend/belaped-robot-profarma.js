@@ -1,5 +1,7 @@
 const puppeteer = require('puppeteer');
 const fs = require('fs');
+const path = require('path');
+const os = require('os');
 const { validarCorrespondenciaProduto } = require('./belaped-validador.js');
 const farmacoMatcher = require('./belaped-farmaco-matcher.js');
 const motorEssencia = require('./belaped-motor-essencia.js');
@@ -55,6 +57,7 @@ class ProfarmaRobot {
 
   async iniciar() {
     const execPath = findChromeExecutable();
+    const tempUserDataDir = path.join(os.tmpdir(), 'puppeteer_profarma_' + Date.now());
     console.log(`[ProfarmaRobot] Iniciando navegador Puppeteer (${execPath || 'default'})...`);
     this.browser = await puppeteer.launch({
       headless: this.headless,
@@ -67,7 +70,8 @@ class ProfarmaRobot {
         '--disable-accelerated-2d-canvas',
         '--no-first-run',
         '--no-zygote',
-        '--start-minimized'
+        '--start-minimized',
+        `--user-data-dir=${tempUserDataDir}`
       ]
     });
 
@@ -124,12 +128,12 @@ class ProfarmaRobot {
     await this.page.type('input#email', this.usuario, { delay: 10 });
     await this.page.focus('input#password').catch(() => {});
     await this.page.type('input#password', this.senha, { delay: 10 });
-    await this.page.evaluate(() => {
-      const btn = document.querySelector('button[type="submit"]');
-      if (btn) btn.click();
-    });
+    await this.page.click('button[type="submit"]');
 
-    // Aguarda o painel carregar a barra de busca
+    // Aguarda o botão de cabeçalho confirmar autenticação
+    await this.page.waitForSelector('button[aria-label*="Carrinho" i], button[aria-label*="Compras" i]', { timeout: 35000 });
+
+    // Aguarda o painel carregar a barra de busca (SPA React)
     const searchInputSel = 'input[placeholder="O que você está buscando?"]';
     await this.page.waitForSelector(searchInputSel, { timeout: 35000 });
     console.log('[ProfarmaRobot] Login realizado com sucesso no portal Profarma!');
