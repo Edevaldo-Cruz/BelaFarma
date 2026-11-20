@@ -327,6 +327,15 @@ export const CaixaInteligenteView: React.FC<CaixaInteligenteViewProps> = ({
     return projecaoDias.slice(0, diasCoberturaEssencial);
   }, [projecaoDias, diasCoberturaEssencial]);
 
+  // Total de contas reais (boletos e fixas) a vencer nos próximos dias
+  const totalContasOperacionaisProximosDias = useMemo(() => {
+    return contasProximosDias.reduce((acc, d) => {
+      const contasReais = d.contasDoDia.reduce((s, c) => s + c.valor, 0);
+      return acc + contasReais;
+    }, 0);
+  }, [contasProximosDias]);
+
+  // Total de saídas incluindo provisões se ativadas
   const totalSaidasProximosDias = useMemo(() => {
     return contasProximosDias.reduce((acc, d) => acc + d.totalSaidas, 0);
   }, [contasProximosDias]);
@@ -335,15 +344,24 @@ export const CaixaInteligenteView: React.FC<CaixaInteligenteViewProps> = ({
     return contasProximosDias.reduce((acc, d) => acc + d.totalEntradasPrevistas, 0);
   }, [contasProximosDias]);
 
-  // Valor Essencial que precisa ficar na conta hoje:
-  // Necessidade líquida dos próximos dias (contas + provisões diárias) + margem de segurança configurada + provisões pendentes acumuladas que devem ser retidas
+  // 1. Dinheiro Operacional Protegido (Boletos + Fixas intocáveis para a farmácia não parar)
+  // Considera o déficit das contas reais dos próximos dias frente às entradas esperadas + colchão de segurança
+  const saldoOperacionalProtegido = useMemo(() => {
+    const deficitOperacional = Math.max(0, totalContasOperacionaisProximosDias - totalEntradasProximosDias);
+    return Math.max(colchaoSeguranca, deficitOperacional + (colchaoSeguranca * 0.5));
+  }, [totalContasOperacionaisProximosDias, totalEntradasProximosDias, colchaoSeguranca]);
+
+  // Sobra Operacional da Farmácia (o que sobra após garantir 100% dos boletos e fixas)
+  const sobraOperacionalBanco = saldoBanco - saldoOperacionalProtegido;
+
+  // 2. Valor Essencial Recomendado Completo (inclui retenção das caixinhas se o modo estiver ativo)
   const valorEssencialRecomendado = useMemo(() => {
     const deficitProximo = Math.max(0, totalSaidasProximosDias - totalEntradasProximosDias);
-    const retencaoProvisoesPendentes = considerarProvisoes ? provisoesPendentesAcumuladas : 0;
+    const retencaoProvisoesPendentes = considerarProvisoes ? (provisoesPendentesAcumuladas * 0.5) : 0; // Ponderado para não sufocar o giro
     return Math.max(colchaoSeguranca, deficitProximo + (colchaoSeguranca * 0.5) + retencaoProvisoesPendentes);
   }, [totalSaidasProximosDias, totalEntradasProximosDias, colchaoSeguranca, considerarProvisoes, provisoesPendentesAcumuladas]);
 
-  // Sobra Disponível Hoje para Render ou Devolver
+  // 3. Sobra Livre Real (Disponível com total segurança para transferir para Caixinha de Reserva ou Pró-Labore)
   const sobraDisponivel = saldoBanco - valorEssencialRecomendado;
 
   // Simulador de Rendimento (100% CDI ~ 11% a 13% a.a. => ~0,9% ao mês)
@@ -436,26 +454,41 @@ export const CaixaInteligenteView: React.FC<CaixaInteligenteViewProps> = ({
           </div>
 
           {/* Card Resumo da Sobra em Destaque */}
-          <div className="bg-slate-950/80 border border-indigo-500/40 rounded-2xl p-4 flex flex-col items-center justify-center min-w-[240px] text-center shadow-inner">
+          <div className="bg-slate-950/80 border border-indigo-500/40 rounded-2xl p-4 flex flex-col items-center justify-center min-w-[260px] text-center shadow-inner">
             <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400">
-              {sobraDisponivel >= 0 ? '✨ Sobra Livre para Transferir' : '⚠️ Aporte Necessário no Banco'}
+              {sobraOperacionalBanco >= 0 ? '🛡️ Sobra Operacional (Boletos)' : '⚠️ Aporte para Boletos'}
             </span>
-            <div className={`text-3xl font-black font-mono mt-1 ${sobraDisponivel >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-              R$ {Math.abs(sobraDisponivel).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            <div className={`text-3xl font-black font-mono mt-1 ${sobraOperacionalBanco >= 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
+              R$ {Math.abs(sobraOperacionalBanco).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
             <span className="text-[11px] text-slate-400 mt-1">
-              {sobraDisponivel >= 0 
-                ? (considerarProvisoes ? 'Sobra líquida (após contas e provisões)' : 'Rendimento 0% no banco -> Ponha no CDI') 
-                : 'Deposite do cofre para evitar juros'}
+              {sobraOperacionalBanco >= 0 
+                ? 'Garantido para pagar todos os boletos e contas' 
+                : 'Necessário para fechar os boletos sem juros'}
             </span>
+
+            <div className="w-full border-t border-slate-800 my-2 pt-2 flex flex-col items-center">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-300">
+                ✨ Sobra Livre (Caixinhas / Retirada)
+              </span>
+              <div className={`text-xl font-bold font-mono mt-0.5 ${sobraDisponivel >= 0 ? 'text-indigo-300' : 'text-slate-400'}`}>
+                {sobraDisponivel >= 0 
+                  ? `R$ ${sobraDisponivel.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` 
+                  : 'R$ 0,00'}
+              </div>
+              <span className="text-[10px] text-slate-500">
+                {sobraDisponivel >= 0 ? 'Liberado para transferir/poupar' : 'Priorizando giro e boletos da semana'}
+              </span>
+            </div>
+
             {sobraDisponivel > 0 && (
               <button
                 type="button"
                 onClick={copiarSobra}
-                className="mt-3 w-full py-1.5 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow"
+                className="mt-2 w-full py-1.5 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow"
               >
                 {copiedAmount ? <Check className="w-3.5 h-3.5 text-emerald-300" /> : <Copy className="w-3.5 h-3.5" />}
-                <span>{copiedAmount ? 'Valor Copiado!' : 'Copiar Valor do Pix'}</span>
+                <span>{copiedAmount ? 'Valor Copiado!' : 'Copiar Sobra Livre'}</span>
               </button>
             )}
           </div>
@@ -514,19 +547,17 @@ export const CaixaInteligenteView: React.FC<CaixaInteligenteViewProps> = ({
           <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-2">
             <span className="text-xs font-bold uppercase tracking-wider flex items-center gap-1.5">
               <ShieldCheck className="w-4 h-4 text-emerald-500" />
-              Colchão Essencial
+              Operacional Protegido
             </span>
             <span className="text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 px-2 py-0.5 rounded-full font-bold">
               {diasCoberturaEssencial} dias
             </span>
           </div>
           <div className="text-2xl font-black font-mono text-emerald-600 dark:text-emerald-400">
-            R$ {valorEssencialRecomendado.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            R$ {saldoOperacionalProtegido.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
           <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-            {considerarProvisoes 
-              ? 'Mínimo para cobrir contas + provisões sem sufoco'
-              : 'Mínimo obrigatório para cobrir contas sem cheque especial'}
+            Mínimo intocável no banco para honrar boletos e fixas
           </p>
         </div>
 

@@ -1,9 +1,19 @@
 {
   "version": "1.2.6",
-  "commitHash": "081aec6",
-  "commitMessage": "feat(caixa-inteligente): integrar provisoes das caixinhas no calculo do colchao e sobra livre",
-  "buildTime": "18/11/2026, 20:37:05",
+  "commitHash": "18a11d1",
+  "commitMessage": "fix(belaped): robustez de inicializacao puppeteer no windows e seletores de login",
+  "buildTime": "20/11/2026, 08:17:03",
   "recentCommits": [
+    {
+      "hash": "18a11d1",
+      "date": "19/11/2026",
+      "message": "fix(belaped): robustez de inicializacao puppeteer no windows e seletores de login"
+    },
+    {
+      "hash": "66a5c63",
+      "date": "18/11/2026",
+      "message": "fix(caixa-inteligente): corrigir ordem de inicializacao de variaveis e guards de seguranca"
+    },
     {
       "hash": "081aec6",
       "date": "18/11/2026",
@@ -53,16 +63,6 @@
       "hash": "9a938fb",
       "date": "15/11/2026",
       "message": "feat(belaped): adiciona painel visual de economia e comparativo com ultima compra"
-    },
-    {
-      "hash": "164b447",
-      "date": "15/11/2026",
-      "message": "feat(pdv): tabela de alta densidade para listagem de vendas com filtro por periodo"
-    },
-    {
-      "hash": "1597b6e",
-      "date": "15/11/2026",
-      "message": "fix(pdv): definicao explicita de totalVolume e totalVolumes com novo bundle de producao"
     }
   ]
 }
