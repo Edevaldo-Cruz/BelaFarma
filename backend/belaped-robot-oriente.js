@@ -191,7 +191,19 @@ class OrienteRobot {
       console.warn('[OrienteRobot] Timeout ao navegar para /pedidos:', e.message);
     }
 
-    await this.page.waitForSelector('input[placeholder*="Filtrar produtos" i]', { timeout: 20000 });
+    await new Promise(r => setTimeout(r, 1500));
+
+    // Fecha modal de pedido em andamento caso surja
+    await this.page.evaluate(() => {
+      const btns = Array.from(document.querySelectorAll('button, a'));
+      const btnContinuar = btns.find(b => {
+        const t = (b.innerText || '').toLowerCase().trim();
+        return t === 'sim' || t.includes('continuar') || t.includes('recuperar') || t.includes('manter');
+      });
+      if (btnContinuar) btnContinuar.click();
+    });
+
+    await this.page.waitForSelector('input[placeholder*="Filtrar produtos" i]', { timeout: 25000 });
     console.log('[OrienteRobot] ✅ Login e inicialização da Oriente Farma concluídos com sucesso!');
   }
 
