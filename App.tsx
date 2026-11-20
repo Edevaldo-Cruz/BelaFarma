@@ -83,7 +83,7 @@ import { InboundInvoices } from "./components/erp/InboundInvoices";
 import { ControlledMedicationsPortal } from "./components/erp/ControlledMedicationsPortal";
 import { FiscalAccountingView } from "./components/FiscalAccountingView";
 import { PromotionsManagerPage } from "./components/erp/PromotionsManagerPage";
-import { CreditCardPromptModal } from "./components/CreditCardPromptModal";
+import { VariableAccountsPromptModal } from "./components/VariableAccountsPromptModal";
 
 
 import {
@@ -750,38 +750,46 @@ const App: React.FC = () => {
     }
   }, [user, isMobile]);
 
-  // Checagem de Fatura do Cartão de Crédito exclusiva para Edevaldo ao iniciar
+  // Checagem de Contas Variáveis do Mês exclusiva para Edevaldo ao iniciar
   useEffect(() => {
     if (!user) return;
     const isEdevaldo = (user.name || '').toLowerCase().includes('edevaldo');
     if (!isEdevaldo) return;
 
-    const checkCreditCardPrompt = () => {
+    const checkVariableAccountsPrompt = () => {
       try {
         const now = new Date();
         const currentYear = now.getFullYear();
         const currentMonthStr = String(now.getMonth() + 1).padStart(2, '0');
         const monthKey = `${currentYear}-${currentMonthStr}`;
 
-        // Exibe uma vez ao iniciar a sessão do navegador
-        const sessionShown = sessionStorage.getItem(`belafarma_cc_prompt_session_${monthKey}`);
+        // Checa se já foi confirmado no mês (localStorage permanente)
+        const isConfirmed = localStorage.getItem(`belafarma_var_prompt_confirmed_${monthKey}`);
+        if (isConfirmed === 'true') {
+          return; // Já salvou para este mês, NÃO exibe mais
+        }
+
+        // Se ainda não salvou no mês, exibe uma única vez por sessão para não incomodar
+        const sessionShown = sessionStorage.getItem(`belafarma_var_prompt_session_${monthKey}`);
         if (!sessionShown) {
-          sessionStorage.setItem(`belafarma_cc_prompt_session_${monthKey}`, 'true');
+          sessionStorage.setItem(`belafarma_var_prompt_session_${monthKey}`, 'true');
           setTimeout(() => {
             setIsCreditCardModalOpen(true);
           }, 1200);
         }
       } catch (err) {
-        console.error('Erro na checagem de inicialização da fatura do cartão:', err);
+        console.error('Erro na checagem de inicialização de contas variáveis:', err);
       }
     };
 
-    checkCreditCardPrompt();
+    checkVariableAccountsPrompt();
 
     const handleOpenCCModal = () => setIsCreditCardModalOpen(true);
     window.addEventListener('belafarma_open_credit_card_modal', handleOpenCCModal);
+    window.addEventListener('belafarma_open_variable_accounts_modal', handleOpenCCModal);
     return () => {
       window.removeEventListener('belafarma_open_credit_card_modal', handleOpenCCModal);
+      window.removeEventListener('belafarma_open_variable_accounts_modal', handleOpenCCModal);
     };
   }, [user]);
 
@@ -1874,9 +1882,9 @@ const App: React.FC = () => {
         }}
       />
 
-      {/* Modal de Fatura do Cartão de Crédito exclusivo para Edevaldo */}
+      {/* Modal de Contas Variáveis do Mês exclusivo para Edevaldo */}
       {user && (user.name || '').toLowerCase().includes('edevaldo') && (
-        <CreditCardPromptModal
+        <VariableAccountsPromptModal
           isOpen={isCreditCardModalOpen}
           onClose={() => setIsCreditCardModalOpen(false)}
           onSuccess={() => {

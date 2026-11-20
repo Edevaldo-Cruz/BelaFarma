@@ -756,6 +756,16 @@ export const ProvisionsPanel: React.FC<ProvisionsPanelProps> = ({ cashClosings }
           </select>
 
           <button
+            type="button"
+            onClick={() => window.dispatchEvent(new CustomEvent('belafarma_open_variable_accounts_modal'))}
+            className="px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 shadow-xs cursor-pointer"
+            title="Abrir formulário de contas variáveis do mês (Cartão, DAS, INSS, CEMIG, NUV)"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+            <span>Ajustar Contas Variáveis</span>
+          </button>
+
+          <button
             onClick={() => {
               fetchPaidDates();
               fetchPricingAverages();
