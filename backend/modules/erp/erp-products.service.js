@@ -38,6 +38,176 @@ function enrichProduct(p) {
 }
 
 /**
+ * Gera variações normalizadas de código de barras / código interno
+ * para suportar leitores com espaços, caracteres de controle, EAN-14 com zero à esquerda,
+ * UPC-A (12 dígitos) e códigos que iniciam com zeros.
+ */
+function buildBarcodeCandidates(codigoOuEan) {
+  const raw = String(codigoOuEan || '')
+    .replace(/[\r\n\t\x00-\x1F\x7F]/g, '')
+    .trim()
+    .replace(/\.0+$/, '');
+  const cleanNoSpaces = raw.replace(/\s+/g, '');
+  if (!raw && !cleanNoSpaces) {
+    return { raw: '', cleanNoSpaces: '', noLeadingZeros: '', candidates: [] };
+  }
+
+  const candidateSet = new Set();
+  if (raw) candidateSet.add(raw);
+  if (cleanNoSpaces) candidateSet.add(cleanNoSpaces);
+
+  let noLeadingZeros = '';
+  if (/^\d+$/.test(cleanNoSpaces)) {
+    noLeadingZeros = cleanNoSpaces.replace(/^0+/, '');
+    if (noLeadingZeros) {
+      candidateSet.add(noLeadingZeros);
+      if (noLeadingZeros.length >= 6 && noLeadingZeros.length <= 13) {
+        candidateSet.add(noLeadingZeros.padStart(13, '0'));
+      }
+      if (noLeadingZeros.length >= 6 && noLeadingZeros.length <= 14) {
+        candidateSet.add(noLeadingZeros.padStart(14, '0'));
+      }
+    }
+    if (cleanNoSpaces.length === 14 && cleanNoSpaces.startsWith('0')) {
+      candidateSet.add(cleanNoSpaces.slice(1));
+    }
+  }
+
+  return {
+    raw,
+    cleanNoSpaces,
+    noLeadingZeros,
+    candidates: Array.from(candidateSet)
+  };
+}
+
+/**
+ * Busca rápida de produto na tabela local products usando candidatos normalizados
+ */
+function findInProductsLocal(parsed) {
+  if (!parsed || !parsed.candidates || parsed.candidates.length === 0) return null;
+
+  const barcodePlaceholders = parsed.candidates.map(() => '?').join(', ');
+  const codeCandidates = parsed.cleanNoSpaces && /^\d+$/.test(parsed.cleanNoSpaces)
+    ? [...parsed.candidates, `${parsed.cleanNoSpaces}.0`]
+    : parsed.candidates;
+  const codePlaceholders = codeCandidates.map(() => '?').join(', ');
+
+  let found = db.prepare(`
+    SELECT p.*,
+           COALESCE(c.vendas_30d, p.vendas_30d, 0) as vendas_30d,
+           COALESCE(c.vendas_10m, p.vendas_10m, 0) as vendas_10m
+    FROM products p 
+    LEFT JOIN compras_estoque_cache c ON (c.ean = p.barcode AND c.ean IS NOT NULL AND c.ean != '')
+    WHERE (p.barcode IN (${barcodePlaceholders}) OR p.code IN (${codePlaceholders}))
+      AND p.is_active = 1
+    ORDER BY (p.code NOT LIKE '%.0') DESC
+    LIMIT 1
+  `).get(...parsed.candidates, ...codeCandidates);
+
+  if (!found && parsed.noLeadingZeros && parsed.noLeadingZeros.length >= 6) {
+    found = db.prepare(`
+      SELECT p.*,
+             COALESCE(c.vendas_30d, p.vendas_30d, 0) as vendas_30d,
+             COALESCE(c.vendas_10m, p.vendas_10m, 0) as vendas_10m
+      FROM products p 
+      LEFT JOIN compras_estoque_cache c ON (c.ean = p.barcode AND c.ean IS NOT NULL AND c.ean != '')
+      WHERE LTRIM(TRIM(p.barcode), '0') = ?
+        AND p.barcode IS NOT NULL
+        AND TRIM(p.barcode) != ''
+        AND p.is_active = 1
+      ORDER BY (p.code NOT LIKE '%.0') DESC
+      LIMIT 1
+    `).get(parsed.noLeadingZeros);
+  }
+
+  return found || null;
+}
+
+/**
+ * Fallback no cache local digifarma_products_cache quando não localizado em products,
+ * promovendo/reativando o produto na tabela products.
+ */
+function findInDigifarmaCacheAndPromote(parsed) {
+  if (!parsed || !parsed.candidates || parsed.candidates.length === 0) return null;
+
+  try {
+    const placeholders = parsed.candidates.map(() => '?').join(', ');
+    let cached = db.prepare(`
+      SELECT *
+      FROM digifarma_products_cache
+      WHERE codigo_barras IN (${placeholders}) OR produto_id IN (${placeholders})
+      LIMIT 1
+    `).get(...parsed.candidates, ...parsed.candidates);
+
+    if (!cached && parsed.noLeadingZeros && parsed.noLeadingZeros.length >= 6) {
+      cached = db.prepare(`
+        SELECT *
+        FROM digifarma_products_cache
+        WHERE LTRIM(TRIM(codigo_barras), '0') = ?
+          AND codigo_barras IS NOT NULL
+          AND TRIM(codigo_barras) != ''
+        LIMIT 1
+      `).get(parsed.noLeadingZeros);
+    }
+
+    if (!cached) return null;
+
+    const cleanCode = String(cached.produto_id || '').trim().replace(/\.0+$/, '');
+    if (!cleanCode) return null;
+
+    const cleanBarcode = String(cached.codigo_barras || '').trim().replace(/\s+/g, '');
+    const salePrice = Number(cached.preco_normal) > 0 ? Number(cached.preco_normal) : Number(cached.preco_venda || 0);
+    const promoPrice = Number(cached.preco_promocao || 0);
+    const costPrice = Number(cached.preco_custo || 0);
+    const stockQty = Number(cached.estoque_atual || 0);
+
+    db.prepare(`
+      INSERT INTO products (
+        code, barcode, name, presentation, category_id,
+        sale_price, promo_price, cost_price, stock_qty, curve,
+        tributacao_monofasica, cst_pis, cst_cofins, aliquota_st, imposto_aliq, ncm, cest,
+        is_active, updated_at
+      ) VALUES (
+        ?, ?, ?, '', ?,
+        ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?, ?,
+        1, datetime('now', 'localtime')
+      )
+      ON CONFLICT(code) DO UPDATE SET
+        barcode = CASE WHEN excluded.barcode != '' THEN excluded.barcode ELSE products.barcode END,
+        sale_price = excluded.sale_price,
+        promo_price = excluded.promo_price,
+        cost_price = excluded.cost_price,
+        stock_qty = excluded.stock_qty,
+        is_active = 1,
+        updated_at = datetime('now', 'localtime')
+    `).run(
+      cleanCode,
+      cleanBarcode,
+      String(cached.descricao || '').trim() || `PRODUTO ${cleanCode}`,
+      cached.categoria_id || null,
+      salePrice,
+      promoPrice,
+      costPrice,
+      stockQty,
+      cached.curva || 'C',
+      cached.tributacao_monofasica || null,
+      cached.cst_pis || null,
+      cached.cst_cofins || null,
+      cached.aliquota_st ?? null,
+      cached.imposto_aliq ?? null,
+      cached.ncm || null,
+      cached.cest || null
+    );
+
+    return findInProductsLocal(parsed);
+  } catch (e) {
+    return null;
+  }
+}
+
+/**
  * Tenta buscar um produto em tempo real no Firebird do Digifarma
  * caso ele tenha acabado de ser cadastrado no Digifarma e ainda não exista no SQLite local.
  */
@@ -45,23 +215,31 @@ async function syncSingleProductFromDigifarma(cleanQ) {
   if (!cleanQ) return null;
   try {
     const { queryDigifarma } = require('../../services/digifarma.service');
-    const raw = String(cleanQ || '').trim();
-    const cleanNoSpaces = raw.replace(/\s+/g, '');
+    const parsed = buildBarcodeCandidates(cleanQ);
+    const raw = parsed.raw;
+    const cleanNoSpaces = parsed.cleanNoSpaces;
+    if (!raw && !cleanNoSpaces) return null;
+
+    const barcodeCondParts = [];
+    const params = [];
+    const barcodeCandidates = parsed.candidates.slice(0, 6);
+    for (const bc of barcodeCandidates) {
+      barcodeCondParts.push('COD_BARRAS = ?');
+      params.push(bc);
+    }
+
     const isNum = /^\d+$/.test(cleanNoSpaces);
     const numVal = isNum ? Number(cleanNoSpaces) : NaN;
     // PRODUTO_ID no Firebird é INTEGER (32 bits, máx 2.147.483.647).
     // Se for maior (como EAN-13 de 13 dígitos), não pode ser passado para PRODUTO_ID senão causa Integer Overflow!
     const canBeProdutoId = !isNaN(numVal) && numVal > 0 && numVal <= 2147483647;
 
-    let whereCond;
-    let params;
     if (canBeProdutoId) {
-      whereCond = "(COD_BARRAS = ? OR COD_BARRAS = ? OR PRODUTO_ID = ?)";
-      params = [cleanNoSpaces, raw, numVal];
-    } else {
-      whereCond = "(COD_BARRAS = ? OR COD_BARRAS = ?)";
-      params = [cleanNoSpaces, raw];
+      barcodeCondParts.push('PRODUTO_ID = ?');
+      params.push(numVal);
     }
+
+    const whereCond = `(${barcodeCondParts.join(' OR ')})`;
 
     const fbNew = await queryDigifarma(`
       SELECT FIRST 1
@@ -161,7 +339,7 @@ async function syncSingleProductFromDigifarma(cleanQ) {
  * priorizando produtos mais vendidos (curva A/volume de vendas) e com estoque.
  */
 async function buscarProdutos({ query = '', limit = 30, onlyWithStock = false } = {}) {
-  const cleanQ = (query || '').trim();
+  const cleanQ = String(query || '').replace(/[\r\n\t\x00-\x1F\x7F]/g, '').trim();
   const cleanNoSpaces = cleanQ.replace(/\s+/g, '');
   if (!cleanQ && !cleanNoSpaces) {
     let sql = `
@@ -185,25 +363,19 @@ async function buscarProdutos({ query = '', limit = 30, onlyWithStock = false } 
     return db.prepare(sql).all(limit).map(enrichProduct);
   }
 
-  // Se for código numérico (bipagem de EAN ou código interno, mesmo com espaços acidentais)
+  // Se for código numérico (bipagem de EAN ou código interno, mesmo com espaços acidentais ou zeros à esquerda)
   if (/^\d+$/.test(cleanNoSpaces) || /^\d+$/.test(cleanQ)) {
-    // 1. Tenta correspondência exata de EAN ou Código no SQLite local
-    const exact = db.prepare(`
-      SELECT p.*,
-             COALESCE(c.vendas_30d, p.vendas_30d, 0) as vendas_30d,
-             COALESCE(c.vendas_10m, p.vendas_10m, 0) as vendas_10m
-      FROM products p
-      LEFT JOIN compras_estoque_cache c ON (c.ean = p.barcode AND c.ean IS NOT NULL AND c.ean != '')
-      WHERE (p.barcode = ? OR p.barcode = ? OR p.code = ? OR p.code = ?) AND p.is_active = 1
-      LIMIT 1
-    `).get(cleanQ, cleanNoSpaces, cleanQ, cleanNoSpaces);
-
+    const parsed = buildBarcodeCandidates(cleanQ);
+    // 1. Tenta correspondência exata ou normalizada no SQLite local (products -> cache Digifarma)
+    const exact = findInProductsLocal(parsed) || findInDigifarmaCacheAndPromote(parsed);
     if (exact) {
-      return [enrichProduct(exact)];
+      const enriched = enrichProduct(exact);
+      if (enriched) enriched.code = String(enriched.code).replace(/\.0+$/, '');
+      return [enriched];
     }
 
     // 2. Se não encontrou no SQLite local, busca em tempo real no Firebird do Digifarma!
-    const fromDg = await syncSingleProductFromDigifarma(cleanNoSpaces || cleanQ);
+    const fromDg = await syncSingleProductFromDigifarma(parsed.cleanNoSpaces || parsed.raw);
     if (fromDg) {
       return [enrichProduct(fromDg)];
     }
@@ -277,46 +449,25 @@ async function buscarProdutos({ query = '', limit = 30, onlyWithStock = false } 
  * Busca síncrona ultra-rápida de um único produto no SQLite local (para checkout, transações e validações)
  */
 function obterProdutoPorCodigoSync(codigoOuEan) {
-  const raw = String(codigoOuEan || '').trim().replace(/\.0+$/, '');
-  const cleanNoSpaces = raw.replace(/\s+/g, '');
-  if (!raw && !cleanNoSpaces) return null;
+  const parsed = buildBarcodeCandidates(codigoOuEan);
+  if (!parsed.candidates.length) return null;
 
-  const found = db.prepare(`
-    SELECT p.*,
-           COALESCE(c.vendas_30d, p.vendas_30d, 0) as vendas_30d,
-           COALESCE(c.vendas_10m, p.vendas_10m, 0) as vendas_10m
-    FROM products p 
-    LEFT JOIN compras_estoque_cache c ON (c.ean = p.barcode AND c.ean IS NOT NULL AND c.ean != '')
-    WHERE (p.barcode = ? OR p.barcode = ? OR p.code = ? OR p.code = ? OR p.code = ?) AND p.is_active = 1
-    ORDER BY (p.code NOT LIKE '%.0') DESC
-    LIMIT 1
-  `).get(raw, cleanNoSpaces, raw, cleanNoSpaces, `${raw}.0`);
-
+  const found = findInProductsLocal(parsed) || findInDigifarmaCacheAndPromote(parsed);
   if (!found) return null;
+
   const enriched = enrichProduct(found);
   if (enriched) enriched.code = String(enriched.code).replace(/\.0+$/, '');
   return enriched;
 }
 
 /**
- * Busca um único produto pelo EAN ou Código (com fallback assíncrono ao Digifarma)
+ * Busca um único produto pelo EAN ou Código (products -> digifarma_products_cache -> Firebird)
  */
 async function obterProdutoPorCodigo(codigoOuEan) {
-  const raw = String(codigoOuEan || '').trim().replace(/\.0+$/, '');
-  const cleanNoSpaces = raw.replace(/\s+/g, '');
-  if (!raw && !cleanNoSpaces) return null;
+  const parsed = buildBarcodeCandidates(codigoOuEan);
+  if (!parsed.candidates.length) return null;
 
-  const found = db.prepare(`
-    SELECT p.*,
-           COALESCE(c.vendas_30d, p.vendas_30d, 0) as vendas_30d,
-           COALESCE(c.vendas_10m, p.vendas_10m, 0) as vendas_10m
-    FROM products p 
-    LEFT JOIN compras_estoque_cache c ON (c.ean = p.barcode AND c.ean IS NOT NULL AND c.ean != '')
-    WHERE (p.barcode = ? OR p.barcode = ? OR p.code = ? OR p.code = ? OR p.code = ?) AND p.is_active = 1
-    ORDER BY (p.code NOT LIKE '%.0') DESC
-    LIMIT 1
-  `).get(raw, cleanNoSpaces, raw, cleanNoSpaces, `${raw}.0`);
-
+  const found = findInProductsLocal(parsed) || findInDigifarmaCacheAndPromote(parsed);
   if (found) {
     const enriched = enrichProduct(found);
     if (enriched) enriched.code = String(enriched.code).replace(/\.0+$/, '');
@@ -324,7 +475,7 @@ async function obterProdutoPorCodigo(codigoOuEan) {
   }
 
   // Se não encontrou no SQLite local, tenta buscar no Digifarma Firebird em tempo real
-  const fromDg = await syncSingleProductFromDigifarma(cleanNoSpaces || raw);
+  const fromDg = await syncSingleProductFromDigifarma(parsed.cleanNoSpaces || parsed.raw);
   if (fromDg) {
     return enrichProduct(fromDg);
   }

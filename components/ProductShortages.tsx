@@ -4,7 +4,7 @@ import {
   MessageCircle, Star, X, Save, User as UserIcon,
   Tag, AlertCircle, Loader2, Sparkles, FileDown, BarChart3,
   Truck, Check, Eye, EyeOff, AlertTriangle, RefreshCw, Users,
-  Send, FileText
+  Send, FileText, ShieldCheck
 } from 'lucide-react';
 import { GoogleGenAI, Type } from "@google/genai";
 import { ProductShortage, ProductType, User, UserRole } from '../types';
@@ -80,6 +80,53 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
   const [isScanModalOpen, setIsScanModalOpen] = useState(false);
   const [targetPhone, setTargetPhone] = useState('');
   const [isExporting, setIsExporting] = useState(false);
+  const [isCheckingEquiv, setIsCheckingEquiv] = useState(false);
+  const [isApplyingEquiv, setIsApplyingEquiv] = useState(false);
+  const [equivAuditModal, setEquivAuditModal] = useState<any | null>(null);
+
+  const handleVerificarEquivalentes = async () => {
+    setIsCheckingEquiv(true);
+    try {
+      const res = await fetch('/api/central-compras/equivalentes/reavaliar-faltas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dryRun: true, consultarFirebird: true })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setEquivAuditModal(data.data);
+      } else {
+        addToast(data.error || 'Erro ao verificar equivalentes.', 'error');
+      }
+    } catch (err: any) {
+      addToast('Erro de conexão: ' + err.message, 'error');
+    } finally {
+      setIsCheckingEquiv(false);
+    }
+  };
+
+  const handleConfirmarBaixaEquivalentes = async () => {
+    setIsApplyingEquiv(true);
+    try {
+      const res = await fetch('/api/central-compras/equivalentes/reavaliar-faltas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dryRun: false, consultarFirebird: true })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        addToast(data.message || 'Faltas atualizadas com equivalentes!', 'success');
+        setEquivAuditModal(null);
+        if (onRefresh) await onRefresh();
+      } else {
+        addToast(data.error || 'Erro ao aplicar baixa por equivalentes.', 'error');
+      }
+    } catch (err: any) {
+      addToast('Erro de conexão: ' + err.message, 'error');
+    } finally {
+      setIsApplyingEquiv(false);
+    }
+  };
 
   const handleWhatsAppScan = async (deepScan: boolean, phone?: string) => {
     setIsScanModalOpen(false);
@@ -586,6 +633,15 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
             )}
             {isScanning ? "Varrendo..." : "Varrer WhatsApp"}
           </button>
+          <button
+            onClick={handleVerificarEquivalentes}
+            disabled={isCheckingEquiv}
+            title="Verifica faltas pendentes que possuem equivalente em estoque na loja"
+            className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl font-bold transition-all shadow-lg active:scale-95 whitespace-nowrap min-h-[44px] shrink-0 text-sm"
+          >
+            {isCheckingEquiv ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
+            {isCheckingEquiv ? "Verificando..." : "Verificar Equivalentes"}
+          </button>
           <button 
             onClick={onRefresh}
             className="flex items-center gap-1.5 px-4 py-2.5 bg-white text-slate-700 border border-slate-200 rounded-xl font-bold hover:bg-slate-50 transition-all shadow-sm active:scale-95 whitespace-nowrap min-h-[44px] shrink-0 text-sm"
@@ -776,14 +832,14 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
                     className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                   />
                 </th>
-                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50">Produto / Item</th>
-                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 text-center">Saldo</th>
-                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 text-right">Última Compra</th>
-                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50">Tipo</th>
-                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 text-center">Procura de Cliente</th>
-                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 text-center">Status de Aquisição</th>
-                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50">Registrado por</th>
-                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 text-center">Ações</th>
+                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 whitespace-nowrap">Produto / Item</th>
+                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 text-center whitespace-nowrap">Saldo</th>
+                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 text-right whitespace-nowrap">Última Compra</th>
+                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 whitespace-nowrap">Tipo</th>
+                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 text-center whitespace-nowrap">Procura de Cliente</th>
+                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 text-center whitespace-nowrap">Status de Aquisição</th>
+                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 whitespace-nowrap">Registrado por</th>
+                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 text-center whitespace-nowrap">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -834,6 +890,14 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
                             <span className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
                               <MessageCircle className="w-2.5 h-2.5 fill-emerald-600/30 text-emerald-600" />
                               WhatsApp
+                            </span>
+                          )}
+                          {s.equivalenteInfo && Array.isArray(s.equivalenteInfo.equivalentesComEstoque) && s.equivalenteInfo.equivalentesComEstoque.length > 0 && (
+                            <span
+                              className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 whitespace-nowrap"
+                              title={`Equivalentes em estoque (${s.equivalenteInfo.saldoGrupo} un no grupo): ${s.equivalenteInfo.equivalentesComEstoque.map(e => `${e.descricao} (${e.saldo} un)`).join(' | ')}`}
+                            >
+                              💊 Equiv.: {s.equivalenteInfo.saldoGrupo} un
                             </span>
                           )}
                         </div>
@@ -1467,6 +1531,87 @@ export const ProductShortages: React.FC<ProductShortagesProps> = ({ user, shorta
         user={user}
         onShortagesUpdated={onRefresh}
       />
+
+      {/* Modal de Auditoria/Baixa por Equivalentes */}
+      {equivAuditModal && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
+          <div className="w-full max-w-xl bg-white rounded-[2rem] shadow-2xl overflow-hidden animate-slide-up">
+            <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-center">
+              <div>
+                <h2 className="text-lg font-black text-slate-800 flex items-center gap-2">
+                  <ShieldCheck className="w-5 h-5 text-indigo-600" />
+                  Verificar Equivalentes em Estoque
+                </h2>
+                <p className="text-xs text-slate-500">
+                  {equivAuditModal.totalAnalisadas} falta(s) pendente(s) analisada(s)
+                </p>
+              </div>
+              <button
+                onClick={() => setEquivAuditModal(null)}
+                className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-200">
+                  <div className="text-[11px] font-bold text-emerald-700">Automáticas Cobertas</div>
+                  <div className="text-2xl font-black text-emerald-600">{equivAuditModal.totalCobertasAuto}</div>
+                  <div className="text-[11px] text-emerald-600/80">Baixa automática (estoque &gt; 1)</div>
+                </div>
+                <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200">
+                  <div className="text-[11px] font-bold text-amber-700">Manuais / WhatsApp</div>
+                  <div className="text-2xl font-black text-amber-600">{equivAuditModal.totalCobertasManuais}</div>
+                  <div className="text-[11px] text-amber-600/80">Sinalizadas com badge de equivalente</div>
+                </div>
+              </div>
+
+              {Array.isArray(equivAuditModal.amostraCobertas) && equivAuditModal.amostraCobertas.length > 0 ? (
+                <div className="max-h-60 overflow-y-auto border border-slate-200 rounded-2xl divide-y divide-slate-100">
+                  {equivAuditModal.amostraCobertas.slice(0, 30).map((it: any) => (
+                    <div key={it.id} className="p-3 text-xs flex items-center justify-between gap-2">
+                      <div>
+                        <div className="font-bold text-slate-800">{it.productName}</div>
+                        <div className="text-[11px] text-emerald-600">
+                          {(it.equivalentes || []).map((e: any) => `${e.descricao} (${e.saldo} un)`).join(' • ')}
+                        </div>
+                      </div>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 text-indigo-700 whitespace-nowrap">
+                        {it.saldoGrupo} un
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-6 text-xs text-slate-500">
+                  Nenhuma falta pendente possui equivalente com estoque &gt; 1 no momento.
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  onClick={() => setEquivAuditModal(null)}
+                  className="px-4 py-2.5 text-xs font-bold rounded-xl text-slate-600 hover:bg-slate-100"
+                >
+                  Fechar
+                </button>
+                {(equivAuditModal.totalCobertasAuto > 0 || equivAuditModal.totalCobertasManuais > 0) && (
+                  <button
+                    onClick={handleConfirmarBaixaEquivalentes}
+                    disabled={isApplyingEquiv}
+                    className="flex items-center gap-1.5 px-4 py-2.5 text-xs font-bold rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-50"
+                  >
+                    {isApplyingEquiv ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                    {isApplyingEquiv ? 'Aplicando...' : 'Aplicar Verificação'}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 };

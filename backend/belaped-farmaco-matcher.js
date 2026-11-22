@@ -6,15 +6,15 @@
 
 // Lista de principais laboratórios conhecidos para identificação e limpeza
 const LABORATORIOS_CONHECIDOS = [
-  'EMS', 'EUROFARMA', 'MEDLEY', 'NEO QUIMICA', 'NEOQUIMICA', 'TEUTO', 'CIMED', 'PRATI DONADUZZI',
-  'PRATI', 'ACHE', 'BIOSINTETICA', 'BIOLAB', 'SANDOZ', 'LEGRAND', 'GERMED', 'NOVA QUIMICA',
+  'EMS', 'EUROFARMA', 'EUROF', 'MEDLEY', 'NEO QUIMICA', 'NEOQUIMICA', 'NEO QUI', 'TEUTO', 'TEU', 'CIMED', 'PRATI DONADUZZI',
+  'PRATI', 'ACHE', 'BIOSINTETICA', 'BIOSINT', 'BIOLAB', 'SANDOZ', 'LEGRAND', 'GERMED', 'GERM', 'NOVA QUIMICA',
   'NOVAQUIMICA', 'GLOBO', 'GEOLAB', 'ZODIAC', 'ALCON', 'TORRENT', 'MANTECORP', 'HYPERA',
-  'CRISTALIA', 'UNIAO QUIMICA', 'VITAMEDIC', 'BRAINFARMA', 'ASPEN', 'ABBOTT', 'SANOFI',
+  'CRISTALIA', 'UNIAO QUIMICA', 'VITAMEDIC', 'VITAPAN', 'BRAINFARMA', 'BRAINFAR', 'ASPEN', 'ABBOTT', 'SANOFI',
   'PFIZER', 'BAYER', 'NOVARTIS', 'GSK', 'ASTRAZENECA', 'TAKEDA', 'BOEHRINGER', 'ALTHAIA',
   'MOMENTA', 'MULTILAB', 'KLEY HERTZ', 'HERTZ', 'CATARINENSE', 'AIRELA', 'NATULAB', 'CIFARMA',
-  'PHARLAB', 'AUROBINDO', 'APSEN', 'GLENMARK', 'RANBAXY', 'ACCORD', 'BLAU', 'VIATRIS', 'TEVA',
+  'PHARLAB', 'AUROBINDO', 'APSEN', 'GLENMARK', 'RANBAXY', 'ZYDUS', 'ACCORD', 'BLAU', 'VIATRIS', 'TEVA',
   'CELLERA', 'SUPERA', 'FARMACE', 'HALEX ISTAR', 'HIPOLABOR', 'EQUIPLEX', 'SAMTEC',
-  'NOVA QUIM', 'NOVAQUI', 'MEDQUIMICA', 'FARMAX'
+  'NOVA QUIM', 'NOVAQUI', 'MEDQUIMICA', 'MEDQUIMIC', 'BELFAR', 'FARMAX'
 ];
 
 // Dicionário de sinonímias entre medicamentos de Marca/Referência e a DCB (Princípio Ativo)
@@ -114,14 +114,25 @@ function normalizarTexto(txt) {
 function extrairDosagem(txt) {
   const norm = normalizarTexto(txt);
   
-  // Trata casos comuns de abreviação como "16 M C/" ou "16M "
-  const normAjustada = norm.replace(/\b(\d+)\s*M\s*(?:C\/|CPR|COMP|\/)\b/i, '$1MG ');
+  // Trata casos comuns de abreviação como "16 M C/", "16 MC/" ou "16M "
+  const normAjustada = norm
+    .replace(/\b(\d+(?:[.,]\d+)?)\s*MC\s*\/\s*(?=\d)/gi, '$1MG C/ ')
+    .replace(/\b(\d+)\s*M\s*(?:C\/|CPR|COMP|\/)\b/i, '$1MG ');
 
   // Procura padrões como "500MG", "50 MG", "10MG/ML", "50 MCG", "10 UI", "0,5%", "5%"
   const regex = /(\b\d+([.,]\d+)?\s*(MG\/ML|MCG\/ML|G\/ML|MG|MCG|G|UI|ML|%)\b)/i;
   const match = normAjustada.match(regex);
   if (match) {
-    return match[1].replace(/\s+/g, '').replace(',', '.').toUpperCase();
+    let dose = match[1].replace(/\s+/g, '').replace(',', '.').toUpperCase();
+    // Normaliza 1G -> 1000MG quando não for bisnaga tópica (pomada/creme/gel)
+    const isTopico = /\b(?:POM|PDA|POMADA|CRM|CREME|GEL)\b/i.test(norm);
+    if (!isTopico && /^(\d+(?:\.\d+)?)G$/i.test(dose)) {
+      const val = parseFloat(dose);
+      if (val > 0 && val <= 5) {
+        dose = `${val * 1000}MG`;
+      }
+    }
+    return dose;
   }
   return null;
 }
@@ -306,6 +317,26 @@ function validarEquivalenciaEstrita(itemOriginal, candidato) {
     if (!normCand.includes(raizOrig) && raizOrig !== raizCand) {
       return false;
     }
+  }
+
+  // 1b. Proteção de sais clinicamente diferenciadores (Diclofenaco Sódico vs Potássico, Metoprolol Succinato vs Tartarato)
+  if ((normOrig.includes('DICLOFENACO') || normOrig.includes('VOLTAREN') || normOrig.includes('CATAFLAM')) &&
+      (normCand.includes('DICLOFENACO') || normCand.includes('VOLTAREN') || normCand.includes('CATAFLAM'))) {
+    const isPotOrig = /\bPOTASSIC[OA]?\b|\bCATAFLAM\b/.test(normOrig);
+    const isPotCand = /\bPOTASSIC[OA]?\b|\bCATAFLAM\b/.test(normCand);
+    const isSodOrig = /\bSODIC[OA]?\b|\bVOLTAREN\b/.test(normOrig);
+    const isSodCand = /\bSODIC[OA]?\b|\bVOLTAREN\b/.test(normCand);
+    if ((isPotOrig && isSodCand) || (isSodOrig && isPotCand)) {
+      return false;
+    }
+  }
+
+  // 1c. Proteção de modificadores farmacocinéticos/via (XR/CR/SR/SUBL/MAST/EFERV)
+  const modRegex = /\b(XR|CR|SR|LP|LA|OD|AP|RETARD|SUBL|SUBLINGUAL|EFERV|MAST|MASTIG)\b/;
+  const mOrig = modRegex.exec(normOrig);
+  const mCand = modRegex.exec(normCand);
+  if (Boolean(mOrig) !== Boolean(mCand)) {
+    return false;
   }
 
   // 2. Validação Rigorosa de Dosagem

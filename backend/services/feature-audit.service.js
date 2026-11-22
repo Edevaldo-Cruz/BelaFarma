@@ -58,6 +58,7 @@ const FEATURE_CATALOG = {
   'critical-stock': { label: 'Estoque Crítico', protected: false, componentName: 'CriticalStockManager', files: ['components/CriticalStockManager.tsx'] },
   'system-watcher': { label: 'Vigilante', protected: false, componentName: 'SystemWatcher', files: ['components/SystemWatcher.tsx'] },
   'price-manager': { label: 'Gestão de Preços', protected: false, componentName: 'PriceManager', files: ['components/PriceManager.tsx'] },
+  'levantamento-proffer': { label: 'Levantamento Proffer', protected: false, componentName: 'LevantamentoProffer', files: ['components/LevantamentoProffer.tsx'] },
   'liquidacao-caixa': { label: 'Liquidação & Caixa', protected: false, componentName: 'LiquidacaoCaixa', files: ['components/LiquidacaoCaixa.tsx'] }
 };
 

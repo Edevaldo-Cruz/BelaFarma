@@ -462,24 +462,28 @@ async function calcularEstoqueMinimo30Dias(produtoId, margemSegurancaPercent = 1
   try {
     db.prepare(`
       INSERT OR REPLACE INTO compras_estoque_cache (
-        produto_id, descricao, ean, categoria_id, curva_abc, saldo,
+        produto_id, descricao, apresentacao, ean, categoria_id, curva_abc, saldo,
         est_minimo_calculado, est_maximo_calculado, est_minimo_digifarma, vmd_ponderado,
         vendas_30d, vendas_31_60d, vendas_61_90d, ciclo_vida, custo_unitario, ultima_compra_valor,
         status_ruptura, margem_seguranca_aplicada, dias_sem_venda,
         ativo_10m, vendas_10m, entradas_10m,
+        substancia_id, substancia_nome,
         sincronizado_em, atualizado_em
       ) VALUES (
-        ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?,
         ?, ?, ?, ?, ?, ?,
         ?, ?, ?,
         ?, ?, ?,
+        (SELECT substancia_id FROM compras_estoque_cache WHERE produto_id = ?),
+        (SELECT substancia_nome FROM compras_estoque_cache WHERE produto_id = ?),
         (SELECT sincronizado_em FROM compras_estoque_cache WHERE produto_id = ?),
         datetime('now', 'localtime')
       )
     `).run(
       pId,
       descricaoCompleta || 'PRODUTO SEM NOME',
+      (prodData.APRESENTACAO || '').trim(),
       prodData.EAN || '',
       Number(prodData.CATEGORIA_ID || 0),
       curvaAbc,
@@ -500,6 +504,8 @@ async function calcularEstoqueMinimo30Dias(produtoId, margemSegurancaPercent = 1
       ativo10m,
       vendas10m,
       entradas10m,
+      pId,
+      pId,
       pId
     );
   } catch (eSqlite) {
@@ -883,6 +889,7 @@ async function recalcularTodosEstoqueMinimo(margemSegurancaPercent = 15, options
     resultadosCache.push({
       produto_id: pId,
       descricao: descricaoCompleta || 'PRODUTO',
+      apresentacao: (p.APRESENTACAO || '').trim(),
       ean: p.EAN || '',
       categoria_id: Number(p.CATEGORIA_ID || 0),
       curva_abc: curva,
@@ -911,15 +918,16 @@ async function recalcularTodosEstoqueMinimo(margemSegurancaPercent = 15, options
   // Grava todos no SQLite em uma única transação de alta performance
   const upsertStmt = db.prepare(`
     INSERT OR REPLACE INTO compras_estoque_cache (
-      produto_id, descricao, ean, categoria_id, curva_abc, saldo,
+      produto_id, descricao, apresentacao, ean, categoria_id, curva_abc, saldo,
       est_minimo_calculado, est_maximo_calculado, est_minimo_digifarma, vmd_ponderado,
       vendas_30d, vendas_31_60d, vendas_61_90d, ciclo_vida, custo_unitario, ultima_compra_valor,
       status_ruptura, margem_seguranca_aplicada, dias_sem_venda,
       ativo_10m, vendas_10m, entradas_10m,
       preco_venda_vigente, preco_normal, preco_promocional,
+      substancia_id, substancia_nome,
       sincronizado_em, atualizado_em
     ) VALUES (
-      ?, ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?, ?, ?,
       ?, ?, ?, ?,
       ?, ?, ?, ?, ?, ?,
       ?, ?, 0,
@@ -927,6 +935,8 @@ async function recalcularTodosEstoqueMinimo(margemSegurancaPercent = 15, options
       COALESCE(NULLIF(?, 0), (SELECT preco_venda_vigente FROM compras_estoque_cache WHERE produto_id = ?), 0),
       COALESCE(NULLIF(?, 0), (SELECT preco_normal FROM compras_estoque_cache WHERE produto_id = ?), 0),
       COALESCE(NULLIF(?, 0), (SELECT preco_promocional FROM compras_estoque_cache WHERE produto_id = ?), 0),
+      (SELECT substancia_id FROM compras_estoque_cache WHERE produto_id = ?),
+      (SELECT substancia_nome FROM compras_estoque_cache WHERE produto_id = ?),
       (SELECT sincronizado_em FROM compras_estoque_cache WHERE produto_id = ?),
       datetime('now', 'localtime')
     )
@@ -937,6 +947,7 @@ async function recalcularTodosEstoqueMinimo(margemSegurancaPercent = 15, options
       upsertStmt.run(
         item.produto_id,
         item.descricao,
+        item.apresentacao,
         item.ean,
         item.categoria_id,
         item.curva_abc,
@@ -961,6 +972,8 @@ async function recalcularTodosEstoqueMinimo(margemSegurancaPercent = 15, options
         item.preco_normal,
         item.produto_id,
         item.preco_promocional,
+        item.produto_id,
+        item.produto_id,
         item.produto_id,
         item.produto_id
       );
@@ -1001,6 +1014,15 @@ async function recalcularTodosEstoqueMinimo(margemSegurancaPercent = 15, options
   if (options.autoSyncDigifarma && listaParaSync.length > 0 && !fromCacheFallback) {
     const resSync = await sincronizarLoteEstoqueMinimoDigifarma(listaParaSync);
     sincronizados = resSync.count;
+  }
+
+  // Sincroniza substâncias oficiais (PROD_SUBSTANCIA) em segundo plano não-bloqueante
+  if (!fromCacheFallback && equivService && typeof equivService.sincronizarSubstanciasDigifarma === 'function') {
+    try {
+      await equivService.sincronizarSubstanciasDigifarma(db);
+    } catch (eSub) {
+      console.warn('[Compras Estoque] Aviso ao sincronizar substâncias:', eSub.message);
+    }
   }
 
   const duracaoMs = Date.now() - inicio;
@@ -1175,28 +1197,49 @@ async function listarProdutosAbaixoDoMinimo(filtros = {}) {
     let sugerido = 0;
 
     if (grupoData) {
-      saldoEquivalentes = Number(grupoData.saldoTotal) || 0;
+      const isReferencia = Number(r.categoriaId) === 1;
+      // Regra A1: Marca/Referência (categoria_id = 1) NÃO tem falta coberta por Genérico/Similar
+      const saldoElegivelGrupo = isReferencia
+        ? (grupoData.saldoTotalReferencia !== undefined ? Number(grupoData.saldoTotalReferencia) : saldo)
+        : (Number(grupoData.saldoTotal) || 0);
+
+      saldoEquivalentes = saldoElegivelGrupo;
       grupoEquivalenteNome = grupoData.nomeGrupo;
       grupoEquivalenteId = grupoData.grupoId;
-      estMinimoConsolidado = Number(grupoData.estMinimoTotal) || estMin;
+      estMinimoConsolidado = isReferencia ? estMin : (Number(grupoData.estMinimoTotal) || estMin);
       vmdConsolidado = Number(grupoData.vmdTotal) || vmd;
 
-      // Previsão consolidada do grupo
-      diasDuracaoEstoque = grupoData.diasDuracaoEstoque !== undefined
-        ? grupoData.diasDuracaoEstoque
-        : (saldoEquivalentes <= 0 ? 0 : (vmdConsolidado > 0 ? Math.round(saldoEquivalentes / vmdConsolidado) : 999));
-      dataPrevisaoEsgotamento = grupoData.dataPrevisaoEsgotamento || null;
-
-      // REGRA DE OURO DOS EQUIVALENTES:
-      // A soma dos saldos do grupo não pode passar do estoque mínimo.
-      // Se o saldo consolidado do grupo já atinge ou supera o estoque mínimo do grupo,
-      // NENHUM produto equivalente gera necessidade de reposição (sugerido = 0).
-      if (saldoEquivalentes >= estMinimoConsolidado) {
-        sugerido = 0;
+      if (isReferencia && saldoElegivelGrupo <= saldo) {
+        // Sem outro cadastro de Referência cobrindo: mantém cálculo individual para a marca
+        if (saldo <= 0) {
+          diasDuracaoEstoque = 0;
+          dataPrevisaoEsgotamento = 'Ruptura (Hoje)';
+        } else if (vmd > 0) {
+          diasDuracaoEstoque = Math.round(saldo / vmd);
+          dataPrevisaoEsgotamento = diasDuracaoEstoque >= 365 ? '+1 ano' : grupoData.dataPrevisaoEsgotamento;
+        } else {
+          diasDuracaoEstoque = 999;
+          dataPrevisaoEsgotamento = '+1 ano';
+        }
+        sugerido = (saldo < estMin || saldo <= 0) ? Math.max(0, estMin - saldo) : 0;
       } else {
-        // Se estiver abaixo do mínimo do grupo, a defasagem total é (estMinimoConsolidado - saldoEquivalentes)
-        // A compra sugerida somada ao saldo do grupo não pode ultrapassar o estoque mínimo.
-        sugerido = Math.max(0, estMinimoConsolidado - saldoEquivalentes);
+        // Previsão consolidada do grupo
+        diasDuracaoEstoque = grupoData.diasDuracaoEstoque !== undefined
+          ? grupoData.diasDuracaoEstoque
+          : (saldoEquivalentes <= 0 ? 0 : (vmdConsolidado > 0 ? Math.round(saldoEquivalentes / vmdConsolidado) : 999));
+        dataPrevisaoEsgotamento = grupoData.dataPrevisaoEsgotamento || null;
+
+        // REGRA DE OURO DOS EQUIVALENTES:
+        // A soma dos saldos do grupo não pode passar do estoque mínimo.
+        // Se o saldo consolidado do grupo já atinge ou supera o estoque mínimo do grupo,
+        // NENHUM produto equivalente gera necessidade de reposição (sugerido = 0).
+        if (saldoEquivalentes >= estMinimoConsolidado) {
+          sugerido = 0;
+        } else {
+          // Se estiver abaixo do mínimo do grupo, a defasagem total é (estMinimoConsolidado - saldoEquivalentes)
+          // A compra sugerida somada ao saldo do grupo não pode ultrapassar o estoque mínimo.
+          sugerido = Math.max(0, estMinimoConsolidado - saldoEquivalentes);
+        }
       }
     } else {
       // Produto sem grupo equivalente vinculado: usa cálculo individual

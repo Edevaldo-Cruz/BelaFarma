@@ -245,6 +245,12 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
   const [isPendingCheckout, setIsPendingCheckout] = useState(false);
   const sellerKeyInputRef = useRef<HTMLInputElement>(null);
 
+  // Blindagem de sessão expirada (JWT) no terminal de caixa
+  const [isSessionExpired, setIsSessionExpired] = useState<boolean>(false);
+  const pendingBarcodeAfterAuthRef = useRef<string | null>(null);
+  const lastUnauthorizedToastRef = useRef<number>(0);
+  const processBarcodeLookupRef = useRef<((rawInput: string) => Promise<void>) | null>(null);
+
   // Modal de Produto Não Cadastrado / Cadastro Expresso Provisório / Vínculo ao Digifarma
   const [isUnregisteredModalOpen, setIsUnregisteredModalOpen] = useState(false);
   const [unregisteredModalMode, setUnregisteredModalMode] = useState<'link' | 'express'>('link');
@@ -813,6 +819,27 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
     setTimeout(() => sellerKeyInputRef.current?.focus(), 80);
   }, []);
 
+  // Tratamento seguro quando o token JWT do terminal expira (401)
+  const handleSessionExpired = useCallback((pendingCode?: string) => {
+    if (pendingCode && !pendingBarcodeAfterAuthRef.current) {
+      pendingBarcodeAfterAuthRef.current = pendingCode;
+    }
+    setIsSessionExpired(true);
+    setSellerKeyInput('');
+    setIsSellerModalOpen(true);
+    setTimeout(() => sellerKeyInputRef.current?.focus(), 80);
+
+    const now = Date.now();
+    if (now - lastUnauthorizedToastRef.current > 4000) {
+      lastUnauthorizedToastRef.current = now;
+      addToast(
+        '🔒 Sessão do caixa expirada. Digite sua chave de acesso para reativar a leitura de produtos (seu carrinho está preservado).',
+        'warning',
+        5500
+      );
+    }
+  }, [addToast]);
+
   // Foco automático no input de bipagem
   const focusBarcodeInput = useCallback(() => {
     if (!isSearchOpen && !isSellerModalOpen && !isUnregisteredModalOpen && !isControlledRecipeOpen && !isDiscountModalOpen && !isCustomerModalOpen && !isRecentSalesOpen && !isClearCartModalOpen && !completedSale && !tieredOfferModal.isOpen) {
@@ -849,6 +876,29 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
     const interval = setInterval(fetchPendingExpressCount, 30000);
     return () => clearInterval(interval);
   }, [fetchPendingExpressCount]);
+
+  // Verificação inicial da sessão JWT e escuta de erros 401 no PDV
+  useEffect(() => {
+    let active = true;
+    fetch('/api/auth/session')
+      .then((res) => {
+        if (active && res.status === 401) {
+          handleSessionExpired();
+        } else if (active && res.ok) {
+          setIsSessionExpired(false);
+        }
+      })
+      .catch(() => {});
+
+    const onUnauthorizedEvent = () => {
+      handleSessionExpired();
+    };
+    window.addEventListener('belinha:unauthorized', onUnauthorizedEvent);
+    return () => {
+      active = false;
+      window.removeEventListener('belinha:unauthorized', onUnauthorizedEvent);
+    };
+  }, [handleSessionExpired]);
 
   // Timer de 15 segundos para fechar modal de finalização de venda
   useEffect(() => {
@@ -935,6 +985,10 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
     setIsLinkSearching(true);
     try {
       const res = await fetch(`/api/erp/products?q=${encodeURIComponent(clean)}&limit=15`);
+      if (res.status === 401) {
+        handleSessionExpired();
+        return;
+      }
       if (res.ok) {
         const json = await res.json();
         if (json.success && Array.isArray(json.data)) {
@@ -1104,15 +1158,29 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
 
       const json = await res.json();
       if (res.ok && json.success && json.seller) {
+        if (json.token) {
+          try {
+            localStorage.setItem('belinha_auth_token', json.token);
+          } catch {}
+        }
+        setIsSessionExpired(false);
         handleSetSeller(json.seller);
         setIsSellerModalOpen(false);
         setSellerKeyInput('');
         addToast(`👤 Vendedor: ${json.seller.name} vinculado com sucesso (Fixo neste terminal)!`, 'success', 2500);
+        fetchPendingExpressCount();
+
+        const pendingCode = pendingBarcodeAfterAuthRef.current;
+        pendingBarcodeAfterAuthRef.current = null;
 
         // Se o checkout estava aguardando a identificação do vendedor, prossegue imediatamente
         if (isPendingCheckout) {
           setIsPendingCheckout(false);
           setTimeout(() => handleStartCheckoutWithSeller(json.seller), 100);
+        } else if (pendingCode && json.token) {
+          setTimeout(() => {
+            processBarcodeLookupRef.current?.(pendingCode);
+          }, 100);
         } else {
           focusBarcodeInput();
         }
@@ -1302,6 +1370,10 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
         const res = await fetch(`/api/erp/products?q=${encodeURIComponent(raw)}&limit=6&_t=${Date.now()}`, {
           headers: { 'Cache-Control': 'no-cache' }
         });
+        if (res.status === 401) {
+          handleSessionExpired();
+          return;
+        }
         if (res.ok) {
           const json = await res.json();
           if (json.success && Array.isArray(json.data)) {
@@ -1368,14 +1440,14 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
     };
   }, [completedSale?.sale_id]);
 
-  // Bipagem de produto (Enter no input)
-  const handleBarcodeSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const raw = barcodeInput.trim();
+  // Lookup principal de produto por código de barras / código / orçamento (reutilizável após reautenticação)
+  const processBarcodeLookup = async (rawInput: string) => {
+    const raw = String(rawInput || '').trim();
     if (!raw) return;
 
     // Se o vendedor não estiver identificado, bloqueia e abre o modal de vendedor
     if (!currentSeller) {
+      pendingBarcodeAfterAuthRef.current = raw;
       addToast('⚠️ Identifique o vendedor com a chave de acesso para iniciar a venda.', 'warning', 3500);
       handleOpenSellerModal();
       return;
@@ -1406,13 +1478,17 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
       }
     }
 
-    const cleanCodeToSearch = codeToSearch.replace(/\s+/g, '');
+    const cleanCodeToSearch = codeToSearch.replace(/[\s\r\n\t\x00-\x1F\x7F]+/g, '');
     const targetCode = cleanCodeToSearch || codeToSearch;
 
     // Atalho direto: Se o operador bipar ou digitar um código de orçamento (ex: ORC-1001 ou PRE-...)
     if (targetCode.toUpperCase().startsWith('ORC') || targetCode.toUpperCase().startsWith('PRE')) {
       try {
         const quoteRes = await fetch(`/api/erp/pos/pre-sales/${encodeURIComponent(targetCode)}`);
+        if (quoteRes.status === 401) {
+          handleSessionExpired(raw);
+          return;
+        }
         if (quoteRes.ok) {
           const quoteJson = await quoteRes.json();
           if (quoteJson.success && quoteJson.data && quoteJson.data.status === 'ABERTA') {
@@ -1427,6 +1503,19 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
 
     try {
       const res = await fetch(`/api/erp/products/${encodeURIComponent(targetCode)}`);
+      if (res.status === 401) {
+        handleSessionExpired(raw);
+        return;
+      }
+      if (!res.ok && res.status !== 404) {
+        let errDetail = '';
+        try {
+          const errJson = await res.json();
+          errDetail = errJson?.error ? ` — ${errJson.error}` : '';
+        } catch {}
+        addToast(`Erro ao consultar produto (HTTP ${res.status})${errDetail}. Tente novamente.`, 'error', 4000);
+        return;
+      }
       if (res.ok) {
         const json = await res.json();
         if (json.success && json.data) {
@@ -1442,27 +1531,37 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
         }
       }
 
-      // Se não achou exato pelo endpoint direto, tenta a busca rápida por query
+      // Se não achou exato pelo endpoint direto (404), tenta a busca rápida por query
       const searchRes = await fetch(`/api/erp/products?q=${encodeURIComponent(targetCode)}&limit=1`);
-      if (searchRes.ok) {
-        const searchJson = await searchRes.json();
-        if (searchJson.success && searchJson.data && searchJson.data.length > 0) {
-          const ruleFound = findTieredRuleForProduct(searchJson.data[0].code, searchJson.data[0].barcode, searchJson.data[0].tiered_rules);
-          const hasOffer = Boolean(ruleFound && multiplier < ruleFound.quantity);
-          addItemToCart(searchJson.data[0], multiplier);
-          setBarcodeInput('');
-          setAutocompleteResults([]);
-          if (!hasOffer) {
-            focusBarcodeInput();
-          }
-          return;
+      if (searchRes.status === 401) {
+        handleSessionExpired(raw);
+        return;
+      }
+      if (!searchRes.ok) {
+        addToast(`Erro na busca de produto (HTTP ${searchRes.status}). Tente novamente.`, 'error', 4000);
+        return;
+      }
+      const searchJson = await searchRes.json();
+      if (searchJson.success && searchJson.data && searchJson.data.length > 0) {
+        const ruleFound = findTieredRuleForProduct(searchJson.data[0].code, searchJson.data[0].barcode, searchJson.data[0].tiered_rules);
+        const hasOffer = Boolean(ruleFound && multiplier < ruleFound.quantity);
+        addItemToCart(searchJson.data[0], multiplier);
+        setBarcodeInput('');
+        setAutocompleteResults([]);
+        if (!hasOffer) {
+          focusBarcodeInput();
         }
+        return;
       }
 
       // Se for número curto (ex: 1001), verifica se é código de orçamento aberto antes de abrir cadastro expresso
       if (/^\d{3,6}$/.test(targetCode)) {
         try {
           const quoteRes = await fetch(`/api/erp/pos/pre-sales/${encodeURIComponent(targetCode)}`);
+          if (quoteRes.status === 401) {
+            handleSessionExpired(raw);
+            return;
+          }
           if (quoteRes.ok) {
             const quoteJson = await quoteRes.json();
             if (quoteJson.success && quoteJson.data && quoteJson.data.status === 'ABERTA') {
@@ -1475,7 +1574,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
         } catch {}
       }
 
-      // PRODUTO NÃO ENCONTRADO NO BANCO DE DADOS:
+      // PRODUTO NÃO ENCONTRADO NO BANCO DE DADOS (confirmado via 404 + busca vazia):
       // Abre a modal inteligente para vincular a produto existente do Digifarma OU cadastrar expresso
       handleOpenUnregisteredModal(targetCode, multiplier);
       setBarcodeInput('');
@@ -1483,6 +1582,14 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
     } catch (err: any) {
       addToast('Erro ao consultar produto.', 'error');
     }
+  };
+
+  processBarcodeLookupRef.current = processBarcodeLookup;
+
+  // Bipagem de produto (Enter no input)
+  const handleBarcodeSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await processBarcodeLookup(barcodeInput);
   };
 
   // Adiciona produto ao carrinho
@@ -1924,10 +2031,16 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
     setIsSearchingProducts(true);
     try {
       const res = await fetch(`/api/erp/products?q=${encodeURIComponent(searchQuery.trim())}&limit=30`);
-      if (res.ok) {
-        const json = await res.json();
-        setSearchResults(json.data || []);
+      if (res.status === 401) {
+        handleSessionExpired();
+        return;
       }
+      if (!res.ok) {
+        addToast(`Erro ao buscar produtos (HTTP ${res.status}).`, 'error');
+        return;
+      }
+      const json = await res.json();
+      setSearchResults(json.data || []);
     } catch (e) {
       addToast('Erro ao buscar produtos.', 'error');
     } finally {
@@ -2864,6 +2977,26 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
             className="px-2.5 py-0.5 rounded bg-slate-950 hover:bg-slate-800 text-amber-300 text-[10px] font-bold uppercase transition cursor-pointer"
           >
             Voltar para Modo Online
+          </button>
+        </div>
+      )}
+
+      {/* AVISO DE SESSÃO EXPIRADA (EXIGE REVALIDAÇÃO DE CHAVE NO TERMINAL) */}
+      {isSessionExpired && (
+        <div className="bg-rose-600 text-white px-3 sm:px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-xs font-black shadow-md shrink-0 border-b border-rose-700">
+          <div className="flex items-center gap-2">
+            <Lock className="w-4 h-4 text-amber-200 shrink-0 animate-pulse" />
+            <span>
+              SESSÃO DO TERMINAL EXPIRADA: A leitura de produtos está pausada até revalidar sua chave de acesso (seu carrinho está preservado).
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={handleOpenSellerModal}
+            className="px-3 py-1 rounded-lg bg-slate-950 hover:bg-slate-800 text-amber-300 text-[11px] font-black uppercase transition cursor-pointer flex items-center gap-1.5 shadow-sm"
+          >
+            <Key className="w-3.5 h-3.5" />
+            Reativar Caixa [F5]
           </button>
         </div>
       )}
@@ -5476,6 +5609,20 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
                 <X className="w-5 h-5" />
               </button>
             </div>
+
+            {isSessionExpired && (
+              <div className="mb-3.5 p-3 rounded-xl bg-rose-950/70 border border-rose-500/60 flex items-start gap-2.5">
+                <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-[11px] font-black uppercase tracking-wider text-rose-300">
+                    Sessão de segurança expirada
+                  </p>
+                  <p className="text-xs text-rose-100/90 mt-0.5 leading-snug">
+                    Digite sua chave de acesso abaixo para renovar o terminal e retomar a leitura de produtos imediatamente (seu carrinho não foi perdido).
+                  </p>
+                </div>
+              </div>
+            )}
 
             {currentSeller && (
               <div className="mb-3.5 p-2.5 rounded-xl bg-emerald-950/50 border border-emerald-500/40 flex items-center justify-between">

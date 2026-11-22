@@ -2,6 +2,10 @@ const { queryDigifarma } = require('./digifarma.service');
 const db = require('../database');
 const crypto = require('crypto');
 const { calcularPrecoSugeridoMarkup, calcularPorcentagensProduto } = require('./pricing-customizations.service');
+let equivService = null;
+try {
+  equivService = require('./compras-equivalentes.service');
+} catch (e) {}
 
 /**
  * Formata número para 2 casas decimais
@@ -104,6 +108,7 @@ async function buscarRelatorioEntradas({ dias = 30, dataInicio, dataFim, notaFis
     `).all();
 
     const faltasMap = new Map();
+    const faltasComChave = [];
     faltasPendentes.forEach(f => {
       if (f.productName) {
         const cleanName = f.productName.trim().toUpperCase();
@@ -111,6 +116,23 @@ async function buscarRelatorioEntradas({ dias = 30, dataInicio, dataFim, notaFis
           faltasMap.set(cleanName, []);
         }
         faltasMap.get(cleanName).push(f);
+
+        if (equivService) {
+          const catGuess = f.type === 'Genérico' ? 7 : (f.type === 'Similar' ? 2 : (f.type === 'Marca (Referência)' ? 1 : (f.type === 'Perfumaria' ? 5 : 0)));
+          const cacheProd = db.prepare(`
+            SELECT produto_id, descricao, apresentacao, ean, categoria_id, substancia_nome
+            FROM compras_estoque_cache WHERE UPPER(TRIM(descricao)) = ? OR UPPER(descricao) LIKE ? LIMIT 1
+          `).get(cleanName, `${cleanName}%`);
+          faltasComChave.push({
+            falta: f,
+            alvoObj: cacheProd || {
+              produto_id: 0,
+              descricao: cleanName,
+              apresentacao: '',
+              categoria_id: catGuess
+            }
+          });
+        }
       }
     });
 
@@ -251,7 +273,7 @@ async function buscarRelatorioEntradas({ dias = 30, dataInicio, dataFim, notaFis
         // Margem nova se mantiver o preço de venda atual com o novo custo
         const margemNovaSeManter = precoVendaAtual > 0 ? round2(((precoVendaAtual - custoAtual) / precoVendaAtual) * 100) : 0;
 
-        // Cruzar com Lista de Faltas
+        // Cruzar com Lista de Faltas (nome exato -> prefixo -> equivalente farmacêutico)
         let faltaCorrespondente = null;
         if (faltasMap.has(produtoNomeUpper)) {
           const faltas = faltasMap.get(produtoNomeUpper);
@@ -268,6 +290,27 @@ async function buscarRelatorioEntradas({ dias = 30, dataInicio, dataFim, notaFis
               totalFaltasNaNota++;
               contadorFaltasGeral++;
               break;
+            }
+          }
+
+          // Fallback por equivalência farmacêutica (ex: entrou Vitamedic e falta era Teuto/Germed)
+          if (!faltaCorrespondente && equivService && typeof equivService.saoProdutosEquivalentesParaFalta === 'function') {
+            const cacheEntrada = db.prepare('SELECT substancia_nome FROM compras_estoque_cache WHERE produto_id = ?').get(item.PRODUTO_ID);
+            const entradaObj = {
+              produto_id: item.PRODUTO_ID,
+              descricao: produtoNome,
+              apresentacao: (item.APRESENTACAO || '').trim(),
+              ean: (item.COD_BARRAS || '').trim(),
+              categoria_id: Number(item.CATEGORIA_ID || 0),
+              substancia_nome: cacheEntrada?.substancia_nome || null
+            };
+            for (const fc of faltasComChave) {
+              if (equivService.saoProdutosEquivalentesParaFalta(fc.alvoObj, entradaObj, db)) {
+                faltaCorrespondente = fc.falta;
+                totalFaltasNaNota++;
+                contadorFaltasGeral++;
+                break;
+              }
             }
           }
         }

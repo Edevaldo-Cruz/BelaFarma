@@ -1085,7 +1085,8 @@ function belapedEndpoints(db) {
           c.preco_unitario_ult_compra,
           c.ultima_compra_fornecedor,
           c.ultima_compra_data,
-          c.ultima_compra_nf
+          c.ultima_compra_nf,
+          c.substancia_nome
         FROM compras_estoque_cache c
         WHERE (c.saldo <= 0 OR c.saldo < c.est_minimo_calculado)
           AND (
@@ -1290,50 +1291,55 @@ function belapedEndpoints(db) {
       } catch (e) {}
 
       // 2. Motor de Equivalentes (Princípio Ativo + Dosagem + Quantidade na caixa)
-      // Mapeia vínculos manuais + equivalência farmacêutica automática em todo o estoque positivo da loja
+      // Mapeia vínculos manuais + exclusões + equivalência farmacêutica automática (inclui Genéricos cat=7, Similares cat=2 e Referência cat=1)
       const vinculosManuaisMap = new Map();
+      const exclusoesSet = new Set();
       try {
-        const vinculos = db.prepare(`SELECT produto_id, grupo_id FROM compras_produtos_equivalentes`).all();
+        const vinculos = db.prepare(`SELECT produto_id, grupo_id, manual_override FROM compras_produtos_equivalentes`).all();
         for (const v of vinculos) {
-          vinculosManuaisMap.set(Number(v.produto_id), `MANUAL_${v.grupo_id}`);
+          if (v.manual_override) {
+            vinculosManuaisMap.set(Number(v.produto_id), v.grupo_id);
+          }
+        }
+        const exclusoes = db.prepare(`SELECT produto_id, grupo_chave FROM compras_equivalentes_exclusoes`).all();
+        for (const ex of exclusoes) {
+          if (ex.produto_id && ex.grupo_chave) {
+            exclusoesSet.add(`${Number(ex.produto_id)}|${ex.grupo_chave}`);
+          }
         }
       } catch (e) {}
 
-      const obterChaveEquivalencia = (prodId, descricao, categoriaId) => {
-        if (vinculosManuaisMap.has(Number(prodId))) {
-          return vinculosManuaisMap.get(Number(prodId));
-        }
-        const isMed = categoriaId !== 5 && categoriaId !== 7;
-        if (!isMed || !comprasEquivalentesService || typeof comprasEquivalentesService.extrairAtributosProduto !== 'function') {
+      const obterChaveEquivalencia = (prodObj) => {
+        if (!comprasEquivalentesService || typeof comprasEquivalentesService.obterChaveEquivalenciaProduto !== 'function') {
           return null;
         }
-        const attr = comprasEquivalentesService.extrairAtributosProduto(descricao || '');
-        if (!attr || !attr.dosagem || !attr.principio || attr.principio === 'OUTROS' || attr.principio.length < 4) {
-          return null;
-        }
-        return attr.chave;
+        const resEq = comprasEquivalentesService.obterChaveEquivalenciaProduto(prodObj, { vinculosManuaisMap, exclusoesSet });
+        return resEq && resEq.isMedicamento ? resEq.chave : null;
       };
 
       // Mapeia todo o estoque positivo na farmácia por chave de equivalência para saber se outro laboratório cobre a demanda
       const estoqueGrupoEquivMap = new Map();
       try {
-        const catálogoComSaldoOuGiro = db.prepare(`
-          SELECT produto_id, descricao, categoria_id, saldo, vmd_ponderado
+        const catalogoComSaldoOuGiro = db.prepare(`
+          SELECT produto_id, descricao, apresentacao, ean, categoria_id, substancia_nome, saldo, vmd_ponderado
           FROM compras_estoque_cache
           WHERE saldo > 0 OR curva_abc IN ('A', 'B')
         `).all();
-        for (const p of catálogoComSaldoOuGiro) {
-          const chaveEq = obterChaveEquivalencia(p.produto_id, p.descricao, p.categoria_id);
+        for (const p of catalogoComSaldoOuGiro) {
+          const chaveEq = obterChaveEquivalencia(p);
           if (!chaveEq) continue;
           let grp = estoqueGrupoEquivMap.get(chaveEq);
           if (!grp) {
-            grp = { saldoPositivoTotal: 0, vmdTotal: 0, labsComEstoque: [] };
+            grp = { saldoPositivoTotal: 0, saldoPositivoReferencia: 0, vmdTotal: 0, labsComEstoque: [] };
             estoqueGrupoEquivMap.set(chaveEq, grp);
           }
           const s = Number(p.saldo) || 0;
           if (s > 0) {
             grp.saldoPositivoTotal += s;
-            grp.labsComEstoque.push({ produto_id: p.produto_id, descricao: p.descricao, saldo: s });
+            if (Number(p.categoria_id) === 1) {
+              grp.saldoPositivoReferencia += s;
+            }
+            grp.labsComEstoque.push({ produto_id: p.produto_id, descricao: p.descricao, categoria_id: p.categoria_id, saldo: s });
           }
           grp.vmdTotal += Math.max(0, Number(p.vmd_ponderado) || 0);
         }
@@ -1370,19 +1376,28 @@ function belapedEndpoints(db) {
           continue;
         }
 
-        // PROTEÇÃO 1 DE EQUIVALENTES:
-        // Verifica se outro laboratório do mesmo medicamento + dosagem + apresentação já tem estoque na loja cobrindo a semana
-        const chaveEq = obterChaveEquivalencia(r.produto_id, r.descricao, r.categoria_id);
+        // PROTEÇÃO 1 DE EQUIVALENTES (Regra A1 + A2):
+        // Genéricos/Similares são cobertos por qualquer equivalente com estoque; Referência só é coberta por outra Referência da mesma marca.
+        const chaveEq = obterChaveEquivalencia(r);
         if (chaveEq && estoqueGrupoEquivMap.has(chaveEq)) {
           const grpEq = estoqueGrupoEquivMap.get(chaveEq);
+          const isReferencia = Number(r.categoria_id) === 1;
+          let saldoElegivelGrupo = grpEq.saldoPositivoTotal;
+          if (isReferencia) {
+            const pMarca = String(r.descricao || '').trim().toUpperCase().split(/\s+/)[0];
+            saldoElegivelGrupo = grpEq.labsComEstoque
+              .filter(l => Number(l.categoria_id) === 1 && pMarca.length >= 4 && String(l.descricao || '').trim().toUpperCase().startsWith(pMarca))
+              .reduce((acc, l) => acc + l.saldo, 0);
+          }
+
           const necessidadeGrupoSemana = Math.max(2, Math.ceil(grpEq.vmdTotal * 5));
-          // Se o próprio item está zerado (ou baixo), mas a soma dos laboratórios equivalentes na prateleira cobre a necessidade
-          if (grpEq.saldoPositivoTotal > saldo && grpEq.saldoPositivoTotal >= necessidadeGrupoSemana) {
+          // Se o próprio item está zerado (ou baixo), mas a soma dos laboratórios equivalentes elegíveis na prateleira cobre a necessidade
+          if (saldoElegivelGrupo > saldo && saldoElegivelGrupo >= necessidadeGrupoSemana) {
             ocultadosEquivalenteComEstoque++;
             continue;
           }
-          // Para itens Esquecidos 6m / Curva C: se já existe pelo menos 1 unidade de outro laboratório equivalente na prateleira, não é ruptura!
-          if ((isEsquecido6m || r.curva_abc === 'C') && grpEq.saldoPositivoTotal >= 1) {
+          // Para itens Esquecidos 6m / Curva C: se já existe pelo menos 1 unidade de outro laboratório equivalente elegível na prateleira, não é ruptura!
+          if ((isEsquecido6m || r.curva_abc === 'C') && saldoElegivelGrupo >= 1 && (!isReferencia || saldoElegivelGrupo > saldo)) {
             ocultadosEquivalenteComEstoque++;
             continue;
           }
@@ -1401,8 +1416,8 @@ function belapedEndpoints(db) {
       }
 
       // 4. PROTEÇÃO 2 DE EQUIVALENTES:
-      // Se múltiplos laboratórios do mesmo medicamento estão TODOS zerados, agrupa em 1 único representante!
-      // Escolhe o representante com menor preço cotado nas distribuidoras ou maior giro recente.
+      // Se múltiplos laboratórios (Genéricos/Similares) do mesmo medicamento estão TODOS zerados, agrupa em 1 único representante!
+      // Produtos de Referência (categoria 1) mantêm identidade própria para cotação específica de marca.
       const gruposZeradosMap = new Map();
       const candidatosFinais = [];
 
@@ -1411,10 +1426,11 @@ function belapedEndpoints(db) {
           candidatosFinais.push({ ...cand, equivalentesAgrupados: [] });
           continue;
         }
-        if (!gruposZeradosMap.has(cand.chaveEq)) {
-          gruposZeradosMap.set(cand.chaveEq, []);
+        const chaveAgrupamento = Number(cand.raw.categoria_id) === 1 ? `REF_${cand.chaveEq}_${cand.raw.produto_id}` : cand.chaveEq;
+        if (!gruposZeradosMap.has(chaveAgrupamento)) {
+          gruposZeradosMap.set(chaveAgrupamento, []);
         }
-        gruposZeradosMap.get(cand.chaveEq).push(cand);
+        gruposZeradosMap.get(chaveAgrupamento).push(cand);
       }
 
       for (const [chaveEq, listaGrupo] of gruposZeradosMap.entries()) {
@@ -1534,6 +1550,7 @@ function belapedEndpoints(db) {
       // Busca todas as faltas ativas da Guia de Faltas do Belinha (balcão/WhatsApp)
       let todasFaltasBelinha = [];
       const faltasBelinhaMap = new Map();
+      const faltasBelinhaPorChaveMap = new Map();
       try {
         todasFaltasBelinha = db.prepare(`
           SELECT id, productName, type, clientInquiry, notes, createdAt, userName, source, purchased, ordered
@@ -1546,6 +1563,12 @@ function belapedEndpoints(db) {
           if (fb.productName) {
             const cleanName = fb.productName.toUpperCase().trim();
             faltasBelinhaMap.set(cleanName, fb);
+            if (comprasEquivalentesService && typeof comprasEquivalentesService.extrairAtributosProduto === 'function') {
+              const attrFb = comprasEquivalentesService.extrairAtributosProduto(cleanName);
+              if (attrFb && attrFb.isMedicamento && attrFb.chave && !faltasBelinhaPorChaveMap.has(attrFb.chave)) {
+                faltasBelinhaPorChaveMap.set(attrFb.chave, fb);
+              }
+            }
           }
         }
       } catch (errShort) {
@@ -1585,7 +1608,7 @@ function belapedEndpoints(db) {
           Number(avulsoInfo?.preco_referencia) ||
           0;
 
-        // Cruzamento com a Guia de Faltas do Belinha
+        // Cruzamento com a Guia de Faltas do Belinha (nome exato -> substring -> chave equivalente)
         let faltaBelinhaMatch = null;
         const descUpper = (r.descricao || '').toUpperCase().trim();
         if (faltasBelinhaMap.has(descUpper)) {
@@ -1596,6 +1619,9 @@ function belapedEndpoints(db) {
               faltaBelinhaMatch = fb;
               break;
             }
+          }
+          if (!faltaBelinhaMatch && chaveEq && faltasBelinhaPorChaveMap.has(chaveEq)) {
+            faltaBelinhaMatch = faltasBelinhaPorChaveMap.get(chaveEq);
           }
         }
 
@@ -4994,7 +5020,8 @@ function belapedEndpoints(db) {
           c.preco_unitario_ult_compra,
           c.ultima_compra_fornecedor,
           c.ultima_compra_data,
-          c.ultima_compra_nf
+          c.ultima_compra_nf,
+          c.substancia_nome
         FROM compras_estoque_cache c
         WHERE (
           c.ean IN (SELECT DISTINCT ean FROM belaped_cotacoes_reais)
@@ -8789,7 +8816,7 @@ function belapedEndpoints(db) {
           COALESCE(vendas_10m, 0) as vendas_10m,
           COALESCE(entradas_10m, 0) as entradas_10m,
           custo_unitario, preco_unitario_ult_compra, preco_venda_vigente,
-          ultima_compra_fornecedor, ultima_compra_data, categoria_id
+          ultima_compra_fornecedor, ultima_compra_data, categoria_id, substancia_nome
         FROM compras_estoque_cache
         WHERE (${condicoesLike}) OR ean LIKE ? OR CAST(produto_id AS TEXT) = ?
         ORDER BY 
@@ -8893,21 +8920,13 @@ function belapedEndpoints(db) {
         somaVendas10m += vendas10m;
         somaEstoqueAtual += saldo;
 
-        // Verifica se existe equivalente da mesma molécula/dosagem com estoque na loja (apenas para medicamentos)
+        // Verifica se existe equivalente da mesma molécula/dosagem com estoque na loja (inclui Genéricos cat=7 e Similares cat=2; respeita Regra A1 para Referência cat=1)
         let equivComSaldo = null;
-        if (saldo <= 0 && r.categoria_id !== 5 && r.categoria_id !== 7 && comprasEquivalentesService && typeof comprasEquivalentesService.extrairAtributosProduto === 'function') {
+        if (saldo <= 0 && comprasEquivalentesService && typeof comprasEquivalentesService.avaliarCoberturaEquivalente === 'function') {
           try {
-            const attr = comprasEquivalentesService.extrairAtributosProduto(r.descricao || '');
-            if (attr && attr.dosagem && attr.principio && attr.principio !== 'OUTROS' && attr.principio.length >= 4) {
-              const prefixo = attr.principio.split(' ')[0];
-              const cands = db.prepare(`
-                SELECT produto_id, descricao, saldo FROM compras_estoque_cache
-                WHERE produto_id <> ? AND saldo > 0 AND descricao LIKE ?
-              `).all(Number(r.produto_id), `%${prefixo}%`);
-              equivComSaldo = cands.find(c => {
-                const a2 = comprasEquivalentesService.extrairAtributosProduto(c.descricao || '');
-                return a2 && a2.chave === attr.chave;
-              }) || null;
+            const avalEq = comprasEquivalentesService.avaliarCoberturaEquivalente(r, { limiteMinimoSaldoGrupo: 0 }, db);
+            if (avalEq && avalEq.equivalentesComEstoque && avalEq.equivalentesComEstoque.length > 0) {
+              equivComSaldo = avalEq.equivalentesComEstoque[0];
             }
           } catch (eEq) {}
         }
@@ -9512,7 +9531,7 @@ function belapedEndpoints(db) {
           COALESCE(vendas_61_90d, 0) as vendas_61_90d,
           COALESCE(vendas_10m, 0) as vendas_10m,
           custo_unitario, preco_unitario_ult_compra, preco_venda_vigente,
-          categoria_id, ultima_compra_fornecedor, ultima_compra_data
+          categoria_id, ultima_compra_fornecedor, ultima_compra_data, substancia_nome
         FROM compras_estoque_cache
         WHERE produto_id = ?
       `).get(Number(produto_id));
@@ -9536,27 +9555,34 @@ function belapedEndpoints(db) {
       const saldoFisico = Math.max(0, Number(prod.saldo) || 0);
       const diasDuracaoEstoque = vmdEfetivo > 0 && saldoFisico > 0 ? Math.round(saldoFisico / vmdEfetivo) : 0;
 
-      // Busca equivalentes da mesma molécula + dosagem + apresentação na loja
+      // Busca equivalentes da mesma molécula + dosagem + apresentação na loja (via motor unificado)
       let equivalentes = [];
       let chaveEquivalencia = null;
       try {
-        const isMed = prod.categoria_id !== 5 && prod.categoria_id !== 7;
-        if (isMed && comprasEquivalentesService && typeof comprasEquivalentesService.extrairAtributosProduto === 'function') {
-          const attr = comprasEquivalentesService.extrairAtributosProduto(prod.descricao || '');
-          if (attr && attr.dosagem && attr.principio && attr.principio !== 'OUTROS' && attr.principio.length >= 4) {
+        if (comprasEquivalentesService && typeof comprasEquivalentesService.extrairAtributosProduto === 'function') {
+          const attr = comprasEquivalentesService.extrairAtributosProduto(prod.descricao || '', {
+            apresentacao: prod.apresentacao,
+            substanciaNome: prod.substancia_nome,
+            categoriaId: prod.categoria_id,
+            ean: prod.ean
+          });
+          if (attr && attr.isMedicamento && attr.chave) {
             chaveEquivalencia = attr.chave;
-            const prefixoPrincipio = attr.principio.split(' ')[0];
-            const candidatos = db.prepare(`
-              SELECT produto_id, descricao, ean, saldo, vmd_ponderado, vendas_30d, vendas_31_60d,
-                     COALESCE(vendas_61_90d, 0) as vendas_61_90d, COALESCE(vendas_10m, 0) as vendas_10m
-              FROM compras_estoque_cache
-              WHERE produto_id <> ? AND descricao LIKE ?
-            `).all(Number(prod.produto_id), `%${prefixoPrincipio}%`);
+            const aval = comprasEquivalentesService.avaliarCoberturaEquivalente(prod, { limiteMinimoSaldoGrupo: 0 }, db);
+            const idsEquiv = (aval?.todosMembrosGrupo || [])
+              .map(m => Number(m.produto_id))
+              .filter(id => id > 0 && id !== Number(prod.produto_id));
 
-            equivalentes = candidatos.filter(c => {
-              const a2 = comprasEquivalentesService.extrairAtributosProduto(c.descricao || '');
-              return a2 && a2.chave === chaveEquivalencia && (Number(c.saldo) > 0 || Number(c.vmd_ponderado) > 0 || Number(c.vendas_10m) > 0);
-            });
+            if (idsEquiv.length > 0) {
+              const placeholders = idsEquiv.map(() => '?').join(',');
+              const candidatos = db.prepare(`
+                SELECT produto_id, descricao, ean, saldo, vmd_ponderado, vendas_30d, vendas_31_60d,
+                       COALESCE(vendas_61_90d, 0) as vendas_61_90d, COALESCE(vendas_10m, 0) as vendas_10m
+                FROM compras_estoque_cache
+                WHERE produto_id IN (${placeholders})
+              `).all(...idsEquiv);
+              equivalentes = candidatos.filter(c => Number(c.saldo) > 0 || Number(c.vmd_ponderado) > 0 || Number(c.vendas_10m) > 0);
+            }
           }
         }
       } catch (e) {}

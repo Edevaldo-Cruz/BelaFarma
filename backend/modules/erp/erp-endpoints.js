@@ -152,6 +152,7 @@ router.post('/products/sync-digifarma', async (req, res) => {
     const resultado = await executarMigracaoErp({ forceCacheOnly: false });
     // Limpeza e higienização profunda de códigos obsoletos legados
     try {
+      const { db } = require('./erp-database');
       db.prepare("DELETE FROM products WHERE code LIKE '%.0'").run();
       db.prepare("UPDATE digifarma_products_cache SET produto_id = SUBSTR(produto_id, 1, INSTR(produto_id, '.0') - 1) WHERE produto_id LIKE '%.0'").run();
       db.prepare("UPDATE pricing_suggestions SET produto_id = SUBSTR(produto_id, 1, INSTR(produto_id, '.0') - 1) WHERE produto_id LIKE '%.0'").run();
@@ -220,6 +221,14 @@ router.post('/pos/identify-seller', (req, res) => {
     const security = require('../../security');
     const { db } = require('./erp-database');
 
+    const rateCheck = security.checkLoginRateLimit(req);
+    if (!rateCheck.allowed) {
+      return res.status(429).json({
+        success: false,
+        error: `Muitas tentativas incorretas. Aguarde ${Math.ceil(rateCheck.retryAfterSec / 60)} minuto(s) e tente novamente.`
+      });
+    }
+
     const { accessKey } = req.body || {};
     if (!accessKey) {
       return res.status(400).json({ success: false, error: 'Chave de acesso não informada.' });
@@ -228,35 +237,39 @@ router.post('/pos/identify-seller', (req, res) => {
     const keyStr = String(accessKey).trim();
     const MASTER_KEY = process.env.MASTER_ACCESS_KEY || 'belafarma2024';
 
+    let seller = null;
+
     // 1. Testa Chave Master
     if (security.verifyAccessKey(keyStr, MASTER_KEY)) {
-      return res.json({
-        success: true,
-        seller: {
-          id: 'master-admin',
-          name: 'Administrador Bela',
-          role: 'Administrador',
-          jobRole: 'Gerente'
-        }
-      });
-    }
+      seller = {
+        id: 'master-admin',
+        name: 'Administrador Bela',
+        role: 'Administrador',
+        jobRole: 'Gerente'
+      };
+    } else {
+      // 2. Procura nos usuários cadastrados no banco
+      const allUsers = db.prepare('SELECT id, name, role, jobRole, accessKey, accessKeyHash FROM users').all();
+      const matchedUser = allUsers.find(u => security.verifyAccessKey(keyStr, u.accessKey, u.accessKeyHash));
 
-    // 2. Procura nos usuários cadastrados no banco
-    const allUsers = db.prepare('SELECT id, name, role, jobRole, accessKey, accessKeyHash FROM users').all();
-    const matchedUser = allUsers.find(u => security.verifyAccessKey(keyStr, u.accessKey, u.accessKeyHash));
-
-    if (matchedUser) {
-      return res.json({
-        success: true,
-        seller: {
+      if (matchedUser) {
+        seller = {
           id: matchedUser.id,
           name: matchedUser.name,
           role: matchedUser.role,
           jobRole: matchedUser.jobRole || 'Vendedor'
-        }
-      });
+        };
+      }
     }
 
+    if (seller) {
+      security.clearLoginFailures(req);
+      const token = security.signToken(seller);
+      security.setAuthCookie(req, res, token);
+      return res.json({ success: true, seller, token });
+    }
+
+    security.recordLoginFailure(req);
     return res.status(401).json({ success: false, error: 'Chave de acesso não encontrada ou incorreta.' });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });

@@ -16,7 +16,9 @@ import {
   Building,
   ShieldCheck,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  ArrowLeftRight,
+  Check
 } from 'lucide-react';
 import { GrupoEquivalente, User } from '../../types';
 import { useToast } from '../ToastContext';
@@ -40,6 +42,29 @@ export const ComprasEquivalentes: React.FC<ComprasEquivalentesProps> = ({
 
   const [gerandoAuto, setGerandoAuto] = useState(false);
   const [grupoExpandido, setGrupoExpandido] = useState<string | null>(null);
+
+  // Modal de Confirmação genérico (substitui window.confirm)
+  const [confirmModal, setConfirmModal] = useState<{
+    title: string;
+    message: string;
+    confirmLabel?: string;
+    danger?: boolean;
+    onConfirm: () => Promise<void> | void;
+  } | null>(null);
+
+  // Auditoria de Faltas Automáticas Cobertas por Equivalentes
+  const [auditandoFaltas, setAuditandoFaltas] = useState(false);
+  const [baixandoFaltas, setBaixandoFaltas] = useState(false);
+  const [auditoriaResultado, setAuditoriaResultado] = useState<any | null>(null);
+
+  // Painel Retrátil: Comparador & Testador do Motor
+  const [comparadorAberto, setComparadorAberto] = useState(false);
+  const [compTextoA, setCompTextoA] = useState('');
+  const [compCatA, setCompCatA] = useState<number>(7);
+  const [compTextoB, setCompTextoB] = useState('');
+  const [compCatB, setCompCatB] = useState<number>(7);
+  const [compLoading, setCompLoading] = useState(false);
+  const [compResultado, setCompResultado] = useState<any | null>(null);
 
   // Modal de Novo Grupo Manual
   const [isModalGrupoOpen, setIsModalGrupoOpen] = useState(false);
@@ -191,8 +216,7 @@ export const ComprasEquivalentes: React.FC<ComprasEquivalentesProps> = ({
     }
   };
 
-  const desvincularProduto = async (grupoId: string, produtoId: number) => {
-    if (!confirm('Deseja desvincular este produto do grupo de equivalentes?')) return;
+  const executarDesvincularProduto = async (grupoId: string, produtoId: number) => {
     try {
       const res = await fetch(`/api/central-compras/equivalentes/${grupoId}/produtos/${produtoId}`, {
         method: 'DELETE'
@@ -209,8 +233,17 @@ export const ComprasEquivalentes: React.FC<ComprasEquivalentesProps> = ({
     }
   };
 
-  const excluirGrupo = async (grupoId: string, nome: string) => {
-    if (!confirm(`Tem certeza que deseja excluir o grupo "${nome}"? Os produtos voltarão a ser considerados individualmente.`)) return;
+  const desvincularProduto = (grupoId: string, produtoId: number, descricao?: string) => {
+    setConfirmModal({
+      title: 'Desvincular Produto do Grupo',
+      message: `Deseja remover "${descricao || 'este produto'}" do grupo? Ele não voltará a ser agrupado automaticamente aqui.`,
+      confirmLabel: 'Desvincular',
+      danger: true,
+      onConfirm: () => executarDesvincularProduto(grupoId, produtoId)
+    });
+  };
+
+  const executarExcluirGrupo = async (grupoId: string) => {
     try {
       const res = await fetch(`/api/central-compras/equivalentes/${grupoId}`, {
         method: 'DELETE'
@@ -219,10 +252,103 @@ export const ComprasEquivalentes: React.FC<ComprasEquivalentesProps> = ({
       if (res.ok && data.success) {
         addToast('Grupo removido com sucesso.', 'info');
         carregarGrupos(pagina);
+      } else {
+        addToast(data.error || 'Erro ao excluir grupo.', 'error');
       }
     } catch (err: any) {
       addToast('Erro ao excluir grupo: ' + err.message, 'error');
     }
+  };
+
+  const excluirGrupo = (grupoId: string, nome: string) => {
+    setConfirmModal({
+      title: 'Excluir Grupo Equivalente',
+      message: `Tem certeza que deseja excluir o grupo "${nome}"? Os produtos voltarão a ser considerados individualmente.`,
+      confirmLabel: 'Excluir Grupo',
+      danger: true,
+      onConfirm: () => executarExcluirGrupo(grupoId)
+    });
+  };
+
+  const auditarFaltasEquivalentes = async () => {
+    try {
+      setAuditandoFaltas(true);
+      const res = await fetch('/api/central-compras/equivalentes/reavaliar-faltas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dryRun: true, consultarFirebird: true })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setAuditoriaResultado(data.data);
+      } else {
+        addToast(data.error || 'Erro ao auditar faltas.', 'error');
+      }
+    } catch (err: any) {
+      addToast('Erro de conexão ao auditar faltas: ' + err.message, 'error');
+    } finally {
+      setAuditandoFaltas(false);
+    }
+  };
+
+  const confirmarBaixaFaltasEquivalentes = async () => {
+    try {
+      setBaixandoFaltas(true);
+      const res = await fetch('/api/central-compras/equivalentes/reavaliar-faltas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dryRun: false, consultarFirebird: true })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        addToast(data.message || 'Faltas atualizadas com sucesso!', 'success');
+        setAuditoriaResultado(null);
+      } else {
+        addToast(data.error || 'Erro ao baixar faltas.', 'error');
+      }
+    } catch (err: any) {
+      addToast('Erro ao confirmar baixa: ' + err.message, 'error');
+    } finally {
+      setBaixandoFaltas(false);
+    }
+  };
+
+  const testarComparacaoMotor = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!compTextoA.trim()) {
+      addToast('Digite o nome do Produto A para analisar.', 'warning');
+      return;
+    }
+    try {
+      setCompLoading(true);
+      const res = await fetch('/api/central-compras/equivalentes/comparar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          texto: compTextoA.trim(),
+          categoriaId: compCatA,
+          produtoBTexto: compTextoB.trim() || undefined,
+          categoriaBId: compCatB
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setCompResultado(data.data);
+      } else {
+        addToast(data.error || 'Erro ao comparar produtos.', 'error');
+      }
+    } catch (err: any) {
+      addToast('Erro na comparação: ' + err.message, 'error');
+    } finally {
+      setCompLoading(false);
+    }
+  };
+
+  const getCategoriaBadge = (catId?: number) => {
+    if (catId === 7) return <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">GEN</span>;
+    if (catId === 2) return <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300">SIM</span>;
+    if (catId === 1) return <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300">REF</span>;
+    return null;
   };
 
   const bgCard = theme === 'dark' ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200';
@@ -247,6 +373,27 @@ export const ComprasEquivalentes: React.FC<ComprasEquivalentesProps> = ({
 
         <div className="flex flex-wrap items-center gap-2">
           <button
+            onClick={() => setComparadorAberto(!comparadorAberto)}
+            className={`flex items-center gap-2 px-3.5 py-2 text-sm font-medium rounded-lg border transition-colors ${
+              comparadorAberto
+                ? 'bg-sky-50 border-sky-300 text-sky-700 dark:bg-sky-950/40 dark:border-sky-800 dark:text-sky-300'
+                : 'border-slate-300 text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800'
+            }`}
+          >
+            <ArrowLeftRight className="w-4 h-4" />
+            Testar / Comparar
+          </button>
+
+          <button
+            onClick={auditarFaltasEquivalentes}
+            disabled={auditandoFaltas}
+            className="flex items-center gap-2 px-3.5 py-2 text-sm font-medium rounded-lg bg-amber-600 hover:bg-amber-700 text-white shadow-sm transition-colors disabled:opacity-50"
+          >
+            <ShieldCheck className={`w-4 h-4 ${auditandoFaltas ? 'animate-pulse' : ''}`} />
+            {auditandoFaltas ? 'Auditando...' : 'Auditar Faltas'}
+          </button>
+
+          <button
             onClick={dispararAutoAgrupamento}
             disabled={gerandoAuto}
             className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm transition-colors disabled:opacity-50"
@@ -264,6 +411,154 @@ export const ComprasEquivalentes: React.FC<ComprasEquivalentesProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Painel Retrátil: Testador & Comparador do Motor */}
+      {comparadorAberto && (
+        <div className={`p-4 rounded-xl border ${bgCard} space-y-4`}>
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className={`text-sm font-bold ${textTitle} flex items-center gap-2`}>
+                <ArrowLeftRight className="w-4 h-4 text-sky-500" />
+                Simulador e Comparador Farmacêutico
+              </h3>
+              <p className={`text-xs ${textSub}`}>
+                Teste como o motor extrai princípio ativo, dosagem, forma e verifique se outro laboratório em estoque cobre o produto.
+              </p>
+            </div>
+            <button onClick={() => setComparadorAberto(false)} className="text-slate-400 hover:text-slate-600">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          <form onSubmit={testarComparacaoMotor} className="grid grid-cols-1 lg:grid-cols-12 gap-3 items-end">
+            <div className="lg:col-span-5">
+              <label className="block text-[11px] font-semibold text-slate-500 mb-1">Produto A (Item em falta) *</label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="Ex: ROSUVASTATINA 20MG C/ 30 TORRENT"
+                  value={compTextoA}
+                  onChange={(e) => setCompTextoA(e.target.value)}
+                  className={`flex-1 px-3 py-2 text-xs rounded-lg border focus:outline-none focus:ring-2 focus:ring-sky-500 ${
+                    theme === 'dark' ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                  }`}
+                />
+                <select
+                  value={compCatA}
+                  onChange={(e) => setCompCatA(Number(e.target.value))}
+                  className={`px-2 py-2 text-xs rounded-lg border ${
+                    theme === 'dark' ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                  }`}
+                >
+                  <option value={7}>Genérico</option>
+                  <option value={2}>Similar</option>
+                  <option value={1}>Referência</option>
+                  <option value={6}>Outros</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="lg:col-span-5">
+              <label className="block text-[11px] font-semibold text-slate-500 mb-1">Produto B (Opcional: comparar diretamente)</label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="Ex: ROSUVASTATINA 20MG 30CPR PHARLAB"
+                  value={compTextoB}
+                  onChange={(e) => setCompTextoB(e.target.value)}
+                  className={`flex-1 px-3 py-2 text-xs rounded-lg border focus:outline-none focus:ring-2 focus:ring-sky-500 ${
+                    theme === 'dark' ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                  }`}
+                />
+                <select
+                  value={compCatB}
+                  onChange={(e) => setCompCatB(Number(e.target.value))}
+                  className={`px-2 py-2 text-xs rounded-lg border ${
+                    theme === 'dark' ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                  }`}
+                >
+                  <option value={7}>Genérico</option>
+                  <option value={2}>Similar</option>
+                  <option value={1}>Referência</option>
+                  <option value={6}>Outros</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="lg:col-span-2">
+              <button
+                type="submit"
+                disabled={compLoading}
+                className="w-full px-4 py-2 text-xs font-bold rounded-lg bg-sky-600 hover:bg-sky-700 text-white disabled:opacity-50"
+              >
+                {compLoading ? 'Analisando...' : 'Analisar Motor'}
+              </button>
+            </div>
+          </form>
+
+          {compResultado && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2 border-t border-slate-200 dark:border-slate-700 text-xs">
+              <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-900/50 space-y-1.5">
+                <div className="font-bold text-slate-700 dark:text-slate-200">Atributos Extraídos (Produto A)</div>
+                <div className="flex flex-wrap gap-2 text-[11px]">
+                  <span>Medicamento: <strong>{compResultado.atributos?.isMedicamento ? 'Sim' : 'Não'}</strong></span>
+                  <span>Princípio: <strong>{compResultado.atributos?.principio || '-'}</strong></span>
+                  <span>Dosagem: <strong>{compResultado.atributos?.dosagem || '-'}</strong></span>
+                  <span>Embalagem: <strong>{compResultado.atributos?.unidadesChave || '-'}</strong></span>
+                  <span>Forma: <strong>{compResultado.atributos?.forma || '-'}</strong></span>
+                  {compResultado.atributos?.modificador && (
+                    <span>Modificador: <strong className="text-amber-600">{compResultado.atributos.modificador}</strong></span>
+                  )}
+                </div>
+                {compResultado.atributos?.chave && (
+                  <div className="text-[11px] font-mono text-slate-500 break-all">
+                    Chave: {compResultado.atributos.chave}
+                  </div>
+                )}
+                {compResultado.comparacaoB && (
+                  <div className={`mt-2 p-2 rounded font-semibold ${
+                    compResultado.comparacaoB.podeCobrirFalta
+                      ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300'
+                      : 'bg-rose-100 text-rose-800 dark:bg-rose-950/50 dark:text-rose-300'
+                  }`}>
+                    Comparação A vs B: {compResultado.comparacaoB.podeCobrirFalta
+                      ? '✅ Produto B é equivalente e pode cobrir a falta de A'
+                      : compResultado.comparacaoB.equivalentesNaChave
+                        ? '⚠️ Mesma molécula/apresentação, mas regra Referência impede cobertura automática'
+                        : '❌ Produtos NÃO são equivalentes'}
+                  </div>
+                )}
+              </div>
+
+              <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-900/50 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-slate-700 dark:text-slate-200">Veredito no Estoque da Loja</span>
+                  {compResultado.cobertura?.coberto ? (
+                    <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-700">
+                      ✅ Coberto ({compResultado.cobertura.saldoGrupo} un)
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 text-rose-700">
+                      🚨 Em Falta ({compResultado.cobertura?.saldoGrupo || 0} un)
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-500">{compResultado.cobertura?.motivo}</p>
+                {compResultado.cobertura?.equivalentesComEstoque?.length > 0 && (
+                  <div className="space-y-1 max-h-28 overflow-y-auto pt-1">
+                    {compResultado.cobertura.equivalentesComEstoque.map((eq: any) => (
+                      <div key={eq.produtoId} className="flex items-center justify-between text-[11px] bg-white dark:bg-slate-800 px-2 py-1 rounded border border-slate-200 dark:border-slate-700">
+                        <span className="truncate pr-2">{eq.descricao}</span>
+                        <span className="font-bold text-emerald-600 whitespace-nowrap">{eq.saldo} un</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Barra de Busca & Filtros */}
       <div className={`p-4 rounded-xl border ${bgCard} flex flex-col sm:flex-row items-center justify-between gap-4`}>
@@ -430,11 +725,11 @@ export const ComprasEquivalentes: React.FC<ComprasEquivalentesProps> = ({
                       <table className="w-full text-left text-xs">
                         <thead>
                           <tr className="text-slate-400 border-b border-slate-200 dark:border-slate-700 pb-2">
-                            <th className="py-2 font-medium">Produto no Digifarma</th>
-                            <th className="py-2 font-medium">EAN</th>
-                            <th className="py-2 font-medium text-right">Saldo em Estoque</th>
-                            <th className="py-2 font-medium text-right">Última Compra</th>
-                            <th className="py-2 font-medium text-center">Ações</th>
+                            <th className="py-2 font-medium whitespace-nowrap">Produto no Digifarma</th>
+                            <th className="py-2 font-medium whitespace-nowrap">EAN</th>
+                            <th className="py-2 font-medium text-right whitespace-nowrap">Saldo em Estoque</th>
+                            <th className="py-2 font-medium text-right whitespace-nowrap">Última Compra</th>
+                            <th className="py-2 font-medium text-center whitespace-nowrap">Ações</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -442,7 +737,11 @@ export const ComprasEquivalentes: React.FC<ComprasEquivalentesProps> = ({
                             <tr key={p.produto_id} className="hover:bg-slate-100/50 dark:hover:bg-slate-800/40">
                               <td className="py-2.5 pr-3">
                                 <div className="font-semibold text-slate-800 dark:text-slate-200">{p.descricao}</div>
-                                <div className="text-[11px] text-slate-400">ID: {p.produto_id} {p.laboratorio ? `• Lab: ${p.laboratorio}` : ''}</div>
+                                <div className="text-[11px] text-slate-400 inline-flex items-center gap-1.5 flex-wrap">
+                                  <span>ID: {p.produto_id}</span>
+                                  {getCategoriaBadge(p.categoria_id)}
+                                  {p.laboratorio ? <span>• Lab: {p.laboratorio}</span> : null}
+                                </div>
                               </td>
                               <td className="py-2.5 pr-3 font-mono text-slate-500 dark:text-slate-400">
                                 {p.ean || 'Sem EAN'}
@@ -463,7 +762,7 @@ export const ComprasEquivalentes: React.FC<ComprasEquivalentesProps> = ({
                               </td>
                               <td className="py-2.5 pl-3 text-center">
                                 <button
-                                  onClick={() => desvincularProduto(grupo.grupoId, p.produto_id)}
+                                  onClick={() => desvincularProduto(grupo.grupoId, p.produto_id, p.descricao)}
                                   className="text-slate-400 hover:text-rose-500 p-1 rounded"
                                   title="Remover deste grupo"
                                 >
@@ -684,6 +983,130 @@ export const ComprasEquivalentes: React.FC<ComprasEquivalentesProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Auditoria de Faltas Cobertas por Equivalentes */}
+      {auditoriaResultado && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className={`w-full max-w-2xl rounded-2xl shadow-2xl border p-6 space-y-4 ${bgCard}`}>
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className={`text-lg font-bold ${textTitle} flex items-center gap-2`}>
+                  <ShieldCheck className="w-5 h-5 text-amber-500" />
+                  Auditoria de Faltas com Equivalentes
+                </h3>
+                <p className={`text-xs ${textSub}`}>
+                  Analisadas {auditoriaResultado.totalAnalisadas} falta(s) pendente(s) ({auditoriaResultado.firebirdConsultado ? 'saldos ao vivo do Digifarma' : 'cache local'}).
+                </p>
+              </div>
+              <button onClick={() => setAuditoriaResultado(null)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900">
+                <div className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">Faltas Automáticas Cobertas</div>
+                <div className="text-2xl font-black text-emerald-600 dark:text-emerald-400">{auditoriaResultado.totalCobertasAuto}</div>
+                <div className="text-[11px] text-emerald-600/80">Serão baixadas automaticamente</div>
+              </div>
+              <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900">
+                <div className="text-[11px] font-semibold text-amber-700 dark:text-amber-300">Faltas Manuais/WhatsApp c/ Equiv.</div>
+                <div className="text-2xl font-black text-amber-600 dark:text-amber-400">{auditoriaResultado.totalCobertasManuais}</div>
+                <div className="text-[11px] text-amber-600/80">Recebem badge de aviso (sem baixa)</div>
+              </div>
+            </div>
+
+            {Array.isArray(auditoriaResultado.amostraCobertas) && auditoriaResultado.amostraCobertas.length > 0 ? (
+              <div className="max-h-64 overflow-y-auto border border-slate-200 dark:border-slate-700 rounded-xl">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 dark:bg-slate-900 sticky top-0">
+                    <tr className="text-slate-500 border-b border-slate-200 dark:border-slate-700">
+                      <th className="px-3 py-2 font-semibold whitespace-nowrap">Produto em Falta</th>
+                      <th className="px-3 py-2 font-semibold whitespace-nowrap">Origem</th>
+                      <th className="px-3 py-2 font-semibold whitespace-nowrap">Equivalente em Estoque</th>
+                      <th className="px-3 py-2 font-semibold text-right whitespace-nowrap">Saldo Grupo</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {auditoriaResultado.amostraCobertas.slice(0, 40).map((item: any) => (
+                      <tr key={item.id}>
+                        <td className="px-3 py-2 font-semibold text-slate-800 dark:text-slate-200">{item.productName}</td>
+                        <td className="px-3 py-2 text-[11px] text-slate-500">{item.source}</td>
+                        <td className="px-3 py-2 text-[11px] text-emerald-700 dark:text-emerald-400">
+                          {(item.equivalentes || []).map((e: any) => `${e.descricao} (${e.saldo})`).join(', ')}
+                        </td>
+                        <td className="px-3 py-2 text-right font-bold text-emerald-600">{item.saldoGrupo} un</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="p-6 text-center text-xs text-slate-500">
+                Nenhuma falsa falta pendente com equivalente em estoque foi encontrada!
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-700">
+              <button
+                type="button"
+                onClick={() => setAuditoriaResultado(null)}
+                className="px-4 py-2 text-xs font-semibold rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+              >
+                Fechar
+              </button>
+              {(auditoriaResultado.totalCobertasAuto > 0 || auditoriaResultado.totalCobertasManuais > 0) && (
+                <button
+                  type="button"
+                  disabled={baixandoFaltas}
+                  onClick={confirmarBaixaFaltasEquivalentes}
+                  className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  {baixandoFaltas ? 'Aplicando...' : 'Confirmar Baixa Automática'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Confirmação de Ação */}
+      {confirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className={`w-full max-w-md rounded-2xl shadow-2xl border p-6 space-y-4 ${bgCard}`}>
+            <div className="flex items-center justify-between">
+              <h3 className={`text-base font-bold ${textTitle}`}>{confirmModal.title}</h3>
+              <button onClick={() => setConfirmModal(null)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <p className={`text-xs ${textSub}`}>{confirmModal.message}</p>
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setConfirmModal(null)}
+                className="px-4 py-2 text-xs font-semibold rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const fn = confirmModal.onConfirm;
+                  setConfirmModal(null);
+                  await fn();
+                }}
+                className={`px-4 py-2 text-xs font-semibold rounded-lg text-white ${
+                  confirmModal.danger ? 'bg-rose-600 hover:bg-rose-700' : 'bg-blue-600 hover:bg-blue-700'
+                }`}
+              >
+                {confirmModal.confirmLabel || 'Confirmar'}
+              </button>
+            </div>
           </div>
         </div>
       )}

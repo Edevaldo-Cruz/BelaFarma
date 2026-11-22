@@ -80,6 +80,19 @@ export interface ProductShortage {
   purchased?: boolean;
   ordered?: boolean;
   source?: string;
+  cobertoPorEquivalente?: boolean;
+  equivalenteInfo?: {
+    coberto: boolean;
+    grupoNome?: string | null;
+    saldoGrupo: number;
+    equivalentesComEstoque: Array<{
+      produtoId: number;
+      descricao: string;
+      laboratorio?: string | null;
+      categoriaId?: number;
+      saldo: number;
+    }>;
+  } | null;
 }
 
 export interface CashClosingRecord {
@@ -536,7 +549,7 @@ export interface iFoodNotification {
   daysLate?: number;
 }
 
-export type View = 'dashboard' | 'belinha-pdv' | 'erp-vendas' | 'controlled-medications' | 'erp-produtos' | 'erp-express-products' | 'erp-promocoes' | 'erp-nfe' | 'fiscal-contabil' | 'belaped' | 'promocoes-whatsapp' | 'central-compras' | 'deliveries' | 'orders' | 'financial' | 'settings' | 'users' | 'shortages' | 'medication-search' | 'cash-closing' | 'safe' | 'daily-records' | 'logs' | 'checking-account' | 'contas-a-pagar' | 'days-in-debt' | 'crediario-report' | 'task-management' | 'fixed-accounts' | 'customers' | 'debtors-report' | 'backups' | 'invoices' | 'foguete-amarelo' | 'sales' | 'consignados' | 'ifood-control' | 'notifications' | 'messaging-center' | 'ai-portal' | 'financial-health' | 'caixa-provisoes' | 'radio-manager' | 'whatsapp-crm' | 'labels' | 'compras-live' | 'suppliers' | 'whatsapp-vendas' | 'sales-report' | 'critical-stock' | 'system-watcher' | 'purchase-calendar' | 'inventario' | 'price-manager' | 'pricing-simulator' | 'agenda' | 'anvisa-alerts' | 'notes' | 'card-machines' | 'perdas-avarias' | 'temperature-map' | 'reposicao-tabela' | 'liquidacao-caixa' | 'belafarma-ia';
+export type View = 'dashboard' | 'belinha-pdv' | 'erp-vendas' | 'controlled-medications' | 'erp-produtos' | 'erp-express-products' | 'erp-promocoes' | 'erp-nfe' | 'fiscal-contabil' | 'belaped' | 'promocoes-whatsapp' | 'central-compras' | 'deliveries' | 'orders' | 'financial' | 'settings' | 'users' | 'shortages' | 'medication-search' | 'cash-closing' | 'safe' | 'daily-records' | 'logs' | 'checking-account' | 'contas-a-pagar' | 'days-in-debt' | 'crediario-report' | 'task-management' | 'fixed-accounts' | 'customers' | 'debtors-report' | 'backups' | 'invoices' | 'foguete-amarelo' | 'sales' | 'consignados' | 'ifood-control' | 'notifications' | 'messaging-center' | 'ai-portal' | 'financial-health' | 'caixa-provisoes' | 'radio-manager' | 'whatsapp-crm' | 'labels' | 'compras-live' | 'suppliers' | 'whatsapp-vendas' | 'sales-report' | 'critical-stock' | 'system-watcher' | 'purchase-calendar' | 'inventario' | 'price-manager' | 'levantamento-proffer' | 'pricing-simulator' | 'agenda' | 'anvisa-alerts' | 'notes' | 'card-machines' | 'perdas-avarias' | 'temperature-map' | 'reposicao-tabela' | 'liquidacao-caixa' | 'belafarma-ia';
 
 export interface FiscalAuditIssue {
   id?: number;
@@ -1094,6 +1107,7 @@ export interface ProdutoEquivalenteItem {
   ean?: string | null;
   descricao: string;
   laboratorio?: string | null;
+  categoria_id?: number;
   manual_override?: number;
   saldo: number;
   est_minimo?: number;
@@ -1109,6 +1123,8 @@ export interface GrupoEquivalente {
   dosagem?: string;
   unidadesEmbalagem?: number;
   formaFarmaceutica?: string;
+  chaveCanonica?: string | null;
+  origem?: string;
   saldoTotal: number;
   estMinimoTotal: number;
   emRuptura: boolean;

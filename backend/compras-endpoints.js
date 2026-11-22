@@ -1430,16 +1430,51 @@ module.exports = (db) => {
     }
   });
 
-  router.post('/equivalentes/gerar-automaticos', (req, res) => {
+  router.post('/equivalentes/gerar-automaticos', async (req, res) => {
     try {
-      const resultado = comprasEquivalentesService.gerarGruposAutomaticos(db);
+      let syncInfo = null;
+      if (req.body?.sincronizarDigifarma !== false) {
+        syncInfo = await comprasEquivalentesService.sincronizarSubstanciasDigifarma(db);
+      }
+      const resultado = comprasEquivalentesService.gerarGruposAutomaticos(db, {
+        limparAutomaticosAntigos: req.body?.limparAutomaticosAntigos !== false
+      });
       res.json({
         success: true,
-        data: resultado,
-        message: `${resultado.gruposCriados} grupos criados e ${resultado.produtosVinculados} produtos vinculados!`
+        data: { ...resultado, syncDigifarma: syncInfo },
+        message: `${resultado.gruposCriados} grupos criados, ${resultado.produtosVinculados} produtos vinculados (${resultado.gruposRemovidos} antigos limpos)!`
       });
     } catch (err) {
       console.error('[Compras-Endpoints] Erro no POST /equivalentes/gerar-automaticos:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/equivalentes/reavaliar-faltas', async (req, res) => {
+    try {
+      const resultado = await comprasEquivalentesService.reavaliarFaltasComEquivalentes(db, {
+        dryRun: Boolean(req.body?.dryRun),
+        consultarFirebird: req.body?.consultarFirebird !== false
+      });
+      res.json({
+        success: true,
+        data: resultado,
+        message: resultado.dryRun
+          ? `Prévia: ${resultado.totalCobertasAuto} falta(s) automática(s) e ${resultado.totalCobertasManuais} manual(is) possuem equivalente em estoque.`
+          : `${resultado.baixadas} falta(s) automática(s) baixada(s) e ${resultado.totalCobertasManuais} manual(is) sinalizada(s).`
+      });
+    } catch (err) {
+      console.error('[Compras-Endpoints] Erro no POST /equivalentes/reavaliar-faltas:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/equivalentes/comparar', (req, res) => {
+    try {
+      const resultado = comprasEquivalentesService.compararProdutosOuConsultar(req.body || {}, db);
+      res.json({ success: true, data: resultado });
+    } catch (err) {
+      console.error('[Compras-Endpoints] Erro no POST /equivalentes/comparar:', err);
       res.status(500).json({ success: false, error: err.message });
     }
   });
@@ -1451,7 +1486,7 @@ module.exports = (db) => {
         return res.json({ success: true, data: [] });
       }
       const rows = db.prepare(`
-        SELECT produto_id, descricao, ean, saldo, custo_unitario, ultima_compra_valor
+        SELECT produto_id, descricao, apresentacao, ean, categoria_id, saldo, custo_unitario, ultima_compra_valor
         FROM compras_estoque_cache
         WHERE descricao LIKE ? OR ean = ?
         LIMIT 25
