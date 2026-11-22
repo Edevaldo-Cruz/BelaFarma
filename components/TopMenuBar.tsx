@@ -47,6 +47,7 @@ import {
   Flame,
   FileSpreadsheet,
   Zap,
+  Scale,
 } from 'lucide-react';
 import { View, User, UserRole, Task, Boleto, BoletoStatus } from '../types';
 import { NotificationPanel } from './NotificationPanel';
@@ -182,22 +183,23 @@ export const TopMenuBar: React.FC<TopMenuBarProps> = ({
     return () => clearInterval(interval);
   }, [currentView]);
 
-  // Overdue debtors
+  // Overdue debtors badge (Admin e Operador via /api/crediario-v2/summary-badge)
   React.useEffect(() => {
-    if (!isAdmin) return;
     const checkOverdue = async () => {
       try {
-        const res = await fetch('/api/debtors-report');
-        const data = await res.json();
-        if (Array.isArray(data)) {
-          setHasOverdue(data.some((d: any) => d.hasOverdue === 1));
+        const res = await fetch('/api/crediario-v2/summary-badge');
+        if (res.ok) {
+          const data = await res.json();
+          if (data && typeof data.hasOverdue === 'boolean') {
+            setHasOverdue(data.hasOverdue);
+          }
         }
       } catch (e) {}
     };
     checkOverdue();
     const interval = setInterval(checkOverdue, 60000);
     return () => clearInterval(interval);
-  }, [isAdmin, currentView]);
+  }, [currentView]);
 
   // iFood notifications
   React.useEffect(() => {
@@ -340,6 +342,7 @@ export const TopMenuBar: React.FC<TopMenuBarProps> = ({
         { id: 'temperature-map', label: 'Mapa de Temperatura', icon: Thermometer },
         { id: 'labels', label: 'Etiquetas A4', icon: Printer },
         { id: 'price-manager', label: 'Gestão de Preços', icon: TrendingUp, adminOnly: true },
+        { id: 'levantamento-proffer', label: 'Levantamento Proffer', icon: Scale, adminOnly: true },
         { id: 'critical-stock', label: 'Estoque Crítico', icon: AlertTriangle, adminOnly: true },
         { id: 'stock', label: 'Estoque Geral', icon: Package, adminOnly: true },
       ],
@@ -362,8 +365,8 @@ export const TopMenuBar: React.FC<TopMenuBarProps> = ({
       id: 'crediario',
       label: 'Crediário',
       items: [
-        { id: 'crediario-report', label: 'Central do Crediário', icon: CreditCard, adminOnly: true },
-        { id: 'debtors-report', label: 'Clientes Devedores', icon: AlertTriangle, adminOnly: true },
+        { id: 'crediario-report', label: 'Central do Crediário', icon: CreditCard },
+        { id: 'debtors-report', label: 'Clientes em Atraso', icon: AlertTriangle },
       ],
     },
     {
@@ -372,10 +375,10 @@ export const TopMenuBar: React.FC<TopMenuBarProps> = ({
       items: [
         { id: 'cash-closing', label: 'Fechamento de Caixa', icon: Calculator, adminOnly: true },
         { id: 'caixa-provisoes', label: 'Caixa & Provisões', icon: Wallet, adminOnly: true },
-        { id: 'crediario-report', label: 'Central do Crediário', icon: CreditCard, adminOnly: true },
+        { id: 'crediario-report', label: 'Central do Crediário', icon: CreditCard },
         { id: 'contas-a-pagar', label: 'Contas a Pagar', icon: Banknote, adminOnly: true },
         { id: 'checking-account', label: 'Conta Corrente', icon: Banknote, adminOnly: true },
-        { id: 'debtors-report', label: 'Devedores', icon: AlertTriangle, adminOnly: true },
+        { id: 'debtors-report', label: 'Devedores', icon: AlertTriangle },
         { id: 'financial', label: 'Gestão Financeira', icon: Landmark, adminOnly: true },
         { id: 'financial-health', label: 'Saúde Financeira', icon: HeartPulse, adminOnly: true },
         { id: 'card-machines', label: 'Maquininhas & Cartões', icon: CreditCard, adminOnly: true },
@@ -420,7 +423,7 @@ export const TopMenuBar: React.FC<TopMenuBarProps> = ({
 
   // Helper to get notification badge for an item
   const getItemBadge = (itemId: View) => {
-    if (itemId === 'promocoes-whatsapp') {
+    if (itemId === 'promocoes-whatsapp' || itemId === 'levantamento-proffer') {
       return <span className="px-1.5 py-0.5 text-[9px] font-black uppercase rounded-full bg-emerald-600 text-white animate-pulse">Novo</span>;
     }
     if (itemId === 'whatsapp-vendas') {

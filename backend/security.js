@@ -65,7 +65,7 @@ function base64UrlDecodeToString(input) {
   return Buffer.from(str, 'base64').toString('utf-8');
 }
 
-const TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 dias
+const TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60; // 30 dias
 const COOKIE_NAME = 'belinha_token';
 
 function signToken(user, ttlSeconds = TOKEN_TTL_SECONDS) {
@@ -424,13 +424,18 @@ function isPublicApiRoute(req) {
     return true;
   }
 
+  // Reautenticação do terminal de caixa (PDV) por chave de acesso
+  if (reqPath === '/erp/pos/identify-seller' && method === 'POST') {
+    return true;
+  }
+
   // Vitrine Pública de Ofertas e Analytics
   if (reqPath.startsWith('/liquidacao/public/')) {
     return true;
   }
 
-  // Termo Digital do Cartão BelaFarma (acesso do cliente pelo WhatsApp)
-  if (reqPath.startsWith('/cards/terms/')) {
+  // Termo Digital e Portal Público do Crediário BelaFarma
+  if (reqPath.startsWith('/cards/terms/') || reqPath.startsWith('/cards/public/') || reqPath.startsWith('/crediario-v2/public/')) {
     return true;
   }
 
@@ -540,6 +545,24 @@ function clearPublicWriteRateLimit(req) {
   publicWriteMap.delete(ip);
 }
 
+function maybeRefreshToken(req, res, payload) {
+  if (!payload || !payload.exp) return null;
+  const nowSec = Math.floor(Date.now() / 1000);
+  const remainingSec = payload.exp - nowSec;
+  if (remainingSec > 0 && remainingSec < Math.floor(TOKEN_TTL_SECONDS / 2)) {
+    const refreshed = signToken({
+      id: payload.id,
+      name: payload.name,
+      role: payload.role,
+      jobRole: payload.jobRole
+    });
+    setAuthCookie(req, res, refreshed);
+    res.setHeader('X-Belinha-Refreshed-Token', refreshed);
+    return refreshed;
+  }
+  return null;
+}
+
 function apiAuthMiddleware(req, res, next) {
   // 0. Proteção contra flood/DoS na API
   const rate = checkApiRateLimit(req);
@@ -572,8 +595,14 @@ function apiAuthMiddleware(req, res, next) {
 
   // 2. Rotas públicas (Vitrine, Login, Agente RPA)
   if (isPublicApiRoute(req)) {
-    // Se for escrita pública (analytics/visitors), aplica limite anti-spam dedicado
-    if (method === 'POST' && (reqPath.startsWith('/liquidacao/public/') || reqPath === '/system/visitors/record')) {
+    // Se for escrita pública (analytics/visitors/portal crediário), aplica limite anti-spam dedicado
+    if (
+      method === 'POST' &&
+      (reqPath.startsWith('/liquidacao/public/') ||
+        reqPath === '/system/visitors/record' ||
+        reqPath.startsWith('/cards/public/') ||
+        reqPath.startsWith('/crediario-v2/public/'))
+    ) {
       const pubRate = checkPublicWriteRateLimit(req);
       if (!pubRate.allowed) {
         return res.status(429).json({
@@ -603,6 +632,7 @@ function apiAuthMiddleware(req, res, next) {
   }
 
   req.user = payload;
+  maybeRefreshToken(req, res, payload);
   return next();
 }
 
@@ -684,6 +714,7 @@ function uploadsAuthMiddleware(req, res, next) {
   }
 
   req.user = payload;
+  maybeRefreshToken(req, res, payload);
   return next();
 }
 
@@ -990,6 +1021,7 @@ module.exports = {
   extractToken,
   setAuthCookie,
   clearAuthCookie,
+  maybeRefreshToken,
   hashAccessKey,
   verifyAccessKey,
   sanitizeUser,

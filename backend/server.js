@@ -25,7 +25,8 @@ app.use(cors({
     }
     return callback(new Error('Origem bloqueada pela política de segurança CORS.'));
   },
-  credentials: true
+  credentials: true,
+  exposedHeaders: ['X-Belinha-Refreshed-Token']
 }));
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ limit: '100mb', extended: true }));
@@ -416,6 +417,8 @@ app.get('/api/all-data', async (req, res) => {
       clientInquiry: !!shortage.clientInquiry, // Convert 0/1 back to false/true
       purchased: !!shortage.purchased,
       ordered: !!shortage.ordered,
+      cobertoPorEquivalente: !!shortage.coberto_por_equivalente,
+      equivalenteInfo: shortage.equivalente_info ? safelyParseJSON(shortage.equivalente_info) : null,
       dbStatus: {
         saldo: shortage.saldo || 0,
         priceCompra: shortage.valorUltimaCompra || 0
@@ -867,6 +870,7 @@ app.post('/api/logout', (req, res) => {
 app.get('/api/auth/session', (req, res) => {
   const token = security.extractToken(req);
   const payload = security.verifyToken(token);
+  if (payload) security.maybeRefreshToken(req, res, payload);
   if (!payload) {
     return res.status(401).json({ authenticated: false });
   }
@@ -2417,83 +2421,8 @@ app.post('/api/cash-closings', security.requireAdmin, (req, res) => {
     }
     // ────────────────────────────────────────────────────────────────────────
 
-    // ── Verificação Automática de Faltas (Stock <= 1) ──────────
-    try {
-      (async () => {
-        try {
-          console.log('[AUTO-SHORTAGES] Verificando produtos vendidos hoje com estoque <= 1...');
-          const sqlFaltas = `
-            SELECT DISTINCT p.PRODUTO_ID, p.PRODUTO as PROD_NOME, p.PROD_SALDO
-            FROM ITEM_VENDAS iv
-            JOIN CAB_VENDAS v ON iv.VENDA_NOTA_ID = v.VENDA_NOTA_ID
-            JOIN PRODUTOS p ON iv.PRODUTO_ID = p.PRODUTO_ID
-            WHERE v.CANCELADO <> 'S'
-              AND v.VENDA_DATA_HORA >= CURRENT_DATE
-              AND p.PROD_SALDO <= 1
-          `;
-          const resultFaltas = await queryDigifarma(sqlFaltas);
-          
-          if (resultFaltas && resultFaltas.length > 0) {
-            console.log(`[AUTO-SHORTAGES] Encontrados ${resultFaltas.length} produtos com saldo <= 1.`);
-            const insertShortageStmt = db.prepare(`
-              INSERT INTO shortages (id, productName, type, clientInquiry, notes, createdAt, userName, source, purchased, ordered)
-              VALUES (@id, @productName, @type, @clientInquiry, @notes, @createdAt, @userName, @source, @purchased, @ordered)
-            `);
-            
-            for (const item of resultFaltas) {
-              const prodName = (item.PROD_NOME || '').trim();
-              const saldo = item.PROD_SALDO || 0;
-              
-              const existing = db.prepare(`SELECT id FROM shortages WHERE productName = ? AND purchased = 0 AND ordered = 0 LIMIT 1`).get(prodName);
-              
-              if (!existing) {
-                const notes = saldo === 1 ? '[ATENÇÃO: RESTA 1 NO ESTOQUE]' : '';
-                
-                let productType = 'Marca (Referência)';
-                const nomeLower = prodName.toLowerCase();
-                if (nomeLower.includes('generico') || nomeLower.includes('genérico')) {
-                  productType = 'Genérico';
-                } else if (
-                  nomeLower.includes('shampoo') || 
-                  nomeLower.includes('condicionador') ||
-                  nomeLower.includes('sabonete') ||
-                  nomeLower.includes('desodorante') ||
-                  nomeLower.includes('fralda') ||
-                  nomeLower.includes('creme') ||
-                  nomeLower.includes('perfume') ||
-                  nomeLower.includes('absorvente') ||
-                  nomeLower.includes('escova') ||
-                  nomeLower.includes('pasta') ||
-                  nomeLower.includes('gillette') ||
-                  nomeLower.includes('prestobarba')
-                ) {
-                  productType = 'Perfumaria';
-                }
-
-                insertShortageStmt.run({
-                  id: 'sht_' + Date.now().toString() + '_' + Math.floor(Math.random() * 1000),
-                  productName: prodName,
-                  type: productType,
-                  clientInquiry: 0,
-                  notes: notes,
-                  createdAt: new Date().toISOString(),
-                  userName: 'Sistema (Fechamento)',
-                  source: 'auto',
-                  purchased: 0,
-                  ordered: 0
-                });
-                console.log(`[AUTO-SHORTAGES] Adicionado à lista de faltas: ${prodName} (Saldo: ${saldo})`);
-              }
-            }
-          }
-        } catch (e) {
-          console.error('[AUTO-SHORTAGES] Erro ao buscar/inserir faltas automáticas:', e);
-        }
-      })();
-    } catch (err) {
-      console.warn('[AUTO-SHORTAGES] Falha ao disparar rotina:', err.message);
-    }
-    // ────────────────────────────────────────────────────────────────────────
+    // Nota: A verificação automática de faltas já foi disparada acima via autoShortages.runAutoShortages(0)
+    // (com filtro inteligente de equivalentes e prevenção de duplicidades).
 
     res.status(201).json({ id: closing.id });
   } catch (err) {
@@ -4597,6 +4526,9 @@ console.log('💰 Módulo Monitor de Preços e Reajuste em Massa inicializado.')
 
 const pricingEngineEndpoints = require('./pricing-engine-endpoints.js');
 app.use('/api/pricing-engine', pricingEngineEndpoints(db));
+const levantamentoProfferEndpoints = require('./levantamento-proffer-endpoints.js');
+app.use('/api/levantamento-proffer', security.requireAdmin, levantamentoProfferEndpoints(db));
+console.log('⚖️ Módulo Levantamento de Ativos & Comparativo Proffer inicializado.');
 console.log('🤖 Módulo Belinha Pricing Engine (Motor de Precificação Inteligente) inicializado.');
 
 const liquidacaoEndpoints = require('./liquidacao-endpoints.js');
@@ -4715,6 +4647,10 @@ console.log('📌 Módulo Mural de Pendências e Produtos Parados 90d+ inicializ
 // Cartão BelaFarma (Private Label) & Fidelidade NFC
 const createCardEndpoints = require('./crediario-card-endpoints.js');
 app.use('/api/cards', createCardEndpoints(db));
+// Central Unificada do Crediário v2 (Sincronização Digifarma + Ficha 360 + Extratos + PIX + Portal)
+const createUnifiedCrediarioEndpoints = require('./crediario-unified-endpoints.js');
+app.use('/api/crediario-v2', createUnifiedCrediarioEndpoints(db));
+console.log('💎 Central Unificada do Crediário v2 inicializada em /api/crediario-v2.');
 console.log('💳 Módulo Cartão BelaFarma (Private Label) & Fidelidade NFC inicializado em /api/cards.');
 
 // Régua Automática e Cron Diário do Crediário 2.0 (Fechamento D-10, Vencimento, D+1, D+3 e D+5)
@@ -5093,6 +5029,21 @@ cron.schedule('0 11,16 * * 1-6', async () => {
   }
 }, { timezone: 'America/Sao_Paulo' });
 console.log('[CRON-HORACIO] 👔 Agente Horácio agendado para rodar nos cortes das 11h00 e 16h00 (Seg-Sáb).');
+
+// CRON: AVISOS AUTOMÁTICOS DO CREDIÁRIO UNIFICADO (09:05 - respeita chaves liga/desliga)
+cron.schedule('5 9 * * *', async () => {
+  try {
+    const unifiedCred = require('./services/crediario-unified.service.js');
+    await unifiedCred.syncAllFromDigifarma(db, { notifyNewPurchases: false });
+    const resCron = await unifiedCred.runUnifiedDailyNotifications(db);
+    if (!resCron.skipped) {
+      console.log('[CRON-CREDIARIO-V2] ✅ Régua diária executada:', resCron);
+    }
+  } catch (err) {
+    console.error('[CRON-CREDIARIO-V2] Erro:', err.message);
+  }
+}, { timezone: 'America/Sao_Paulo' });
+console.log('[CRON-CREDIARIO-V2] 📅 Automações opcionais do Crediário Unificado agendadas para 09:05.');
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -5905,6 +5856,15 @@ app.get('/api/debug-shortages', async (req, res) => {
       stack: err.stack
     });
   }
+});
+
+// SPA Fallback para URLs públicas do Portal do Cliente do Crediário
+app.get(['/crediario', '/minha-conta', '/minha-conta/:token', '/fatura/:invoiceId'], (req, res) => {
+  const distIndex = path.join(__dirname, '../dist/index.html');
+  if (fs.existsSync(distIndex)) {
+    return res.sendFile(distIndex);
+  }
+  return res.status(404).send('Build do frontend não encontrado.');
 });
 
 // Encerramento Gracioso para evitar travamento em StopPending no Windows Service

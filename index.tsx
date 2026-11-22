@@ -184,12 +184,22 @@ if (typeof window !== 'undefined' && typeof window.fetch === 'function') {
 
       const response = await originalFetch(input, nextInit);
 
+      const refreshedToken = response.headers.get('X-Belinha-Refreshed-Token');
+      if (refreshedToken) {
+        try {
+          window.localStorage.setItem('belinha_auth_token', refreshedToken);
+        } catch {}
+      }
+
       if (
         response.status === 401 &&
         !urlStr.includes('/api/login') &&
         !urlStr.includes('/api/logout') &&
         !urlStr.includes('/api/auth/session') &&
-        !urlStr.includes('/api/liquidacao/public/')
+        !urlStr.includes('/api/liquidacao/public/') &&
+        !urlStr.includes('/api/cards/public/') &&
+        !urlStr.includes('/api/crediario-v2/public/') &&
+        !urlStr.includes('/api/erp/pos/identify-seller')
       ) {
         window.dispatchEvent(new CustomEvent('belinha:unauthorized'));
       }

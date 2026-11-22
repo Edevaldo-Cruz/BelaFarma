@@ -174,11 +174,22 @@ async function syncProdutos(db) {
       db.prepare(`
         UPDATE products 
         SET 
+          barcode = COALESCE((
+            SELECT CASE
+              WHEN TRIM(COALESCE(d.codigo_barras, '')) != '' AND (
+                TRIM(COALESCE(products.barcode, '')) = '' OR
+                LENGTH(TRIM(d.codigo_barras)) >= 8
+              ) THEN TRIM(d.codigo_barras)
+              ELSE products.barcode
+            END
+            FROM digifarma_products_cache d WHERE d.produto_id = products.code
+          ), products.barcode),
           sale_price = (SELECT d.preco_normal FROM digifarma_products_cache d WHERE d.produto_id = products.code),
           promo_price = (SELECT d.preco_promocao FROM digifarma_products_cache d WHERE d.produto_id = products.code),
           cost_price = (SELECT d.preco_custo FROM digifarma_products_cache d WHERE d.produto_id = products.code),
           stock_qty = (SELECT d.estoque_atual FROM digifarma_products_cache d WHERE d.produto_id = products.code),
           curve = COALESCE((SELECT d.curva FROM digifarma_products_cache d WHERE d.produto_id = products.code), products.curve),
+          is_active = 1,
           updated_at = datetime('now', 'localtime')
         WHERE EXISTS (
           SELECT 1 FROM digifarma_products_cache d WHERE d.produto_id = products.code
@@ -271,62 +282,15 @@ async function syncProdutos(db) {
 }
 
 /**
- * 2. Sincroniza Crediário / Devedores para digifarma_crediario_cache
+ * 2. Sincroniza Crediário / Devedores para digifarma_crediario_cache + Base Unificada Belinha
  */
 async function syncCrediario(db) {
-  const start = Date.now();
-  console.log('[Digifarma Sync] 🔄 Iniciando sincronização do Crediário...');
-  try {
-    const ficharioData = await queryDigifarma(`
-      SELECT 
-        c.FICHARIO_ID as ID,
-        c.CLIENTE_ID as CLIENTID,
-        cli.CLIENTE as CLIENTNAME,
-        cli.CLI_CELULAR as PHONE,
-        c.FICHARIO_VALOR as AMOUNT,
-        c.FICHARIO_DATACOMPRA as PURCHASEDATE,
-        c.FICHARIO_VENCIMENTO as DUEDATE,
-        c.VENDA_NOTA_ID as SALEID
-      FROM FICHARIO c
-      LEFT JOIN CLIENTES cli ON c.CLIENTE_ID = cli.CLIENTE_ID
-      ORDER BY c.FICHARIO_VENCIMENTO ASC
-    `, [], 30000);
-
-    const replaceMany = db.transaction((items) => {
-      db.prepare('DELETE FROM digifarma_crediario_cache').run();
-      const insertStmt = db.prepare(`
-        INSERT INTO digifarma_crediario_cache (
-          id, cliente_id, cliente_nome, telefone, valor, data_compra, data_vencimento, venda_nota_id, atualizado_em
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
-      `);
-
-      for (const item of items) {
-        insertStmt.run(
-          String(item.ID),
-          item.CLIENTID || null,
-          item.CLIENTNAME ? String(item.CLIENTNAME).trim() : 'Desconhecido',
-          item.PHONE ? String(item.PHONE).trim() : '',
-          parseFloat(item.AMOUNT || 0),
-          item.PURCHASEDATE ? String(item.PURCHASEDATE) : null,
-          item.DUEDATE ? String(item.DUEDATE) : null,
-          item.SALEID || null
-        );
-      }
-    });
-
-    replaceMany(ficharioData);
-
-    const duracaoMs = Date.now() - start;
-    updateSyncMetadata(db, 'crediario', ficharioData.length, duracaoMs, 'ok');
-    console.log(`[Digifarma Sync] ✅ ${ficharioData.length} registros de Crediário sincronizados em ${duracaoMs}ms!`);
-
-    return { success: true, count: ficharioData.length, duracaoMs };
-  } catch (err) {
-    const duracaoMs = Date.now() - start;
-    updateSyncMetadata(db, 'crediario', 0, duracaoMs, 'erro', err.message);
-    console.error('[Digifarma Sync] ❌ Erro ao sincronizar crediário:', err.message);
-    throw err;
-  }
+  const { syncAllFromDigifarma } = require('./crediario-unified.service');
+  const res = await syncAllFromDigifarma(db, { notifyNewPurchases: true });
+  return {
+    ...res,
+    count: res.itemsCount || 0
+  };
 }
 
 /**

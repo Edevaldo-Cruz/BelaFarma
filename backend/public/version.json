@@ -1,9 +1,24 @@
 {
   "version": "1.2.6",
-  "commitHash": "347c001",
-  "commitMessage": "feat(caixa-inteligente): separar sobra operacional para boletos e sobra livre para caixinhas",
-  "buildTime": "20/11/2026, 09:23:05",
+  "commitHash": "6e2c92a",
+  "commitMessage": "feat(belaped): adicionar utilitarios de lote oriente e busca de barbear/perfumaria",
+  "buildTime": "22/11/2026, 10:32:32",
   "recentCommits": [
+    {
+      "hash": "6e2c92a",
+      "date": "21/11/2026",
+      "message": "feat(belaped): adicionar utilitarios de lote oriente e busca de barbear/perfumaria"
+    },
+    {
+      "hash": "f85ece2",
+      "date": "20/11/2026",
+      "message": "fix(oriente): auto-dispensar modal de pedido em andamento no login"
+    },
+    {
+      "hash": "79dd473",
+      "date": "20/11/2026",
+      "message": "feat(provisoes): implementar central de contas variaveis (cartao, simples, inss, cemig, nuv) com persistencia permanente no mes"
+    },
     {
       "hash": "347c001",
       "date": "20/11/2026",
@@ -48,21 +63,6 @@
       "hash": "7606e39",
       "date": "16/11/2026",
       "message": "feat(belaped): adiciona atalho direto do painel de economia no topo do BelaPed"
-    },
-    {
-      "hash": "46d9e1c",
-      "date": "16/11/2026",
-      "message": "feat(cartao): adicionar modal de fatura do cartao na abertura exclusivo para Edevaldo e integrar as provisões"
-    },
-    {
-      "hash": "2dadc51",
-      "date": "16/11/2026",
-      "message": "feat(provisoes): incluir colunas de contas fixas e fornecedores no detalhamento diario"
-    },
-    {
-      "hash": "1f5420e",
-      "date": "16/11/2026",
-      "message": "feat(provisoes): incluir categorias de contas fixas e fornecedores/cmv, e cadastrar contrato Geraldo 70k"
     }
   ]
 }

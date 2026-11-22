@@ -54,6 +54,7 @@ import {
   ChevronRight,
   Sparkle,
   Zap,
+  Scale,
 } from 'lucide-react';
 import { View, User, UserRole, Task, Boleto, BoletoStatus } from '../types';
 import { NotificationPanel } from './NotificationPanel';
@@ -192,13 +193,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
   }, [currentView]);
 
   React.useEffect(() => {
-    if (!isAdmin) return;
     const checkOverdue = async () => {
       try {
-        const res = await fetch('/api/debtors-report');
-        const data = await res.json();
-        if (Array.isArray(data)) {
-          setHasOverdue(data.some((d: any) => d.hasOverdue === 1));
+        const res = await fetch('/api/crediario-v2/summary-badge');
+        if (res.ok) {
+          const data = await res.json();
+          if (data && typeof data.hasOverdue === 'boolean') {
+            setHasOverdue(data.hasOverdue);
+          }
         }
       } catch (error) {
         console.error('Error checking overdue status:', error);
@@ -208,7 +210,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     // Check every minute
     const interval = setInterval(checkOverdue, 60000);
     return () => clearInterval(interval);
-  }, [isAdmin, currentView]);
+  }, [currentView]);
 
   // Check iFood notifications
   React.useEffect(() => {
@@ -330,6 +332,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'critical-stock', label: 'Estoque Crítico', icon: AlertTriangle },
     { id: 'system-watcher', label: 'Vigilante', icon: Activity },
     { id: 'price-manager', label: 'Gestão de Preços', icon: TrendingUp },
+    { id: 'levantamento-proffer', label: 'Levantamento Proffer', icon: Scale },
     { id: 'liquidacao-caixa', label: 'Liquidação & Caixa', icon: Flame },
     { id: 'settings', label: 'Configurações', icon: SettingsIcon },
   ];
@@ -412,7 +415,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     const auditItem = auditMap[item.id];
     if (auditItem && auditItem.status === 'UNINSTALLED') return false;
 
-    const adminOnly = ['fiscal-contabil', 'logs', 'belaped', 'central-compras', 'checking-account', 'cash-closing', 'financial', 'contas-a-pagar', 'users', 'safe', 'debtors-report', 'crediario-report', 'backups', 'consignados', 'invoices', 'ifood-control', 'messaging-center', 'belafarma-ia', 'ai-portal', 'radio-manager', 'whatsapp-crm', 'stock', 'financial-health', 'caixa-provisoes', 'sales-report', 'critical-stock', 'system-watcher', 'purchase-calendar', 'price-manager', 'card-machines', 'liquidacao-caixa', 'erp-nfe', 'promocoes-whatsapp', 'suppliers']; 
+    const adminOnly = ['fiscal-contabil', 'logs', 'belaped', 'central-compras', 'checking-account', 'cash-closing', 'financial', 'contas-a-pagar', 'users', 'safe', 'backups', 'consignados', 'invoices', 'ifood-control', 'messaging-center', 'belafarma-ia', 'ai-portal', 'radio-manager', 'whatsapp-crm', 'stock', 'financial-health', 'caixa-provisoes', 'sales-report', 'critical-stock', 'system-watcher', 'purchase-calendar', 'price-manager', 'levantamento-proffer', 'card-machines', 'liquidacao-caixa', 'erp-nfe', 'promocoes-whatsapp', 'suppliers']; 
 
     if (adminOnly.includes(item.id) && !isAdmin) return false;
     return true;
@@ -470,6 +473,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         'temperature-map',
         'labels',
         'price-manager',
+        'levantamento-proffer',
         'critical-stock',
         'stock'
       ]

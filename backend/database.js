@@ -1945,6 +1945,10 @@ try {
       console.log('✅ Migration: coluna ordered adicionada em shortages.');
     }
 
+    // Migration: adicionar colunas de cobertura por equivalente em shortages
+    try { db.exec('ALTER TABLE shortages ADD COLUMN coberto_por_equivalente INTEGER DEFAULT 0'); } catch(e) {}
+    try { db.exec('ALTER TABLE shortages ADD COLUMN equivalente_info TEXT'); } catch(e) {}
+
     // Migration: adicionar coluna whatsapp_name em customers
     try {
       db.prepare('SELECT whatsapp_name FROM customers LIMIT 1').get();
@@ -2299,6 +2303,12 @@ try {
     try {
       db.exec('ALTER TABLE compras_estoque_cache ADD COLUMN ultima_movimentacao TEXT');
     } catch (e) {}
+    try {
+      db.exec('ALTER TABLE compras_estoque_cache ADD COLUMN substancia_id INTEGER');
+    } catch (e) {}
+    try {
+      db.exec('ALTER TABLE compras_estoque_cache ADD COLUMN substancia_nome TEXT');
+    } catch (e) {}
 
     try {
       db.exec('CREATE INDEX IF NOT EXISTS idx_cec_status ON compras_estoque_cache(status_ruptura)');
@@ -2307,6 +2317,9 @@ try {
       db.exec('CREATE INDEX IF NOT EXISTS idx_cec_curva ON compras_estoque_cache(curva_abc)');
       db.exec('CREATE INDEX IF NOT EXISTS idx_cec_ciclo ON compras_estoque_cache(ciclo_vida)');
       db.exec('CREATE INDEX IF NOT EXISTS idx_cec_ativo_10m ON compras_estoque_cache(ativo_10m)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_cec_substancia ON compras_estoque_cache(substancia_id)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_cec_cat ON compras_estoque_cache(categoria_id)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_cec_saldo ON compras_estoque_cache(saldo)');
       db.exec(`
         UPDATE compras_estoque_cache 
         SET ativo_10m = CASE 
@@ -2672,6 +2685,9 @@ try {
       db.exec('CREATE INDEX IF NOT EXISTS idx_cge_principio ON compras_grupos_equivalentes(principio_ativo)');
       db.exec('CREATE INDEX IF NOT EXISTS idx_cge_nome ON compras_grupos_equivalentes(nome_grupo)');
     } catch(e) {}
+    try { db.exec('ALTER TABLE compras_grupos_equivalentes ADD COLUMN chave_canonica TEXT'); } catch(e) {}
+    try { db.exec("ALTER TABLE compras_grupos_equivalentes ADD COLUMN origem TEXT DEFAULT 'auto'"); } catch(e) {}
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_cge_chave ON compras_grupos_equivalentes(chave_canonica)'); } catch(e) {}
 
     db.exec(`
       CREATE TABLE IF NOT EXISTS compras_produtos_equivalentes (
@@ -2691,6 +2707,21 @@ try {
       db.exec('CREATE INDEX IF NOT EXISTS idx_cpe_grupo ON compras_produtos_equivalentes(grupo_id)');
       db.exec('CREATE INDEX IF NOT EXISTS idx_cpe_produto ON compras_produtos_equivalentes(produto_id)');
       db.exec('CREATE INDEX IF NOT EXISTS idx_cpe_ean ON compras_produtos_equivalentes(ean)');
+    } catch(e) {}
+
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS compras_equivalentes_exclusoes (
+        id TEXT PRIMARY KEY,
+        produto_id INTEGER NOT NULL,
+        grupo_chave TEXT,
+        grupo_id TEXT,
+        motivo TEXT,
+        created_at TEXT NOT NULL,
+        UNIQUE(produto_id, grupo_chave)
+      )
+    `);
+    try {
+      db.exec('CREATE INDEX IF NOT EXISTS idx_cee_prod ON compras_equivalentes_exclusoes(produto_id)');
     } catch(e) {}
 
     // 12. Agente Horácio — Relatórios Executivos e Alertas de Compras
@@ -2958,8 +2989,153 @@ try {
       CREATE INDEX IF NOT EXISTS idx_card_inv_status ON card_invoices(status);
       CREATE INDEX IF NOT EXISTS idx_nfc_cb_phone ON nfc_loyalty_cashback(phone);
       CREATE INDEX IF NOT EXISTS idx_nfc_cb_status ON nfc_loyalty_cashback(status);
+
+      CREATE TABLE IF NOT EXISTS digifarma_crediario_pagamentos_cache (
+        contrec_id INTEGER PRIMARY KEY,
+        cliente_id INTEGER NOT NULL,
+        total_debito REAL DEFAULT 0,
+        valor_pago REAL DEFAULT 0,
+        tipo_pag TEXT DEFAULT 'P',
+        data_pag TEXT,
+        vencimento TEXT,
+        dinheiro REAL DEFAULT 0,
+        cartao REAL DEFAULT 0,
+        cheque REAL DEFAULT 0,
+        outros REAL DEFAULT 0,
+        vendedor INTEGER,
+        n_recibo TEXT,
+        atualizado_em TEXT DEFAULT (datetime('now', 'localtime'))
+      );
+
+      CREATE TABLE IF NOT EXISTS crediario_local_purchases (
+        id TEXT PRIMARY KEY,
+        card_id INTEGER NOT NULL,
+        sale_id TEXT,
+        buyer_name TEXT DEFAULT '',
+        description TEXT NOT NULL,
+        items_json TEXT DEFAULT '[]',
+        amount REAL NOT NULL,
+        paid_amount REAL DEFAULT 0,
+        status TEXT DEFAULT 'open',
+        purchased_at TEXT DEFAULT (datetime('now', 'localtime')),
+        due_date TEXT,
+        created_by TEXT DEFAULT 'Balcão',
+        notes TEXT DEFAULT ''
+      );
+
+      CREATE TABLE IF NOT EXISTS crediario_message_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        card_id INTEGER NOT NULL,
+        phone TEXT,
+        template_type TEXT,
+        sale_id TEXT,
+        message_text TEXT NOT NULL,
+        channel TEXT DEFAULT 'wa_me',
+        status TEXT DEFAULT 'sent',
+        error_message TEXT,
+        sent_by TEXT,
+        created_at TEXT DEFAULT (datetime('now', 'localtime'))
+      );
+
+      CREATE TABLE IF NOT EXISTS card_payments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        card_id INTEGER NOT NULL,
+        invoice_id TEXT,
+        amount REAL NOT NULL,
+        payment_method TEXT NOT NULL DEFAULT 'DINHEIRO',
+        paid_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        origin TEXT DEFAULT 'BALCAO_CAIXA',
+        notes TEXT,
+        created_at TEXT DEFAULT (datetime('now', 'localtime'))
+      );
     `);
-    console.log('💳 Cartão BelaFarma (Private Label) & Fidelidade NFC: Tabelas criadas/verificadas com sucesso.');
+    try { db.exec('ALTER TABLE digifarma_crediario_cache ADD COLUMN produto_id INTEGER'); } catch(e) {}
+    try { db.exec("ALTER TABLE digifarma_crediario_cache ADD COLUMN produto_nome TEXT DEFAULT ''"); } catch(e) {}
+    try { db.exec("ALTER TABLE digifarma_crediario_cache ADD COLUMN apresentacao TEXT DEFAULT ''"); } catch(e) {}
+    try { db.exec('ALTER TABLE digifarma_crediario_cache ADD COLUMN quantidade REAL DEFAULT 1'); } catch(e) {}
+    try { db.exec('ALTER TABLE digifarma_crediario_cache ADD COLUMN preco_unitario REAL DEFAULT 0'); } catch(e) {}
+    try { db.exec('ALTER TABLE digifarma_crediario_cache ADD COLUMN desconto REAL DEFAULT 0'); } catch(e) {}
+    try { db.exec("ALTER TABLE digifarma_crediario_cache ADD COLUMN comprador TEXT DEFAULT ''"); } catch(e) {}
+
+    try { db.exec('ALTER TABLE belafarma_cards ADD COLUMN digifarma_cliente_id INTEGER'); } catch(e) {}
+    try { db.exec('ALTER TABLE belafarma_cards ADD COLUMN portal_token TEXT'); } catch(e) {}
+    try { db.exec("ALTER TABLE belafarma_cards ADD COLUMN nickname TEXT DEFAULT ''"); } catch(e) {}
+    try { db.exec("ALTER TABLE belafarma_cards ADD COLUMN rg TEXT DEFAULT ''"); } catch(e) {}
+    try { db.exec("ALTER TABLE belafarma_cards ADD COLUMN birth_date TEXT DEFAULT ''"); } catch(e) {}
+    try { db.exec("ALTER TABLE belafarma_cards ADD COLUMN email TEXT DEFAULT ''"); } catch(e) {}
+    try { db.exec("ALTER TABLE belafarma_cards ADD COLUMN phone_fixed TEXT DEFAULT ''"); } catch(e) {}
+    try { db.exec("ALTER TABLE belafarma_cards ADD COLUMN address TEXT DEFAULT ''"); } catch(e) {}
+    try { db.exec("ALTER TABLE belafarma_cards ADD COLUMN address_number TEXT DEFAULT ''"); } catch(e) {}
+    try { db.exec("ALTER TABLE belafarma_cards ADD COLUMN address_complement TEXT DEFAULT ''"); } catch(e) {}
+    try { db.exec("ALTER TABLE belafarma_cards ADD COLUMN neighborhood TEXT DEFAULT ''"); } catch(e) {}
+    try { db.exec("ALTER TABLE belafarma_cards ADD COLUMN city TEXT DEFAULT ''"); } catch(e) {}
+    try { db.exec("ALTER TABLE belafarma_cards ADD COLUMN state TEXT DEFAULT ''"); } catch(e) {}
+    try { db.exec("ALTER TABLE belafarma_cards ADD COLUMN zip_code TEXT DEFAULT ''"); } catch(e) {}
+    try { db.exec("ALTER TABLE belafarma_cards ADD COLUMN address_reference TEXT DEFAULT ''"); } catch(e) {}
+    try { db.exec("ALTER TABLE belafarma_cards ADD COLUMN responsible_name TEXT DEFAULT ''"); } catch(e) {}
+    try { db.exec("ALTER TABLE belafarma_cards ADD COLUMN authorized_buyers TEXT DEFAULT '[]'"); } catch(e) {}
+    try { db.exec("ALTER TABLE belafarma_cards ADD COLUMN due_day_mode TEXT DEFAULT 'auto'"); } catch(e) {}
+    try { db.exec('ALTER TABLE belafarma_cards ADD COLUMN interest_exempt INTEGER DEFAULT 0'); } catch(e) {}
+    try { db.exec("ALTER TABLE belafarma_cards ADD COLUMN interest_exempt_reason TEXT DEFAULT ''"); } catch(e) {}
+    try { db.exec("ALTER TABLE belafarma_cards ADD COLUMN last_purchase_notified_sale_id TEXT DEFAULT ''"); } catch(e) {}
+    try { db.exec('ALTER TABLE belafarma_cards ADD COLUMN local_credit_balance REAL DEFAULT 0'); } catch(e) {}
+
+    try { db.exec('ALTER TABLE card_payments ADD COLUMN interest_amount REAL DEFAULT 0'); } catch(e) {}
+    try { db.exec('ALTER TABLE card_payments ADD COLUMN waived_interest REAL DEFAULT 0'); } catch(e) {}
+    try { db.exec("ALTER TABLE card_payments ADD COLUMN operator_name TEXT DEFAULT ''"); } catch(e) {}
+    try { db.exec('ALTER TABLE card_payments ADD COLUMN synced_digifarma INTEGER DEFAULT 0'); } catch(e) {}
+    try { db.exec('ALTER TABLE card_payments ADD COLUMN is_full_settlement INTEGER DEFAULT 0'); } catch(e) {}
+
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_df_pag_cli ON digifarma_crediario_pagamentos_cache(cliente_id, data_pag)'); } catch(e) {}
+    try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_bf_cards_portal_token ON belafarma_cards(portal_token)'); } catch(e) {}
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_bf_cards_df_cli ON belafarma_cards(digifarma_cliente_id)'); } catch(e) {}
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_cred_local_card ON crediario_local_purchases(card_id, status)'); } catch(e) {}
+    try { db.exec('CREATE INDEX IF NOT EXISTS idx_cred_msg_card ON crediario_message_log(card_id, created_at DESC)'); } catch(e) {}
+    console.log('💳 Cartão BelaFarma (Private Label) & Central Unificada de Crediário: Tabelas criadas/verificadas com sucesso.');
+
+    // Colunas extras em napp_prices para rastrear fonte e mídia de rede sem sobrescrever histórico real
+    try { db.exec("ALTER TABLE napp_prices ADD COLUMN fonte TEXT DEFAULT 'napp_proffer_api'"); } catch(e) {}
+    try { db.exec('ALTER TABLE napp_prices ADD COLUMN preco_proffer_rede_medio REAL'); } catch(e) {}
+    try { db.exec('ALTER TABLE napp_prices ADD COLUMN catalog_id TEXT'); } catch(e) {}
+    try { db.exec("ALTER TABLE napp_prices ADD COLUMN proffer_grupo TEXT DEFAULT 'INDEPENDENTE'"); } catch(e) {}
+
+    // Tabelas do Módulo Levantamento de Ativos & Comparativo Proffer
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS levantamento_proffer_sessoes (
+        id TEXT PRIMARY KEY,
+        titulo TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'aberto',
+        criterio_escopo TEXT NOT NULL DEFAULT 'ativos_movimentacao',
+        total_itens INTEGER DEFAULT 0,
+        total_conferidos INTEGER DEFAULT 0,
+        total_ajustados INTEGER DEFAULT 0,
+        total_com_proffer INTEGER DEFAULT 0,
+        criado_por TEXT DEFAULT 'Administrador',
+        criado_em TEXT DEFAULT (datetime('now', 'localtime')),
+        atualizado_em TEXT DEFAULT (datetime('now', 'localtime')),
+        finalizado_em TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS levantamento_proffer_itens (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sessao_id TEXT NOT NULL,
+        produto_id INTEGER NOT NULL,
+        ean TEXT DEFAULT '',
+        status_conferencia TEXT NOT NULL DEFAULT 'pendente',
+        preco_antes_levantamento REAL DEFAULT 0,
+        preco_aplicado REAL,
+        observacao TEXT DEFAULT '',
+        conferido_por TEXT,
+        conferido_em TEXT,
+        atualizado_em TEXT DEFAULT (datetime('now', 'localtime')),
+        UNIQUE(sessao_id, produto_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_lev_itens_sessao ON levantamento_proffer_itens(sessao_id);
+      CREATE INDEX IF NOT EXISTS idx_lev_itens_status ON levantamento_proffer_itens(sessao_id, status_conferencia);
+      CREATE INDEX IF NOT EXISTS idx_lev_itens_prod ON levantamento_proffer_itens(produto_id);
+      CREATE INDEX IF NOT EXISTS idx_cec_saldo ON compras_estoque_cache(saldo);
+    `);
 
     console.log('Tabelas verificadas/criadas com sucesso.');
   };

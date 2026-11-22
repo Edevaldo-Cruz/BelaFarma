@@ -771,4 +771,85 @@ body {
   }
 }
 
+/* Native <dialog> modal scroll containment (modern-web-guidance: dialog) */
+dialog:modal {
+  overscroll-behavior: contain;
+}
+dialog::backdrop {
+  overflow: hidden;
+  overscroll-behavior: contain;
+  background: rgb(2 6 23 / 0.72);
+  backdrop-filter: blur(4px);
+}
+dialog[open].lp-dialog,
+dialog[open].crediario-dialog {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Visually hidden utility (modern-web-guidance: accessibility / forms) */
+.sr-only-focusable:where(:not(:focus-within, :active)) {
+  position: absolute !important;
+  clip-path: inset(50%) !important;
+  overflow: hidden !important;
+  width: 1px !important;
+  height: 1px !important;
+  margin: -1px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  white-space: nowrap !important;
+}
+
+/* Sortable & responsive table helpers (modern-web-guidance: responsive-table, sortable-table) */
+.lp-table-region,
+.crediario-table-region {
+  container-type: inline-size;
+}
+
+@container (width < 680px) {
+  .crediario-responsive-table table,
+  .crediario-responsive-table thead,
+  .crediario-responsive-table tbody,
+  .crediario-responsive-table tr,
+  .crediario-responsive-table th,
+  .crediario-responsive-table td {
+    display: block;
+  }
+  .crediario-responsive-table thead {
+    display: none;
+  }
+  .crediario-responsive-table tbody tr {
+    margin-block-end: 0.75rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 1rem;
+    padding: 0.5rem 0.75rem;
+    background: var(--bf-card-bg, #ffffff);
+  }
+  .crediario-responsive-table td,
+  .crediario-responsive-table tbody th {
+    padding: 0.35rem 0 !important;
+    text-align: left !important;
+    border: none !important;
+  }
+  .crediario-responsive-table td[data-label]::before {
+    content: attr(data-label) ": ";
+    font-weight: 800;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    color: #64748b;
+    margin-right: 0.35rem;
+  }
+}
+.lp-sort-th[aria-sort="ascending"] .lp-sort-asc,
+.lp-sort-th[aria-sort="descending"] .lp-sort-desc {
+  opacity: 1;
+  color: #2563eb;
+}
+.lp-sort-th:not([aria-sort]) .lp-sort-neutral {
+  opacity: 0.45;
+}
+.lp-sort-th[aria-sort] .lp-sort-neutral {
+  display: none;
+}
+
 

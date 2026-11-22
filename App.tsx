@@ -20,7 +20,7 @@ import { BoletoBudgetSummaryModal } from "./components/BoletoBudgetSummaryModal"
 import { DaysInDebt } from "./components/DaysInDebt";
 import { CrediarioReport } from "./components/CrediarioReport";
 import { CrediarioHub } from "./components/CrediarioHub";
-import { CrediarioPublicInvoice } from "./components/CrediarioPublicInvoice";
+import { CrediarioClientPortal } from "./components/CrediarioClientPortal";
 import { TaskManagementPage } from "./components/TaskManagementPage";
 import { FixedAccountsPage } from "./components/FixedAccountsPage";
 import { CustomersPage } from "./components/CustomersPage";
@@ -54,6 +54,7 @@ import { SalesReport } from "./components/SalesReport";
 import { CriticalStockManager } from "./components/CriticalStockManager";
 import { SystemWatcher } from "./components/SystemWatcher";
 import { PriceManager } from "./components/PriceManager";
+import { LevantamentoProffer } from "./components/LevantamentoProffer";
 import { PricingSimulator } from "./components/PricingSimulator";
 import { AgendaCalendar } from "./components/AgendaCalendar";
 import { AnvisaAlerts } from "./components/AnvisaAlerts";
@@ -1415,26 +1416,37 @@ const App: React.FC = () => {
     );
   }
 
-  // Rota pública de fatura de crediário para o cliente (WhatsApp / link direto)
-  const isInvoicePublicRoute =
-    window.location.pathname.startsWith('/fatura/') ||
-    window.location.hash.startsWith('#/fatura/') ||
-    window.location.search.includes('fatura=');
+  // Rotas públicas do Portal do Cliente do Crediário (sem necessidade de login)
+  const pathname = window.location.pathname || '';
+  const hash = window.location.hash || '';
+  const searchParams = new URLSearchParams(window.location.search || '');
 
-  if (isInvoicePublicRoute) {
-    let invoiceId = '';
-    if (window.location.pathname.startsWith('/fatura/')) {
-      invoiceId = window.location.pathname.replace('/fatura/', '').split('/')[0];
-    } else if (window.location.hash.startsWith('#/fatura/')) {
-      invoiceId = window.location.hash.replace('#/fatura/', '').split('?')[0];
-    } else {
-      const params = new URLSearchParams(window.location.search);
-      invoiceId = params.get('fatura') || '';
+  const isClientPortalRoute =
+    pathname === '/crediario' ||
+    pathname.startsWith('/minha-conta') ||
+    pathname.startsWith('/fatura/') ||
+    hash.startsWith('#/crediario') ||
+    hash.startsWith('#/minha-conta') ||
+    hash.startsWith('#/fatura/') ||
+    searchParams.has('crediario') ||
+    searchParams.has('fatura') ||
+    searchParams.has('conta');
+
+  if (isClientPortalRoute) {
+    let portalToken = searchParams.get('conta') || '';
+    let legacyInvoiceId = searchParams.get('fatura') || '';
+
+    if (pathname.startsWith('/minha-conta/')) {
+      portalToken = pathname.replace('/minha-conta/', '').split('/')[0];
+    } else if (hash.startsWith('#/minha-conta/')) {
+      portalToken = hash.replace('#/minha-conta/', '').split('?')[0].split('/')[0];
+    } else if (pathname.startsWith('/fatura/')) {
+      legacyInvoiceId = pathname.replace('/fatura/', '').split('/')[0];
+    } else if (hash.startsWith('#/fatura/')) {
+      legacyInvoiceId = hash.replace('#/fatura/', '').split('?')[0];
     }
 
-    if (invoiceId) {
-      return <CrediarioPublicInvoice invoiceId={invoiceId} />;
-    }
+    return <CrediarioClientPortal initialToken={portalToken} legacyInvoiceId={legacyInvoiceId} />;
   }
 
   if (!user)
@@ -1668,8 +1680,8 @@ const App: React.FC = () => {
               {currentView === "checking-account" && user.role === UserRole.ADM && (
                 <CheckingAccount user={user} />
               )}
-              {currentView === 'crediario-report' && user.role === UserRole.ADM && (
-                <CrediarioHub initialTab="titulos" />
+              {currentView === 'crediario-report' && (user.role === UserRole.ADM || user.role === UserRole.OPERADOR) && (
+                <CrediarioHub user={user} initialTab="clientes" initialFilter="all" />
               )}
               {(currentView === 'agenda' || currentView === 'task-management') && (
                 <AgendaCalendar currentUser={user} users={users} />
@@ -1692,8 +1704,8 @@ const App: React.FC = () => {
                   onRefreshData={fetchData}
                 />
               )}
-              {currentView === 'debtors-report' && user.role === UserRole.ADM && (
-                <CrediarioHub initialTab="devedores" />
+              {currentView === 'debtors-report' && (user.role === UserRole.ADM || user.role === UserRole.OPERADOR) && (
+                <CrediarioHub user={user} initialTab="clientes" initialFilter="vencidos" />
               )}
               {currentView === 'inventario' && (
                 <InventoryManager user={user} />
@@ -1798,6 +1810,9 @@ const App: React.FC = () => {
               )}
               {currentView === 'price-manager' && user.role === UserRole.ADM && (
                 <PriceManager user={user} />
+              )}
+              {currentView === 'levantamento-proffer' && user.role === UserRole.ADM && (
+                <LevantamentoProffer user={user} />
               )}
               {currentView === 'liquidacao-caixa' && user.role === UserRole.ADM && (
                 <LiquidacaoCaixa user={user} />

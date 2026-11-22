@@ -1,1447 +1,1030 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import {
-  CreditCard,
   AlertTriangle,
-  Receipt,
-  Search,
-  CheckCircle,
-  MessageSquare,
+  CheckCircle2,
+  CreditCard,
   DollarSign,
-  Clock,
-  Eye,
-  X,
-  Phone,
+  FileText,
+  Link2,
+  Lock,
+  MessageSquare,
+  Plus,
   RefreshCw,
-  Send,
+  Save,
+  Search,
+  Settings,
+  ShoppingBag,
   Users,
+  Wallet,
   Wifi,
-  Calendar,
-  Filter,
-  Check,
-  ChevronRight,
-  ExternalLink,
-  ShieldAlert,
-  ArrowDownRight,
-  Sparkles
+  WifiOff,
+  X
 } from 'lucide-react';
+import { User, UserRole } from '../types';
 import { useToast } from './ToastContext';
-import { CrediarioNfcWidget } from './CrediarioNfcWidget';
 import { CrediarioCustomerProfileModal } from './CrediarioCustomerProfileModal';
-import { DebtorReport, Customer, CustomerDebt } from '../types';
 
 export interface CrediarioHubProps {
-  initialTab?: 'titulos' | 'devedores' | 'cartoes';
+  user: User;
+  initialTab?: 'clientes' | 'lancamentos' | 'regras';
+  initialFilter?: string;
 }
 
-interface CrediarioDigifarma {
+interface UnifiedClientRow {
+  id: number;
+  digifarma_cliente_id?: number | null;
+  customer_id?: string;
+  portal_token: string;
+  portal_url: string;
+  customer_name: string;
+  nickname: string;
+  phone: string;
+  cpf: string;
+  responsible_name: string;
+  authorized_buyers: string[];
+  due_day: number;
+  due_day_mode: string;
+  credit_limit: number;
+  principal_balance: number;
+  late_fine: number;
+  late_interest: number;
+  total_charges: number;
+  simulated_charges: number;
+  total_balance: number;
+  available_credit: number;
+  overdue_principal: number;
+  max_days_late: number;
+  next_due_date: string;
+  open_items_count: number;
+  account_status: 'em_dia' | 'vencido' | 'zerado' | 'bloqueado' | string;
+  is_blocked: boolean;
+  interest_exempt: boolean;
+  bought_today: boolean;
+  missing_contact: boolean;
+  last_payment?: any;
+}
+
+interface CrediarioKpis {
+  totalPrincipal: number;
+  totalCharges: number;
+  totalReceivable: number;
+  totalOverdue: number;
+  overdueClientsCount: number;
+  activeOpenClientsCount: number;
+  totalClientsCount: number;
+  paidThisMonth: number;
+  interestEnabled: boolean;
+}
+
+interface UnifiedPurchaseGroup {
   id: string;
-  clientId: string;
+  cardId: number | null;
   clientName: string;
   phone: string;
-  amount: number;
-  paidAmount: number;
-  balance: number;
-  dueDate: string;
   saleId: string;
+  date: string;
+  dueDate: string;
+  buyerName: string;
+  source: 'DIGIFARMA' | 'BELINHA' | string;
+  totalAmount: number;
+  items: Array<{
+    productName: string;
+    quantity: number;
+    amount: number;
+  }>;
 }
 
-interface CardSummary {
-  id: number;
-  customer_id?: string;
-  customer_name: string;
-  phone: string;
-  cpf?: string;
-  card_number: string;
-  card_uid?: string;
-  credit_limit: number;
-  used_limit: number;
-  available_credit: number;
-  due_day: number;
-  status: string;
-  is_blocked?: boolean;
+interface UnifiedPaymentRow {
+  id: string;
+  cardId: number | null;
+  clientName: string;
+  date: string;
+  amount: number;
+  debtBefore: number;
+  isFullSettlement: boolean;
+  method: string;
+  source: 'DIGIFARMA' | 'BELINHA' | string;
 }
 
-export const CrediarioHub: React.FC<CrediarioHubProps> = ({ initialTab = 'titulos' }) => {
-  const { addToast } = useToast();
-  const [activeTab, setActiveTab] = useState<'titulos' | 'devedores' | 'cartoes'>(initialTab);
-
-  // Sincroniza tab inicial se a prop mudar
-  useEffect(() => {
-    if (initialTab) {
-      setActiveTab(initialTab);
-    }
-  }, [initialTab]);
-
-  // ==========================================
-  // ESTADOS - ABA 1: TÍTULOS DIGIFARMA
-  // ==========================================
-  const [records, setRecords] = useState<CrediarioDigifarma[]>([]);
-  const [loadingRecords, setLoadingRecords] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'todos' | 'vencidos' | 'hoje' | 'a_vencer'>('todos');
-
-  // Modal Baixa de Título
-  const [isPayModalOpen, setIsPayModalOpen] = useState(false);
-  const [selectedRecord, setSelectedRecord] = useState<CrediarioDigifarma | null>(null);
-  const [paymentAmount, setPaymentAmount] = useState(0);
-  const [isProcessingPay, setIsProcessingPay] = useState(false);
-  const payInputRef = useRef<HTMLInputElement>(null);
-
-  // Modal Cobrança WhatsApp
-  const [isCobrancaModalOpen, setIsCobrancaModalOpen] = useState(false);
-  const [cobrancaMessage, setCobrancaMessage] = useState('');
-  const [cobrancaTargetPhone, setCobrancaTargetPhone] = useState('');
-  const [isSendingCobranca, setIsSendingCobranca] = useState(false);
-  const [selectedRecordsForBatch, setSelectedRecordsForBatch] = useState<CrediarioDigifarma[]>([]);
-  const [isBatchMode, setIsBatchMode] = useState(false);
-  const [batchIndex, setBatchIndex] = useState(0);
-
-  // ==========================================
-  // ESTADOS - ABA 2: DEVEDORES
-  // ==========================================
-  const [debtors, setDebtors] = useState<DebtorReport[]>([]);
-  const [loadingDebtors, setLoadingDebtors] = useState(true);
-  const [selectedDebtor, setSelectedDebtor] = useState<Customer | null>(null);
-  const [debtorDebts, setDebtorDebts] = useState<CustomerDebt[]>([]);
-  const [allDebts, setAllDebts] = useState<CustomerDebt[]>([]);
-  const [isDebtorDetailModalOpen, setIsDebtorDetailModalOpen] = useState(false);
-  const [showHistory, setShowHistory] = useState(false);
-  const [paymentModalDebt, setPaymentModalDebt] = useState<CustomerDebt | null>(null);
-  const [debtPaymentAmountStr, setDebtPaymentAmountStr] = useState('');
-  const [isProcessingDebtPay, setIsProcessingDebtPay] = useState(false);
-
-  // ==========================================
-  // ESTADOS - ABA 3: CONTAS DE CLIENTES & LIMITES
-  // ==========================================
-  const [cards, setCards] = useState<CardSummary[]>([]);
-  const [loadingCards, setLoadingCards] = useState(false);
-  const [cardSearchTerm, setCardSearchTerm] = useState('');
-  const [cardsDashboard, setCardsDashboard] = useState<any>(null);
-  const [selectedCardIdForProfile, setSelectedCardIdForProfile] = useState<number | null>(null);
-  const [isCardProfileOpen, setIsCardProfileOpen] = useState(false);
-
-  // Cliente Ativo selecionado no Balcão
-  const [activeBalcaoCard, setActiveBalcaoCard] = useState<CardSummary | null>(null);
-
-  // Modal de Lançamento de Compra
-  const [isSaleModalOpen, setIsSaleModalOpen] = useState(false);
-  const [saleAmount, setSaleAmount] = useState('');
-  const [saleDescription, setSaleDescription] = useState('Compra no Balcão BelaFarma');
-  const [isAuthorizingSale, setIsAuthorizingSale] = useState(false);
-
-  // Modal de Cadastro Rápido de Novo Cliente
-  const [isNewAccountModalOpen, setIsNewAccountModalOpen] = useState(false);
-  const [newCustName, setNewCustName] = useState('');
-  const [newCustPhone, setNewCustPhone] = useState('');
-  const [newCustCpf, setNewCustCpf] = useState('');
-  const [newCustLimit, setNewCustLimit] = useState('300');
-  const [newCustDueDay, setNewCustDueDay] = useState<'10' | '20'>('20');
-  const [isSavingNewAccount, setIsSavingNewAccount] = useState(false);
-
-  // ==========================================
-  // UTILITÁRIOS DE FORMATAÇÃO
-  // ==========================================
-  const formatCurrency = (val: number) => {
-    return Number(val || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+interface CrediarioConfig {
+  interestEnabled: boolean;
+  lateFinePercent: number;
+  lateInterestMonthlyPercent: number;
+  graceDays: number;
+  autoBlockDays: number;
+  pixKey: string;
+  pixMerchantName: string;
+  pixMerchantCity: string;
+  storeWhatsapp: string;
+  publicBaseUrl: string;
+  autoNotifyNewPurchase: boolean;
+  autoNotifyDueDay: boolean;
+  autoNotifyOverdue: boolean;
+  templates: {
+    purchase: string;
+    statement: string;
+    due_reminder: string;
+    overdue: string;
+    payment_receipt: string;
   };
+}
 
-  const parseCurrency = (str: string) => {
-    return Number(str.replace(/\D/g, '')) / 100;
-  };
+const FILTER_OPTIONS = [
+  { id: 'all', label: 'Todos' },
+  { id: 'com_saldo', label: 'Com Saldo' },
+  { id: 'vencidos', label: 'Vencidos' },
+  { id: 'em_dia', label: 'Em Dia' },
+  { id: 'compras_hoje', label: 'Compraram Hoje' },
+  { id: 'bloqueados', label: 'Bloqueados' },
+  { id: 'incompletos', label: 'Cadastro Incompleto' }
+];
 
-  const formatDate = (dateStr?: string) => {
-    if (!dateStr) return '-';
+const TEMPLATE_VARIABLES = [
+  '{nome}',
+  '{primeiro_nome}',
+  '{valor_compra}',
+  '{itens_compra}',
+  '{resumo_marco}',
+  '{saldo_atual}',
+  '{vencimento}',
+  '{link_portal}',
+  '{chave_pix}',
+  '{pix_copia_cola}',
+  '{dias_atraso}'
+];
+
+function formatCurrency(val: number | undefined | null): string {
+  return Number(val || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
+function formatDateBR(dateStr?: string | null): string {
+  if (!dateStr) return '-';
+  const clean = String(dateStr).trim().slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) {
+    const [y, m, d] = clean.split('-');
+    return `${d}/${m}/${y}`;
+  }
+  const dt = new Date(dateStr);
+  return Number.isNaN(dt.getTime()) ? String(dateStr) : dt.toLocaleDateString('pt-BR');
+}
+
+function formatDateTimeBR(isoOrSql?: string | null): string {
+  if (!isoOrSql) return 'Nunca sincronizado';
+  const normalized = String(isoOrSql).includes('T')
+    ? String(isoOrSql)
+    : String(isoOrSql).replace(' ', 'T');
+  const dt = new Date(normalized);
+  if (Number.isNaN(dt.getTime())) return String(isoOrSql);
+  return dt.toLocaleString('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+}
+
+async function copyClipboardSafe(text: string): Promise<boolean> {
+  if (!text) return false;
+  if (navigator.clipboard?.writeText) {
     try {
-      const d = new Date(dateStr);
-      return isNaN(d.getTime()) ? '-' : d.toLocaleDateString('pt-BR');
-    } catch {
-      return '-';
-    }
-  };
-
-  // ==========================================
-  // BUSCA DE DADOS
-  // ==========================================
-  const fetchCrediarioRecords = async () => {
-    setLoadingRecords(true);
-    try {
-      const response = await fetch('/api/crediario');
-      if (response.status === 503) {
-        addToast('Servidor Digifarma offline ou inacessível no momento.', 'warning');
-        setRecords([]);
-        return;
-      }
-      if (!response.ok) throw new Error('Falha ao obter crediário');
-      const data = await response.json();
-      setRecords(Array.isArray(data) ? data : []);
-    } catch (error) {
-      console.error('Erro ao buscar crediário:', error);
-      addToast('Não foi possível carregar as contas a receber do Digifarma.', 'error');
-    } finally {
-      setLoadingRecords(false);
-    }
-  };
-
-  const fetchDebtors = async () => {
-    setLoadingDebtors(true);
-    try {
-      const response = await fetch('/api/debtors-report');
-      if (!response.ok) throw new Error('Falha ao obter devedores');
-      const data = await response.json();
-      setDebtors(Array.isArray(data) ? data : []);
-    } catch (error) {
-      console.error('Erro ao buscar devedores:', error);
-      addToast('Não foi possível carregar a lista de devedores.', 'error');
-    } finally {
-      setLoadingDebtors(false);
-    }
-  };
-
-  const fetchCards = async (q: string = '') => {
-    setLoadingCards(true);
-    try {
-      const url = q ? `/api/cards/search?q=${encodeURIComponent(q)}` : '/api/cards/search';
-      const [resCards, resDash] = await Promise.all([
-        fetch(url),
-        fetch('/api/cards/dashboard').catch(() => null)
-      ]);
-
-      if (resCards.ok) {
-        const data = await resCards.json();
-        setCards(Array.isArray(data.cards) ? data.cards : (Array.isArray(data) ? data : []));
-      }
-      if (resDash && resDash.ok) {
-        const dashData = await resDash.json();
-        setCardsDashboard(dashData);
-      }
-    } catch (error) {
-      console.error('Erro ao buscar cartões:', error);
-    } finally {
-      setLoadingCards(false);
-    }
-  };
-
-  const refreshAll = () => {
-    fetchCrediarioRecords();
-    fetchDebtors();
-    fetchCards(cardSearchTerm);
-    addToast('Atualizando dados do crediário...', 'info');
-  };
-
-  useEffect(() => {
-    fetchCrediarioRecords();
-    fetchDebtors();
-    fetchCards();
-  }, []);
-
-  // ==========================================
-  // CÁLCULOS E KPIs UNIFICADOS
-  // ==========================================
-  const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);
-
-  const totalOpenDigifarma = useMemo(() => {
-    return records.reduce((acc, r) => acc + (Number(r.balance) || 0), 0);
-  }, [records]);
-
-  const totalOverdueDigifarma = useMemo(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    return records
-      .filter(r => r.dueDate && new Date(r.dueDate) < today && (r.balance || 0) > 0)
-      .reduce((acc, r) => acc + (Number(r.balance) || 0), 0);
-  }, [records]);
-
-  const totalDebtorsValue = useMemo(() => {
-    return debtors.reduce((acc, d) => acc + (Number(d.totalOwed) || 0), 0);
-  }, [debtors]);
-
-  const totalOverdueDebtorsCount = useMemo(() => {
-    return debtors.filter(d => d.hasOverdue === 1 || d.hasOverdue === true).length;
-  }, [debtors]);
-
-  // Filtros de Títulos da Aba 1
-  const filteredRecords = useMemo(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    return records.filter(r => {
-      // Filtro de texto
-      const matchesSearch =
-        searchTerm === '' ||
-        (r.clientName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (r.phone || '').includes(searchTerm);
-
-      if (!matchesSearch) return false;
-
-      if (statusFilter === 'todos') return true;
-
-      if (!r.dueDate) return statusFilter === 'todos';
-
-      const d = new Date(r.dueDate);
-      d.setHours(0, 0, 0, 0);
-
-      if (statusFilter === 'vencidos') {
-        return d < today;
-      }
-      if (statusFilter === 'hoje') {
-        return d.getTime() === today.getTime();
-      }
-      if (statusFilter === 'a_vencer') {
-        return d > today;
-      }
-
+      await navigator.clipboard.writeText(text);
       return true;
-    });
-  }, [records, searchTerm, statusFilter]);
+    } catch {
+      // fallback
+    }
+  }
+  try {
+    const el = document.createElement('textarea');
+    el.value = text;
+    el.setAttribute('readonly', '');
+    el.style.position = 'fixed';
+    el.style.opacity = '0';
+    document.body.appendChild(el);
+    el.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(el);
+    return ok;
+  } catch {
+    return false;
+  }
+}
 
-  // ==========================================
-  // AÇÕES - BAIXA DE TÍTULO DIGIFARMA
-  // ==========================================
-  const handleOpenReceive = (record: CrediarioDigifarma) => {
-    setSelectedRecord(record);
-    setPaymentAmount(record.balance);
-    setIsPayModalOpen(true);
-    setTimeout(() => payInputRef.current?.focus(), 150);
-  };
+export const CrediarioHub: React.FC<CrediarioHubProps> = ({
+  user,
+  initialTab = 'clientes',
+  initialFilter = 'all'
+}) => {
+  const { addToast } = useToast();
+  const uid = useId();
+  const isAdmin = user?.role === UserRole.ADM || user?.role === 'Administrador';
 
-  const handleReceive = async () => {
-    if (!selectedRecord) return;
-    setIsProcessingPay(true);
+  const safeInitialTab = !isAdmin && initialTab === 'regras' ? 'clientes' : initialTab;
+  const [activeTab, setActiveTab] = useState<'clientes' | 'lancamentos' | 'regras'>(safeInitialTab);
+
+  // Aba 1: Carteira de Clientes
+  const [clients, setClients] = useState<UnifiedClientRow[]>([]);
+  const [kpis, setKpis] = useState<CrediarioKpis>({
+    totalPrincipal: 0,
+    totalCharges: 0,
+    totalReceivable: 0,
+    totalOverdue: 0,
+    overdueClientsCount: 0,
+    activeOpenClientsCount: 0,
+    totalClientsCount: 0,
+    paidThisMonth: 0,
+    interestEnabled: false
+  });
+  const [syncMeta, setSyncMeta] = useState<any>(null);
+  const [clientsLoading, setClientsLoading] = useState(true);
+  const [clientSearch, setClientSearch] = useState('');
+  const [clientFilter, setClientFilter] = useState(initialFilter || 'all');
+  const [syncingDigifarma, setSyncingDigifarma] = useState(false);
+
+  // Aba 2: Lançamentos & Compras
+  const [txPeriodDays, setTxPeriodDays] = useState<number>(60);
+  const [txSearch, setTxSearch] = useState('');
+  const [txView, setTxView] = useState<'purchases' | 'payments'>('purchases');
+  const [purchases, setPurchases] = useState<UnifiedPurchaseGroup[]>([]);
+  const [payments, setPayments] = useState<UnifiedPaymentRow[]>([]);
+  const [txLoading, setTxLoading] = useState(false);
+
+  // Aba 3: Regras, Juros & Automação (Admin-only)
+  const [settingsLoading, setSettingsLoading] = useState(false);
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [whatsappStatus, setWhatsappStatus] = useState<{ connected?: boolean }>({ connected: false });
+  const [config, setConfig] = useState<CrediarioConfig | null>(null);
+
+  // Modal 360° de Cliente
+  const [profileModal, setProfileModal] = useState<{
+    isOpen: boolean;
+    cardId: number | null;
+    initialPanel: 'none' | 'receive' | 'purchase' | 'whatsapp' | 'edit';
+    initialSaleId?: string;
+  }>({
+    isOpen: false,
+    cardId: null,
+    initialPanel: 'none',
+    initialSaleId: ''
+  });
+
+  // Modal + Novo Cliente (<dialog> nativo)
+  const newClientDialogRef = useRef<HTMLDialogElement>(null);
+  const [isNewClientOpen, setIsNewClientOpen] = useState(false);
+  const [creatingClient, setCreatingClient] = useState(false);
+  const [newClientForm, setNewClientForm] = useState({
+    customer_name: '',
+    nickname: '',
+    cpf: '',
+    phone: '',
+    credit_limit: '300',
+    due_day: '20',
+    due_day_mode: 'auto' as 'auto' | 'fixed',
+    responsible_name: '',
+    notes: ''
+  });
+
+  // Sincroniza troca de rota externa (Ex: Menu "Devedores / Em Atraso" -> initialFilter='vencidos')
+  useEffect(() => {
+    const targetTab = !isAdmin && initialTab === 'regras' ? 'clientes' : initialTab;
+    setActiveTab(targetTab);
+  }, [initialTab, isAdmin]);
+
+  useEffect(() => {
+    if (initialFilter) {
+      setClientFilter(initialFilter);
+    }
+  }, [initialFilter]);
+
+  const fetchClients = useCallback(async () => {
+    setClientsLoading(true);
     try {
-      const response = await fetch('/api/crediario/receber', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ crediarioId: selectedRecord.id, valorPago: paymentAmount })
-      });
-
-      if (response.status === 503) {
-        addToast('O servidor do Digifarma está Offline.', 'error');
-        return;
+      const params = new URLSearchParams();
+      if (clientSearch.trim()) params.set('q', clientSearch.trim());
+      if (clientFilter) params.set('filter', clientFilter);
+      const res = await fetch(`/api/crediario-v2/clients?${params.toString()}`);
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Erro ao carregar carteira de clientes.');
       }
-
-      if (!response.ok) throw new Error('Erro ao baixar');
-      addToast('Baixa de crediário realizada com sucesso!', 'success');
-      setIsPayModalOpen(false);
-      fetchCrediarioRecords();
-      fetchDebtors();
-    } catch (error) {
-      addToast('Erro ao realizar baixa no Digifarma.', 'error');
+      setClients(Array.isArray(data.clients) ? data.clients : []);
+      if (data.kpis) setKpis(data.kpis);
+      if (data.sync !== undefined) setSyncMeta(data.sync);
+    } catch (err: any) {
+      addToast(err?.message || 'Falha ao carregar crediário.', 'error');
     } finally {
-      setIsProcessingPay(false);
+      setClientsLoading(false);
     }
-  };
+  }, [clientSearch, clientFilter, addToast]);
 
-  // ==========================================
-  // AÇÕES - COBRANÇA WHATSAPP
-  // ==========================================
-  const handleOpenCobranca = (record: CrediarioDigifarma) => {
-    if (!record.phone) {
-      addToast('Este cliente não possui telefone celular cadastrado.', 'warning');
-      return;
-    }
-    setSelectedRecord(record);
-    setIsBatchMode(false);
-    setCobrancaTargetPhone(record.phone);
-
-    const dateFormatted = record.dueDate ? new Date(record.dueDate).toLocaleDateString('pt-BR') : 'N/D';
-    const msg = `Olá, *${(record.clientName || '').trim()}*!\n\nPassando para lembrar amigavelmente do seu crediário na *BelaFarma* no valor de *${formatCurrency(record.balance)}*, que venceu em *${dateFormatted}*.\n\nSe preferir pagar por Pix ou quiser combinar de passar aqui, estamos à disposição! Muito obrigado! 😊`;
-
-    setCobrancaMessage(msg);
-    setIsCobrancaModalOpen(true);
-  };
-
-  const handleOpenBatchCobranca = () => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    const overdueWithPhone = records.filter(r => {
-      if (!r.phone || !r.dueDate) return false;
-      const d = new Date(r.dueDate);
-      return d < today && (r.balance || 0) > 0;
-    });
-
-    if (overdueWithPhone.length === 0) {
-      addToast('Não há crediários vencidos com celular cadastrado para cobrar.', 'info');
-      return;
-    }
-
-    setSelectedRecordsForBatch(overdueWithPhone);
-    setIsBatchMode(true);
-    setBatchIndex(0);
-
-    const first = overdueWithPhone[0];
-    setCobrancaTargetPhone(first.phone);
-
-    const dateFormatted = first.dueDate ? new Date(first.dueDate).toLocaleDateString('pt-BR') : 'N/D';
-    const msg = `Olá, *${(first.clientName || '').trim()}*!\n\nPassando para lembrar amigavelmente do seu crediário na *BelaFarma* no valor de *${formatCurrency(first.balance)}*, que venceu em *${dateFormatted}*.\n\nSe preferir pagar por Pix ou quiser combinar de passar aqui, estamos à disposição! Muito obrigado! 😊`;
-
-    setCobrancaMessage(msg);
-    setIsCobrancaModalOpen(true);
-  };
-
-  const handleSendCobranca = async () => {
-    if (!cobrancaTargetPhone || !cobrancaMessage.trim()) {
-      addToast('Telefone ou mensagem inválidos.', 'warning');
-      return;
-    }
-
-    setIsSendingCobranca(true);
+  const fetchTransactions = useCallback(async () => {
+    setTxLoading(true);
     try {
-      const response = await fetch('/api/crediario/enviar-cobranca', {
+      const params = new URLSearchParams();
+      params.set('periodDays', String(txPeriodDays));
+      if (txSearch.trim()) params.set('q', txSearch.trim());
+      const res = await fetch(`/api/crediario-v2/transactions?${params.toString()}`);
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Erro ao carregar lançamentos.');
+      }
+      setPurchases(Array.isArray(data.purchases) ? data.purchases : []);
+      setPayments(Array.isArray(data.payments) ? data.payments : []);
+    } catch (err: any) {
+      addToast(err?.message || 'Erro ao consultar lançamentos.', 'error');
+    } finally {
+      setTxLoading(false);
+    }
+  }, [txPeriodDays, txSearch, addToast]);
+
+  const fetchSettings = useCallback(async () => {
+    if (!isAdmin) return;
+    setSettingsLoading(true);
+    try {
+      const res = await fetch('/api/crediario-v2/settings');
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Erro ao carregar regras do crediário.');
+      }
+      setConfig(data.config);
+      setWhatsappStatus(data.whatsappStatus || { connected: false });
+      if (data.sync !== undefined) setSyncMeta(data.sync);
+    } catch (err: any) {
+      addToast(err?.message || 'Erro ao carregar configurações.', 'error');
+    } finally {
+      setSettingsLoading(false);
+    }
+  }, [isAdmin, addToast]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchClients();
+    }, 180);
+    return () => clearTimeout(timer);
+  }, [fetchClients]);
+
+  useEffect(() => {
+    if (activeTab === 'lancamentos') {
+      const timer = setTimeout(() => {
+        fetchTransactions();
+      }, 180);
+      return () => clearTimeout(timer);
+    }
+  }, [activeTab, fetchTransactions]);
+
+  useEffect(() => {
+    if (activeTab === 'regras' && isAdmin) {
+      fetchSettings();
+    }
+  }, [activeTab, isAdmin, fetchSettings]);
+
+  // Controle nativo do <dialog> + fallback light-dismiss
+  useEffect(() => {
+    const dlg = newClientDialogRef.current;
+    if (!dlg) return;
+
+    if (isNewClientOpen) {
+      if (!dlg.open) {
+        try {
+          dlg.showModal();
+        } catch {}
+      }
+    } else if (dlg.open) {
+      dlg.close();
+    }
+  }, [isNewClientOpen]);
+
+  useEffect(() => {
+    const dlg = newClientDialogRef.current;
+    if (!dlg) return;
+
+    const handleClose = () => {
+      if (isNewClientOpen) setIsNewClientOpen(false);
+    };
+    dlg.addEventListener('close', handleClose);
+
+    let cleanupFallback: (() => void) | undefined;
+    if (!('closedBy' in HTMLDialogElement.prototype)) {
+      const isOutside = (e: PointerEvent) => {
+        const r = dlg.getBoundingClientRect();
+        return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
+      };
+      let pressedOutside = false;
+      const onDown = (e: PointerEvent) => {
+        pressedOutside = isOutside(e);
+      };
+      const onUp = (e: PointerEvent) => {
+        if (pressedOutside && isOutside(e)) dlg.close();
+      };
+      dlg.addEventListener('pointerdown', onDown);
+      dlg.addEventListener('pointerup', onUp);
+      cleanupFallback = () => {
+        dlg.removeEventListener('pointerdown', onDown);
+        dlg.removeEventListener('pointerup', onUp);
+      };
+    }
+
+    return () => {
+      dlg.removeEventListener('close', handleClose);
+      if (cleanupFallback) cleanupFallback();
+    };
+  }, [isNewClientOpen]);
+
+  const handleSyncDigifarma = async () => {
+    setSyncingDigifarma(true);
+    try {
+      const res = await fetch('/api/crediario-v2/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          phone: cobrancaTargetPhone,
-          messageText: cobrancaMessage
-        })
+        body: JSON.stringify({ notifyNewPurchases: false })
       });
+      const data = await res.json();
+      if (!res.ok || data.offline || data.success === false) {
+        addToast(
+          data.message || data.error || 'Digifarma indisponível no momento. Exibindo cache local.',
+          'warning'
+        );
+      } else {
+        addToast(
+          `Sincronizado com o Digifarma (${data.itemsCount ?? data.recordsCount ?? 0} itens em aberto e ${
+            data.clientsCount ?? 0
+          } clientes).`,
+          'success'
+        );
+      }
+      await fetchClients();
+      if (activeTab === 'lancamentos') await fetchTransactions();
+    } catch {
+      addToast('Falha ao conectar para sincronização com Digifarma.', 'error');
+    } finally {
+      setSyncingDigifarma(false);
+    }
+  };
 
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.error || 'Erro ao enviar mensagem.');
+  const handleOpenProfile = (
+    cardId: number | null,
+    panel: 'none' | 'receive' | 'purchase' | 'whatsapp' | 'edit' = 'none',
+    saleId = ''
+  ) => {
+    if (!cardId) {
+      addToast('Este cliente ainda não possui ficha vinculada no crediário.', 'warning');
+      return;
+    }
+    setProfileModal({
+      isOpen: true,
+      cardId,
+      initialPanel: panel,
+      initialSaleId: saleId
+    });
+  };
+
+  const handleCopyPortalLink = async (client: UnifiedClientRow) => {
+    const url = client.portal_url || `${window.location.origin}/minha-conta/${client.portal_token}`;
+    const ok = await copyClipboardSafe(url);
+    if (ok) {
+      addToast(`Link do portal de ${client.customer_name} copiado!`, 'success');
+    } else {
+      addToast('Não foi possível copiar o link.', 'error');
+    }
+  };
+
+  const handleCreateClient = async (e: React.FormEvent, openAfter = false) => {
+    e.preventDefault();
+    if (!newClientForm.customer_name.trim()) {
+      addToast('Informe o nome completo do cliente.', 'warning');
+      return;
+    }
+    setCreatingClient(true);
+    try {
+      const payload: any = {
+        customer_name: newClientForm.customer_name.trim(),
+        nickname: newClientForm.nickname.trim(),
+        cpf: newClientForm.cpf.replace(/\D/g, ''),
+        phone: newClientForm.phone.replace(/\D/g, ''),
+        due_day: Number(newClientForm.due_day) || 20,
+        due_day_mode: newClientForm.due_day_mode,
+        responsible_name: newClientForm.responsible_name.trim(),
+        notes: newClientForm.notes.trim()
+      };
+      if (isAdmin) {
+        payload.credit_limit = Number(newClientForm.credit_limit) || 300;
       }
 
-      addToast('Cobrança enviada com sucesso no WhatsApp!', 'success');
+      const res = await fetch('/api/crediario-v2/clients', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Erro ao cadastrar cliente.');
+      }
 
-      if (isBatchMode) {
-        const nextIdx = batchIndex + 1;
-        if (nextIdx < selectedRecordsForBatch.length) {
-          setBatchIndex(nextIdx);
-          const nextRecord = selectedRecordsForBatch[nextIdx];
-          setCobrancaTargetPhone(nextRecord.phone);
+      addToast('Cliente cadastrado no crediário com sucesso!', 'success');
+      setIsNewClientOpen(false);
+      setNewClientForm({
+        customer_name: '',
+        nickname: '',
+        cpf: '',
+        phone: '',
+        credit_limit: '300',
+        due_day: '20',
+        due_day_mode: 'auto',
+        responsible_name: '',
+        notes: ''
+      });
+      await fetchClients();
 
-          const dateFormatted = nextRecord.dueDate ? new Date(nextRecord.dueDate).toLocaleDateString('pt-BR') : 'N/D';
-          const msg = `Olá, *${(nextRecord.clientName || '').trim()}*!\n\nPassando para lembrar amigavelmente do seu crediário na *BelaFarma* no valor de *${formatCurrency(nextRecord.balance)}*, que venceu em *${dateFormatted}*.\n\nSe preferir pagar por Pix ou quiser combinar de passar aqui, estamos à disposição! Muito obrigado! 😊`;
-
-          setCobrancaMessage(msg);
-        } else {
-          setIsCobrancaModalOpen(false);
-          addToast('Lote de cobranças concluído!', 'success');
-        }
-      } else {
-        setIsCobrancaModalOpen(false);
+      if (openAfter && data.card?.id) {
+        handleOpenProfile(data.card.id, 'none');
       }
     } catch (err: any) {
-      console.error(err);
-      addToast(err.message || 'Erro ao enviar cobrança.', 'error');
+      addToast(err?.message || 'Erro ao salvar novo cliente.', 'error');
     } finally {
-      setIsSendingCobranca(false);
+      setCreatingClient(false);
     }
   };
 
-  const handleSkipCobranca = () => {
-    const nextIdx = batchIndex + 1;
-    if (nextIdx < selectedRecordsForBatch.length) {
-      setBatchIndex(nextIdx);
-      const nextRecord = selectedRecordsForBatch[nextIdx];
-      setCobrancaTargetPhone(nextRecord.phone);
-
-      const dateFormatted = nextRecord.dueDate ? new Date(nextRecord.dueDate).toLocaleDateString('pt-BR') : 'N/D';
-      const msg = `Olá, *${(nextRecord.clientName || '').trim()}*!\n\nPassando para lembrar amigavelmente do seu crediário na *BelaFarma* no valor de *${formatCurrency(nextRecord.balance)}*, que venceu em *${dateFormatted}*.\n\nSe preferir pagar por Pix ou quiser combinar de passar aqui, estamos à disposição! Muito obrigado! 😊`;
-
-      setCobrancaMessage(msg);
-    } else {
-      setIsCobrancaModalOpen(false);
-      addToast('Lote de cobranças concluído!', 'success');
-    }
-  };
-
-  // ==========================================
-  // AÇÕES - DEVEDORES (DETALHES E AMORTIZAÇÃO)
-  // ==========================================
-  const openDebtorDetails = async (debtor: DebtorReport) => {
+  const handleSaveSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!config || !isAdmin) return;
+    setSavingSettings(true);
     try {
-      const customerResp = await fetch(`/api/customers/${debtor.id}`);
-      const customer = await customerResp.json();
-      setSelectedDebtor(customer);
-
-      const debtsResp = await fetch(`/api/customers/${debtor.id}/debts`);
-      const debts = await debtsResp.json();
-      setAllDebts(Array.isArray(debts) ? debts : []);
-      setDebtorDebts(Array.isArray(debts) ? debts.filter((d: CustomerDebt) => d.status !== 'Pago') : []);
-
-      setShowHistory(false);
-      setIsDebtorDetailModalOpen(true);
-    } catch (error) {
-      console.error('Erro ao buscar detalhes do devedor:', error);
-      addToast('Erro ao carregar débitos do cliente.', 'error');
-    }
-  };
-
-  const openDebtPaymentModal = (debt: CustomerDebt) => {
-    setPaymentModalDebt(debt);
-    setDebtPaymentAmountStr(debt.totalValue.toFixed(2));
-  };
-
-  const handleDebtPayment = async () => {
-    if (!paymentModalDebt) return;
-
-    const amount = parseFloat(debtPaymentAmountStr);
-    if (isNaN(amount) || amount <= 0) {
-      addToast('Por favor, insira um valor válido de pagamento.', 'warning');
-      return;
-    }
-
-    if (amount > paymentModalDebt.totalValue) {
-      addToast('O valor do pagamento não pode ser maior que o débito pendente.', 'warning');
-      return;
-    }
-
-    setIsProcessingDebtPay(true);
-    try {
-      if (amount >= paymentModalDebt.totalValue) {
-        // Quitação Total
-        const response = await fetch(`/api/customer-debts/${paymentModalDebt.id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status: 'Pago', paidAt: new Date().toISOString() }),
-        });
-
-        if (response.ok) {
-          addToast('Débito quitado com sucesso!', 'success');
-          setPaymentModalDebt(null);
-          setDebtPaymentAmountStr('');
-          fetchDebtors();
-          fetchCrediarioRecords();
-          if (selectedDebtor) {
-            const debtsResp = await fetch(`/api/customers/${selectedDebtor.id}/debts`);
-            const debts = await debtsResp.json();
-            setAllDebts(debts);
-            setDebtorDebts(debts.filter((d: CustomerDebt) => d.status !== 'Pago'));
-          }
-        } else {
-          throw new Error('Falha ao registrar quitação');
-        }
-      } else {
-        // Pagamento Parcial
-        const newValue = paymentModalDebt.totalValue - amount;
-        const response = await fetch(`/api/customer-debts/${paymentModalDebt.id}/partial-payment`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            paymentAmount: amount,
-            newTotalValue: newValue
-          }),
-        });
-
-        if (response.ok) {
-          addToast('Pagamento parcial registrado!', 'success');
-          setPaymentModalDebt(null);
-          setDebtPaymentAmountStr('');
-          fetchDebtors();
-          fetchCrediarioRecords();
-          if (selectedDebtor) {
-            const debtsResp = await fetch(`/api/customers/${selectedDebtor.id}/debts`);
-            const debts = await debtsResp.json();
-            setAllDebts(debts);
-            setDebtorDebts(debts.filter((d: CustomerDebt) => d.status !== 'Pago'));
-          }
-        } else {
-          throw new Error('Falha ao registrar pagamento parcial');
-        }
-      }
-    } catch (error) {
-      console.error('Erro ao processar pagamento de débito:', error);
-      addToast('Erro ao processar pagamento.', 'error');
-    } finally {
-      setIsProcessingDebtPay(false);
-    }
-  };
-
-  const handleMarkDebtAsPaid = async (debtId: string) => {
-    try {
-      const response = await fetch(`/api/customer-debts/${debtId}`, {
+      const res = await fetch('/api/crediario-v2/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'Pago', paidAt: new Date().toISOString() }),
-      });
-      if (response.ok) {
-        addToast('Débito baixado com sucesso!', 'success');
-        fetchDebtors();
-        fetchCrediarioRecords();
-        if (selectedDebtor) {
-          const debtsResp = await fetch(`/api/customers/${selectedDebtor.id}/debts`);
-          const debts = await debtsResp.json();
-          setAllDebts(debts);
-          setDebtorDebts(debts.filter((d: CustomerDebt) => d.status !== 'Pago'));
-        }
-      }
-    } catch (error) {
-      console.error('Erro ao marcar débito como pago:', error);
-      addToast('Erro ao baixar débito.', 'error');
-    }
-  };
-
-  // ==========================================
-  // AÇÕES - ATENDIMENTO DE BALCÃO (POR NOME)
-  // ==========================================
-  const handleAuthorizeBalcaoSale = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!activeBalcaoCard) return;
-    const val = parseFloat(saleAmount);
-    if (isNaN(val) || val <= 0) {
-      addToast('Informe um valor de compra válido.', 'warning');
-      return;
-    }
-
-    if (val > activeBalcaoCard.available_credit) {
-      addToast(`Limite insuficiente! Disponível: ${formatCurrency(activeBalcaoCard.available_credit)}`, 'warning');
-      return;
-    }
-
-    setIsAuthorizingSale(true);
-    try {
-      const res = await fetch('/api/cards/authorize-sale', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          cardId: activeBalcaoCard.id,
-          amount: val,
-          description: saleDescription || 'Compra no Balcão BelaFarma'
-        })
+        body: JSON.stringify(config)
       });
       const data = await res.json();
-      if (res.ok && data.authorized) {
-        addToast(`Compra de ${formatCurrency(val)} lançada no crediário com sucesso!`, 'success');
-        setIsSaleModalOpen(false);
-        setSaleAmount('');
-        setSaleDescription('Compra no Balcão BelaFarma');
-        // Atualizar dados
-        fetchCards(cardSearchTerm);
-        // Atualiza o card ativo
-        setActiveBalcaoCard(prev => prev ? {
-          ...prev,
-          used_limit: prev.used_limit + val,
-          available_credit: Math.max(0, prev.available_credit - val)
-        } : null);
-      } else {
-        addToast(data.reason || data.error || 'Erro ao autorizar venda.', 'error');
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Erro ao salvar configurações.');
       }
-    } catch (err) {
-      addToast('Erro de conexão ao autorizar compra.', 'error');
+      setConfig(data.config);
+      addToast('Regras, juros e modelos do crediário salvos!', 'success');
+      await fetchClients();
+    } catch (err: any) {
+      addToast(err?.message || 'Não foi possível salvar as regras.', 'error');
     } finally {
-      setIsAuthorizingSale(false);
+      setSavingSettings(false);
     }
   };
 
-  const handleUpdateDueDay = async (cardId: number, dueDay: number) => {
-    try {
-      const res = await fetch(`/api/cards/${cardId}/update-profile`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dueDay })
-      });
-      if (res.ok) {
-        addToast(`Vencimento atualizado para todo dia ${dueDay}!`, 'success');
-        fetchCards(cardSearchTerm);
-        setActiveBalcaoCard(prev => prev && prev.id === cardId ? { ...prev, due_day: dueDay } : prev);
-      } else {
-        addToast('Erro ao atualizar vencimento.', 'error');
-      }
-    } catch {
-      addToast('Erro de conexão ao atualizar vencimento.', 'error');
+  const renderStatusBadge = (row: UnifiedClientRow) => {
+    if (row.is_blocked || row.account_status === 'bloqueado') {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-900 text-white dark:bg-red-900/70 dark:text-red-100 whitespace-nowrap">
+          <Lock className="w-3 h-3" />
+          Bloqueado
+        </span>
+      );
     }
+    if (row.account_status === 'vencido' || row.overdue_principal > 0) {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200 whitespace-nowrap">
+          <AlertTriangle className="w-3 h-3" />
+          Vencido ({row.max_days_late}d)
+        </span>
+      );
+    }
+    if (row.account_status === 'zerado' || row.principal_balance <= 0) {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200 whitespace-nowrap">
+          <CheckCircle2 className="w-3 h-3" />
+          Zerado
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200 whitespace-nowrap">
+        Em Dia
+      </span>
+    );
   };
 
-  const handleSaveNewAccount = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newCustName.trim()) {
-      addToast('Nome do cliente é obrigatório.', 'warning');
-      return;
-    }
-
-    setIsSavingNewAccount(true);
-    try {
-      const res = await fetch('/api/cards/issue', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          customerName: newCustName.trim(),
-          phone: newCustPhone.trim(),
-          cpf: newCustCpf.trim(),
-          creditLimit: parseFloat(newCustLimit) || 300,
-          dueDay: parseInt(newCustDueDay) || 20
-        })
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        addToast('Conta de Crediário aberta com sucesso!', 'success');
-        setIsNewAccountModalOpen(false);
-        setNewCustName('');
-        setNewCustPhone('');
-        setNewCustCpf('');
-        setNewCustLimit('300');
-        setNewCustDueDay('20');
-        fetchCards();
-      } else {
-        addToast(data.error || 'Erro ao abrir conta de crediário.', 'error');
-      }
-    } catch {
-      addToast('Erro de conexão ao cadastrar cliente.', 'error');
-    } finally {
-      setIsSavingNewAccount(false);
-    }
-  };
+  const clientsHeadingId = `${uid}-clients-heading`;
+  const clientSearchId = `${uid}-client-search`;
+  const txSearchId = `${uid}-tx-search`;
+  const txPeriodId = `${uid}-tx-period`;
+  const newClientTitleId = `${uid}-new-client-title`;
 
   return (
-    <div className="w-full space-y-6 animate-in fade-in duration-300">
-      {/* ==========================================
-          CABEÇALHO EXECUTIVO UNIFICADO
-         ========================================== */}
-      <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-        <div className="flex items-center gap-4">
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-red-600 to-amber-600 flex items-center justify-center text-white shadow-md shrink-0">
-            <CreditCard className="w-7 h-7" />
+    <div className="space-y-5 pb-10">
+      {/* Cabeçalho Unificado */}
+      <header className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 sm:p-5 shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div className="flex items-start sm:items-center gap-3.5">
+          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-red-600 to-rose-700 text-white flex items-center justify-center shadow-sm shrink-0">
+            <CreditCard className="w-6 h-6" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-2xl font-black text-slate-900 dark:text-white uppercase tracking-tight">
-                Central do Crediário BelaFarma
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">
+                CENTRAL DO CREDIÁRIO BELAFARMA
               </h1>
-              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-400">
-                Unificado
+              <span
+                className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold ${
+                  kpis.interestEnabled
+                    ? 'bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200'
+                    : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                }`}
+              >
+                {kpis.interestEnabled ? 'Juros Ativos' : 'Juros Desligados'}
               </span>
             </div>
-            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mt-0.5">
-              Gestão centralizada de contas a receber, cobrança WhatsApp, devedores e limites de clientes
+            <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span>Ficha 360° • Extrato Simples (Idosos) &amp; Completo • PIX &amp; WhatsApp</span>
+              <span className="text-slate-400">•</span>
+              <span>
+                Último sync Digifarma:{' '}
+                <strong className="text-slate-700 dark:text-slate-200">
+                  {formatDateTimeBR(syncMeta?.ultima_sincronizacao)}
+                </strong>
+              </span>
             </p>
           </div>
         </div>
 
-        {/* Ações Globais */}
-        <div className="flex items-center gap-2.5 flex-wrap">
+        <div className="flex flex-wrap items-center gap-2.5 shrink-0">
           <button
-            onClick={handleOpenBatchCobranca}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm transition-all cursor-pointer"
-            title="Disparar régua de cobrança amigável via WhatsApp para crediários vencidos"
+            type="button"
+            onClick={handleSyncDigifarma}
+            disabled={syncingDigifarma}
+            className="px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 text-sm font-bold flex items-center gap-2 transition-colors disabled:opacity-60"
           >
-            <MessageSquare className="w-4 h-4" />
-            <span>Cobrança em Lote</span>
+            <RefreshCw className={`w-4 h-4 ${syncingDigifarma ? 'animate-spin' : ''}`} />
+            <span>{syncingDigifarma ? 'Sincronizando...' : 'Sincronizar Digifarma'}</span>
           </button>
 
           <button
-            onClick={refreshAll}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold text-xs shadow-2xs transition-all cursor-pointer"
-            title="Atualizar dados do Digifarma e relatórios"
+            type="button"
+            onClick={() => setIsNewClientOpen(true)}
+            className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-red-600 dark:hover:bg-red-700 text-white text-sm font-bold flex items-center gap-2 shadow-sm transition-colors"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${loadingRecords || loadingDebtors ? 'animate-spin text-red-600' : ''}`} />
-            <span>Atualizar</span>
+            <Plus className="w-4 h-4" />
+            <span>Novo Cliente</span>
           </button>
         </div>
-      </div>
+      </header>
 
-      {/* ==========================================
-          KPIs E MÉTRICAS GERAIS
-         ========================================== */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Total a Receber */}
-        <div className="bg-white dark:bg-slate-900 rounded-2xl p-5 border border-slate-200 dark:border-slate-800 shadow-2xs">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Total a Receber
-            </span>
-            <div className="p-2 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-600">
-              <DollarSign className="w-4 h-4" />
-            </div>
+      {/* 4 KPIs Reais */}
+      <section aria-label="Indicadores do crediário" className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3.5">
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 shadow-sm">
+          <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            <span>Total a Receber</span>
+            <Wallet className="w-4 h-4 text-amber-600" />
           </div>
-          <p className="text-2xl font-black text-amber-600 dark:text-amber-500">
-            {formatCurrency(totalOpenDigifarma || totalDebtorsValue)}
+          <p className="text-2xl font-black text-slate-900 dark:text-white tabular-nums mt-1.5">
+            {formatCurrency(kpis.totalReceivable)}
           </p>
-          <p className="text-[10px] font-semibold text-slate-400 mt-1">
-            {records.length} títulos abertos no sistema
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+            {kpis.totalCharges > 0
+              ? `Principal ${formatCurrency(kpis.totalPrincipal)} + ${formatCurrency(kpis.totalCharges)} encargos`
+              : `Principal em aberto: ${formatCurrency(kpis.totalPrincipal)}`}
           </p>
         </div>
 
-        {/* Total em Atraso */}
-        <div className="bg-white dark:bg-slate-900 rounded-2xl p-5 border border-slate-200 dark:border-slate-800 shadow-2xs">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Em Atraso / Vencido
-            </span>
-            <div className="p-2 rounded-xl bg-red-50 dark:bg-red-950/40 text-red-600">
-              <Clock className="w-4 h-4" />
-            </div>
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 shadow-sm">
+          <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            <span>Em Atraso / Vencido</span>
+            <AlertTriangle className="w-4 h-4 text-red-600" />
           </div>
-          <p className="text-2xl font-black text-red-600 dark:text-red-400">
-            {formatCurrency(totalOverdueDigifarma)}
+          <p className="text-2xl font-black text-red-600 dark:text-red-400 tabular-nums mt-1.5">
+            {formatCurrency(kpis.totalOverdue)}
           </p>
-          <p className="text-[10px] font-semibold text-slate-400 mt-1">
-            Títulos com data de vencimento ultrapassada
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+            {kpis.overdueClientsCount} cliente(s) com parcelas vencidas
           </p>
         </div>
 
-        {/* Clientes Devedores */}
-        <div className="bg-white dark:bg-slate-900 rounded-2xl p-5 border border-slate-200 dark:border-slate-800 shadow-2xs">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Clientes Devedores
-            </span>
-            <div className="p-2 rounded-xl bg-orange-50 dark:bg-orange-950/40 text-orange-600">
-              <AlertTriangle className="w-4 h-4" />
-            </div>
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 shadow-sm">
+          <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            <span>Contas com Saldo</span>
+            <Users className="w-4 h-4 text-sky-600" />
           </div>
-          <div className="flex items-baseline gap-2">
-            <p className="text-2xl font-black text-slate-800 dark:text-white">
-              {debtors.length}
-            </p>
-            {totalOverdueDebtorsCount > 0 && (
-              <span className="text-xs font-black text-red-600">
-                ({totalOverdueDebtorsCount} em atraso)
-              </span>
-            )}
-          </div>
-          <p className="text-[10px] font-semibold text-slate-400 mt-1">
-            Clientes com pendências financeiras
+          <p className="text-2xl font-black text-slate-900 dark:text-white tabular-nums mt-1.5">
+            {kpis.activeOpenClientsCount}
+          </p>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+            de {kpis.totalClientsCount} ficha(s) na carteira
           </p>
         </div>
 
-        {/* Contas de Clientes */}
-        <div className="bg-white dark:bg-slate-900 rounded-2xl p-5 border border-slate-200 dark:border-slate-800 shadow-2xs">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Contas de Clientes Ativas
-            </span>
-            <div className="p-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600">
-              <Users className="w-4 h-4" />
-            </div>
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 shadow-sm">
+          <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            <span>Recebido no Mês</span>
+            <DollarSign className="w-4 h-4 text-emerald-600" />
           </div>
-          <p className="text-2xl font-black text-slate-800 dark:text-white">
-            {cardsDashboard?.cards?.active ?? cards.length}
+          <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400 tabular-nums mt-1.5">
+            {formatCurrency(kpis.paidThisMonth)}
           </p>
-          <p className="text-[10px] font-semibold text-slate-400 mt-1">
-            Limite em uso: {formatCurrency(cardsDashboard?.cards?.total_credit_used || 0)}
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+            Baixas locais + Digifarma no mês atual
           </p>
         </div>
-      </div>
+      </section>
 
-      {/* ==========================================
-          SELETOR DE ABAS DO MÓDULO UNIFICADO
-         ========================================== */}
-      <div className="flex items-center gap-2 p-1.5 bg-slate-100 dark:bg-slate-800/80 rounded-2xl w-fit border border-slate-200/80 dark:border-slate-700 shadow-2xs">
+      {/* Navegação das 3 Abas */}
+      <nav aria-label="Seções do crediário" className="flex flex-wrap gap-2 border-b border-slate-200 dark:border-slate-800 pb-3">
         <button
           type="button"
-          onClick={() => setActiveTab('titulos')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
-            activeTab === 'titulos'
-              ? 'bg-white dark:bg-slate-900 text-red-600 dark:text-red-400 shadow-xs'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+          onClick={() => setActiveTab('clientes')}
+          className={`px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-colors ${
+            activeTab === 'clientes'
+              ? 'bg-red-600 text-white shadow-sm'
+              : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-50'
           }`}
         >
-          <Receipt className="w-4 h-4" />
-          <span>Títulos a Receber</span>
-          <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold">
-            {records.length}
+          <Users className="w-4 h-4" />
+          <span>Carteira de Clientes</span>
+          <span className="px-1.5 py-0.5 rounded-md text-xs bg-black/15">
+            {clients.length}
           </span>
         </button>
 
         <button
           type="button"
-          onClick={() => setActiveTab('devedores')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
-            activeTab === 'devedores'
-              ? 'bg-white dark:bg-slate-900 text-red-600 dark:text-red-400 shadow-xs'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+          onClick={() => setActiveTab('lancamentos')}
+          className={`px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-colors ${
+            activeTab === 'lancamentos'
+              ? 'bg-red-600 text-white shadow-sm'
+              : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-50'
           }`}
         >
-          <AlertTriangle className="w-4 h-4" />
-          <span>Clientes Devedores</span>
-          {totalOverdueDebtorsCount > 0 && (
-            <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-red-600 text-white font-black animate-pulse">
-              {totalOverdueDebtorsCount}
-            </span>
-          )}
+          <ShoppingBag className="w-4 h-4" />
+          <span>Lançamentos &amp; Compras</span>
         </button>
 
-        <button
-          type="button"
-          onClick={() => setActiveTab('cartoes')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
-            activeTab === 'cartoes'
-              ? 'bg-white dark:bg-slate-900 text-red-600 dark:text-red-400 shadow-xs'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-          }`}
+        {isAdmin && (
+          <button
+            type="button"
+            onClick={() => setActiveTab('regras')}
+            className={`px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-colors ${
+              activeTab === 'regras'
+                ? 'bg-red-600 text-white shadow-sm'
+                : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-50'
+            }`}
+          >
+            <Settings className="w-4 h-4" />
+            <span>Regras, Juros &amp; Automação</span>
+          </button>
+        )}
+      </nav>
+
+      {/* ABA 1: CARTEIRA DE CLIENTES */}
+      {activeTab === 'clientes' && (
+        <section
+          aria-labelledby={clientsHeadingId}
+          className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden"
         >
-          <Users className="w-4 h-4" />
-          <span>Contas & Limites</span>
-        </button>
-      </div>
+          <div className="p-4 border-b border-slate-200 dark:border-slate-800 space-y-3">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div>
+                <h2 id={clientsHeadingId} className="text-base font-extrabold text-slate-900 dark:text-white">
+                  Carteira de Clientes do Crediário
+                </h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Clique no cliente para abrir a Ficha 360°, Extrato Simples/Completo, Recebimento ou WhatsApp.
+                </p>
+              </div>
 
-      {/* ==========================================
-          CONTEÚDO DA ABA 1: TÍTULOS A RECEBER
-         ========================================== */}
-      {activeTab === 'titulos' && (
-        <div className="space-y-4 animate-in fade-in duration-200">
-          {/* Barra de Filtros e Busca */}
-          <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200 dark:border-slate-800 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-4">
-            {/* Status Pills */}
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <button
-                type="button"
-                onClick={() => setStatusFilter('todos')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                  statusFilter === 'todos'
-                    ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-black shadow-2xs'
-                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
-                }`}
-              >
-                Todos ({records.length})
-              </button>
-              <button
-                type="button"
-                onClick={() => setStatusFilter('vencidos')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                  statusFilter === 'vencidos'
-                    ? 'bg-red-600 text-white font-black shadow-2xs'
-                    : 'bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-400 hover:bg-red-100'
-                }`}
-              >
-                Vencidos
-              </button>
-              <button
-                type="button"
-                onClick={() => setStatusFilter('hoje')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                  statusFilter === 'hoje'
-                    ? 'bg-amber-600 text-white font-black shadow-2xs'
-                    : 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 hover:bg-amber-100'
-                }`}
-              >
-                Vencem Hoje
-              </button>
-              <button
-                type="button"
-                onClick={() => setStatusFilter('a_vencer')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                  statusFilter === 'a_vencer'
-                    ? 'bg-emerald-600 text-white font-black shadow-2xs'
-                    : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100'
-                }`}
-              >
-                A Vencer
-              </button>
+              <search className="w-full md:w-96">
+                <label htmlFor={clientSearchId} className="sr-only">
+                  Buscar cliente por nome, apelido, CPF, telefone ou comprador autorizado
+                </label>
+                <div className="relative">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    id={clientSearchId}
+                    type="search"
+                    value={clientSearch}
+                    onChange={e => setClientSearch(e.target.value)}
+                    placeholder="Buscar por nome, CPF, telefone ou comprador..."
+                    className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm text-slate-900 dark:text-white focus:border-red-500 focus:bg-white dark:focus:bg-slate-900 focus:outline-none"
+                  />
+                </div>
+              </search>
             </div>
 
-            {/* Input de Busca */}
-            <div className="relative w-full md:w-80">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Buscar por cliente ou telefone..."
-                value={searchTerm}
-                onChange={e => setSearchTerm(e.target.value)}
-                className="w-full pl-9 pr-8 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium text-slate-900 dark:text-white outline-none focus:border-red-500"
-              />
-              {searchTerm && (
+            <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filtros da carteira">
+              {FILTER_OPTIONS.map(f => (
                 <button
-                  onClick={() => setSearchTerm('')}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  key={f.id}
+                  type="button"
+                  onClick={() => setClientFilter(f.id)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+                    clientFilter === f.id
+                      ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900'
+                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700'
+                  }`}
                 >
-                  <X className="w-3.5 h-3.5" />
+                  {f.label}
                 </button>
-              )}
+              ))}
             </div>
           </div>
 
-          {/* Tabela de Títulos - Padrão de Alta Densidade BelaFarma */}
-          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs overflow-hidden">
-            <div className="overflow-x-auto">
+          <div className="crediario-table-region">
+            <div
+              tabIndex={0}
+              role="region"
+              aria-labelledby={clientsHeadingId}
+              className="crediario-responsive-table overflow-x-auto"
+            >
               <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 text-[11px] font-black uppercase text-slate-500 dark:text-slate-400">
-                    <th className="px-4 py-3 whitespace-nowrap">Vencimento</th>
-                    <th className="px-4 py-3 whitespace-nowrap">Cliente</th>
-                    <th className="px-4 py-3 whitespace-nowrap">Contato</th>
-                    <th className="px-4 py-3 text-right whitespace-nowrap">Valor Total</th>
-                    <th className="px-4 py-3 text-right whitespace-nowrap">Saldo Pendente</th>
-                    <th className="px-4 py-3 text-center whitespace-nowrap">Ações</th>
+                <caption className="sr-only">Carteira de clientes do crediário</caption>
+                <thead className="bg-slate-50 dark:bg-slate-800/70 border-b border-slate-200 dark:border-slate-800 text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  <tr>
+                    <th scope="col" className="px-4 py-2.5 whitespace-nowrap">
+                      Cliente
+                    </th>
+                    <th scope="col" className="px-3 py-2.5 whitespace-nowrap">
+                      Situação
+                    </th>
+                    <th scope="col" className="px-3 py-2.5 whitespace-nowrap">
+                      Vencimento
+                    </th>
+                    <th scope="col" className="px-3 py-2.5 whitespace-nowrap text-right">
+                      Principal
+                    </th>
+                    <th scope="col" className="px-3 py-2.5 whitespace-nowrap text-right">
+                      Encargos
+                    </th>
+                    <th scope="col" className="px-3 py-2.5 whitespace-nowrap text-right">
+                      Total Aberto
+                    </th>
+                    <th scope="col" className="px-3 py-2.5 whitespace-nowrap text-right">
+                      Limite / Disp.
+                    </th>
+                    <th scope="col" className="px-4 py-2.5 whitespace-nowrap text-right">
+                      Ações
+                    </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
-                  {loadingRecords ? (
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-sm">
+                  {clientsLoading ? (
                     <tr>
-                      <td colSpan={6} className="py-12 text-center text-slate-400 font-semibold">
-                        <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-red-600" />
-                        Carregando títulos do Digifarma...
+                      <td colSpan={8} className="px-4 py-10 text-center text-slate-500">
+                        Carregando carteira de clientes...
                       </td>
                     </tr>
-                  ) : filteredRecords.length === 0 ? (
+                  ) : clients.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="py-12 text-center text-slate-500 font-medium">
-                        Nenhum crediário encontrado com os filtros selecionados.
+                      <td colSpan={8} className="px-4 py-10 text-center text-slate-500">
+                        Nenhum cliente encontrado para o filtro selecionado.
                       </td>
                     </tr>
                   ) : (
-                    filteredRecords.map(record => {
-                      const isOverdue = record.dueDate && new Date(record.dueDate) < new Date(new Date().setHours(0, 0, 0, 0));
-                      return (
-                        <tr
-                          key={record.id}
-                          className={`hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors ${
-                            isOverdue ? 'bg-red-50/30 dark:bg-red-950/10' : ''
-                          }`}
-                        >
-                          <td className="px-4 py-2.5 whitespace-nowrap font-bold text-slate-700 dark:text-slate-300">
-                            <div className="inline-flex items-center gap-1.5">
-                              {isOverdue && (
-                                <span className="w-2 h-2 rounded-full bg-red-600 shrink-0" title="Vencido" />
-                              )}
-                              <span>{formatDate(record.dueDate)}</span>
+                    clients.map(row => (
+                      <tr
+                        key={row.id}
+                        className="hover:bg-slate-50/90 dark:hover:bg-slate-800/40 transition-colors"
+                      >
+                        <td data-label="Cliente" className="px-4 py-2.5 align-middle max-w-[300px]">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenProfile(row.id, 'none')}
+                            className="text-left group focus:outline-none w-full"
+                          >
+                            <div className="font-bold text-slate-900 dark:text-white group-hover:text-red-600 transition-colors truncate">
+                              {row.customer_name}
+                              {row.nickname ? (
+                                <span className="ml-1.5 font-medium text-xs text-slate-500">
+                                  ({row.nickname})
+                                </span>
+                              ) : null}
                             </div>
-                          </td>
+                            <div className="inline-flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+                              <span>{row.phone || 'Sem telefone'}</span>
+                              <span>•</span>
+                              <span>{row.cpf ? `CPF ${row.cpf}` : 'Sem CPF'}</span>
+                              {row.interest_exempt && (
+                                <span className="px-1.5 py-0 rounded bg-emerald-100 text-emerald-800 font-bold">
+                                  Isento
+                                </span>
+                              )}
+                              {row.missing_contact && (
+                                <span className="px-1.5 py-0 rounded bg-amber-100 text-amber-800 font-bold">
+                                  Cadastro Incompleto
+                                </span>
+                              )}
+                            </div>
+                          </button>
+                        </td>
 
-                          <td className="px-4 py-2.5 font-black uppercase text-slate-900 dark:text-white truncate max-w-[220px]">
-                            {record.clientName}
-                          </td>
+                        <td data-label="Situação" className="px-3 py-2.5 align-middle">
+                          {renderStatusBadge(row)}
+                        </td>
 
-                          <td className="px-4 py-2.5 whitespace-nowrap text-slate-500 dark:text-slate-400">
-                            {record.phone ? (
-                              <span className="inline-flex items-center gap-1 font-mono text-[11px]">
-                                <Phone className="w-3 h-3 text-emerald-600" />
-                                {record.phone}
+                        <td data-label="Vencimento" className="px-3 py-2.5 align-middle whitespace-nowrap text-xs">
+                          {row.principal_balance <= 0 ? (
+                            <span className="text-slate-400">-</span>
+                          ) : (
+                            <div>
+                              <span className="font-semibold text-slate-800 dark:text-slate-200">
+                                {row.next_due_date ? formatDateBR(row.next_due_date) : `Dia ${row.due_day}`}
                               </span>
-                            ) : (
-                              <span className="text-slate-300 dark:text-slate-600 text-[11px]">-</span>
-                            )}
-                          </td>
-
-                          <td className="px-4 py-2.5 text-right whitespace-nowrap font-medium text-slate-500 dark:text-slate-400">
-                            {formatCurrency(record.amount)}
-                          </td>
-
-                          <td className="px-4 py-2.5 text-right whitespace-nowrap font-black text-red-600 dark:text-red-400 text-sm">
-                            {formatCurrency(record.balance)}
-                          </td>
-
-                          <td className="px-4 py-2.5 text-center whitespace-nowrap">
-                            <div className="inline-flex items-center gap-1.5">
-                              <button
-                                type="button"
-                                onClick={() => handleOpenReceive(record)}
-                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 font-bold text-[11px] transition-colors cursor-pointer"
-                                title="Dar baixa em pagamento do crediário"
-                              >
-                                <CheckCircle className="w-3.5 h-3.5" />
-                                <span>Baixa</span>
-                              </button>
-
-                              {record.phone && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenCobranca(record)}
-                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 hover:bg-blue-100 font-bold text-[11px] transition-colors cursor-pointer"
-                                  title="Enviar mensagem amigável de cobrança via WhatsApp"
-                                >
-                                  <MessageSquare className="w-3.5 h-3.5" />
-                                  <span>Cobrar</span>
-                                </button>
+                              {row.due_day_mode === 'fixed' && (
+                                <span className="ml-1 text-[10px] text-slate-500">(fixo)</span>
                               )}
                             </div>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ==========================================
-          CONTEÚDO DA ABA 2: CLIENTES DEVEDORES
-         ========================================== */}
-      {activeTab === 'devedores' && (
-        <div className="space-y-4 animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs overflow-hidden">
-            <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-black uppercase text-slate-800 dark:text-white">
-                  Lista de Clientes em Débito
-                </h3>
-                <p className="text-xs text-slate-400">
-                  Ordenados por maior saldo devedor
-                </p>
-              </div>
-              <span className="text-xs font-bold text-slate-500">
-                {debtors.length} clientes encontrados
-              </span>
-            </div>
-
-            {loadingDebtors ? (
-              <div className="py-12 text-center text-slate-400 font-semibold">
-                <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-red-600" />
-                Carregando devedores...
-              </div>
-            ) : debtors.length === 0 ? (
-              <div className="py-12 text-center">
-                <div className="w-12 h-12 bg-emerald-100 dark:bg-emerald-950/50 rounded-full flex items-center justify-center mx-auto mb-2 text-emerald-600">
-                  <CheckCircle className="w-6 h-6" />
-                </div>
-                <p className="text-sm font-bold text-emerald-600">Nenhum devedor registrado!</p>
-                <p className="text-xs text-slate-400">Todos os crediários e débitos estão quitados.</p>
-              </div>
-            ) : (
-              <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                {debtors.map((debtor, index) => (
-                  <div
-                    key={debtor.id}
-                    className={`p-4 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors ${
-                      debtor.hasOverdue ? 'bg-red-50/20 dark:bg-red-950/10' : ''
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <div
-                        className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-black text-white shrink-0 ${
-                          index === 0
-                            ? 'bg-red-600'
-                            : index === 1
-                            ? 'bg-amber-600'
-                            : index === 2
-                            ? 'bg-orange-500'
-                            : 'bg-slate-400'
-                        }`}
-                      >
-                        {index + 1}
-                      </div>
-
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <h4 className="font-black text-xs text-slate-900 dark:text-white uppercase">
-                            {debtor.name}
-                          </h4>
-                          {debtor.hasOverdue ? (
-                            <span className="px-2 py-0.2 bg-red-100 dark:bg-red-950/60 text-red-700 dark:text-red-400 text-[10px] font-black uppercase rounded-md">
-                              Em Atraso
-                            </span>
-                          ) : null}
-                        </div>
-
-                        <div className="flex items-center gap-3 text-[11px] text-slate-500 mt-0.5">
-                          {debtor.nickname && <span>"{debtor.nickname}"</span>}
-                          {debtor.phone && (
-                            <span className="inline-flex items-center gap-1 font-mono">
-                              <Phone className="w-3 h-3 text-emerald-600" />
-                              {debtor.phone}
-                            </span>
                           )}
-                        </div>
-                      </div>
-                    </div>
+                        </td>
 
-                    <div className="flex items-center gap-4">
-                      <div className="text-right">
-                        <span className="text-[10px] uppercase font-bold text-slate-400 block">
-                          {debtor.debtCount} {debtor.debtCount === 1 ? 'compra' : 'compras'}
-                        </span>
-                        <span
-                          className={`text-base font-black ${
-                            debtor.hasOverdue ? 'text-red-600 dark:text-red-400' : 'text-amber-600'
-                          }`}
+                        <td
+                          data-label="Principal"
+                          className="px-3 py-2.5 align-middle text-right font-semibold tabular-nums text-slate-700 dark:text-slate-300 whitespace-nowrap"
                         >
-                          {formatCurrency(debtor.totalOwed)}
-                        </span>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => openDebtorDetails(debtor)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 text-xs font-bold transition-all cursor-pointer"
-                        title="Ver histórico de débitos do cliente"
-                      >
-                        <Eye className="w-3.5 h-3.5" />
-                        <span>Ver Débitos</span>
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ==========================================
-          CONTEÚDO DA ABA 3: CONTAS DE CLIENTES & LIMITES
-         ========================================== */}
-      {activeTab === 'cartoes' && (
-        <div className="space-y-6 animate-in fade-in duration-200">
-          {/* PAINEL DE ATENDIMENTO DE BALCÃO POR NOME */}
-          <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm space-y-5">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-800 pb-4">
-              <div>
-                <h3 className="text-base font-black uppercase text-slate-900 dark:text-white flex items-center gap-2">
-                  <Users className="w-5 h-5 text-red-600" />
-                  Atendimento de Balcão (Crediário)
-                </h3>
-                <p className="text-xs text-slate-400">
-                  Consulte limites, lance compras e envie faturas por Nome ou Telefone (sem necessidade de cartão físico)
-                </p>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setIsNewAccountModalOpen(true)}
-                className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold text-xs shadow-xs hover:bg-slate-800 transition-colors cursor-pointer"
-              >
-                <span>+ Novo Cliente no Crediário</span>
-              </button>
-            </div>
-
-            {/* Input de Busca Rápida por Nome */}
-            <div className="relative">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Digite o Nome, Apelido, Telefone ou CPF do cliente..."
-                value={cardSearchTerm}
-                onChange={e => {
-                  setCardSearchTerm(e.target.value);
-                  fetchCards(e.target.value);
-                }}
-                className="w-full pl-12 pr-4 py-3.5 bg-slate-50 dark:bg-slate-800/80 border-2 border-slate-200 dark:border-slate-700 rounded-2xl text-sm font-semibold text-slate-900 dark:text-white outline-none focus:border-red-500 shadow-2xs"
-              />
-            </div>
-
-            {/* Card do Cliente Ativo Selecionado */}
-            {activeBalcaoCard ? (
-              <div className="p-5 rounded-2xl bg-gradient-to-br from-slate-50 to-slate-100/70 dark:from-slate-800/60 dark:to-slate-800/30 border border-slate-200 dark:border-slate-700 space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-2xl bg-red-600 text-white font-black text-lg flex items-center justify-center shrink-0 shadow-sm">
-                      {activeBalcaoCard.customer_name.charAt(0).toUpperCase()}
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h4 className="text-base font-black text-slate-900 dark:text-white uppercase">
-                          {activeBalcaoCard.customer_name}
-                        </h4>
-                        <span className="px-2 py-0.2 rounded-md text-[10px] font-black uppercase bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-400">
-                          Conta Ativa
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-3 text-xs text-slate-500 mt-0.5">
-                        {activeBalcaoCard.phone && (
-                          <span className="inline-flex items-center gap-1 font-mono">
-                            <Phone className="w-3 h-3 text-emerald-600" />
-                            {activeBalcaoCard.phone}
-                          </span>
-                        )}
-                        {activeBalcaoCard.cpf ? (
-                          <span className="font-mono text-[11px] text-slate-400">CPF: {activeBalcaoCard.cpf}</span>
-                        ) : (
-                          <span className="text-[10px] font-bold text-amber-600 bg-amber-50 dark:bg-amber-950/40 px-2 py-0.2 rounded">
-                            CPF não cadastrado
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Vencimento Selecionado: Dia 10 ou Dia 20 */}
-                  <div className="flex items-center gap-1.5 p-1 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700">
-                    <span className="text-[10px] font-black uppercase text-slate-400 px-2">Vencimento:</span>
-                    <button
-                      type="button"
-                      onClick={() => handleUpdateDueDay(activeBalcaoCard.id, 10)}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-black transition-all cursor-pointer ${
-                        activeBalcaoCard.due_day === 10
-                          ? 'bg-red-600 text-white shadow-2xs'
-                          : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
-                      }`}
-                    >
-                      Dia 10
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleUpdateDueDay(activeBalcaoCard.id, 20)}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-black transition-all cursor-pointer ${
-                        activeBalcaoCard.due_day === 20
-                          ? 'bg-red-600 text-white shadow-2xs'
-                          : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
-                      }`}
-                    >
-                      Dia 20
-                    </button>
-                  </div>
-                </div>
-
-                {/* Métricas de Limite em 3 Blocos */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 text-center">
-                    <span className="text-[10px] font-black uppercase text-slate-400 block">Limite Total</span>
-                    <span className="text-lg font-black text-slate-800 dark:text-white">
-                      {formatCurrency(activeBalcaoCard.credit_limit)}
-                    </span>
-                  </div>
-
-                  <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 text-center">
-                    <span className="text-[10px] font-black uppercase text-slate-400 block">Saldo em Uso</span>
-                    <span className="text-lg font-black text-amber-600">
-                      {formatCurrency(activeBalcaoCard.used_limit)}
-                    </span>
-                  </div>
-
-                  <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 text-center">
-                    <span className="text-[10px] font-black uppercase text-slate-400 block">Disponível para Compras</span>
-                    <span className="text-lg font-black text-emerald-600">
-                      {formatCurrency(activeBalcaoCard.available_credit)}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Botões de Ação Imediata */}
-                <div className="flex items-center gap-2 flex-wrap pt-1">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSaleAmount('');
-                      setIsSaleModalOpen(true);
-                    }}
-                    className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-black shadow-xs transition-colors cursor-pointer"
-                  >
-                    <Receipt className="w-4 h-4" />
-                    <span>Lançar Compra a Prazo</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedCardIdForProfile(activeBalcaoCard.id);
-                      setIsCardProfileOpen(true);
-                    }}
-                    className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-slate-900 dark:bg-slate-800 hover:bg-slate-800 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
-                  >
-                    <Eye className="w-4 h-4" />
-                    <span>Ver Extrato Completo & Faturas</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setActiveBalcaoCard(null)}
-                    className="ml-auto px-3 py-2 text-xs font-bold text-slate-400 hover:text-slate-600 transition-colors"
-                  >
-                    Limpar Seleção
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="p-6 rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-800 text-center space-y-1">
-                <Users className="w-8 h-8 text-slate-400 mx-auto mb-1" />
-                <p className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                  Nenhum cliente selecionado no balcão
-                </p>
-                <p className="text-[11px] text-slate-400">
-                  Digite o nome no campo de busca ou clique em um cliente na tabela abaixo para lançar compras e consultar o extrato.
-                </p>
-              </div>
-            )}
-          </div>
-
-          {/* Listagem Geral de Contas de Clientes */}
-          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs overflow-hidden">
-            <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div>
-                <h3 className="text-sm font-black uppercase text-slate-800 dark:text-white">
-                  Contas de Clientes Cadastrados
-                </h3>
-                <p className="text-xs text-slate-400">
-                  Limites concedidos e vencimentos organizados
-                </p>
-              </div>
-              <span className="text-xs font-bold text-slate-500">
-                {cards.length} clientes listados
-              </span>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 text-[11px] font-black uppercase text-slate-500 dark:text-slate-400">
-                    <th className="px-4 py-3 whitespace-nowrap">Vencimento</th>
-                    <th className="px-4 py-3 whitespace-nowrap">Cliente</th>
-                    <th className="px-4 py-3 whitespace-nowrap">Telefone / WhatsApp</th>
-                    <th className="px-4 py-3 text-right whitespace-nowrap">Limite Total</th>
-                    <th className="px-4 py-3 text-right whitespace-nowrap">Saldo em Uso</th>
-                    <th className="px-4 py-3 text-right whitespace-nowrap">Disponível</th>
-                    <th className="px-4 py-3 text-center whitespace-nowrap">Ações</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
-                  {loadingCards ? (
-                    <tr>
-                      <td colSpan={7} className="py-12 text-center text-slate-400 font-semibold">
-                        <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-red-600" />
-                        Carregando contas de clientes...
-                      </td>
-                    </tr>
-                  ) : cards.length === 0 ? (
-                    <tr>
-                      <td colSpan={7} className="py-12 text-center text-slate-500 font-medium">
-                        Nenhum cliente encontrado. Digite outro nome ou cadastre um novo cliente.
-                      </td>
-                    </tr>
-                  ) : (
-                    cards.map(c => (
-                      <tr key={c.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
-                        <td className="px-4 py-2.5 whitespace-nowrap font-black text-slate-700 dark:text-slate-300">
-                          <span className="px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-[11px]">
-                            Dia {c.due_day || 20}
-                          </span>
+                          {formatCurrency(row.principal_balance)}
                         </td>
 
-                        <td className="px-4 py-2.5 font-black uppercase text-slate-900 dark:text-white truncate max-w-[220px]">
-                          {c.customer_name}
-                        </td>
-
-                        <td className="px-4 py-2.5 whitespace-nowrap text-slate-500 text-[11px]">
-                          {c.phone ? (
-                            <span className="inline-flex items-center gap-1 font-mono">
-                              <Phone className="w-3 h-3 text-emerald-600" />
-                              {c.phone}
+                        <td
+                          data-label="Encargos"
+                          className="px-3 py-2.5 align-middle text-right tabular-nums whitespace-nowrap text-xs"
+                        >
+                          {row.total_charges > 0 ? (
+                            <span className="font-bold text-red-600 dark:text-red-400">
+                              {formatCurrency(row.total_charges)}
+                            </span>
+                          ) : row.simulated_charges > 0 ? (
+                            <span
+                              className="text-slate-400"
+                              title={`Encargos simulados (juros desligados ou cliente isento): ${formatCurrency(
+                                row.simulated_charges
+                              )}`}
+                            >
+                              {formatCurrency(0)}
                             </span>
                           ) : (
                             <span className="text-slate-400">-</span>
                           )}
                         </td>
 
-                        <td className="px-4 py-2.5 text-right whitespace-nowrap font-medium text-slate-600 dark:text-slate-300">
-                          {formatCurrency(c.credit_limit)}
+                        <td
+                          data-label="Total Aberto"
+                          className="px-3 py-2.5 align-middle text-right font-black tabular-nums text-slate-900 dark:text-white whitespace-nowrap"
+                        >
+                          {formatCurrency(row.total_balance)}
                         </td>
 
-                        <td className="px-4 py-2.5 text-right whitespace-nowrap font-bold text-amber-600 dark:text-amber-400">
-                          {formatCurrency(c.used_limit)}
+                        <td
+                          data-label="Limite / Disp."
+                          className="px-3 py-2.5 align-middle text-right tabular-nums whitespace-nowrap text-xs text-slate-600 dark:text-slate-400"
+                        >
+                          <div>{formatCurrency(row.credit_limit)}</div>
+                          <div className="text-[11px] text-emerald-700 dark:text-emerald-400">
+                            Disp: {formatCurrency(row.available_credit)}
+                          </div>
                         </td>
 
-                        <td className="px-4 py-2.5 text-right whitespace-nowrap font-black text-emerald-600 dark:text-emerald-400">
-                          {formatCurrency(c.available_credit)}
-                        </td>
-
-                        <td className="px-4 py-2.5 text-center whitespace-nowrap">
-                          <div className="inline-flex items-center gap-1.5">
+                        <td data-label="Ações" className="px-4 py-2.5 align-middle text-right whitespace-nowrap">
+                          <div className="inline-flex items-center justify-end gap-1">
                             <button
                               type="button"
-                              onClick={() => {
-                                setActiveBalcaoCard(c);
-                                window.scrollTo({ top: 0, behavior: 'smooth' });
-                              }}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-400 hover:bg-red-100 font-bold text-xs transition-colors cursor-pointer"
-                              title="Selecionar para atendimento no balcão"
+                              onClick={() => handleOpenProfile(row.id, 'none')}
+                              title="Abrir Ficha 360° e Extratos"
+                              aria-label={`Abrir ficha e extratos de ${row.customer_name}`}
+                              className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 transition-colors"
                             >
-                              <span>Atender</span>
+                              <FileText className="w-4 h-4" />
                             </button>
 
                             <button
                               type="button"
-                              onClick={() => {
-                                setSelectedCardIdForProfile(c.id);
-                                setIsCardProfileOpen(true);
-                              }}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 text-xs font-bold transition-colors cursor-pointer"
-                              title="Ver faturas, extrato e opções da conta"
+                              onClick={() => handleOpenProfile(row.id, 'receive')}
+                              title="Receber Pagamento"
+                              aria-label={`Receber pagamento de ${row.customer_name}`}
+                              className="p-1.5 rounded-lg border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-50 dark:hover:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 transition-colors"
                             >
-                              <Eye className="w-3.5 h-3.5" />
-                              <span>Perfil</span>
+                              <DollarSign className="w-4 h-4" />
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleOpenProfile(row.id, 'purchase')}
+                              title="Lançar Nova Compra no Crediário"
+                              aria-label={`Lançar compra para ${row.customer_name}`}
+                              className="p-1.5 rounded-lg border border-sky-200 dark:border-sky-800 hover:bg-sky-50 dark:hover:bg-sky-900/40 text-sky-700 dark:text-sky-300 transition-colors"
+                            >
+                              <ShoppingBag className="w-4 h-4" />
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleOpenProfile(row.id, 'whatsapp')}
+                              title="Enviar Mensagem / Extrato no WhatsApp"
+                              aria-label={`Enviar WhatsApp para ${row.customer_name}`}
+                              className="p-1.5 rounded-lg border border-green-200 dark:border-green-800 hover:bg-green-50 dark:hover:bg-green-900/40 text-green-700 dark:text-green-300 transition-colors"
+                            >
+                              <MessageSquare className="w-4 h-4" />
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleCopyPortalLink(row)}
+                              title="Copiar Link do Portal do Cliente"
+                              aria-label={`Copiar link do portal de ${row.customer_name}`}
+                              className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors"
+                            >
+                              <Link2 className="w-4 h-4" />
                             </button>
                           </div>
                         </td>
@@ -1452,486 +1035,719 @@ export const CrediarioHub: React.FC<CrediarioHubProps> = ({ initialTab = 'titulo
               </table>
             </div>
           </div>
-
-          {/* MODAL: LANÇAR COMPRA NO BALCÃO */}
-          {isSaleModalOpen && activeBalcaoCard && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-              <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl p-6 space-y-4 shadow-2xl border border-slate-200 dark:border-slate-800">
-                <div className="text-center space-y-1">
-                  <h3 className="text-lg font-black uppercase text-slate-900 dark:text-white">
-                    Lançar Compra a Prazo
-                  </h3>
-                  <p className="text-xs text-slate-500 font-bold">{activeBalcaoCard.customer_name}</p>
-                </div>
-
-                <div className="p-3 bg-slate-50 dark:bg-slate-800 rounded-xl flex justify-between items-center text-xs">
-                  <span className="font-bold text-slate-400 uppercase">Limite Disponível</span>
-                  <span className="font-black text-emerald-600 text-base">
-                    {formatCurrency(activeBalcaoCard.available_credit)}
-                  </span>
-                </div>
-
-                <form onSubmit={handleAuthorizeBalcaoSale} className="space-y-3">
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black uppercase text-slate-400 ml-1">
-                      Valor da Compra (R$)*
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      placeholder="0,00"
-                      autoFocus
-                      required
-                      value={saleAmount}
-                      onChange={e => setSaleAmount(e.target.value)}
-                      className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-700 rounded-2xl font-black text-2xl text-center outline-none focus:border-red-500"
-                    />
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black uppercase text-slate-400 ml-1">
-                      Descrição / Produtos
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="Ex: Medicamentos de Uso Contínuo"
-                      value={saleDescription}
-                      onChange={e => setSaleDescription(e.target.value)}
-                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold outline-none focus:border-red-500"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3 pt-2">
-                    <button
-                      type="button"
-                      disabled={isAuthorizingSale}
-                      onClick={() => setIsSaleModalOpen(false)}
-                      className="py-3 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl font-bold text-xs"
-                    >
-                      Cancelar
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={isAuthorizingSale || !saleAmount || parseFloat(saleAmount) <= 0}
-                      className="py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-xs shadow-md disabled:opacity-50"
-                    >
-                      {isAuthorizingSale ? 'Lançando...' : 'Confirmar Venda'}
-                    </button>
-                  </div>
-                </form>
-              </div>
-            </div>
-          )}
-
-          {/* MODAL: NOVO CLIENTE NO CREDIÁRIO */}
-          {isNewAccountModalOpen && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-              <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl p-6 space-y-4 shadow-2xl border border-slate-200 dark:border-slate-800">
-                <div className="text-center space-y-1">
-                  <h3 className="text-lg font-black uppercase text-slate-900 dark:text-white">
-                    Abrir Conta de Crediário
-                  </h3>
-                  <p className="text-xs text-slate-400">
-                    Sem cartões plásticos: identificação rápida por nome no balcão
-                  </p>
-                </div>
-
-                <form onSubmit={handleSaveNewAccount} className="space-y-3">
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black uppercase text-slate-400 ml-1">
-                      Nome Completo do Cliente*
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="Ex: Maria Aparecida da Silva"
-                      value={newCustName}
-                      onChange={e => setNewCustName(e.target.value)}
-                      className="w-full px-3 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold outline-none focus:border-red-500 uppercase"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-black uppercase text-slate-400 ml-1">
-                        WhatsApp / Celular
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="Ex: (35) 99999-9999"
-                        value={newCustPhone}
-                        onChange={e => setNewCustPhone(e.target.value)}
-                        className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold outline-none focus:border-red-500 font-mono"
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-black uppercase text-slate-400 ml-1">
-                        CPF (Opcional)
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="000.000.000-00"
-                        value={newCustCpf}
-                        onChange={e => setNewCustCpf(e.target.value)}
-                        className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold outline-none focus:border-red-500 font-mono"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-black uppercase text-slate-400 ml-1">
-                        Limite Inicial (R$)
-                      </label>
-                      <input
-                        type="number"
-                        step="50"
-                        placeholder="300"
-                        value={newCustLimit}
-                        onChange={e => setNewCustLimit(e.target.value)}
-                        className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold outline-none focus:border-red-500"
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-black uppercase text-slate-400 ml-1">
-                        Vencimento da Fatura
-                      </label>
-                      <select
-                        value={newCustDueDay}
-                        onChange={e => setNewCustDueDay(e.target.value as '10' | '20')}
-                        className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold outline-none focus:border-red-500"
-                      >
-                        <option value="10">Todo dia 10</option>
-                        <option value="20">Todo dia 20</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3 pt-3">
-                    <button
-                      type="button"
-                      disabled={isSavingNewAccount}
-                      onClick={() => setIsNewAccountModalOpen(false)}
-                      className="py-3 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl font-bold text-xs"
-                    >
-                      Cancelar
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={isSavingNewAccount || !newCustName.trim()}
-                      className="py-3 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-xl font-bold text-xs shadow-md disabled:opacity-50"
-                    >
-                      {isSavingNewAccount ? 'Cadastrando...' : 'Criar Conta'}
-                    </button>
-                  </div>
-                </form>
-              </div>
-            </div>
-          )}
-        </div>
+        </section>
       )}
 
-      {/* ==========================================
-          MODAL: BAIXA DE TÍTULO DIGIFARMA
-         ========================================== */}
-      {isPayModalOpen && selectedRecord && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm"
-          onKeyDown={e => e.key === 'Escape' && setIsPayModalOpen(false)}
-        >
-          <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl p-6 space-y-5 shadow-2xl border border-slate-200 dark:border-slate-800">
-            <div className="text-center space-y-1">
-              <h2 className="text-xl font-black text-slate-900 dark:text-white uppercase">
-                Receber Crediário
-              </h2>
-              <p className="text-xs font-bold text-slate-500">{selectedRecord.clientName}</p>
-            </div>
-
-            <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-100 dark:border-slate-800 flex justify-between items-center">
-              <span className="text-xs font-black text-slate-400 uppercase">Saldo Pendente</span>
-              <span className="text-xl font-black text-red-600 dark:text-red-400">
-                {formatCurrency(selectedRecord.balance)}
-              </span>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-black text-slate-400 uppercase ml-1">
-                Valor do Pagamento (R$)*
-              </label>
-              <input
-                ref={payInputRef}
-                type="text"
-                value={formatCurrency(paymentAmount)}
-                onChange={e => setPaymentAmount(parseCurrency(e.target.value))}
-                className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-700 rounded-2xl font-black text-2xl text-center outline-none focus:border-red-500 text-slate-900 dark:text-white"
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 pt-2">
+      {/* ABA 2: LANÇAMENTOS & COMPRAS */}
+      {activeTab === 'lancamentos' && (
+        <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+          <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                disabled={isProcessingPay}
-                onClick={() => setIsPayModalOpen(false)}
-                className="py-3 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl font-black uppercase text-xs hover:bg-slate-200 transition-colors cursor-pointer"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                disabled={isProcessingPay || paymentAmount <= 0 || paymentAmount > selectedRecord.balance}
-                onClick={handleReceive}
-                className="py-3 bg-emerald-600 text-white rounded-xl font-black uppercase text-xs flex items-center justify-center gap-2 shadow-md hover:bg-emerald-700 disabled:opacity-50 transition-colors cursor-pointer"
-              >
-                {isProcessingPay ? 'Baixando...' : 'Confirmar Baixa'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ==========================================
-          MODAL: COBRANÇA WHATSAPP
-         ========================================== */}
-      {isCobrancaModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-3xl p-6 space-y-5 shadow-2xl border border-slate-200 dark:border-slate-800">
-            <div className="text-center space-y-1">
-              <h2 className="text-xl font-black text-slate-900 dark:text-white uppercase">
-                {isBatchMode
-                  ? `Cobrança em Lote (${batchIndex + 1}/${selectedRecordsForBatch.length})`
-                  : 'Enviar Cobrança WhatsApp'}
-              </h2>
-              <p className="text-xs font-bold text-slate-500">
-                Cliente:{' '}
-                <span className="text-slate-900 dark:text-white font-black">
-                  {isBatchMode ? selectedRecordsForBatch[batchIndex]?.clientName : selectedRecord?.clientName}
-                </span>
-              </p>
-              <p className="text-[11px] text-slate-400 font-mono">
-                WhatsApp: {cobrancaTargetPhone}
-              </p>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-black text-slate-400 uppercase ml-1">
-                Mensagem a ser enviada (editável)*
-              </label>
-              <textarea
-                value={cobrancaMessage}
-                onChange={e => setCobrancaMessage(e.target.value)}
-                rows={6}
-                className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-700 rounded-2xl font-medium text-xs text-slate-800 dark:text-slate-200 outline-none focus:border-emerald-500 resize-none"
-              />
-            </div>
-
-            <div className="grid grid-cols-3 gap-2.5 pt-2">
-              <button
-                type="button"
-                disabled={isSendingCobranca}
-                onClick={() => setIsCobrancaModalOpen(false)}
-                className="py-3 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl font-black uppercase text-xs hover:bg-slate-200 transition-colors cursor-pointer"
-              >
-                Cancelar
-              </button>
-
-              {isBatchMode && (
-                <button
-                  type="button"
-                  disabled={isSendingCobranca}
-                  onClick={handleSkipCobranca}
-                  className="py-3 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 rounded-xl font-black uppercase text-xs hover:bg-amber-100 transition-colors cursor-pointer"
-                >
-                  Pular
-                </button>
-              )}
-
-              <button
-                type="button"
-                disabled={isSendingCobranca}
-                onClick={handleSendCobranca}
-                className={`py-3 bg-emerald-600 text-white rounded-xl font-black uppercase text-xs flex items-center justify-center gap-1.5 shadow-md hover:bg-emerald-700 transition-colors cursor-pointer ${
-                  isBatchMode ? 'col-span-1' : 'col-span-2'
+                onClick={() => setTxView('purchases')}
+                className={`px-3.5 py-2 rounded-xl text-xs font-extrabold transition-colors ${
+                  txView === 'purchases'
+                    ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900'
+                    : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
                 }`}
               >
-                {isSendingCobranca ? 'Enviando...' : 'Enviar Agora'}
+                Compras Recentes ({purchases.length})
               </button>
+              <button
+                type="button"
+                onClick={() => setTxView('payments')}
+                className={`px-3.5 py-2 rounded-xl text-xs font-extrabold transition-colors ${
+                  txView === 'payments'
+                    ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900'
+                    : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                }`}
+              >
+                Pagamentos Recebidos ({payments.length})
+              </button>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2.5">
+              <div>
+                <label htmlFor={txPeriodId} className="sr-only">
+                  Período em dias
+                </label>
+                <select
+                  id={txPeriodId}
+                  value={txPeriodDays}
+                  onChange={e => setTxPeriodDays(Number(e.target.value))}
+                  className="px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm font-semibold text-slate-800 dark:text-slate-100"
+                >
+                  <option value={7}>Últimos 7 dias</option>
+                  <option value={30}>Últimos 30 dias</option>
+                  <option value={60}>Últimos 60 dias</option>
+                  <option value={90}>Últimos 90 dias</option>
+                </select>
+              </div>
+
+              <search className="w-full sm:w-72">
+                <label htmlFor={txSearchId} className="sr-only">
+                  Buscar lançamentos por cliente, comprador ou produto
+                </label>
+                <div className="relative">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    id={txSearchId}
+                    type="search"
+                    value={txSearch}
+                    onChange={e => setTxSearch(e.target.value)}
+                    placeholder="Filtrar cliente ou produto..."
+                    className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-red-500"
+                  />
+                </div>
+              </search>
             </div>
           </div>
-        </div>
-      )}
 
-      {/* ==========================================
-          MODAL: DETALHES DE DÉBITOS DO CLIENTE
-         ========================================== */}
-      {isDebtorDetailModalOpen && selectedDebtor && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-3xl p-6 space-y-5 shadow-2xl border border-slate-200 dark:border-slate-800 max-h-[85vh] flex flex-col">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-              <div>
-                <h3 className="text-lg font-black text-slate-900 dark:text-white uppercase">
-                  Débitos de {selectedDebtor.name}
-                </h3>
-                <div className="flex items-center gap-3 text-xs text-slate-400 mt-0.5">
-                  {selectedDebtor.phone && <span>Tel: {selectedDebtor.phone}</span>}
-                  {selectedDebtor.cpf && <span>CPF: {selectedDebtor.cpf}</span>}
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsDebtorDetailModalOpen(false)}
-                className="p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
+          {txLoading ? (
+            <div className="p-10 text-center text-sm text-slate-500">
+              Carregando movimentações...
             </div>
-
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-500">
-                {showHistory ? 'Histórico Completo' : 'Apenas Débitos Pendentes'}
-              </span>
-              <button
-                type="button"
-                onClick={() => setShowHistory(!showHistory)}
-                className="text-xs font-black text-red-600 hover:underline cursor-pointer"
-              >
-                {showHistory ? 'Ver apenas pendentes' : 'Ver histórico com quitados'}
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto space-y-2.5 custom-scrollbar pr-1">
-              {(showHistory ? allDebts : debtorDebts).length === 0 ? (
-                <div className="py-8 text-center text-slate-400 text-xs">
-                  Nenhum registro encontrado.
-                </div>
+          ) : txView === 'purchases' ? (
+            <div className="divide-y divide-slate-100 dark:divide-slate-800">
+              {purchases.length === 0 ? (
+                <p className="p-10 text-center text-sm text-slate-500">
+                  Nenhuma compra encontrada neste período.
+                </p>
               ) : (
-                (showHistory ? allDebts : debtorDebts).map(debt => (
+                purchases.map(p => (
                   <div
-                    key={debt.id}
-                    className="p-3.5 rounded-2xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 flex items-center justify-between gap-3 text-xs"
+                    key={p.id}
+                    className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-3 hover:bg-slate-50 dark:hover:bg-slate-800/40"
                   >
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-slate-800 dark:text-slate-200">
-                          {debt.description || 'Compra a Prazo'}
-                        </span>
-                        <span
-                          className={`px-2 py-0.2 rounded-md text-[10px] font-black uppercase ${
-                            debt.status === 'Pago'
-                              ? 'bg-emerald-100 text-emerald-700'
-                              : 'bg-red-100 text-red-700'
-                          }`}
+                    <div className="space-y-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenProfile(p.cardId, 'none')}
+                          className="font-extrabold text-slate-900 dark:text-white hover:text-red-600 text-left"
                         >
-                          {debt.status}
+                          {p.clientName}
+                        </button>
+                        <span className="text-xs px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-semibold">
+                          {p.source}
                         </span>
+                        <span className="text-xs text-slate-500">
+                          Data: <strong>{formatDateBR(p.date)}</strong>
+                        </span>
+                        {p.buyerName && (
+                          <span className="text-xs text-slate-600 dark:text-slate-300">
+                            • Retirado por: <strong>{p.buyerName}</strong>
+                          </span>
+                        )}
                       </div>
-                      <div className="text-[11px] text-slate-400 mt-0.5">
-                        Data: {formatDate(debt.createdAt)}
-                      </div>
+                      <p className="text-xs text-slate-600 dark:text-slate-400 truncate">
+                        {p.items
+                          .slice(0, 4)
+                          .map(it => `${it.quantity}x ${it.productName}`)
+                          .join(' • ')}
+                        {p.items.length > 4 ? ` (+${p.items.length - 4} itens)` : ''}
+                      </p>
                     </div>
 
-                    <div className="flex items-center gap-3">
-                      <span className="font-black text-sm text-slate-900 dark:text-white">
-                        {formatCurrency(debt.totalValue)}
+                    <div className="flex items-center justify-between md:justify-end gap-3 shrink-0">
+                      <span className="text-base font-black text-slate-900 dark:text-white tabular-nums">
+                        {formatCurrency(p.totalAmount)}
                       </span>
-
-                      {debt.status !== 'Pago' && (
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => openDebtPaymentModal(debt)}
-                            className="px-2.5 py-1 rounded-lg bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 font-bold text-[11px] hover:bg-amber-100 cursor-pointer"
-                          >
-                            Amortizar
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleMarkDebtAsPaid(debt.id)}
-                            className="px-2.5 py-1 rounded-lg bg-emerald-600 text-white font-bold text-[11px] hover:bg-emerald-700 cursor-pointer"
-                          >
-                            Quitar
-                          </button>
-                        </div>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleOpenProfile(p.cardId, 'whatsapp', p.saleId)}
+                        className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1.5 transition-colors"
+                      >
+                        <MessageSquare className="w-3.5 h-3.5" />
+                        <span>Avisar no WhatsApp</span>
+                      </button>
                     </div>
                   </div>
                 ))
               )}
             </div>
-          </div>
-        </div>
+          ) : (
+            <div className="divide-y divide-slate-100 dark:divide-slate-800">
+              {payments.length === 0 ? (
+                <p className="p-10 text-center text-sm text-slate-500">
+                  Nenhum pagamento recebido neste período.
+                </p>
+              ) : (
+                payments.map(pay => (
+                  <div
+                    key={pay.id}
+                    className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2 hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenProfile(pay.cardId, 'none')}
+                        className="font-extrabold text-slate-900 dark:text-white hover:text-red-600 text-left"
+                      >
+                        {pay.clientName}
+                      </button>
+                      <span className="text-xs text-slate-500">{formatDateBR(pay.date)}</span>
+                      <span className="text-xs px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold">
+                        {pay.method} • {pay.source}
+                      </span>
+                      <span
+                        className={`text-[11px] px-2 py-0.5 rounded-full font-bold ${
+                          pay.isFullSettlement
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : 'bg-sky-100 text-sky-800'
+                        }`}
+                      >
+                        {pay.isFullSettlement ? 'Quitação Total' : 'Pagamento Parcial'}
+                      </span>
+                    </div>
+
+                    <span className="text-base font-black text-emerald-600 dark:text-emerald-400 tabular-nums">
+                      + {formatCurrency(pay.amount)}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+        </section>
       )}
 
-      {/* ==========================================
-          MODAL: PAGAMENTO / AMORTIZAÇÃO DE DÉBITO
-         ========================================== */}
-      {paymentModalDebt && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-3xl p-6 space-y-4 shadow-2xl border border-slate-200 dark:border-slate-800">
-            <h3 className="text-lg font-black text-slate-900 dark:text-white uppercase text-center">
-              Amortizar Débito
-            </h3>
-
-            <div className="p-3 bg-slate-50 dark:bg-slate-800 rounded-xl flex justify-between items-center text-xs">
-              <span className="font-bold text-slate-500">Valor Atual</span>
-              <span className="font-black text-slate-900 dark:text-white">
-                {formatCurrency(paymentModalDebt.totalValue)}
-              </span>
+      {/* ABA 3: REGRAS, JUROS & AUTOMAÇÃO (EXCLUSIVO ADMIN) */}
+      {activeTab === 'regras' && isAdmin && (
+        <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 sm:p-6 shadow-sm">
+          {settingsLoading || !config ? (
+            <div className="py-10 text-center text-sm text-slate-500">
+              Carregando configurações e status do WhatsApp...
             </div>
+          ) : (
+            <form onSubmit={handleSaveSettings} className="space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-4">
+                <div>
+                  <h2 className="text-lg font-extrabold text-slate-900 dark:text-white">
+                    Regras Gerais do Crediário, PIX &amp; Mensagens
+                  </h2>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Área exclusiva do Administrador. Alterações valem imediatamente para toda a carteira e portal online.
+                  </p>
+                </div>
 
-            <div className="space-y-1">
-              <label className="text-[10px] font-black uppercase text-slate-400 ml-1">
-                Valor do Pagamento (R$)
+                <div
+                  className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold border ${
+                    whatsappStatus.connected
+                      ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                      : 'bg-slate-100 border-slate-200 text-slate-700'
+                  }`}
+                >
+                  {whatsappStatus.connected ? (
+                    <>
+                      <Wifi className="w-4 h-4 text-emerald-600" />
+                      <span>WhatsApp Servidor Conectado</span>
+                    </>
+                  ) : (
+                    <>
+                      <WifiOff className="w-4 h-4 text-slate-500" />
+                      <span>WhatsApp Servidor Offline (usa WhatsApp Web)</span>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Fieldset 1: PIX & Portal */}
+              <fieldset className="rounded-2xl border border-slate-200 dark:border-slate-800 p-4 space-y-4">
+                <legend className="px-2 text-sm font-extrabold text-slate-900 dark:text-white">
+                  1. PIX &amp; Identidade do Portal do Cliente
+                </legend>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <div>
+                    <label htmlFor={`${uid}-pixKey`} className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      Chave PIX Recebedora
+                    </label>
+                    <input
+                      id={`${uid}-pixKey`}
+                      type="text"
+                      value={config.pixKey}
+                      onChange={e => setConfig({ ...config, pixKey: e.target.value })}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor={`${uid}-pixName`} className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      Nome do Recebedor (PIX)
+                    </label>
+                    <input
+                      id={`${uid}-pixName`}
+                      type="text"
+                      value={config.pixMerchantName}
+                      onChange={e => setConfig({ ...config, pixMerchantName: e.target.value })}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor={`${uid}-pixCity`} className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      Cidade (PIX)
+                    </label>
+                    <input
+                      id={`${uid}-pixCity`}
+                      type="text"
+                      value={config.pixMerchantCity}
+                      onChange={e => setConfig({ ...config, pixMerchantCity: e.target.value })}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor={`${uid}-storeWa`} className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      WhatsApp da Loja (para comprovantes PIX)
+                    </label>
+                    <input
+                      id={`${uid}-storeWa`}
+                      type="text"
+                      inputMode="numeric"
+                      value={config.storeWhatsapp}
+                      onChange={e => setConfig({ ...config, storeWhatsapp: e.target.value })}
+                      placeholder="Ex: 5518999999999"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm"
+                    />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label htmlFor={`${uid}-baseUrl`} className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      URL Pública Base do Portal
+                    </label>
+                    <input
+                      id={`${uid}-baseUrl`}
+                      type="url"
+                      value={config.publicBaseUrl}
+                      onChange={e => setConfig({ ...config, publicBaseUrl: e.target.value })}
+                      placeholder="https://..."
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm"
+                    />
+                  </div>
+                </div>
+              </fieldset>
+
+              {/* Fieldset 2: Política de Juros e Multa */}
+              <fieldset className="rounded-2xl border border-slate-200 dark:border-slate-800 p-4 space-y-4">
+                <legend className="px-2 text-sm font-extrabold text-slate-900 dark:text-white">
+                  2. Política de Juros, Multa &amp; Bloqueio Automático
+                </legend>
+
+                <div
+                  className={`p-3.5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                    config.interestEnabled
+                      ? 'bg-amber-50 border-amber-300 text-amber-950'
+                      : 'bg-slate-50 border-slate-200 text-slate-800'
+                  }`}
+                >
+                  <div>
+                    <p className="text-sm font-extrabold">
+                      {config.interestEnabled
+                        ? 'Cobrança automática de multa e juros LIGADA'
+                        : 'Cobrança de multa e juros DESLIGADA (somente simulada)'}
+                    </p>
+                    <p className="text-xs opacity-85">
+                      Quando desligada, nenhuma conta sofre acréscimo real — o sistema apenas simula para consulta interna.
+                    </p>
+                  </div>
+                  <label className="inline-flex items-center gap-2 cursor-pointer font-bold text-sm shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={config.interestEnabled}
+                      onChange={e => setConfig({ ...config, interestEnabled: e.target.checked })}
+                      className="w-5 h-5 accent-red-600 rounded"
+                    />
+                    <span>Ativar Juros no Crediário</span>
+                  </label>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div>
+                    <label htmlFor={`${uid}-fine`} className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      Multa por Atraso (%)
+                    </label>
+                    <input
+                      id={`${uid}-fine`}
+                      type="text"
+                      inputMode="decimal"
+                      value={String(config.lateFinePercent)}
+                      onChange={e =>
+                        setConfig({ ...config, lateFinePercent: Number(e.target.value.replace(',', '.')) || 0 })
+                      }
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm"
+                    />
+                  </div>
+
+                  <div>
+                    <label htmlFor={`${uid}-interest`} className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      Juros ao Mês (% pro-rata)
+                    </label>
+                    <input
+                      id={`${uid}-interest`}
+                      type="text"
+                      inputMode="decimal"
+                      value={String(config.lateInterestMonthlyPercent)}
+                      onChange={e =>
+                        setConfig({
+                          ...config,
+                          lateInterestMonthlyPercent: Number(e.target.value.replace(',', '.')) || 0
+                        })
+                      }
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm"
+                    />
+                  </div>
+
+                  <div>
+                    <label htmlFor={`${uid}-grace`} className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      Dias de Carência
+                    </label>
+                    <input
+                      id={`${uid}-grace`}
+                      type="text"
+                      inputMode="numeric"
+                      value={String(config.graceDays)}
+                      onChange={e =>
+                        setConfig({ ...config, graceDays: parseInt(e.target.value.replace(/\D/g, ''), 10) || 0 })
+                      }
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm"
+                    />
+                  </div>
+
+                  <div>
+                    <label htmlFor={`${uid}-autoblock`} className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      Bloqueio Automático (dias; 0=desl.)
+                    </label>
+                    <input
+                      id={`${uid}-autoblock`}
+                      type="text"
+                      inputMode="numeric"
+                      value={String(config.autoBlockDays)}
+                      onChange={e =>
+                        setConfig({
+                          ...config,
+                          autoBlockDays: parseInt(e.target.value.replace(/\D/g, ''), 10) || 0
+                        })
+                      }
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm"
+                    />
+                  </div>
+                </div>
+              </fieldset>
+
+              {/* Fieldset 3: Automação WhatsApp */}
+              <fieldset className="rounded-2xl border border-slate-200 dark:border-slate-800 p-4 space-y-3">
+                <legend className="px-2 text-sm font-extrabold text-slate-900 dark:text-white">
+                  3. Envios Automáticos via Servidor WhatsApp
+                </legend>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <label className="flex items-start gap-2.5 p-3 rounded-xl border border-slate-200 dark:border-slate-800 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={config.autoNotifyNewPurchase}
+                      onChange={e => setConfig({ ...config, autoNotifyNewPurchase: e.target.checked })}
+                      className="w-4 h-4 mt-0.5 accent-red-600"
+                    />
+                    <span className="text-xs">
+                      <strong className="block text-sm text-slate-900 dark:text-white">
+                        Avisar Nova Compra
+                      </strong>
+                      Envia resumo da venda automaticamente após sincronizar compra nova.
+                    </span>
+                  </label>
+
+                  <label className="flex items-start gap-2.5 p-3 rounded-xl border border-slate-200 dark:border-slate-800 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={config.autoNotifyDueDay}
+                      onChange={e => setConfig({ ...config, autoNotifyDueDay: e.target.checked })}
+                      className="w-4 h-4 mt-0.5 accent-red-600"
+                    />
+                    <span className="text-xs">
+                      <strong className="block text-sm text-slate-900 dark:text-white">
+                        Lembrete no Vencimento
+                      </strong>
+                      Envia lembrete amigável + PIX no dia do vencimento (09:05).
+                    </span>
+                  </label>
+
+                  <label className="flex items-start gap-2.5 p-3 rounded-xl border border-slate-200 dark:border-slate-800 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={config.autoNotifyOverdue}
+                      onChange={e => setConfig({ ...config, autoNotifyOverdue: e.target.checked })}
+                      className="w-4 h-4 mt-0.5 accent-red-600"
+                    />
+                    <span className="text-xs">
+                      <strong className="block text-sm text-slate-900 dark:text-white">
+                        Aviso de Atraso
+                      </strong>
+                      Envia notificação gentil automática para parcelas vencidas (09:05).
+                    </span>
+                  </label>
+                </div>
+              </fieldset>
+
+              {/* Fieldset 4: Templates */}
+              <fieldset className="rounded-2xl border border-slate-200 dark:border-slate-800 p-4 space-y-4">
+                <legend className="px-2 text-sm font-extrabold text-slate-900 dark:text-white">
+                  4. Modelos de Mensagens (WhatsApp)
+                </legend>
+                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800 text-xs text-slate-600 dark:text-slate-300">
+                  <strong>Variáveis disponíveis:</strong>{' '}
+                  {TEMPLATE_VARIABLES.map(v => (
+                    <code key={v} className="inline-block mr-2 px-1.5 py-0.5 rounded bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 font-mono">
+                      {v}
+                    </code>
+                  ))}
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  {[
+                    { key: 'purchase', label: 'Aviso de Nova Compra' },
+                    { key: 'statement', label: 'Extrato + Link PIX' },
+                    { key: 'due_reminder', label: 'Lembrete de Vencimento' },
+                    { key: 'overdue', label: 'Aviso de Atraso' },
+                    { key: 'payment_receipt', label: 'Confirmação de Pagamento' }
+                  ].map(item => (
+                    <div key={item.key} className={item.key === 'payment_receipt' ? 'lg:col-span-2' : ''}>
+                      <label
+                        htmlFor={`${uid}-tpl-${item.key}`}
+                        className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1"
+                      >
+                        {item.label}
+                      </label>
+                      <textarea
+                        id={`${uid}-tpl-${item.key}`}
+                        rows={4}
+                        value={(config.templates as any)[item.key] || ''}
+                        onChange={e =>
+                          setConfig({
+                            ...config,
+                            templates: { ...config.templates, [item.key]: e.target.value }
+                          })
+                        }
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-mono"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </fieldset>
+
+              <div className="flex justify-end">
+                <button
+                  type="submit"
+                  disabled={savingSettings}
+                  className="px-6 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 disabled:opacity-60 text-white text-sm font-extrabold flex items-center gap-2 shadow-sm"
+                >
+                  <Save className="w-4 h-4" />
+                  <span>{savingSettings ? 'Salvando Regras...' : 'Salvar Regras e Mensagens'}</span>
+                </button>
+              </div>
+            </form>
+          )}
+        </section>
+      )}
+
+      {/* Modal nativo <dialog>: + Novo Cliente no Crediário */}
+      <dialog
+        ref={newClientDialogRef}
+        {...({ closedby: 'any' } as any)}
+        aria-labelledby={newClientTitleId}
+        className="crediario-dialog w-[95vw] max-w-xl max-h-[90vh] m-auto p-0 rounded-3xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-2xl overflow-hidden"
+      >
+        <div className="bg-slate-900 text-white px-5 py-4 flex items-center justify-between gap-3 shrink-0">
+          <div>
+            <h2 id={newClientTitleId} className="text-lg font-extrabold">
+              Cadastrar Novo Cliente no Crediário
+            </h2>
+            <p className="text-xs text-slate-300">
+              Cria a ficha 360° e gera automaticamente o link pessoal do Portal PIX.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsNewClientOpen(false)}
+            aria-label="Fechar janela de cadastro"
+            className="p-1.5 rounded-lg hover:bg-white/10 text-slate-200"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <form onSubmit={e => handleCreateClient(e, false)} className="p-5 overflow-y-auto space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+            <div className="sm:col-span-2">
+              <label htmlFor={`${uid}-nc-name`} className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                Nome Completo *
               </label>
               <input
-                type="number"
-                step="0.01"
-                value={debtPaymentAmountStr}
-                onChange={e => setDebtPaymentAmountStr(e.target.value)}
-                className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-700 rounded-xl font-black text-xl text-center outline-none focus:border-red-500"
+                id={`${uid}-nc-name`}
+                type="text"
+                required
+                value={newClientForm.customer_name}
+                onChange={e => setNewClientForm({ ...newClientForm, customer_name: e.target.value })}
+                placeholder="Ex: Maria Aparecida Silva"
+                className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm"
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-3 pt-2">
-              <button
-                type="button"
-                disabled={isProcessingDebtPay}
-                onClick={() => setPaymentModalDebt(null)}
-                className="py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl font-bold text-xs"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                disabled={isProcessingDebtPay}
-                onClick={handleDebtPayment}
-                className="py-2.5 bg-emerald-600 text-white rounded-xl font-bold text-xs hover:bg-emerald-700"
-              >
-                {isProcessingDebtPay ? 'Salvando...' : 'Confirmar'}
-              </button>
+            <div>
+              <label htmlFor={`${uid}-nc-nick`} className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                Apelido / Como é conhecida(o)
+              </label>
+              <input
+                id={`${uid}-nc-nick`}
+                type="text"
+                value={newClientForm.nickname}
+                onChange={e => setNewClientForm({ ...newClientForm, nickname: e.target.value })}
+                placeholder="Ex: Dona Maria do Posto"
+                className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm"
+              />
+            </div>
+
+            <div>
+              <label htmlFor={`${uid}-nc-resp`} className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                Responsável / Cuidador(a)
+              </label>
+              <input
+                id={`${uid}-nc-resp`}
+                type="text"
+                value={newClientForm.responsible_name}
+                onChange={e => setNewClientForm({ ...newClientForm, responsible_name: e.target.value })}
+                placeholder="Opcional"
+                className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm"
+              />
+            </div>
+
+            <div>
+              <label htmlFor={`${uid}-nc-cpf`} className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                CPF
+              </label>
+              <input
+                id={`${uid}-nc-cpf`}
+                type="text"
+                inputMode="numeric"
+                value={newClientForm.cpf}
+                onChange={e => setNewClientForm({ ...newClientForm, cpf: e.target.value })}
+                placeholder="Somente números"
+                className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm"
+              />
+            </div>
+
+            <div>
+              <label htmlFor={`${uid}-nc-phone`} className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                Telefone / WhatsApp
+              </label>
+              <input
+                id={`${uid}-nc-phone`}
+                type="text"
+                inputMode="numeric"
+                value={newClientForm.phone}
+                onChange={e => setNewClientForm({ ...newClientForm, phone: e.target.value })}
+                placeholder="Ex: 18999999999"
+                className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm"
+              />
+            </div>
+
+            <div>
+              <label htmlFor={`${uid}-nc-limit`} className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                Limite de Crédito (R$) {!isAdmin && '(Padrão)'}
+              </label>
+              <input
+                id={`${uid}-nc-limit`}
+                type="text"
+                inputMode="decimal"
+                disabled={!isAdmin}
+                value={isAdmin ? newClientForm.credit_limit : '300'}
+                onChange={e => setNewClientForm({ ...newClientForm, credit_limit: e.target.value })}
+                className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 disabled:bg-slate-100 disabled:text-slate-500 text-sm"
+              />
+            </div>
+
+            <div>
+              <label htmlFor={`${uid}-nc-due`} className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                Dia de Vencimento e Modo
+              </label>
+              <div className="flex gap-2">
+                <input
+                  id={`${uid}-nc-due`}
+                  type="text"
+                  inputMode="numeric"
+                  value={newClientForm.due_day}
+                  onChange={e => setNewClientForm({ ...newClientForm, due_day: e.target.value })}
+                  className="w-20 px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-center"
+                />
+                <select
+                  aria-label="Modo do dia de vencimento"
+                  value={newClientForm.due_day_mode}
+                  onChange={e =>
+                    setNewClientForm({
+                      ...newClientForm,
+                      due_day_mode: e.target.value === 'fixed' ? 'fixed' : 'auto'
+                    })
+                  }
+                  className="flex-1 px-2.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm"
+                >
+                  <option value="auto">Automático (+30 dias)</option>
+                  <option value="fixed">Dia Fixo Todo Mês</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="sm:col-span-2">
+              <label htmlFor={`${uid}-nc-notes`} className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                Observações / Entrega / Preferências
+              </label>
+              <textarea
+                id={`${uid}-nc-notes`}
+                rows={2}
+                value={newClientForm.notes}
+                onChange={e => setNewClientForm({ ...newClientForm, notes: e.target.value })}
+                className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm"
+              />
             </div>
           </div>
-        </div>
-      )}
 
-      {/* ==========================================
-          MODAL: PERFIL DO CARTÃO BELAFARMA
-         ========================================== */}
-      {isCardProfileOpen && selectedCardIdForProfile && (
-        <CrediarioCustomerProfileModal
-          isOpen={isCardProfileOpen}
-          onClose={() => {
-            setIsCardProfileOpen(false);
-            setSelectedCardIdForProfile(null);
-            fetchCards(cardSearchTerm);
-          }}
-          cardId={selectedCardIdForProfile}
-          onProfileUpdated={() => {
-            fetchCards(cardSearchTerm);
-          }}
-        />
-      )}
+          <div className="flex flex-wrap justify-end gap-2.5 pt-2 border-t border-slate-200 dark:border-slate-800">
+            <button
+              type="button"
+              onClick={() => setIsNewClientOpen(false)}
+              className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-sm font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              disabled={creatingClient}
+              onClick={e => handleCreateClient(e as any, true)}
+              className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-bold disabled:opacity-60"
+            >
+              Salvar e Abrir Ficha
+            </button>
+            <button
+              type="submit"
+              disabled={creatingClient}
+              className="px-5 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm font-bold disabled:opacity-60"
+            >
+              {creatingClient ? 'Salvando...' : 'Cadastrar'}
+            </button>
+          </div>
+        </form>
+      </dialog>
+
+      {/* Modal 360° do Cliente */}
+      <CrediarioCustomerProfileModal
+        isOpen={profileModal.isOpen}
+        onClose={() => setProfileModal(prev => ({ ...prev, isOpen: false }))}
+        cardId={profileModal.cardId}
+        user={user}
+        initialPanel={profileModal.initialPanel}
+        initialSaleId={profileModal.initialSaleId}
+        onProfileUpdated={() => {
+          fetchClients();
+          if (activeTab === 'lancamentos') fetchTransactions();
+        }}
+      />
     </div>
   );
 };
+
+export default CrediarioHub;
