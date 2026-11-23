@@ -1,9 +1,19 @@
 {
   "version": "1.2.6",
-  "commitHash": "2f4f894",
-  "commitMessage": "feat(crediario): filtrar carteira padrao apenas para clientes com movimento no ano atual",
-  "buildTime": "23/11/2026, 18:40:44",
+  "commitHash": "61f234e",
+  "commitMessage": "feat(pdv): implementar funcao caderninho com historico por nome, pagamento parcial, 80mm automatico e cancelamento seguro",
+  "buildTime": "23/11/2026, 19:24:34",
   "recentCommits": [
+    {
+      "hash": "61f234e",
+      "date": "23/11/2026",
+      "message": "feat(pdv): implementar funcao caderninho com historico por nome, pagamento parcial, 80mm automatico e cancelamento seguro"
+    },
+    {
+      "hash": "b745109",
+      "date": "23/11/2026",
+      "message": "feat(crediario): filtro anual global nos kpis/filtros e lancamento rapido de anotacao como produto"
+    },
     {
       "hash": "2f4f894",
       "date": "23/11/2026",
@@ -53,16 +63,6 @@
       "hash": "66a5c63",
       "date": "18/11/2026",
       "message": "fix(caixa-inteligente): corrigir ordem de inicializacao de variaveis e guards de seguranca"
-    },
-    {
-      "hash": "081aec6",
-      "date": "18/11/2026",
-      "message": "feat(caixa-inteligente): integrar provisoes das caixinhas no calculo do colchao e sobra livre"
-    },
-    {
-      "hash": "dfe325b",
-      "date": "17/11/2026",
-      "message": "fix(crediario): corrigir busca por nome no balcao ignorando filtro vazio de numeros"
     }
   ]
 }

@@ -52,7 +52,8 @@ import {
   SlidersHorizontal,
   Calendar,
   Filter,
-  Eye
+  Eye,
+  ThumbsDown
 } from 'lucide-react';
 import { useToast } from '../ToastContext';
 import { BelaFarmaLogo } from '../BelaFarmaLogo';
@@ -60,6 +61,7 @@ import { DanfeNfceModal } from './DanfeNfceModal';
 import { FiscalSettingsModal } from './FiscalSettingsModal';
 import { PromotionsManagementModal } from './PromotionsManagementModal';
 import { CaderninhoModal } from './CaderninhoModal';
+import { RegisterRejectionModal, RejectedProductsListModal } from './RejectedProductsModal';
 import { imprimirCupomVenda, imprimirDanfeNfce, imprimirComprovanteMovimentacaoCaixa, imprimirComprovanteOrcamento } from '../../utils/thermalPrinter';
 import { ControlledRecipeModal, ControlledProductItem, ControlledRecipeData } from './ControlledRecipeModal';
 import { useThermalPrintSpooler } from './useThermalPrintSpooler';
@@ -539,6 +541,11 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
     totalOpenAmount: 0
   });
 
+  // Produtos Recusados no PDV (análise de preço fora de mercado)
+  const [rejectTargetItem, setRejectTargetItem] = useState<{ item: CartItem; index: number } | null>(null);
+  const [isRejectedListOpen, setIsRejectedListOpen] = useState<boolean>(false);
+  const [rejectedPendingCount, setRejectedPendingCount] = useState<number>(0);
+
   // Status de Crediário e Limite do Cliente
   const [customerCreditInfo, setCustomerCreditInfo] = useState<any | null>(null);
 
@@ -859,10 +866,57 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
 
   // Foco automático no input de bipagem
   const focusBarcodeInput = useCallback(() => {
-    if (!isSearchOpen && !isSellerModalOpen && !isUnregisteredModalOpen && !isControlledRecipeOpen && !isDiscountModalOpen && !isCustomerModalOpen && !isRecentSalesOpen && !isClearCartModalOpen && !completedSale && !tieredOfferModal.isOpen) {
+    if (!isSearchOpen && !isSellerModalOpen && !isUnregisteredModalOpen && !isControlledRecipeOpen && !isDiscountModalOpen && !isCustomerModalOpen && !isRecentSalesOpen && !isClearCartModalOpen && !isCaderninhoModalOpen && !isRejectedListOpen && !rejectTargetItem && !completedSale && !tieredOfferModal.isOpen) {
       setTimeout(() => barcodeInputRef.current?.focus(), 50);
     }
-  }, [isSearchOpen, isSellerModalOpen, isUnregisteredModalOpen, isControlledRecipeOpen, isDiscountModalOpen, isCustomerModalOpen, isRecentSalesOpen, isClearCartModalOpen, completedSale, tieredOfferModal.isOpen]);
+  }, [isSearchOpen, isSellerModalOpen, isUnregisteredModalOpen, isControlledRecipeOpen, isDiscountModalOpen, isCustomerModalOpen, isRecentSalesOpen, isClearCartModalOpen, isCaderninhoModalOpen, isRejectedListOpen, rejectTargetItem, completedSale, tieredOfferModal.isOpen]);
+
+  const handleCloseCaderninho = useCallback(() => {
+    setIsCaderninhoModalOpen(false);
+    setTimeout(() => barcodeInputRef.current?.focus(), 50);
+  }, []);
+
+  const handleCaderninhoSummaryUpdated = useCallback((summary: any) => {
+    if (summary) setCaderninhoSummary(summary);
+  }, []);
+
+  const handleCaderninhoEntryCreated = useCallback((summary: any) => {
+    if (summary) setCaderninhoSummary(summary);
+    setCart([]);
+    setDiscount(0);
+    setDiscountPercent(0);
+    setSelectedCustomer(null);
+    setCustomerCpf('');
+    setCustomerNameInput('');
+    setCustomerCreditInfo(null);
+  }, []);
+
+  const handleCloseRegisterRejection = useCallback(() => {
+    setRejectTargetItem(null);
+    setTimeout(() => barcodeInputRef.current?.focus(), 50);
+  }, []);
+
+  const handleRejectionConfirmed = useCallback((indexToRemove: number | null, summary: any) => {
+    if (typeof indexToRemove === 'number' && indexToRemove >= 0) {
+      setCart(prev => prev.filter((_, idx) => idx !== indexToRemove));
+    }
+    if (summary && typeof summary.pendentes === 'number') {
+      setRejectedPendingCount(summary.pendentes);
+    }
+    setRejectTargetItem(null);
+    setTimeout(() => barcodeInputRef.current?.focus(), 50);
+  }, []);
+
+  const handleCloseRejectedList = useCallback(() => {
+    setIsRejectedListOpen(false);
+    setTimeout(() => barcodeInputRef.current?.focus(), 50);
+  }, []);
+
+  const handleRejectedSummaryChanged = useCallback((summary: any) => {
+    if (summary && typeof summary.pendentes === 'number') {
+      setRejectedPendingCount(summary.pendentes);
+    }
+  }, []);
 
   // Foco inicial ao abrir o PDV (ou solicitação única do vendedor se não definido)
   const hasPromptedInitialSellerRef = useRef(false);
@@ -912,6 +966,25 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
     const interval = setInterval(fetchCaderninhoSummary, 60000);
     return () => clearInterval(interval);
   }, [fetchCaderninhoSummary]);
+
+  // Resumo de produtos recusados pendentes de análise
+  const fetchRejectedSummary = useCallback(async () => {
+    try {
+      const res = await fetch('/api/erp/pos/rejected-products/summary');
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && json.summary) {
+          setRejectedPendingCount(json.summary.pendentes || 0);
+        }
+      }
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    fetchRejectedSummary();
+    const interval = setInterval(fetchRejectedSummary, 60000);
+    return () => clearInterval(interval);
+  }, [fetchRejectedSummary]);
 
   // Verificação inicial da sessão JWT e escuta de erros 401 no PDV
   useEffect(() => {
@@ -1256,8 +1329,8 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
   // Atalhos de teclado globais do PDV
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Quando o dialog nativo do Caderninho está aberto, não disparar atalhos de teclado do PDV por trás
-      if (isCaderninhoModalOpen) return;
+      // Quando um dialog nativo (Caderninho ou Produtos Recusados) está aberto, não disparar atalhos do PDV por trás
+      if (isCaderninhoModalOpen || isRejectedListOpen || rejectTargetItem) return;
 
       // Se estiver com modal de oferta escalonada aberta ("Leve X por Y")
       if (tieredOfferModal.isOpen) {
@@ -1389,7 +1462,9 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
     tieredOfferModal,
     handleConfirmTieredOffer,
     handleDismissTieredOffer,
-    isCaderninhoModalOpen
+    isCaderninhoModalOpen,
+    isRejectedListOpen,
+    rejectTargetItem
   ]);
 
   // Autocomplete ao vivo ao digitar na barra de produto
@@ -2940,6 +3015,25 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
                 </button>
               )}
 
+              {/* Produtos Recusados (Análise de Preço fora de mercado) */}
+              <button
+                onClick={() => {
+                  setIsMoreOptionsMenuOpen(false);
+                  setIsRejectedListOpen(true);
+                }}
+                className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-slate-800 text-left text-xs font-bold transition text-slate-200 hover:text-amber-300"
+              >
+                <div className="flex items-center gap-2">
+                  <ThumbsDown className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span>Produtos Recusados (Preço)</span>
+                </div>
+                {rejectedPendingCount > 0 && (
+                  <span className="bg-rose-500 text-white font-black px-1.5 py-0.2 rounded-full text-[10px]">
+                    {rejectedPendingCount}
+                  </span>
+                )}
+              </button>
+
               {/* Promoções & Preços Escalonados */}
               <button
                 onClick={() => {
@@ -3322,7 +3416,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
                       <th className="py-2.5 px-2.5 text-right w-24 whitespace-nowrap">Vl. Unit (R$)</th>
                       <th className="py-2.5 px-2.5 text-right w-20 whitespace-nowrap">Desc. (R$)</th>
                       <th className="py-2.5 px-2.5 text-right w-28 whitespace-nowrap">Subtotal (R$)</th>
-                      <th className="py-2.5 px-2 text-center w-12 whitespace-nowrap">Ação</th>
+                      <th className="py-2.5 px-2 text-center w-20 whitespace-nowrap">Ações</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200 font-mono text-slate-800">
@@ -3505,14 +3599,27 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
                               return finalItemTotal.toFixed(2);
                             })()}
                           </td>
-                          <td className="py-2 px-2 text-center">
-                            <button 
-                              onClick={() => handleRemoveItem(index)}
-                              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors cursor-pointer"
-                              title="Remover Item do Cupom"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                          <td className="py-2 px-2 text-center whitespace-nowrap">
+                            <div className="inline-flex items-center justify-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => setRejectTargetItem({ item, index })}
+                                className="p-1.5 text-amber-600 hover:text-amber-700 hover:bg-amber-50 rounded transition-colors cursor-pointer"
+                                title="Produto Recusado (preço fora de mercado) — registrar para análise"
+                                aria-label={`Registrar produto recusado: ${item.name}`}
+                              >
+                                <ThumbsDown className="w-4 h-4" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveItem(index)}
+                                className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors cursor-pointer"
+                                title="Remover Item do Cupom"
+                                aria-label={`Remover item do cupom: ${item.name}`}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -6952,10 +7059,7 @@ exit
 
       <CaderninhoModal
         isOpen={isCaderninhoModalOpen}
-        onClose={() => {
-          setIsCaderninhoModalOpen(false);
-          focusBarcodeInput();
-        }}
+        onClose={handleCloseCaderninho}
         cart={cart}
         cartDiscount={totalDiscount}
         cartTotal={totalFinal}
@@ -6963,19 +7067,23 @@ exit
         currentUser={currentUser}
         autoPrintCupom={autoPrintCupom}
         isOfflineMode={isOfflineMode}
-        onEntryCreated={(summary) => {
-          if (summary) setCaderninhoSummary(summary);
-          setCart([]);
-          setDiscount(0);
-          setDiscountPercent(0);
-          setSelectedCustomer(null);
-          setCustomerCpf('');
-          setCustomerNameInput('');
-          setCustomerCreditInfo(null);
-        }}
-        onSummaryUpdated={(summary) => {
-          if (summary) setCaderninhoSummary(summary);
-        }}
+        onEntryCreated={handleCaderninhoEntryCreated}
+        onSummaryUpdated={handleCaderninhoSummaryUpdated}
+      />
+
+      <RegisterRejectionModal
+        target={rejectTargetItem}
+        currentSeller={currentSeller}
+        currentUser={currentUser}
+        onClose={handleCloseRegisterRejection}
+        onConfirmed={handleRejectionConfirmed}
+      />
+
+      <RejectedProductsListModal
+        isOpen={isRejectedListOpen}
+        onClose={handleCloseRejectedList}
+        currentUser={currentSeller || currentUser}
+        onSummaryChanged={handleRejectedSummaryChanged}
       />
     </div>
   );

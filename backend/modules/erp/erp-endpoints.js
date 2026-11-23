@@ -103,6 +103,7 @@ const {
 } = require('./erp-promotions.service');
 
 const { createCaderninhoRouter } = require('./caderninho.service');
+const { createRejectedProductsRouter } = require('./rejected-products.service');
 
 // ==========================================
 
@@ -575,6 +576,9 @@ router.use(
     sincronizarVendaDigifarmaFn: sincronizarVendaDigifarma
   })
 );
+
+// Produtos Recusados no PDV (análise de preço fora de mercado / concorrência)
+router.use('/pos/rejected-products', createRejectedProductsRouter());
 
 // ==========================================
 // CADASTRO EXPRESSO & SANEAMENTO FISCAL (PDV)

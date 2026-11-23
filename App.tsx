@@ -80,6 +80,7 @@ import { BelinhaPDV } from "./components/erp/BelinhaPDV";
 import { SalesHistory } from "./components/erp/SalesHistory";
 import { ProductsCatalog } from "./components/erp/ProductsCatalog";
 import { ExpressProductsManagement } from "./components/erp/ExpressProductsManagement";
+import { RejectedProductsPanel } from "./components/erp/RejectedProductsPanel";
 import { InboundInvoices } from "./components/erp/InboundInvoices";
 import { ControlledMedicationsPortal } from "./components/erp/ControlledMedicationsPortal";
 import { FiscalAccountingView } from "./components/FiscalAccountingView";
@@ -1584,6 +1585,11 @@ const App: React.FC = () => {
               )}
               {currentView === "erp-express-products" && (
                 <ExpressProductsManagement user={user} onNavigate={handleNavigate} />
+              )}
+              {currentView === "erp-rejected-products" && (
+                <div className="bg-slate-950/90 border border-slate-800 rounded-3xl p-4 sm:p-5 min-h-[75vh]">
+                  <RejectedProductsPanel currentUser={user} onNavigate={handleNavigate} />
+                </div>
               )}
               {currentView === "erp-promocoes" && (
                 <PromotionsManagerPage user={user} />

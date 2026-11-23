@@ -579,6 +579,35 @@ function initErpDatabase() {
   db.prepare(`CREATE INDEX IF NOT EXISTS idx_cad_entries_status ON caderninho_entries (status)`).run();
   db.prepare(`CREATE INDEX IF NOT EXISTS idx_cad_mov_person ON caderninho_movements (person_id, created_at DESC)`).run();
 
+  // 15. Produtos Recusados no PDV (análise de competitividade e preço fora de mercado)
+  db.prepare(`
+    CREATE TABLE IF NOT EXISTS pdv_product_rejections (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      product_code TEXT NOT NULL,
+      barcode TEXT DEFAULT '',
+      product_name TEXT NOT NULL,
+      quantity REAL NOT NULL DEFAULT 1,
+      unit_price REAL NOT NULL DEFAULT 0,
+      unit_cost REAL NOT NULL DEFAULT 0,
+      competitor_price REAL DEFAULT NULL,
+      competitor_name TEXT DEFAULT '',
+      reason TEXT NOT NULL DEFAULT 'PRECO_ALTO',
+      notes TEXT DEFAULT '',
+      seller_id TEXT,
+      seller_name TEXT DEFAULT 'Caixa',
+      operator_name TEXT DEFAULT 'Caixa',
+      status TEXT NOT NULL DEFAULT 'PENDENTE',
+      review_notes TEXT DEFAULT '',
+      reviewed_by TEXT,
+      reviewed_at TEXT,
+      created_at TEXT DEFAULT (datetime('now', 'localtime'))
+    )
+  `).run();
+  db.prepare(`CREATE INDEX IF NOT EXISTS idx_pdv_rej_code ON pdv_product_rejections (product_code)`).run();
+  db.prepare(`CREATE INDEX IF NOT EXISTS idx_pdv_rej_barcode ON pdv_product_rejections (barcode)`).run();
+  db.prepare(`CREATE INDEX IF NOT EXISTS idx_pdv_rej_status ON pdv_product_rejections (status)`).run();
+  db.prepare(`CREATE INDEX IF NOT EXISTS idx_pdv_rej_created ON pdv_product_rejections (created_at DESC)`).run();
+
   console.log('[Belinha ERP DB] ✅ Schema limpo do ERP verificado e pronto!');
   return true;
 }

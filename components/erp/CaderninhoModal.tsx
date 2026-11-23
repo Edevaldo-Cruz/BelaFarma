@@ -178,6 +178,14 @@ export const CaderninhoModal: React.FC<CaderninhoModalProps> = ({
   const [historyLoading, setHistoryLoading] = useState(false);
   const [selectedHistory, setSelectedHistory] = useState<any | null>(null);
 
+  const addToastRef = useRef(addToast);
+  addToastRef.current = addToast;
+  const onSummaryUpdatedRef = useRef(onSummaryUpdated);
+  onSummaryUpdatedRef.current = onSummaryUpdated;
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  const wasOpenRef = useRef(false);
+
   // <dialog> nativo com light-dismiss fallback
   useEffect(() => {
     const dlg = dialogRef.current;
@@ -199,7 +207,7 @@ export const CaderninhoModal: React.FC<CaderninhoModalProps> = ({
     if (!dlg) return;
 
     const handleNativeClose = () => {
-      if (isOpen) onClose();
+      if (isOpen) onCloseRef.current();
     };
     dlg.addEventListener('close', handleNativeClose);
 
@@ -228,7 +236,7 @@ export const CaderninhoModal: React.FC<CaderninhoModalProps> = ({
       dlg.removeEventListener('close', handleNativeClose);
       if (cleanupFallback) cleanupFallback();
     };
-  }, [isOpen, onClose]);
+  }, [isOpen]);
 
   const fetchPeople = useCallback(async () => {
     setLoadingPeople(true);
@@ -237,23 +245,27 @@ export const CaderninhoModal: React.FC<CaderninhoModalProps> = ({
       const data = await res.json();
       if (res.ok && data.success) {
         setAllPeople(Array.isArray(data.people) ? data.people : []);
-        if (data.summary) onSummaryUpdated(data.summary);
+        if (data.summary) onSummaryUpdatedRef.current(data.summary);
       }
     } catch {
-      addToast('Erro ao carregar dados do Caderninho.', 'error');
+      addToastRef.current('Erro ao carregar dados do Caderninho.', 'error');
     } finally {
       setLoadingPeople(false);
     }
-  }, [addToast, onSummaryUpdated]);
+  }, []);
 
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && !wasOpenRef.current) {
+      wasOpenRef.current = true;
       setPersonNameInput('');
+      setShowSuggestions(false);
       setPayPerson(null);
       setCancelTarget(null);
       setSelectedHistory(null);
       setActiveTab('abertos');
       fetchPeople();
+    } else if (!isOpen) {
+      wasOpenRef.current = false;
     }
   }, [isOpen, fetchPeople]);
 
