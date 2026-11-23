@@ -263,7 +263,7 @@ function createUnifiedCrediarioEndpoints(db, options = {}) {
 
   router.get('/summary-badge', (req, res) => {
     try {
-      const { kpis } = unified.listUnifiedClients(db);
+      const { kpis } = unified.listUnifiedClients(db, { onlyCurrentYear: true });
       res.json({
         success: true,
         hasOverdue: kpis.overdueClientsCount > 0,
@@ -277,8 +277,15 @@ function createUnifiedCrediarioEndpoints(db, options = {}) {
 
   router.get('/clients', (req, res) => {
     try {
-      const { q = '', filter = 'movimento_ano' } = req.query;
-      const result = unified.listUnifiedClients(db, { q, filter });
+      const { q = '', filter = 'all', yearOnly, includeInactive } = req.query;
+      const onlyCurrentYear =
+        yearOnly !== '0' &&
+        yearOnly !== 'false' &&
+        includeInactive !== '1' &&
+        includeInactive !== 'true' &&
+        filter !== 'todos_cadastros';
+      const normalizedFilter = filter === 'todos_cadastros' ? 'all' : filter;
+      const result = unified.listUnifiedClients(db, { q, filter: normalizedFilter, onlyCurrentYear });
       res.json({ success: true, ...result });
     } catch (err) {
       console.error('[Crediário Unificado] Erro ao listar clientes:', err);
@@ -525,20 +532,45 @@ function createUnifiedCrediarioEndpoints(db, options = {}) {
   router.post('/clients/:id/purchase', (req, res) => {
     try {
       const isAdmin = security.isAdminUser(req.user);
-      const { amount, description, buyerName, saleId, dueDate, bypassLock } = req.body || {};
+      const { amount, unitPrice, quantity, description, buyerName, saleId, dueDate, bypassLock, isAnnotation } = req.body || {};
       const resPurchase = unified.createLocalPurchase(db, {
         cardId: req.params.id,
         amount,
+        unitPrice,
+        quantity,
         description,
         buyerName,
         saleId,
         dueDate,
         createdBy: req.user?.name || 'Balcão',
-        bypassLock: isAdmin && Boolean(bypassLock)
+        bypassLock: isAdmin && Boolean(bypassLock),
+        isAnnotation: Boolean(isAnnotation)
       });
       const statement = unified.buildClientStatement(db, req.params.id);
       res.json({ ...resPurchase, statement });
     } catch (err) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  router.delete('/clients/:id/purchases/:purchaseId', (req, res) => {
+    try {
+      const isAdmin = security.isAdminUser(req.user);
+      const result = unified.deleteLocalPurchase(db, {
+        cardId: req.params.id,
+        purchaseId: req.params.purchaseId,
+        isAdmin
+      });
+      const statement = unified.buildClientStatement(db, req.params.id);
+      res.json({ ...result, statement });
+    } catch (err) {
+      if (err.code === 'FORBIDDEN_DELETE_OLD_PURCHASE') {
+        return res.status(403).json({
+          success: false,
+          error: err.message,
+          code: 'FORBIDDEN_ADMIN_ONLY'
+        });
+      }
       res.status(400).json({ success: false, error: err.message });
     }
   });

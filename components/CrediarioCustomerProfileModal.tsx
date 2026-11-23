@@ -131,8 +131,9 @@ export const CrediarioCustomerProfileModal: React.FC<CustomerProfileModalProps> 
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
   const [submittingPay, setSubmittingPay] = useState(false);
 
-  // Formulário de Nova Compra no Belinha
+  // Formulário de Nova Compra / Anotação no Belinha
   const [purchaseAmount, setPurchaseAmount] = useState('');
+  const [purchaseQuantity, setPurchaseQuantity] = useState('1');
   const [purchaseBuyer, setPurchaseBuyer] = useState('');
   const [purchaseDesc, setPurchaseDesc] = useState('');
   const [purchaseDueDate, setPurchaseDueDate] = useState('');
@@ -583,38 +584,45 @@ export const CrediarioCustomerProfileModal: React.FC<CustomerProfileModalProps> 
     }
   };
 
-  // Lançar Compra no Belinha
+  // Lançar Anotação / Produto no Crediário (Belinha)
   const handleSubmitPurchase = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!profile?.card?.id) return;
-    const val = parseFloat(purchaseAmount);
-    if (isNaN(val) || val <= 0) {
-      addToast('Informe o valor válido da compra.', 'warning');
+    const unitVal = parseFloat(String(purchaseAmount).replace(/\./g, '').replace(',', '.')) ||
+      parseFloat(String(purchaseAmount).replace(',', '.'));
+    const qtyVal = Math.max(1, parseInt(String(purchaseQuantity).replace(/\D/g, ''), 10) || 1);
+    if (isNaN(unitVal) || unitVal <= 0) {
+      addToast('Informe um preço válido maior que zero.', 'warning');
       return;
     }
     if (!purchaseDesc.trim()) {
-      addToast('Informe a descrição dos produtos.', 'warning');
+      addToast('Informe a descrição do produto ou anotação.', 'warning');
       return;
     }
 
+    const totalVal = Math.round(unitVal * qtyVal * 100) / 100;
     setSubmittingPurchase(true);
     try {
       const res = await fetch(`/api/crediario-v2/clients/${profile.card.id}/purchase`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          amount: val,
+          amount: totalVal,
+          unitPrice: unitVal,
+          quantity: qtyVal,
           buyerName: purchaseBuyer,
           description: purchaseDesc,
           dueDate: purchaseDueDate,
-          bypassLock: isAdmin && purchaseBypassLock
+          bypassLock: isAdmin && purchaseBypassLock,
+          isAnnotation: true
         })
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        addToast('Compra lançada no crediário com sucesso!', 'success');
+        addToast('Anotação lançada e somada no crediário com sucesso!', 'success');
         setActivePanel('none');
         setPurchaseAmount('');
+        setPurchaseQuantity('1');
         setPurchaseDesc('');
         setPurchaseBuyer('');
         setPurchaseDueDate('');
@@ -622,10 +630,10 @@ export const CrediarioCustomerProfileModal: React.FC<CustomerProfileModalProps> 
         await loadProfile();
         notifyParentRefresh();
       } else {
-        addToast(data.error || 'Compra não autorizada.', 'error');
+        addToast(data.error || 'Anotação não autorizada.', 'error');
       }
     } catch {
-      addToast('Erro de conexão ao lançar compra.', 'error');
+      addToast('Erro de conexão ao lançar anotação.', 'error');
     } finally {
       setSubmittingPurchase(false);
     }
@@ -1275,7 +1283,7 @@ export const CrediarioCustomerProfileModal: React.FC<CustomerProfileModalProps> 
               </form>
             )}
 
-            {/* SUB-PAINEL: LANÇAR COMPRA */}
+            {/* SUB-PAINEL: LANÇAR ANOTAÇÃO / PRODUTO */}
             {activePanel === 'purchase' && (
               <form
                 onSubmit={handleSubmitPurchase}
@@ -1284,53 +1292,16 @@ export const CrediarioCustomerProfileModal: React.FC<CustomerProfileModalProps> 
               >
                 <div className="flex items-center justify-between border-b border-red-200 dark:border-red-900 pb-2">
                   <h2 id={`${uidPrefix}-pur-h`} className="font-black uppercase text-red-700 dark:text-red-400 flex items-center gap-1.5">
-                    <ShoppingBag className="w-4 h-4" /> Lançar Nova Compra no Crediário (Belinha)
+                    <ShoppingBag className="w-4 h-4" /> Lançar Anotação / Produto no Crediário
                   </h2>
                   <button type="button" onClick={() => setActivePanel('none')} className="text-slate-500 font-bold cursor-pointer">
                     Fechar
                   </button>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div>
-                    <label htmlFor={`${uidPrefix}-pur-val`} className="block font-bold mb-1">Valor Total (R$) *</label>
-                    <input
-                      id={`${uidPrefix}-pur-val`}
-                      name="amount"
-                      type="number"
-                      step="0.01"
-                      min="0.01"
-                      required
-                      value={purchaseAmount}
-                      onChange={e => setPurchaseAmount(e.target.value)}
-                      className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-black text-sm"
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor={`${uidPrefix}-pur-buyer`} className="block font-bold mb-1">Quem retirou? (Comprador)</label>
-                    <input
-                      id={`${uidPrefix}-pur-buyer`}
-                      name="buyerName"
-                      type="text"
-                      placeholder="Ex: Próprio cliente ou familiar"
-                      value={purchaseBuyer}
-                      onChange={e => setPurchaseBuyer(e.target.value)}
-                      className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900"
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor={`${uidPrefix}-pur-due`} className="block font-bold mb-1">Vencimento (Opcional)</label>
-                    <input
-                      id={`${uidPrefix}-pur-due`}
-                      name="dueDate"
-                      type="date"
-                      value={purchaseDueDate}
-                      onChange={e => setPurchaseDueDate(e.target.value)}
-                      className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900"
-                    />
-                  </div>
-                  <div className="sm:col-span-3">
-                    <label htmlFor={`${uidPrefix}-pur-desc`} className="block font-bold mb-1">Produtos / Descrição *</label>
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                  <div className="sm:col-span-2">
+                    <label htmlFor={`${uidPrefix}-pur-desc`} className="block font-bold mb-1">Descrição / Produto *</label>
                     <input
                       id={`${uidPrefix}-pur-desc`}
                       name="description"
@@ -1342,7 +1313,79 @@ export const CrediarioCustomerProfileModal: React.FC<CustomerProfileModalProps> 
                       className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900"
                     />
                   </div>
+                  <div>
+                    <label htmlFor={`${uidPrefix}-pur-val`} className="block font-bold mb-1">Preço Unit. (R$) *</label>
+                    <input
+                      id={`${uidPrefix}-pur-val`}
+                      name="amount"
+                      type="text"
+                      inputMode="decimal"
+                      required
+                      placeholder="Ex: 29,90"
+                      value={purchaseAmount}
+                      onChange={e => setPurchaseAmount(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-black text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor={`${uidPrefix}-pur-qty`} className="block font-bold mb-1">Quantidade</label>
+                    <input
+                      id={`${uidPrefix}-pur-qty`}
+                      name="quantity"
+                      type="text"
+                      inputMode="numeric"
+                      value={purchaseQuantity}
+                      onChange={e => setPurchaseQuantity(e.target.value.replace(/\D/g, ''))}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-bold text-center"
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label htmlFor={`${uidPrefix}-pur-buyer`} className="block font-bold mb-1">Quem retirou? (Opcional)</label>
+                    <input
+                      id={`${uidPrefix}-pur-buyer`}
+                      name="buyerName"
+                      type="text"
+                      placeholder="Ex: Próprio cliente ou familiar"
+                      value={purchaseBuyer}
+                      onChange={e => setPurchaseBuyer(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900"
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label htmlFor={`${uidPrefix}-pur-due`} className="block font-bold mb-1">Vencimento (Opcional)</label>
+                    <input
+                      id={`${uidPrefix}-pur-due`}
+                      name="dueDate"
+                      type="date"
+                      value={purchaseDueDate}
+                      onChange={e => setPurchaseDueDate(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900"
+                    />
+                  </div>
                 </div>
+
+                {(() => {
+                  const unitNum =
+                    parseFloat(String(purchaseAmount).replace(/\./g, '').replace(',', '.')) ||
+                    parseFloat(String(purchaseAmount).replace(',', '.'));
+                  const qtyNum = Math.max(1, parseInt(String(purchaseQuantity).replace(/\D/g, ''), 10) || 1);
+                  const sumVal = !isNaN(unitNum) && unitNum > 0 ? Math.round(unitNum * qtyNum * 100) / 100 : 0;
+                  if (sumVal <= 0) return null;
+                  return (
+                    <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-red-200 dark:border-red-900/60 flex flex-wrap items-center justify-between gap-2 text-xs">
+                      <span>
+                        Item somado como produto: <strong>{qtyNum}× {formatCurrency(unitNum)}</strong> ={' '}
+                        <strong className="text-red-700 dark:text-red-400">{formatCurrency(sumVal)}</strong>
+                      </span>
+                      <span>
+                        Novo saldo estimado:{' '}
+                        <strong className="text-slate-900 dark:text-white">
+                          {formatCurrency((financials?.totalBalance || 0) + sumVal)}
+                        </strong>
+                      </span>
+                    </div>
+                  );
+                })()}
 
                 {isAdmin && (financials.isBlocked || financials.availableCredit <= 0) && (
                   <label className="inline-flex items-center gap-2 font-bold text-amber-800 dark:text-amber-300 cursor-pointer">
@@ -1352,7 +1395,7 @@ export const CrediarioCustomerProfileModal: React.FC<CustomerProfileModalProps> 
                       onChange={e => setPurchaseBypassLock(e.target.checked)}
                       className="w-4 h-4 accent-red-600"
                     />
-                    <span>Autorizar compra excepcionalmente acima do limite / bloqueio (Admin)</span>
+                    <span>Autorizar anotação excepcionalmente com conta bloqueada (Admin)</span>
                   </label>
                 )}
 
@@ -1363,7 +1406,7 @@ export const CrediarioCustomerProfileModal: React.FC<CustomerProfileModalProps> 
                     className="inline-flex items-center gap-1.5 px-5 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white font-black shadow cursor-pointer disabled:opacity-50"
                   >
                     <Check className="w-4 h-4" />
-                    <span>{submittingPurchase ? 'Lançando...' : 'Autorizar e Lançar Compra'}</span>
+                    <span>{submittingPurchase ? 'Lançando...' : 'Incluir no Crediário'}</span>
                   </button>
                 </div>
               </form>

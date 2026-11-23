@@ -76,6 +76,8 @@ interface CrediarioKpis {
   activeThisYearClientsCount?: number;
   currentYear?: number;
   totalClientsCount: number;
+  allClientsCount?: number;
+  onlyCurrentYear?: boolean;
   paidThisMonth: number;
   interestEnabled: boolean;
 }
@@ -136,14 +138,13 @@ interface CrediarioConfig {
 const CURRENT_YEAR = new Date().getFullYear();
 
 const FILTER_OPTIONS = [
-  { id: 'movimento_ano', label: `Movimento ${CURRENT_YEAR}` },
+  { id: 'all', label: 'Todos' },
   { id: 'com_saldo', label: 'Com Saldo' },
   { id: 'vencidos', label: 'Vencidos' },
   { id: 'em_dia', label: 'Em Dia' },
   { id: 'compras_hoje', label: 'Compraram Hoje' },
   { id: 'bloqueados', label: 'Bloqueados' },
-  { id: 'incompletos', label: 'Cadastro Incompleto' },
-  { id: 'all', label: 'Todos os Cadastros' }
+  { id: 'incompletos', label: 'Cadastro Incompleto' }
 ];
 
 const TEMPLATE_VARIABLES = [
@@ -217,10 +218,67 @@ async function copyClipboardSafe(text: string): Promise<boolean> {
   }
 }
 
+function useNativeDialog(
+  dialogRef: React.RefObject<HTMLDialogElement | null>,
+  isOpen: boolean,
+  onClose: () => void
+) {
+  useEffect(() => {
+    const dlg = dialogRef.current;
+    if (!dlg) return;
+
+    if (isOpen) {
+      if (!dlg.open) {
+        try {
+          dlg.showModal();
+        } catch {}
+      }
+    } else if (dlg.open) {
+      dlg.close();
+    }
+  }, [dialogRef, isOpen]);
+
+  useEffect(() => {
+    const dlg = dialogRef.current;
+    if (!dlg) return;
+
+    const handleClose = () => {
+      if (isOpen) onClose();
+    };
+    dlg.addEventListener('close', handleClose);
+
+    let cleanupFallback: (() => void) | undefined;
+    if (!('closedBy' in HTMLDialogElement.prototype)) {
+      const isOutside = (e: PointerEvent) => {
+        const r = dlg.getBoundingClientRect();
+        return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
+      };
+      let pressedOutside = false;
+      const onDown = (e: PointerEvent) => {
+        pressedOutside = isOutside(e);
+      };
+      const onUp = (e: PointerEvent) => {
+        if (pressedOutside && isOutside(e)) dlg.close();
+      };
+      dlg.addEventListener('pointerdown', onDown);
+      dlg.addEventListener('pointerup', onUp);
+      cleanupFallback = () => {
+        dlg.removeEventListener('pointerdown', onDown);
+        dlg.removeEventListener('pointerup', onUp);
+      };
+    }
+
+    return () => {
+      dlg.removeEventListener('close', handleClose);
+      if (cleanupFallback) cleanupFallback();
+    };
+  }, [dialogRef, isOpen, onClose]);
+}
+
 export const CrediarioHub: React.FC<CrediarioHubProps> = ({
   user,
   initialTab = 'clientes',
-  initialFilter = 'movimento_ano'
+  initialFilter = 'all'
 }) => {
   const { addToast } = useToast();
   const uid = useId();
@@ -239,13 +297,16 @@ export const CrediarioHub: React.FC<CrediarioHubProps> = ({
     overdueClientsCount: 0,
     activeOpenClientsCount: 0,
     totalClientsCount: 0,
+    allClientsCount: 0,
+    onlyCurrentYear: true,
     paidThisMonth: 0,
     interestEnabled: false
   });
   const [syncMeta, setSyncMeta] = useState<any>(null);
   const [clientsLoading, setClientsLoading] = useState(true);
   const [clientSearch, setClientSearch] = useState('');
-  const [clientFilter, setClientFilter] = useState(initialFilter || 'movimento_ano');
+  const [clientFilter, setClientFilter] = useState(initialFilter || 'all');
+  const [onlyCurrentYear, setOnlyCurrentYear] = useState(true);
   const [syncingDigifarma, setSyncingDigifarma] = useState(false);
 
   // Aba 2: Lançamentos & Compras
@@ -291,6 +352,21 @@ export const CrediarioHub: React.FC<CrediarioHubProps> = ({
     notes: ''
   });
 
+  // Modal + Anotação no Crediário (<dialog> nativo)
+  const annotationDialogRef = useRef<HTMLDialogElement>(null);
+  const [isAnnotationOpen, setIsAnnotationOpen] = useState(false);
+  const [annotationDirectory, setAnnotationDirectory] = useState<UnifiedClientRow[]>([]);
+  const [loadingDirectory, setLoadingDirectory] = useState(false);
+  const [annotationClientSearch, setAnnotationClientSearch] = useState('');
+  const [selectedAnnotationCardId, setSelectedAnnotationCardId] = useState<number | null>(null);
+  const [submittingAnnotation, setSubmittingAnnotation] = useState(false);
+  const [annotationForm, setAnnotationForm] = useState({
+    description: '',
+    unitPrice: '',
+    quantity: '1',
+    buyerName: ''
+  });
+
   // Sincroniza troca de rota externa (Ex: Menu "Devedores / Em Atraso" -> initialFilter='vencidos')
   useEffect(() => {
     const targetTab = !isAdmin && initialTab === 'regras' ? 'clientes' : initialTab;
@@ -299,7 +375,7 @@ export const CrediarioHub: React.FC<CrediarioHubProps> = ({
 
   useEffect(() => {
     if (initialFilter) {
-      setClientFilter(initialFilter);
+      setClientFilter(initialFilter === 'movimento_ano' ? 'all' : initialFilter);
     }
   }, [initialFilter]);
 
@@ -309,6 +385,7 @@ export const CrediarioHub: React.FC<CrediarioHubProps> = ({
       const params = new URLSearchParams();
       if (clientSearch.trim()) params.set('q', clientSearch.trim());
       if (clientFilter) params.set('filter', clientFilter);
+      params.set('yearOnly', onlyCurrentYear ? '1' : '0');
       const res = await fetch(`/api/crediario-v2/clients?${params.toString()}`);
       const data = await res.json();
       if (!res.ok || !data.success) {
@@ -322,7 +399,7 @@ export const CrediarioHub: React.FC<CrediarioHubProps> = ({
     } finally {
       setClientsLoading(false);
     }
-  }, [clientSearch, clientFilter, addToast]);
+  }, [clientSearch, clientFilter, onlyCurrentYear, addToast]);
 
   const fetchTransactions = useCallback(async () => {
     setTxLoading(true);
@@ -385,57 +462,87 @@ export const CrediarioHub: React.FC<CrediarioHubProps> = ({
     }
   }, [activeTab, isAdmin, fetchSettings]);
 
-  // Controle nativo do <dialog> + fallback light-dismiss
-  useEffect(() => {
-    const dlg = newClientDialogRef.current;
-    if (!dlg) return;
+  const closeNewClient = useCallback(() => setIsNewClientOpen(false), []);
+  const closeAnnotationModal = useCallback(() => setIsAnnotationOpen(false), []);
+  useNativeDialog(newClientDialogRef, isNewClientOpen, closeNewClient);
+  useNativeDialog(annotationDialogRef, isAnnotationOpen, closeAnnotationModal);
 
-    if (isNewClientOpen) {
-      if (!dlg.open) {
-        try {
-          dlg.showModal();
-        } catch {}
+  const handleOpenAnnotationModal = useCallback(async () => {
+    setIsAnnotationOpen(true);
+    setAnnotationClientSearch('');
+    setSelectedAnnotationCardId(null);
+    setAnnotationForm({ description: '', unitPrice: '', quantity: '1', buyerName: '' });
+    setLoadingDirectory(true);
+    try {
+      const res = await fetch('/api/crediario-v2/clients?yearOnly=0&filter=all');
+      const data = await res.json();
+      if (res.ok && data.success && Array.isArray(data.clients)) {
+        setAnnotationDirectory(data.clients);
+      } else {
+        setAnnotationDirectory(clients);
       }
-    } else if (dlg.open) {
-      dlg.close();
+    } catch {
+      setAnnotationDirectory(clients);
+    } finally {
+      setLoadingDirectory(false);
     }
-  }, [isNewClientOpen]);
+  }, [clients]);
 
-  useEffect(() => {
-    const dlg = newClientDialogRef.current;
-    if (!dlg) return;
+  const handleSubmitQuickAnnotation = async (e: React.FormEvent, openAfter = false) => {
+    e.preventDefault();
+    if (!selectedAnnotationCardId) {
+      addToast('Selecione o cliente para lançar a anotação.', 'warning');
+      return;
+    }
+    const cleanDesc = annotationForm.description.trim();
+    const unitNum =
+      parseFloat(String(annotationForm.unitPrice).replace(/\./g, '').replace(',', '.')) ||
+      parseFloat(String(annotationForm.unitPrice).replace(',', '.'));
+    const qtyNum = Math.max(1, parseInt(String(annotationForm.quantity).replace(/\D/g, ''), 10) || 1);
 
-    const handleClose = () => {
-      if (isNewClientOpen) setIsNewClientOpen(false);
-    };
-    dlg.addEventListener('close', handleClose);
-
-    let cleanupFallback: (() => void) | undefined;
-    if (!('closedBy' in HTMLDialogElement.prototype)) {
-      const isOutside = (e: PointerEvent) => {
-        const r = dlg.getBoundingClientRect();
-        return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
-      };
-      let pressedOutside = false;
-      const onDown = (e: PointerEvent) => {
-        pressedOutside = isOutside(e);
-      };
-      const onUp = (e: PointerEvent) => {
-        if (pressedOutside && isOutside(e)) dlg.close();
-      };
-      dlg.addEventListener('pointerdown', onDown);
-      dlg.addEventListener('pointerup', onUp);
-      cleanupFallback = () => {
-        dlg.removeEventListener('pointerdown', onDown);
-        dlg.removeEventListener('pointerup', onUp);
-      };
+    if (!cleanDesc) {
+      addToast('Informe a descrição do produto ou anotação.', 'warning');
+      return;
+    }
+    if (isNaN(unitNum) || unitNum <= 0) {
+      addToast('Informe um preço válido maior que zero.', 'warning');
+      return;
     }
 
-    return () => {
-      dlg.removeEventListener('close', handleClose);
-      if (cleanupFallback) cleanupFallback();
-    };
-  }, [isNewClientOpen]);
+    const totalVal = Math.round(unitNum * qtyNum * 100) / 100;
+    setSubmittingAnnotation(true);
+    try {
+      const res = await fetch(`/api/crediario-v2/clients/${selectedAnnotationCardId}/purchase`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          description: cleanDesc,
+          unitPrice: unitNum,
+          quantity: qtyNum,
+          amount: totalVal,
+          buyerName: annotationForm.buyerName.trim(),
+          isAnnotation: true
+        })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Não foi possível lançar a anotação.');
+      }
+
+      const targetCardId = selectedAnnotationCardId;
+      addToast('Anotação somada como produto no crediário com sucesso!', 'success');
+      setIsAnnotationOpen(false);
+      await fetchClients();
+      if (activeTab === 'lancamentos') await fetchTransactions();
+      if (openAfter) {
+        handleOpenProfile(targetCardId, 'none');
+      }
+    } catch (err: any) {
+      addToast(err?.message || 'Erro ao salvar anotação.', 'error');
+    } finally {
+      setSubmittingAnnotation(false);
+    }
+  };
 
   const handleSyncDigifarma = async () => {
     setSyncingDigifarma(true);
@@ -665,8 +772,17 @@ export const CrediarioHub: React.FC<CrediarioHubProps> = ({
 
           <button
             type="button"
+            onClick={handleOpenAnnotationModal}
+            className="px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm font-bold flex items-center gap-2 shadow-sm transition-colors"
+          >
+            <ShoppingBag className="w-4 h-4" />
+            <span>+ Anotação no Crediário</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => setIsNewClientOpen(true)}
-            className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-red-600 dark:hover:bg-red-700 text-white text-sm font-bold flex items-center gap-2 shadow-sm transition-colors"
+            className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-slate-700 dark:hover:bg-slate-600 text-white text-sm font-bold flex items-center gap-2 shadow-sm transition-colors"
           >
             <Plus className="w-4 h-4" />
             <span>Novo Cliente</span>
@@ -713,7 +829,9 @@ export const CrediarioHub: React.FC<CrediarioHubProps> = ({
             {kpis.activeOpenClientsCount}
           </p>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            de {kpis.totalClientsCount} ficha(s) na carteira
+            {onlyCurrentYear
+              ? `de ${kpis.totalClientsCount} cliente(s) com movimento em ${kpis.currentYear || CURRENT_YEAR}`
+              : `de ${kpis.totalClientsCount} ficha(s) cadastradas`}
           </p>
         </div>
 
@@ -813,21 +931,40 @@ export const CrediarioHub: React.FC<CrediarioHubProps> = ({
               </search>
             </div>
 
-            <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filtros da carteira">
-              {FILTER_OPTIONS.map(f => (
-                <button
-                  key={f.id}
-                  type="button"
-                  onClick={() => setClientFilter(f.id)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
-                    clientFilter === f.id
-                      ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900'
-                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700'
-                  }`}
-                >
-                  {f.label}
-                </button>
-              ))}
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+              <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filtros da carteira">
+                {FILTER_OPTIONS.map(f => (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => setClientFilter(f.id)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+                      clientFilter === f.id
+                        ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900'
+                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700'
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3">
+                {onlyCurrentYear && (
+                  <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-sky-50 dark:bg-sky-900/30 border border-sky-200 dark:border-sky-800 text-sky-800 dark:text-sky-200 text-[11px] font-bold">
+                    Mostrando apenas clientes com movimento em {kpis.currentYear || CURRENT_YEAR}
+                  </span>
+                )}
+                <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={!onlyCurrentYear}
+                    onChange={e => setOnlyCurrentYear(!e.target.checked)}
+                    className="w-4 h-4 accent-red-600 rounded"
+                  />
+                  <span>Incluir cadastros sem movimento em {CURRENT_YEAR}</span>
+                </label>
+              </div>
             </div>
           </div>
 
@@ -880,17 +1017,17 @@ export const CrediarioHub: React.FC<CrediarioHubProps> = ({
                       <td colSpan={8} className="px-4 py-10 text-center text-slate-500">
                         <div className="space-y-2.5">
                           <p>
-                            {clientFilter === 'movimento_ano'
-                              ? `Nenhum cliente com movimentação em ${kpis.currentYear || CURRENT_YEAR} encontrado.`
+                            {onlyCurrentYear
+                              ? `Nenhum cliente com movimentação em ${kpis.currentYear || CURRENT_YEAR} para este filtro.`
                               : 'Nenhum cliente encontrado para o filtro selecionado.'}
                           </p>
-                          {clientFilter === 'movimento_ano' && (
+                          {onlyCurrentYear && (
                             <button
                               type="button"
-                              onClick={() => setClientFilter('all')}
+                              onClick={() => setOnlyCurrentYear(false)}
                               className="px-3.5 py-1.5 rounded-xl bg-slate-900 text-white dark:bg-white dark:text-slate-900 text-xs font-bold hover:opacity-90 transition-opacity"
                             >
-                              Ver em Todos os Cadastros
+                              Incluir cadastros sem movimento em {kpis.currentYear || CURRENT_YEAR}
                             </button>
                           )}
                         </div>
@@ -1760,6 +1897,230 @@ export const CrediarioHub: React.FC<CrediarioHubProps> = ({
               {creatingClient ? 'Salvando...' : 'Cadastrar'}
             </button>
           </div>
+        </form>
+      </dialog>
+
+      {/* Modal nativo <dialog>: + Anotação Rápida no Crediário */}
+      <dialog
+        ref={annotationDialogRef}
+        {...({ closedby: 'any' } as any)}
+        aria-labelledby={`${uid}-ann-title`}
+        className="crediario-dialog w-[95vw] max-w-xl max-h-[90vh] m-auto p-0 rounded-3xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-2xl overflow-hidden"
+      >
+        <div className="bg-red-700 text-white px-5 py-4 flex items-center justify-between gap-3 shrink-0">
+          <div>
+            <h2 id={`${uid}-ann-title`} className="text-lg font-extrabold flex items-center gap-2">
+              <ShoppingBag className="w-5 h-5" />
+              <span>Lançar Anotação no Crediário</span>
+            </h2>
+            <p className="text-xs text-red-100">
+              Informe descrição e preço para somar diretamente como produto na conta do cliente.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsAnnotationOpen(false)}
+            aria-label="Fechar janela de anotação"
+            className="p-1.5 rounded-lg hover:bg-white/10 text-white"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <form onSubmit={e => handleSubmitQuickAnnotation(e, false)} className="p-5 overflow-y-auto space-y-4">
+          {(() => {
+            const directorySource = annotationDirectory.length > 0 ? annotationDirectory : clients;
+            const term = annotationClientSearch.trim().toLowerCase();
+            const matchingClients = directorySource
+              .filter(c => {
+                if (!term) return true;
+                return (
+                  c.customer_name.toLowerCase().includes(term) ||
+                  c.nickname.toLowerCase().includes(term) ||
+                  c.phone.includes(term) ||
+                  c.cpf.includes(term)
+                );
+              })
+              .slice(0, 8);
+            const selectedClient =
+              directorySource.find(c => c.id === selectedAnnotationCardId) || null;
+
+            const unitNum =
+              parseFloat(String(annotationForm.unitPrice).replace(/\./g, '').replace(',', '.')) ||
+              parseFloat(String(annotationForm.unitPrice).replace(',', '.'));
+            const qtyNum = Math.max(1, parseInt(String(annotationForm.quantity).replace(/\D/g, ''), 10) || 1);
+            const addAmount = !isNaN(unitNum) && unitNum > 0 ? Math.round(unitNum * qtyNum * 100) / 100 : 0;
+
+            return (
+              <>
+                <div className="space-y-2">
+                  <label htmlFor={`${uid}-ann-client-q`} className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                    1. Selecione o Cliente *
+                  </label>
+                  <div className="relative">
+                    <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <input
+                      id={`${uid}-ann-client-q`}
+                      type="search"
+                      value={annotationClientSearch}
+                      onChange={e => setAnnotationClientSearch(e.target.value)}
+                      placeholder="Buscar nome, apelido, CPF ou telefone..."
+                      className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm"
+                    />
+                  </div>
+
+                  {selectedClient ? (
+                    <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-300 dark:border-emerald-800 flex items-center justify-between gap-2 text-xs">
+                      <div>
+                        <p className="font-extrabold text-emerald-950 dark:text-emerald-200">
+                          {selectedClient.customer_name}
+                        </p>
+                        <p className="text-emerald-800 dark:text-emerald-300">
+                          Saldo atual: <strong className="tabular-nums">{formatCurrency(selectedClient.total_balance)}</strong>
+                          {selectedClient.is_blocked ? ' • CONTA BLOQUEADA' : ''}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedAnnotationCardId(null)}
+                        className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 border border-emerald-300 text-xs font-bold"
+                      >
+                        Trocar
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="max-h-40 overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-700 divide-y divide-slate-100 dark:divide-slate-800">
+                      {loadingDirectory ? (
+                        <p className="p-3 text-xs text-slate-500">Carregando clientes...</p>
+                      ) : matchingClients.length === 0 ? (
+                        <p className="p-3 text-xs text-slate-500">Nenhum cliente encontrado.</p>
+                      ) : (
+                        matchingClients.map(c => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => setSelectedAnnotationCardId(c.id)}
+                            className="w-full px-3 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center justify-between gap-2 text-xs"
+                          >
+                            <span className="font-bold text-slate-900 dark:text-white truncate">
+                              {c.customer_name}
+                            </span>
+                            <span className="font-semibold text-slate-600 dark:text-slate-300 tabular-nums shrink-0">
+                              {formatCurrency(c.total_balance)}
+                            </span>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                  <div className="sm:col-span-4">
+                    <label htmlFor={`${uid}-ann-desc`} className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      2. Descrição do Produto / Anotação *
+                    </label>
+                    <input
+                      id={`${uid}-ann-desc`}
+                      type="text"
+                      required
+                      value={annotationForm.description}
+                      onChange={e => setAnnotationForm({ ...annotationForm, description: e.target.value })}
+                      placeholder="Ex: Dipirona 1g cx c/ 10 ou Produto avulso"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm"
+                    />
+                  </div>
+
+                  <div className="sm:col-span-2">
+                    <label htmlFor={`${uid}-ann-price`} className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      Preço Unitário (R$) *
+                    </label>
+                    <input
+                      id={`${uid}-ann-price`}
+                      type="text"
+                      inputMode="decimal"
+                      required
+                      value={annotationForm.unitPrice}
+                      onChange={e => setAnnotationForm({ ...annotationForm, unitPrice: e.target.value })}
+                      placeholder="Ex: 24,50"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-black"
+                    />
+                  </div>
+
+                  <div>
+                    <label htmlFor={`${uid}-ann-qty`} className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      Quantidade
+                    </label>
+                    <input
+                      id={`${uid}-ann-qty`}
+                      type="text"
+                      inputMode="numeric"
+                      value={annotationForm.quantity}
+                      onChange={e =>
+                        setAnnotationForm({ ...annotationForm, quantity: e.target.value.replace(/\D/g, '') })
+                      }
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-bold text-center"
+                    />
+                  </div>
+
+                  <div>
+                    <label htmlFor={`${uid}-ann-buyer`} className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      Quem retirou
+                    </label>
+                    <input
+                      id={`${uid}-ann-buyer`}
+                      type="text"
+                      value={annotationForm.buyerName}
+                      onChange={e => setAnnotationForm({ ...annotationForm, buyerName: e.target.value })}
+                      placeholder="Opcional"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm"
+                    />
+                  </div>
+                </div>
+
+                {addAmount > 0 && (
+                  <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <span>
+                      Valor a somar: <strong className="text-red-600 dark:text-red-400 tabular-nums">{formatCurrency(addAmount)}</strong>
+                    </span>
+                    {selectedClient && (
+                      <span>
+                        Novo saldo estimado:{' '}
+                        <strong className="text-slate-900 dark:text-white tabular-nums">
+                          {formatCurrency(selectedClient.total_balance + addAmount)}
+                        </strong>
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                <div className="flex flex-wrap justify-end gap-2.5 pt-2 border-t border-slate-200 dark:border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setIsAnnotationOpen(false)}
+                    className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-sm font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    disabled={submittingAnnotation || !selectedAnnotationCardId}
+                    onClick={e => handleSubmitQuickAnnotation(e as any, true)}
+                    className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-bold disabled:opacity-50"
+                  >
+                    Lançar e Abrir Ficha
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={submittingAnnotation || !selectedAnnotationCardId}
+                    className="px-5 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm font-bold disabled:opacity-50"
+                  >
+                    {submittingAnnotation ? 'Somando...' : 'Incluir no Crediário'}
+                  </button>
+                </div>
+              </>
+            );
+          })()}
         </form>
       </dialog>
 

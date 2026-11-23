@@ -699,13 +699,17 @@ function groupItemsBySale(openItems) {
     if (item.daysLate > grp.daysLate) grp.daysLate = item.daysLate;
 
     if (Array.isArray(item.subItems) && item.subItems.length > 0) {
+      const useRemainingAsTotal = item.subItems.length === 1;
       for (const si of item.subItems) {
+        const qty = Number(si.quantity || 1);
+        const totalP = useRemainingAsTotal ? item.remainingAmount : round2(Number(si.amount || item.remainingAmount));
+        const unitP = Number(si.unitPrice || (qty > 0 ? round2(totalP / qty) : totalP));
         grp.items.push({
           id: `${item.id}_${grp.items.length}`,
           productName: si.description || si.productName || item.productName,
-          quantity: Number(si.quantity || 1),
-          unitPrice: Number(si.unitPrice || si.amount || item.remainingAmount),
-          totalPrice: round2(Number(si.amount || item.remainingAmount))
+          quantity: qty,
+          unitPrice: unitP,
+          totalPrice: totalP
         });
       }
     } else {
@@ -1542,7 +1546,7 @@ function buildClientStatement(db, idOrToken, opts = {}) {
   };
 }
 
-function listUnifiedClients(db, { q = '', filter = 'all' } = {}) {
+function listUnifiedClients(db, { q = '', filter = 'all', onlyCurrentYear = false } = {}) {
   ensurePortalTokens(db);
   const config = getCrediarioConfig(db);
   const cards = db.prepare('SELECT * FROM belafarma_cards ORDER BY customer_name ASC').all();
@@ -1613,7 +1617,6 @@ function listUnifiedClients(db, { q = '', filter = 'all' } = {}) {
   let kpiTotalOverdue = 0;
   let kpiOverdueClients = 0;
   let kpiActiveOpenClients = 0;
-  let kpiActiveThisYearClients = 0;
 
   const computed = cards.map(card => {
     const dfId = card.digifarma_cliente_id || (/^\d+$/.test(String(card.customer_id || '')) ? Number(card.customer_id) : null);
@@ -1621,14 +1624,6 @@ function listUnifiedClients(db, { q = '', filter = 'all' } = {}) {
     const localPurchases = localByCard.get(card.id) || [];
     const localPayments = localPayByCard.get(card.id) || [];
     const fin = calculateAccountFinancials(card, dfItems, localPurchases, config);
-
-    kpiTotalPrincipal = round2(kpiTotalPrincipal + fin.principalBalance);
-    kpiTotalCharges = round2(kpiTotalCharges + fin.totalCharges);
-    if (fin.overduePrincipal > 0) {
-      kpiTotalOverdue = round2(kpiTotalOverdue + fin.overduePrincipal + fin.totalCharges);
-      kpiOverdueClients++;
-    }
-    if (fin.principalBalance > 0) kpiActiveOpenClients++;
 
     const boughtToday = fin.openItems.some(it => it.purchaseDate === todayYMD);
     const lastPay = dfId ? lastPaymentByCli.get(dfId) || null : null;
@@ -1649,9 +1644,7 @@ function listUnifiedClients(db, { q = '', filter = 'all' } = {}) {
     }
     movementDates.sort();
     const lastMovementDate = movementDates.length > 0 ? movementDates[movementDates.length - 1] : '';
-    const isManualCreatedThisYear = !dfId && toLocalDateYMD(card.created_at) >= yearStartYMD;
-    const hasMovementThisYear = Boolean((lastMovementDate && lastMovementDate >= yearStartYMD) || isManualCreatedThisYear);
-    if (hasMovementThisYear) kpiActiveThisYearClients++;
+    const hasMovementThisYear = Boolean(lastMovementDate && lastMovementDate >= yearStartYMD);
 
     const cleanCpf = sanitizeDigits(card.cpf);
     const cleanPhone = sanitizeDigits(card.phone);
@@ -1701,10 +1694,24 @@ function listUnifiedClients(db, { q = '', filter = 'all' } = {}) {
     return a.customer_name.localeCompare(b.customer_name);
   });
 
+  const activeThisYearCount = computed.filter(c => c.has_movement_this_year).length;
+  const applyYearScope = Boolean(onlyCurrentYear) || filter === 'movimento_ano';
+  const scoped = applyYearScope ? computed.filter(c => c.has_movement_this_year) : computed;
+
+  for (const c of scoped) {
+    kpiTotalPrincipal = round2(kpiTotalPrincipal + c.principal_balance);
+    kpiTotalCharges = round2(kpiTotalCharges + c.total_charges);
+    if (c.overdue_principal > 0) {
+      kpiTotalOverdue = round2(kpiTotalOverdue + c.overdue_principal + c.total_charges);
+      kpiOverdueClients++;
+    }
+    if (c.principal_balance > 0) kpiActiveOpenClients++;
+  }
+
   const cleanQ = String(q || '').trim().toLowerCase();
   const digitsQ = sanitizeDigits(q);
 
-  const filtered = computed.filter(c => {
+  const filtered = scoped.filter(c => {
     if (cleanQ) {
       const nameMatch = c.customer_name.toLowerCase().includes(cleanQ) || c.nickname.toLowerCase().includes(cleanQ);
       const buyerMatch = c.authorized_buyers.some(b => String(b).toLowerCase().includes(cleanQ));
@@ -1731,9 +1738,11 @@ function listUnifiedClients(db, { q = '', filter = 'all' } = {}) {
       totalOverdue: kpiTotalOverdue,
       overdueClientsCount: kpiOverdueClients,
       activeOpenClientsCount: kpiActiveOpenClients,
-      activeThisYearClientsCount: kpiActiveThisYearClients,
+      activeThisYearClientsCount: activeThisYearCount,
       currentYear: Number(currentYear),
-      totalClientsCount: computed.length,
+      totalClientsCount: scoped.length,
+      allClientsCount: computed.length,
+      onlyCurrentYear: applyYearScope,
       paidThisMonth,
       interestEnabled: config.interestEnabled
     },
@@ -1797,6 +1806,20 @@ function listUnifiedTransactions(db, { periodDays = 60, q = '' } = {}) {
     if (dYMD && dYMD < effectiveCutoff) continue;
     const card = cardById.get(lp.card_id);
     const key = `loc_${lp.id}`;
+    let parsedItems = [];
+    try {
+      const rawParsed = JSON.parse(lp.items_json || '[]');
+      if (Array.isArray(rawParsed) && rawParsed.length > 0) {
+        parsedItems = rawParsed.map(it => ({
+          productName: it.productName || it.description || lp.description,
+          quantity: Number(it.quantity || 1),
+          amount: round2(it.amount ?? lp.amount)
+        }));
+      }
+    } catch (_) {}
+    if (parsedItems.length === 0) {
+      parsedItems = [{ productName: lp.description, quantity: 1, amount: round2(lp.amount) }];
+    }
     purchasesMap.set(key, {
       id: key,
       cardId: lp.card_id,
@@ -1808,7 +1831,7 @@ function listUnifiedTransactions(db, { periodDays = 60, q = '' } = {}) {
       buyerName: lp.buyer_name || '',
       source: 'BELINHA',
       totalAmount: round2(lp.amount),
-      items: [{ productName: lp.description, quantity: 1, amount: round2(lp.amount) }]
+      items: parsedItems
     });
   }
 
@@ -2133,21 +2156,50 @@ function buildThermalReceiptHtml(statementData, mode = 'simple') {
 // ============================================================================
 // Lançamento de Compra e Recebimento no Belinha (+ Baixa Digifarma)
 // ============================================================================
-function createLocalPurchase(db, { cardId, amount, description, buyerName = '', saleId = '', dueDate = '', createdBy = 'Balcão', bypassLock = false }) {
+function createLocalPurchase(db, {
+  cardId,
+  amount,
+  unitPrice,
+  quantity = 1,
+  description,
+  buyerName = '',
+  saleId = '',
+  dueDate = '',
+  createdBy = 'Balcão',
+  bypassLock = false,
+  isAnnotation = false
+}) {
   const card = findCard(db, cardId);
   if (!card) throw new Error('Conta de crediário não encontrada.');
 
-  const val = round2(amount);
-  if (val <= 0) throw new Error('Informe um valor válido maior que zero.');
+  const cleanDesc = String(description || '').trim();
+  if (isAnnotation && !cleanDesc) {
+    throw new Error('Informe a descrição do produto ou anotação.');
+  }
+  const finalDesc = cleanDesc || 'Compra no Balcão';
+
+  const qty = Math.max(1, Number(quantity) || 1);
+  let unitVal = 0;
+  let val = 0;
+  if (unitPrice !== undefined && unitPrice !== null && Number(unitPrice) > 0) {
+    unitVal = round2(unitPrice);
+    val = round2(qty * unitVal);
+  } else {
+    val = round2(amount);
+    unitVal = qty > 0 ? round2(val / qty) : val;
+  }
+  if (val <= 0) throw new Error('Informe um preço/valor válido maior que zero.');
 
   const config = getCrediarioConfig(db);
   const { dfItems, localPurchases } = getDigifarmaDataForCard(db, card);
   const fin = calculateAccountFinancials(card, dfItems, localPurchases, config);
 
-  if (fin.isBlocked && !bypassLock) {
+  const isManuallyBlocked = card.status === 'blocked' || card.status === 'blocked_late';
+  if ((isAnnotation ? isManuallyBlocked : fin.isBlocked) && !bypassLock) {
     throw new Error('Cliente está com o crediário bloqueado. Apenas Administrador pode liberar.');
   }
-  if (val > fin.availableCredit && !bypassLock) {
+  const exceededLimit = val > fin.availableCredit;
+  if (!isAnnotation && exceededLimit && !bypassLock) {
     throw new Error(`Limite insuficiente. Disponível: ${formatCurrency(fin.availableCredit)}.`);
   }
 
@@ -2159,16 +2211,27 @@ function createLocalPurchase(db, { cardId, amount, description, buyerName = '', 
       : addDaysYMD(todayYMD, 30));
 
   const id = `lp_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+  const itemsJson = JSON.stringify([
+    {
+      productName: finalDesc,
+      description: finalDesc,
+      quantity: qty,
+      unitPrice: unitVal,
+      amount: val
+    }
+  ]);
+
   db.prepare(`
     INSERT INTO crediario_local_purchases (
       id, card_id, sale_id, buyer_name, description, items_json, amount, paid_amount, status, purchased_at, due_date, created_by
-    ) VALUES (?, ?, ?, ?, ?, '[]', ?, 0, 'open', datetime('now', 'localtime'), ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 'open', datetime('now', 'localtime'), ?, ?)
   `).run(
     id,
     card.id,
     saleId || `BEL-${Date.now().toString().slice(-6)}`,
     String(buyerName || '').trim().toUpperCase(),
-    String(description || 'Compra no Balcão').trim(),
+    finalDesc,
+    itemsJson,
     val,
     computedDue,
     createdBy
@@ -2177,7 +2240,47 @@ function createLocalPurchase(db, { cardId, amount, description, buyerName = '', 
   db.prepare("UPDATE belafarma_cards SET used_limit = used_limit + ?, updated_at = datetime('now', 'localtime') WHERE id = ?")
     .run(val, card.id);
 
-  return { success: true, purchaseId: id, newBalance: round2(fin.totalBalance + val), dueDate: computedDue };
+  return {
+    success: true,
+    purchaseId: id,
+    description: finalDesc,
+    quantity: qty,
+    unitPrice: unitVal,
+    amount: val,
+    newBalance: round2(fin.totalBalance + val),
+    dueDate: computedDue,
+    exceededLimit
+  };
+}
+
+function deleteLocalPurchase(db, { cardId, purchaseId, isAdmin = false }) {
+  const card = findCard(db, cardId);
+  if (!card) throw new Error('Conta de crediário não encontrada.');
+
+  const lp = db
+    .prepare('SELECT * FROM crediario_local_purchases WHERE id = ? AND card_id = ?')
+    .get(String(purchaseId), card.id);
+  if (!lp) throw new Error('Anotação/compra não encontrada.');
+
+  if (lp.status === 'paid' || Number(lp.paid_amount || 0) > 0) {
+    throw new Error('Não é possível excluir uma anotação que já possui pagamento.');
+  }
+
+  const todayYMD = toLocalDateYMD(new Date());
+  const purchaseYMD = toLocalDateYMD(lp.purchased_at);
+  if (!isAdmin && purchaseYMD && purchaseYMD !== todayYMD) {
+    const err = new Error('Apenas Administradores podem excluir anotações de dias anteriores.');
+    err.code = 'FORBIDDEN_DELETE_OLD_PURCHASE';
+    throw err;
+  }
+
+  db.transaction(() => {
+    db.prepare('DELETE FROM crediario_local_purchases WHERE id = ? AND card_id = ?').run(lp.id, card.id);
+    db.prepare("UPDATE belafarma_cards SET used_limit = MAX(0, used_limit - ?), updated_at = datetime('now', 'localtime') WHERE id = ?")
+      .run(round2(lp.amount || 0), card.id);
+  })();
+
+  return { success: true, deletedId: lp.id };
 }
 
 async function receiveCrediarioPayment(db, {
@@ -2424,6 +2527,7 @@ module.exports = {
   sendCrediarioWhatsApp,
   buildThermalReceiptHtml,
   createLocalPurchase,
+  deleteLocalPurchase,
   receiveCrediarioPayment,
   runUnifiedDailyNotifications
 };

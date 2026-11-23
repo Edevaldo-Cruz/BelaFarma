@@ -497,6 +497,44 @@ describe('Crediário Unificado Bela Farma — PIX, Motor Financeiro, Extratos & 
       const admBody = await admWaive.json();
       assert.strictEqual(admBody.success, true);
     });
+
+    it('API-09: GET /clients restringe por padrão ao movimento do ano atual (yearOnly=1) e libera tudo com yearOnly=0', async () => {
+      const yr = String(new Date().getFullYear());
+      // Inserir cliente 2 apenas com saldo em 2025 e cliente 3 com pagamento no ano atual
+      memDb.prepare(`
+        INSERT INTO belafarma_cards (
+          id, customer_id, digifarma_cliente_id, portal_token, customer_name, phone, cpf,
+          card_number, credit_limit, due_day, status
+        ) VALUES
+          (2, '202', 202, 'tok_old_2025_only_12345678', 'CLIENTE SO 2025', '18999992025', '', '5489 2222 0000 0002', 500, 20, 'active'),
+          (3, '203', 203, 'tok_new_year_only_12345678', 'CLIENTE ATIVO ESTE ANO', '18999992026', '', '5489 2222 0000 0003', 500, 20, 'active')
+      `).run();
+
+      memDb.prepare(`
+        INSERT INTO digifarma_crediario_cache (id, cliente_id, cliente_nome, valor, data_compra, data_vencimento, venda_nota_id, produto_nome, quantidade, preco_unitario)
+        VALUES
+          ('df_2025', 202, 'CLIENTE SO 2025', 90.00, '2025-11-10', '2025-12-10', 96001, 'ITEM 2025', 1, 90.00),
+          ('df_yr', 203, 'CLIENTE ATIVO ESTE ANO', 40.00, '${yr}-06-15', '${yr}-07-15', 96002, 'ITEM ANO', 1, 40.00)
+      `).run();
+
+      const resDefault = await fetch(`${baseUrl}/api/crediario-v2/clients?filter=all`, {
+        headers: { Authorization: `Bearer ${opToken}` }
+      });
+      assert.strictEqual(resDefault.status, 200);
+      const dataDefault = await resDefault.json();
+      assert.ok(dataDefault.clients.some(c => c.id === 3));
+      assert.ok(!dataDefault.clients.some(c => c.id === 2), 'Sem yearOnly=0 nao deve listar cliente sem movimento no ano');
+      assert.strictEqual(dataDefault.kpis.onlyCurrentYear, true);
+
+      const resAll = await fetch(`${baseUrl}/api/crediario-v2/clients?filter=all&yearOnly=0`, {
+        headers: { Authorization: `Bearer ${opToken}` }
+      });
+      assert.strictEqual(resAll.status, 200);
+      const dataAll = await resAll.json();
+      assert.ok(dataAll.clients.some(c => c.id === 2));
+      assert.ok(dataAll.clients.some(c => c.id === 3));
+      assert.strictEqual(dataAll.kpis.onlyCurrentYear, false);
+    });
   });
 
   describe('5. Corte Global de Histórico (< 01/10/2025)', () => {
@@ -657,7 +695,7 @@ describe('Crediário Unificado Bela Farma — PIX, Motor Financeiro, Extratos & 
       memDb.close();
     });
 
-    it('MOV-01: filtro movimento_ano exibe apenas clientes com compra/pagamento/cadastro no ano atual e all mantém todos', () => {
+    it('MOV-01: filtro anual (onlyCurrentYear) exibe apenas clientes com compra ou pagamento real no ano e recalcula KPIs', () => {
       const memDb = new Database(':memory:');
       unified.ensureCrediarioUnifiedSchema(memDb);
       const yr = String(new Date().getFullYear());
@@ -669,7 +707,7 @@ describe('Crediário Unificado Bela Farma — PIX, Motor Financeiro, Extratos & 
         ) VALUES
           (1, '101', 101, 'tok_mov_01', 'COMPRA ESTE ANO', '18999990001', '', '5489 0000 0000 0001', 500, 20, 'active', '2025-10-05 10:00:00'),
           (2, '102', 102, 'tok_mov_02', 'PAGAMENTO ESTE ANO', '18999990002', '', '5489 0000 0000 0002', 500, 20, 'active', '2025-10-05 10:00:00'),
-          (3, 'cust_manual', NULL, 'tok_mov_03', 'MANUALESTE ANO', '18999990003', '', '5489 0000 0000 0003', 300, 20, 'active', '${yr}-04-01 10:00:00'),
+          (3, 'cust_manual', NULL, 'tok_mov_03', 'MANUAL SEM MOVIMENTO', '18999990003', '', '5489 0000 0000 0003', 300, 20, 'active', '${yr}-04-01 10:00:00'),
           (4, '104', 104, 'tok_mov_04', 'SEM MOVIMENTO NO ANO', '18999990004', '', '5489 0000 0000 0004', 500, 20, 'active', '2025-10-05 10:00:00')
       `).run();
 
@@ -687,21 +725,119 @@ describe('Crediário Unificado Bela Farma — PIX, Motor Financeiro, Extratos & 
           (804, 104, 120.00, 40.00, 'P', '2025-11-20')
       `).run();
 
-      const movList = unified.listUnifiedClients(memDb, { filter: 'movimento_ano' });
+      const movList = unified.listUnifiedClients(memDb, { filter: 'all', onlyCurrentYear: true });
       const names = movList.clients.map(c => c.customer_name);
-      assert.strictEqual(movList.clients.length, 3);
+      assert.strictEqual(movList.clients.length, 2);
       assert.ok(names.includes('COMPRA ESTE ANO'));
       assert.ok(names.includes('PAGAMENTO ESTE ANO'));
-      assert.ok(names.includes('MANUALESTE ANO'));
+      assert.ok(!names.includes('MANUAL SEM MOVIMENTO'));
       assert.ok(!names.includes('SEM MOVIMENTO NO ANO'));
-      assert.strictEqual(movList.kpis.activeThisYearClientsCount, 3);
-      assert.strictEqual(movList.kpis.totalClientsCount, 4);
+      assert.strictEqual(movList.kpis.totalPrincipal, 50);
+      assert.strictEqual(movList.kpis.totalClientsCount, 2);
+      assert.strictEqual(movList.kpis.allClientsCount, 4);
 
-      const allList = unified.listUnifiedClients(memDb, { filter: 'all' });
+      const allList = unified.listUnifiedClients(memDb, { filter: 'all', onlyCurrentYear: false });
       assert.strictEqual(allList.clients.length, 4);
+      assert.strictEqual(allList.kpis.totalPrincipal, 130);
       assert.ok(allList.clients.some(c => c.customer_name === 'SEM MOVIMENTO NO ANO' && c.last_movement_date === '2025-11-20'));
 
       memDb.close();
+    });
+
+    it('ANO-01: permite lançar anotação (descrição + preço + qtd) no crediário, soma como produto e controla exclusão', async () => {
+      const memDb = new Database(':memory:');
+      unified.ensureCrediarioUnifiedSchema(memDb);
+
+      memDb.prepare(`
+        INSERT INTO belafarma_cards (
+          id, customer_id, digifarma_cliente_id, portal_token, customer_name, phone, cpf,
+          card_number, credit_limit, due_day, status
+        ) VALUES (1, '38', 38, 'tok_ano_0123456789abcdef', 'DONA MARIA ANOTACAO', '18999990038', '',
+          '5489 3333 4444 5555', 50, 20, 'active')
+      `).run();
+
+      memDb.prepare(`
+        INSERT INTO digifarma_crediario_cache (id, cliente_id, cliente_nome, valor, data_compra, data_vencimento, venda_nota_id, produto_nome, quantidade, preco_unitario)
+        VALUES ('df_base', 38, 'DONA MARIA ANOTACAO', 60.00, '2026-11-15', '2026-12-15', 97001, 'LOSARTANA 50MG', 1, 60.00)
+      `).run();
+
+      const opToken = security.signToken({ id: 'op-ano', name: 'Atendente Balcao', role: 'Operador' });
+      const adminToken = security.signToken({ id: 'adm-ano', name: 'Gerente', role: 'Administrador' });
+
+      const app = express();
+      app.use(express.json());
+      app.use('/api', security.apiAuthMiddleware);
+      app.use('/api/crediario-v2', createUnifiedCrediarioEndpoints(memDb));
+
+      let srv;
+      let url;
+      await new Promise(resolve => {
+        srv = app.listen(0, '127.0.0.1', () => {
+          url = `http://127.0.0.1:${srv.address().port}`;
+          resolve();
+        });
+      });
+
+      try {
+        // Lançar anotação com descrição + preço unitário + quantidade mesmo com limite excedido
+        const postRes = await fetch(`${url}/api/crediario-v2/clients/1/purchase`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${opToken}` },
+          body: JSON.stringify({
+            description: 'Dipirona 1g Avulsa',
+            unitPrice: 12.5,
+            quantity: 2,
+            buyerName: 'Filho Pedro',
+            isAnnotation: true
+          })
+        });
+        assert.strictEqual(postRes.status, 200);
+        const postData = await postRes.json();
+        assert.strictEqual(postData.success, true);
+        assert.strictEqual(postData.amount, 25);
+        assert.strictEqual(postData.exceededLimit, true);
+
+        const st = postData.statement;
+        assert.strictEqual(st.financials.principalBalance, 85);
+        const allItems = st.simpleStatement.purchaseGroups.flatMap(g => g.items);
+        const addedItem = allItems.find(i => i.productName === 'Dipirona 1g Avulsa');
+        assert.ok(addedItem, 'Anotação deve aparecer como produto no Extrato Simples');
+        assert.strictEqual(addedItem.quantity, 2);
+        assert.strictEqual(addedItem.unitPrice, 12.5);
+        assert.strictEqual(addedItem.totalPrice, 25);
+
+        assert.ok(
+          st.completeStatement.entries.some(
+            e =>
+              e.amount === 25 &&
+              Array.isArray(e.items) &&
+              e.items.some(i => i.productName === 'Dipirona 1g Avulsa' && i.quantity === 2)
+          ),
+          'Anotação deve aparecer como produto no Extrato Completo'
+        );
+
+        const tx = unified.listUnifiedTransactions(memDb, { periodDays: 60 });
+        assert.ok(tx.purchases.some(p => p.items.some(i => i.productName === 'Dipirona 1g Avulsa' && i.quantity === 2 && i.amount === 25)));
+
+        // Simular anotação de dia anterior -> Operador recebe 403, Admin recebe 200
+        memDb.prepare("UPDATE crediario_local_purchases SET purchased_at = '2026-10-05 10:00:00' WHERE id = ?").run(postData.purchaseId);
+        const opDelOld = await fetch(`${url}/api/crediario-v2/clients/1/purchases/${postData.purchaseId}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${opToken}` }
+        });
+        assert.strictEqual(opDelOld.status, 403);
+
+        const admDelOld = await fetch(`${url}/api/crediario-v2/clients/1/purchases/${postData.purchaseId}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${adminToken}` }
+        });
+        assert.strictEqual(admDelOld.status, 200);
+        const admDelData = await admDelOld.json();
+        assert.strictEqual(admDelData.statement.financials.principalBalance, 60);
+      } finally {
+        await new Promise(resolve => srv.close(resolve));
+        memDb.close();
+      }
     });
   });
 });
