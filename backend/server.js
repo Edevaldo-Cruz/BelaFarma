@@ -3307,6 +3307,7 @@ app.get('/api/customer-debts', (req, res) => {
       SELECT cd.*, c.name as customerName, c.nickname as customerNickname
       FROM customer_debts cd
       LEFT JOIN customers c ON cd.customerId = c.id
+      WHERE (cd.purchaseDate IS NULL OR substr(cd.purchaseDate, 1, 10) >= '2025-10-01')
       ORDER BY cd.purchaseDate DESC
     `).all();
     res.json(debts);
@@ -3322,7 +3323,8 @@ app.get('/api/customers/:id/debts', (req, res) => {
     const { id } = req.params;
     const debts = db.prepare(`
       SELECT * FROM customer_debts 
-      WHERE customerId = ? 
+      WHERE customerId = ?
+        AND (purchaseDate IS NULL OR substr(purchaseDate, 1, 10) >= '2025-10-01')
       ORDER BY purchaseDate DESC
     `).all(id);
     res.json(debts);
@@ -3344,7 +3346,9 @@ app.get('/api/customers/:id/balance', (req, res) => {
     const debtTotal = db.prepare(`
       SELECT COALESCE(SUM(totalValue), 0) as total 
       FROM customer_debts 
-      WHERE customerId = ? AND status IN ('Pendente', 'Atrasado')
+      WHERE customerId = ?
+        AND status IN ('Pendente', 'Atrasado')
+        AND (purchaseDate IS NULL OR substr(purchaseDate, 1, 10) >= '2025-10-01')
     `).get(id);
     
     res.json({
@@ -3545,6 +3549,7 @@ app.get('/api/debtors-report', security.requireAdmin, (req, res) => {
       FROM customers c
       INNER JOIN customer_debts cd ON c.id = cd.customerId
       WHERE cd.status IN ('Pendente', 'Atrasado')
+        AND (cd.purchaseDate IS NULL OR substr(cd.purchaseDate, 1, 10) >= '2025-10-01')
       GROUP BY c.id
       ORDER BY totalOwed DESC
     `).all();

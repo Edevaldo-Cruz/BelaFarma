@@ -633,6 +633,8 @@ export const CrediarioHub: React.FC<CrediarioHubProps> = ({
             <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1">
               <span>Ficha 360° • Extrato Simples (Idosos) &amp; Completo • PIX &amp; WhatsApp</span>
               <span className="text-slate-400">•</span>
+              <span>Histórico a partir de 01/10/2025</span>
+              <span className="text-slate-400">•</span>
               <span>
                 Último sync Digifarma:{' '}
                 <strong className="text-slate-700 dark:text-slate-200">

@@ -1,9 +1,19 @@
 {
   "version": "1.2.6",
-  "commitHash": "6e2c92a",
-  "commitMessage": "feat(belaped): adicionar utilitarios de lote oriente e busca de barbear/perfumaria",
-  "buildTime": "22/11/2026, 10:32:32",
+  "commitHash": "fd2ef24",
+  "commitMessage": "feat(crediario): central unificada com ficha 360, extratos simples/completo, juros, whatsapp e portal pix",
+  "buildTime": "23/11/2026, 12:03:55",
   "recentCommits": [
+    {
+      "hash": "fd2ef24",
+      "date": "22/11/2026",
+      "message": "feat(crediario): central unificada com ficha 360, extratos simples/completo, juros, whatsapp e portal pix"
+    },
+    {
+      "hash": "d68bd55",
+      "date": "22/11/2026",
+      "message": "chore: salvar alteracoes pendentes de levantamento proffer, compras/faltas e pdv"
+    },
     {
       "hash": "6e2c92a",
       "date": "21/11/2026",
@@ -53,16 +63,6 @@
       "hash": "5b47545",
       "date": "17/11/2026",
       "message": "build: atualizacao do dist com central unificada de crediario"
-    },
-    {
-      "hash": "384cef2",
-      "date": "16/11/2026",
-      "message": "feat(belaped): lista interativa de economia com totalizadores e grafico ao clicar no produto"
-    },
-    {
-      "hash": "7606e39",
-      "date": "16/11/2026",
-      "message": "feat(belaped): adiciona atalho direto do painel de economia no topo do BelaPed"
     }
   ]
 }

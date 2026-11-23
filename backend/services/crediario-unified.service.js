@@ -13,6 +13,7 @@ const { queryDigifarma } = require('./digifarma.service');
 const { generatePixBrCode } = require('../utils/pix-brcode');
 
 const CONFIG_KEY = 'crediario_unified_config';
+const CREDIARIO_CUTOFF_DATE = '2025-10-01';
 
 const DEFAULT_TEMPLATES = {
   purchase:
@@ -93,6 +94,11 @@ function toLocalDateYMD(input) {
   const m = String(parsed.getMonth() + 1).padStart(2, '0');
   const d = String(parsed.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
+}
+
+function isBeforeCrediarioCutoff(input) {
+  const ymd = toLocalDateYMD(input);
+  return Boolean(ymd && ymd < CREDIARIO_CUTOFF_DATE);
 }
 
 function formatDateBR(input) {
@@ -359,6 +365,14 @@ function ensureCrediarioUnifiedSchema(db) {
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_bf_cards_df_cli ON belafarma_cards(digifarma_cliente_id)'); } catch (_) {}
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_cred_local_card ON crediario_local_purchases(card_id, status)'); } catch (_) {}
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_cred_msg_card ON crediario_message_log(card_id, created_at DESC)'); } catch (_) {}
+  try {
+    db.prepare('DELETE FROM digifarma_crediario_cache WHERE data_compra IS NOT NULL AND substr(data_compra, 1, 10) < ?')
+      .run(CREDIARIO_CUTOFF_DATE);
+  } catch (_) {}
+  try {
+    db.prepare('DELETE FROM digifarma_crediario_pagamentos_cache WHERE data_pag IS NOT NULL AND substr(data_pag, 1, 10) < ?')
+      .run(CREDIARIO_CUTOFF_DATE);
+  } catch (_) {}
 }
 
 // ============================================================================
@@ -506,7 +520,9 @@ function calculateAccountFinancials(card, digifarmaItems = [], localPurchases = 
     const amount = round2(storedLineTotal > 0 ? storedLineTotal : qty * unit);
     if (amount <= 0) continue;
 
-    const purchaseYMD = toLocalDateYMD(it.data_compra) || todayYMD;
+    const rawPurchaseYMD = toLocalDateYMD(it.data_compra);
+    if (rawPurchaseYMD && rawPurchaseYMD < CREDIARIO_CUTOFF_DATE) continue;
+    const purchaseYMD = rawPurchaseYMD || todayYMD;
     const dueDateYMD = isFixedDue
       ? computeFixedDueDate(purchaseYMD, card.due_day, card.closing_offset_days || 10)
       : (toLocalDateYMD(it.data_vencimento) || addDaysYMD(purchaseYMD, 30));
@@ -533,7 +549,9 @@ function calculateAccountFinancials(card, digifarmaItems = [], localPurchases = 
     const rem = round2(Number(lp.amount || 0) - Number(lp.paid_amount || 0));
     if (rem <= 0.009) continue;
 
-    const purchaseYMD = toLocalDateYMD(lp.purchased_at) || todayYMD;
+    const rawPurchaseYMD = toLocalDateYMD(lp.purchased_at);
+    if (rawPurchaseYMD && rawPurchaseYMD < CREDIARIO_CUTOFF_DATE) continue;
+    const purchaseYMD = rawPurchaseYMD || todayYMD;
     const dueDateYMD = isFixedDue
       ? computeFixedDueDate(purchaseYMD, card.due_day, card.closing_offset_days || 10)
       : (toLocalDateYMD(lp.due_date) || addDaysYMD(purchaseYMD, 30));
@@ -716,6 +734,7 @@ function normalizePaymentEvents(digifarmaPayments = [], localPayments = []) {
     if (val <= 0) continue;
 
     const dateYMD = toLocalDateYMD(p.data_pag);
+    if (dateYMD && dateYMD < CREDIARIO_CUTOFF_DATE) continue;
     const isZeroed =
       String(p.tipo_pag || '').toUpperCase() === 'T' ||
       (totalDeb > 0 && Math.abs(totalDeb - val) <= 0.05);
@@ -743,6 +762,7 @@ function normalizePaymentEvents(digifarmaPayments = [], localPayments = []) {
     const val = round2(lp.amount || 0);
     if (val <= 0) continue;
     const dateYMD = toLocalDateYMD(lp.paid_at || lp.created_at);
+    if (dateYMD && dateYMD < CREDIARIO_CUTOFF_DATE) continue;
     const isZeroed =
       Boolean(Number(lp.is_full_settlement)) ||
       String(lp.notes || '').toLowerCase().includes('quitação total');
@@ -943,7 +963,7 @@ async function syncAllFromDigifarma(db, { notifyNewPurchases = false } = {}) {
         .map(r => String(r.venda_nota_id))
     );
 
-    // 1. Buscar FICHARIO com nome real dos PRODUTOS e CLIENTES
+    // 1. Buscar FICHARIO a partir da data de corte com nome real dos PRODUTOS e CLIENTES
     const ficharioRows = await queryDigifarma(`
       SELECT
         f.FICHARIO_ID,
@@ -965,11 +985,11 @@ async function syncAllFromDigifarma(db, { notifyNewPurchases = false } = {}) {
       FROM FICHARIO f
       LEFT JOIN PRODUTOS p ON f.PRODUTO_ID = p.PRODUTO_ID
       LEFT JOIN CLIENTES cli ON f.CLIENTE_ID = cli.CLIENTE_ID
+      WHERE CAST(f.FICHARIO_DATACOMPRA AS DATE) >= DATE '${CREDIARIO_CUTOFF_DATE}'
       ORDER BY f.FICHARIO_VENCIMENTO ASC, f.FICHARIO_ID ASC
     `, [], 25000);
 
-    // 2. Buscar CONTAS_RECEBIDAS dos últimos 18 meses
-    const cutoff18m = addDaysYMD(toLocalDateYMD(new Date()), -550);
+    // 2. Buscar CONTAS_RECEBIDAS a partir da data de corte (01/10/2025)
     const pagamentosRows = await queryDigifarma(`
       SELECT
         CONTREC_ID,
@@ -986,14 +1006,22 @@ async function syncAllFromDigifarma(db, { notifyNewPurchases = false } = {}) {
         CONTREC_VENDEDOR,
         CONTREC_NRECIBO
       FROM CONTAS_RECEBIDAS
-      WHERE CONTREC_DATAPAG >= '${cutoff18m}'
+      WHERE CAST(CONTREC_DATAPAG AS DATE) >= DATE '${CREDIARIO_CUTOFF_DATE}'
       ORDER BY CONTREC_DATAPAG DESC
     `, [], 25000);
 
-    // 3. Buscar dados cadastrais de CLIENTES que possuem crediário ou histórico
+    // 3. Buscar dados cadastrais de CLIENTES que possuem crediário ou histórico após o corte
     const clientIdsSet = new Set();
-    for (const r of ficharioRows) if (r.CLIENTE_ID) clientIdsSet.add(Number(r.CLIENTE_ID));
-    for (const p of pagamentosRows) if (p.CLIENTE_ID) clientIdsSet.add(Number(p.CLIENTE_ID));
+    for (const r of ficharioRows) {
+      if (r.CLIENTE_ID && !isBeforeCrediarioCutoff(r.FICHARIO_DATACOMPRA)) {
+        clientIdsSet.add(Number(r.CLIENTE_ID));
+      }
+    }
+    for (const p of pagamentosRows) {
+      if (p.CLIENTE_ID && !isBeforeCrediarioCutoff(p.CONTREC_DATAPAG)) {
+        clientIdsSet.add(Number(p.CLIENTE_ID));
+      }
+    }
 
     const clientesRows = await queryDigifarma(`
       SELECT
@@ -1004,12 +1032,18 @@ async function syncAllFromDigifarma(db, { notifyNewPurchases = false } = {}) {
         RESPONSAVEL, CLI_LIMITE, CLI_DIA_PAGAMENTO, CLI_OBSERVACAO, CLI_BLOQUEADO
       FROM CLIENTES
       WHERE PERMITIR_CREDIARIO = 'S'
-         OR CLIENTE_ID IN (SELECT DISTINCT CLIENTE_ID FROM FICHARIO)
+         OR CLIENTE_ID IN (
+           SELECT DISTINCT CLIENTE_ID
+           FROM FICHARIO
+           WHERE CAST(FICHARIO_DATACOMPRA AS DATE) >= DATE '${CREDIARIO_CUTOFF_DATE}'
+         )
     `, [], 25000);
 
     // Transação atômica local (só executa depois de todas as leituras do Firebird terem sucesso)
     const todayYMD = toLocalDateYMD(new Date());
     const newlyDetectedSales = [];
+    let insertedItemsCount = 0;
+    let insertedPaymentsCount = 0;
 
     db.transaction(() => {
       // A) Atualizar digifarma_crediario_cache com itens + nomes de produtos
@@ -1026,6 +1060,9 @@ async function syncAllFromDigifarma(db, { notifyNewPurchases = false } = {}) {
       const openSumByClienteId = new Map();
 
       for (const row of ficharioRows) {
+        const purchaseYMD = toLocalDateYMD(row.FICHARIO_DATACOMPRA);
+        if (purchaseYMD && purchaseYMD < CREDIARIO_CUTOFF_DATE) continue;
+
         const cliId = row.CLIENTE_ID ? Number(row.CLIENTE_ID) : null;
         const qty = Number(row.FICHARIO_QUANTIDADE || 1);
         const unitPrice = Number(row.FICHARIO_VALOR || 0);
@@ -1035,7 +1072,6 @@ async function syncAllFromDigifarma(db, { notifyNewPurchases = false } = {}) {
 
         const buyer = String(row.FICHARIO_COMPRADOR || '').trim().toUpperCase();
         const phone = sanitizeDigits(row.CLI_CELULAR) || sanitizeDigits(row.CLI_TELEFONE) || '';
-        const purchaseYMD = toLocalDateYMD(row.FICHARIO_DATACOMPRA);
         const dueYMD = toLocalDateYMD(row.FICHARIO_VENCIMENTO) || (purchaseYMD ? addDaysYMD(purchaseYMD, 30) : '');
         const prodName = String(row.PRODUTO || '').trim() || `Produto #${row.PRODUTO_ID || ''}`;
         const pres = String(row.APRESENTACAO || '').trim();
@@ -1058,6 +1094,7 @@ async function syncAllFromDigifarma(db, { notifyNewPurchases = false } = {}) {
           round2(discount),
           buyer
         );
+        insertedItemsCount++;
 
         if (cliId) {
           openSumByClienteId.set(cliId, round2((openSumByClienteId.get(cliId) || 0) + lineTotal));
@@ -1089,13 +1126,15 @@ async function syncAllFromDigifarma(db, { notifyNewPurchases = false } = {}) {
 
       for (const p of pagamentosRows) {
         if (!p.CLIENTE_ID) continue;
+        const payYMD = toLocalDateYMD(p.CONTREC_DATAPAG);
+        if (payYMD && payYMD < CREDIARIO_CUTOFF_DATE) continue;
         insertPagStmt.run(
           Number(p.CONTREC_ID),
           Number(p.CLIENTE_ID),
           round2(p.CONTREC_TOTALDEBITO || 0),
           round2(p.CONTREC_VALORPAG || 0),
           String(p.CONTREC_TIPOPAG || 'P').trim().toUpperCase(),
-          toLocalDateYMD(p.CONTREC_DATAPAG) || String(p.CONTREC_DATAPAG || ''),
+          payYMD || String(p.CONTREC_DATAPAG || ''),
           toLocalDateYMD(p.CONTREC_VENCIMENTO) || null,
           round2(p.DINHEIRO || 0),
           round2(p.CARTAO || 0),
@@ -1104,6 +1143,7 @@ async function syncAllFromDigifarma(db, { notifyNewPurchases = false } = {}) {
           p.CONTREC_VENDEDOR || null,
           p.CONTREC_NRECIBO ? String(p.CONTREC_NRECIBO).trim() : null
         );
+        insertedPaymentsCount++;
       }
 
       // C) Merge inteligente em customers e belafarma_cards
@@ -1290,11 +1330,11 @@ async function syncAllFromDigifarma(db, { notifyNewPurchases = false } = {}) {
         INSERT OR REPLACE INTO digifarma_sync_metadata (
           tabela, ultima_sincronizacao, total_registros, duracao_ms, status, mensagem_erro
         ) VALUES ('crediario', datetime('now', 'localtime'), ?, ?, 'ok', NULL)
-      `).run(ficharioRows.length, duracaoMs);
+      `).run(insertedItemsCount, duracaoMs);
     })();
 
     const duracaoMs = Date.now() - start;
-    console.log(`[Crediário Unificado] ✅ Sync concluído em ${duracaoMs}ms (${ficharioRows.length} itens em aberto, ${pagamentosRows.length} pagamentos).`);
+    console.log(`[Crediário Unificado] ✅ Sync concluído em ${duracaoMs}ms (${insertedItemsCount} itens em aberto, ${insertedPaymentsCount} pagamentos desde ${CREDIARIO_CUTOFF_DATE}).`);
 
     // Notificações automáticas opcionais para compras novas do dia (se habilitado nas configurações)
     const config = getCrediarioConfig(db);
@@ -1307,8 +1347,8 @@ async function syncAllFromDigifarma(db, { notifyNewPurchases = false } = {}) {
     return {
       success: true,
       offline: false,
-      itemsCount: ficharioRows.length,
-      paymentsCount: pagamentosRows.length,
+      itemsCount: insertedItemsCount,
+      paymentsCount: insertedPaymentsCount,
       clientsCount: clientesRows.length,
       duracaoMs
     };
@@ -1412,12 +1452,20 @@ function getDigifarmaDataForCard(db, card) {
   let dfPayments = [];
 
   if (dfId) {
-    dfItems = db.prepare('SELECT * FROM digifarma_crediario_cache WHERE cliente_id = ? ORDER BY data_compra ASC, id ASC').all(dfId);
-    dfPayments = db.prepare('SELECT * FROM digifarma_crediario_pagamentos_cache WHERE cliente_id = ? ORDER BY data_pag DESC, contrec_id DESC').all(dfId);
+    dfItems = db
+      .prepare('SELECT * FROM digifarma_crediario_cache WHERE cliente_id = ? AND (data_compra IS NULL OR substr(data_compra, 1, 10) >= ?) ORDER BY data_compra ASC, id ASC')
+      .all(dfId, CREDIARIO_CUTOFF_DATE);
+    dfPayments = db
+      .prepare('SELECT * FROM digifarma_crediario_pagamentos_cache WHERE cliente_id = ? AND (data_pag IS NULL OR substr(data_pag, 1, 10) >= ?) ORDER BY data_pag DESC, contrec_id DESC')
+      .all(dfId, CREDIARIO_CUTOFF_DATE);
   }
 
-  const localPurchases = db.prepare('SELECT * FROM crediario_local_purchases WHERE card_id = ? ORDER BY purchased_at ASC').all(card.id);
-  const localPayments = db.prepare('SELECT * FROM card_payments WHERE card_id = ? ORDER BY paid_at DESC, id DESC').all(card.id);
+  const localPurchases = db
+    .prepare('SELECT * FROM crediario_local_purchases WHERE card_id = ? AND (purchased_at IS NULL OR substr(purchased_at, 1, 10) >= ?) ORDER BY purchased_at ASC')
+    .all(card.id, CREDIARIO_CUTOFF_DATE);
+  const localPayments = db
+    .prepare('SELECT * FROM card_payments WHERE card_id = ? AND (paid_at IS NULL OR substr(paid_at, 1, 10) >= ?) ORDER BY paid_at DESC, id DESC')
+    .all(card.id, CREDIARIO_CUTOFF_DATE);
   return { dfItems, dfPayments, localPurchases, localPayments };
 }
 
@@ -1499,10 +1547,18 @@ function listUnifiedClients(db, { q = '', filter = 'all' } = {}) {
   const config = getCrediarioConfig(db);
   const cards = db.prepare('SELECT * FROM belafarma_cards ORDER BY customer_name ASC').all();
 
-  const dfItemsAll = db.prepare('SELECT * FROM digifarma_crediario_cache ORDER BY data_compra ASC, id ASC').all();
-  const localPurchasesAll = db.prepare("SELECT * FROM crediario_local_purchases WHERE status != 'paid' ORDER BY purchased_at ASC").all();
-  const dfPaymentsAll = db.prepare('SELECT cliente_id, valor_pago, data_pag, contrec_id FROM digifarma_crediario_pagamentos_cache').all();
-  const localPaymentsAll = db.prepare('SELECT card_id, amount, paid_at FROM card_payments').all();
+  const dfItemsAll = db
+    .prepare('SELECT * FROM digifarma_crediario_cache WHERE (data_compra IS NULL OR substr(data_compra, 1, 10) >= ?) ORDER BY data_compra ASC, id ASC')
+    .all(CREDIARIO_CUTOFF_DATE);
+  const localPurchasesAll = db
+    .prepare("SELECT * FROM crediario_local_purchases WHERE status != 'paid' AND (purchased_at IS NULL OR substr(purchased_at, 1, 10) >= ?) ORDER BY purchased_at ASC")
+    .all(CREDIARIO_CUTOFF_DATE);
+  const dfPaymentsAll = db
+    .prepare('SELECT cliente_id, valor_pago, data_pag, contrec_id FROM digifarma_crediario_pagamentos_cache WHERE (data_pag IS NULL OR substr(data_pag, 1, 10) >= ?)')
+    .all(CREDIARIO_CUTOFF_DATE);
+  const localPaymentsAll = db
+    .prepare('SELECT card_id, amount, paid_at FROM card_payments WHERE (paid_at IS NULL OR substr(paid_at, 1, 10) >= ?)')
+    .all(CREDIARIO_CUTOFF_DATE);
 
   const dfByCli = new Map();
   for (const it of dfItemsAll) {
@@ -1650,7 +1706,8 @@ function listUnifiedClients(db, { q = '', filter = 'all' } = {}) {
 }
 
 function listUnifiedTransactions(db, { periodDays = 60, q = '' } = {}) {
-  const cutoffYMD = addDaysYMD(toLocalDateYMD(new Date()), -Math.max(1, Number(periodDays || 60)));
+  const rawCutoff = addDaysYMD(toLocalDateYMD(new Date()), -Math.max(1, Number(periodDays || 60)));
+  const effectiveCutoff = rawCutoff < CREDIARIO_CUTOFF_DATE ? CREDIARIO_CUTOFF_DATE : rawCutoff;
   const cards = db.prepare('SELECT id, digifarma_cliente_id, customer_name, phone FROM belafarma_cards').all();
   const cardByDfId = new Map();
   const cardById = new Map();
@@ -1659,14 +1716,18 @@ function listUnifiedTransactions(db, { periodDays = 60, q = '' } = {}) {
     if (c.digifarma_cliente_id) cardByDfId.set(Number(c.digifarma_cliente_id), c);
   }
 
-  // Compras em aberto (agrupadas por venda)
-  const dfItems = db.prepare('SELECT * FROM digifarma_crediario_cache ORDER BY data_compra DESC, id ASC').all();
-  const localPurchases = db.prepare('SELECT * FROM crediario_local_purchases ORDER BY purchased_at DESC').all();
+  // Compras em aberto (agrupadas por venda) respeitando o corte global (>= 01/10/2025)
+  const dfItems = db
+    .prepare('SELECT * FROM digifarma_crediario_cache WHERE (data_compra IS NULL OR substr(data_compra, 1, 10) >= ?) ORDER BY data_compra DESC, id ASC')
+    .all(effectiveCutoff);
+  const localPurchases = db
+    .prepare('SELECT * FROM crediario_local_purchases WHERE (purchased_at IS NULL OR substr(purchased_at, 1, 10) >= ?) ORDER BY purchased_at DESC')
+    .all(effectiveCutoff);
 
   const purchasesMap = new Map();
   for (const it of dfItems) {
     const dYMD = toLocalDateYMD(it.data_compra);
-    if (dYMD && dYMD < cutoffYMD) continue;
+    if (dYMD && dYMD < effectiveCutoff) continue;
     const card = cardByDfId.get(Number(it.cliente_id));
     const saleKey = `df_${it.cliente_id}_${it.venda_nota_id || it.id}`;
     if (!purchasesMap.has(saleKey)) {
@@ -1697,7 +1758,7 @@ function listUnifiedTransactions(db, { periodDays = 60, q = '' } = {}) {
 
   for (const lp of localPurchases) {
     const dYMD = toLocalDateYMD(lp.purchased_at);
-    if (dYMD && dYMD < cutoffYMD) continue;
+    if (dYMD && dYMD < effectiveCutoff) continue;
     const card = cardById.get(lp.card_id);
     const key = `loc_${lp.id}`;
     purchasesMap.set(key, {
@@ -1715,9 +1776,13 @@ function listUnifiedTransactions(db, { periodDays = 60, q = '' } = {}) {
     });
   }
 
-  // Pagamentos recebidos no período
-  const dfPayments = db.prepare('SELECT * FROM digifarma_crediario_pagamentos_cache WHERE data_pag >= ? ORDER BY data_pag DESC LIMIT 200').all(cutoffYMD);
-  const localPayments = db.prepare('SELECT * FROM card_payments WHERE date(paid_at) >= ? ORDER BY paid_at DESC LIMIT 200').all(cutoffYMD);
+  // Pagamentos recebidos no período (>= effectiveCutoff)
+  const dfPayments = db
+    .prepare('SELECT * FROM digifarma_crediario_pagamentos_cache WHERE substr(data_pag, 1, 10) >= ? ORDER BY data_pag DESC LIMIT 200')
+    .all(effectiveCutoff);
+  const localPayments = db
+    .prepare('SELECT * FROM card_payments WHERE substr(paid_at, 1, 10) >= ? ORDER BY paid_at DESC LIMIT 200')
+    .all(effectiveCutoff);
 
   const payments = [];
   for (const p of dfPayments) {
@@ -2296,6 +2361,8 @@ async function runUnifiedDailyNotifications(db) {
 
 module.exports = {
   CONFIG_KEY,
+  CREDIARIO_CUTOFF_DATE,
+  isBeforeCrediarioCutoff,
   DEFAULT_CONFIG,
   DEFAULT_TEMPLATES,
   round2,

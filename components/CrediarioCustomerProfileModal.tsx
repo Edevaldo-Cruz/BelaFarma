@@ -1787,6 +1787,9 @@ export const CrediarioCustomerProfileModal: React.FC<CustomerProfileModalProps> 
             {/* VISÃO 2: EXTRATO COMPLETO (ESTILO BANCÁRIO / AUDITORIA) */}
             {viewMode === 'complete' && (
               <div className="space-y-3">
+                <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                  Movimentações consideradas a partir de 01/10/2025.
+                </p>
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <div className="inline-flex rounded-xl bg-slate-100 dark:bg-slate-800 p-1 text-xs font-bold">
                     <button

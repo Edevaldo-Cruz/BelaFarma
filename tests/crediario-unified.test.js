@@ -498,4 +498,163 @@ describe('Crediário Unificado Bela Farma — PIX, Motor Financeiro, Extratos & 
       assert.strictEqual(admBody.success, true);
     });
   });
+
+  describe('5. Corte Global de Histórico (< 01/10/2025)', () => {
+    it('CUT-01: calculateAccountFinancials desconsidera compras Digifarma e locais anteriores a 2025-10-01 e mantém >= 2025-10-01', () => {
+      const card = {
+        id: 10,
+        credit_limit: 500,
+        due_day: 20,
+        due_day_mode: 'auto',
+        closing_offset_days: 10,
+        interest_exempt: 0,
+        status: 'active',
+        local_credit_balance: 0
+      };
+      const dfItems = [
+        {
+          id: 'old_df',
+          quantidade: 1,
+          preco_unitario: 250,
+          valor: 250,
+          data_compra: '2025-09-30',
+          data_vencimento: '2025-10-30',
+          produto_nome: 'COMPRA ANTIGA DIGIFARMA'
+        },
+        {
+          id: 'new_df',
+          quantidade: 1,
+          preco_unitario: 45,
+          valor: 45,
+          data_compra: '2025-10-01',
+          data_vencimento: '2026-12-01',
+          produto_nome: 'COMPRA CORTE EXATO'
+        }
+      ];
+      const localPurchases = [
+        {
+          id: 'loc_old',
+          card_id: 10,
+          description: 'COMPRA LOCAL ANTIGA',
+          amount: 120,
+          paid_amount: 0,
+          status: 'open',
+          purchased_at: '2025-09-15 14:20:00'
+        },
+        {
+          id: 'loc_new',
+          card_id: 10,
+          description: 'COMPRA LOCAL NOVA',
+          amount: 30,
+          paid_amount: 0,
+          status: 'open',
+          purchased_at: '2025-10-05 10:00:00'
+        }
+      ];
+
+      const fin = unified.calculateAccountFinancials(
+        card,
+        dfItems,
+        localPurchases,
+        { interestEnabled: false, graceDays: 5, lateFinePercent: 2, lateInterestMonthlyPercent: 1 },
+        new Date('2026-11-23T12:00:00')
+      );
+
+      assert.strictEqual(fin.principalBalance, 75);
+      assert.strictEqual(fin.openItemsCount, 2);
+      assert.ok(fin.openItems.every(it => it.purchaseDate >= unified.CREDIARIO_CUTOFF_DATE));
+    });
+
+    it('CUT-02: ensureCrediarioUnifiedSchema limpa caches < 01/10/2025 e buildClientStatement ignora pagamentos/compras antigos', () => {
+      const memDb = new Database(':memory:');
+      unified.ensureCrediarioUnifiedSchema(memDb);
+
+      memDb.prepare(`
+        INSERT INTO belafarma_cards (
+          id, customer_id, digifarma_cliente_id, portal_token, customer_name, phone, cpf,
+          card_number, credit_limit, due_day, status
+        ) VALUES (1, '77', 77, 'tok_cut_0123456789abcdef', 'CLIENTE CORTE TESTE', '18999990000', '12345678901',
+          '5489 0000 1111 2222', 800, 20, 'active')
+      `).run();
+
+      // Inserir registros antigos e novos diretamente no cache + tabelas locais
+      memDb.prepare(`
+        INSERT INTO digifarma_crediario_cache (id, cliente_id, cliente_nome, valor, data_compra, data_vencimento, venda_nota_id, produto_nome, quantidade, preco_unitario)
+        VALUES
+          ('df_old_1', 77, 'CLIENTE CORTE TESTE', 500.00, '2025-09-29', '2025-10-29', 1001, 'PRODUTO SETEMBRO', 1, 500.00),
+          ('df_new_1', 77, 'CLIENTE CORTE TESTE', 60.00, '2025-10-01', '2025-11-01', 1002, 'PRODUTO OUTUBRO', 1, 60.00)
+      `).run();
+
+      memDb.prepare(`
+        INSERT INTO digifarma_crediario_pagamentos_cache (contrec_id, cliente_id, total_debito, valor_pago, tipo_pag, data_pag)
+        VALUES
+          (901, 77, 500.00, 500.00, 'T', '2025-09-25'),
+          (902, 77, 100.00, 40.00, 'P', '2025-10-02')
+      `).run();
+
+      memDb.prepare(`
+        INSERT INTO card_payments (card_id, amount, payment_method, paid_at, notes)
+        VALUES
+          (1, 200.00, 'DINHEIRO', '2025-08-15 10:00:00', 'Pagamento antigo local'),
+          (1, 25.00, 'PIX', '2025-10-10 10:00:00', 'Pagamento valido local')
+      `).run();
+
+      const beforeCleanup = unified.buildClientStatement(memDb, 1);
+      assert.strictEqual(beforeCleanup.financials.principalBalance, 60);
+      assert.strictEqual(beforeCleanup.simpleStatement.milestone.type, 'last_payment');
+      assert.match(beforeCleanup.simpleStatement.milestone.label, /10\/10\/2025/);
+      assert.ok(
+        beforeCleanup.completeStatement.entries.every(e => !e.date || e.date >= unified.CREDIARIO_CUTOFF_DATE),
+        'Extrato completo nunca deve listar entradas anteriores a 2025-10-01'
+      );
+
+      // Rodar novamente ensureCrediarioUnifiedSchema expurga caches < 2025-10-01
+      unified.ensureCrediarioUnifiedSchema(memDb);
+      const cacheOld = memDb.prepare("SELECT COUNT(*) as c FROM digifarma_crediario_cache WHERE data_compra < '2025-10-01'").get().c;
+      const pagOld = memDb.prepare("SELECT COUNT(*) as c FROM digifarma_crediario_pagamentos_cache WHERE data_pag < '2025-10-01'").get().c;
+      assert.strictEqual(cacheOld, 0);
+      assert.strictEqual(pagOld, 0);
+
+      memDb.close();
+    });
+
+    it('CUT-03: listUnifiedClients e listUnifiedTransactions respeitam 2025-10-01 mesmo com periodDays = 9999', () => {
+      const memDb = new Database(':memory:');
+      unified.ensureCrediarioUnifiedSchema(memDb);
+
+      memDb.prepare(`
+        INSERT INTO belafarma_cards (
+          id, customer_id, digifarma_cliente_id, portal_token, customer_name, phone, cpf,
+          card_number, credit_limit, due_day, status
+        ) VALUES (1, '88', 88, 'tok_tx_0123456789abcdef', 'CLIENTE TRANSACTIONS', '18999991111', '',
+          '5489 2222 3333 4444', 500, 20, 'active')
+      `).run();
+
+      memDb.prepare(`
+        INSERT INTO crediario_local_purchases (id, card_id, sale_id, description, amount, paid_amount, status, purchased_at)
+        VALUES
+          ('p_old', 1, 'S_OLD', 'ITEM ANTES DO CORTE', 99.00, 0, 'open', '2025-09-30 23:59:00'),
+          ('p_new', 1, 'S_NEW', 'ITEM POS CORTE', 42.00, 0, 'open', '2025-10-01 08:00:00')
+      `).run();
+
+      memDb.prepare(`
+        INSERT INTO card_payments (card_id, amount, payment_method, paid_at, notes)
+        VALUES
+          (1, 99.00, 'DINHEIRO', '2025-09-30 15:00:00', 'Pgto antes'),
+          (1, 15.00, 'PIX', '2025-10-03 15:00:00', 'Pgto depois')
+      `).run();
+
+      const clientsList = unified.listUnifiedClients(memDb, { filter: 'all' });
+      assert.strictEqual(clientsList.kpis.totalPrincipal, 42);
+      assert.strictEqual(clientsList.clients[0].principal_balance, 42);
+
+      const tx = unified.listUnifiedTransactions(memDb, { periodDays: 9999 });
+      assert.strictEqual(tx.purchases.length, 1);
+      assert.strictEqual(tx.purchases[0].saleId, 'S_NEW');
+      assert.strictEqual(tx.payments.length, 1);
+      assert.strictEqual(tx.payments[0].amount, 15);
+
+      memDb.close();
+    });
+  });
 });

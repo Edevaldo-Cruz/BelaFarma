@@ -107,6 +107,7 @@ function getDebtors(db) {
       FROM customers c
       INNER JOIN customer_debts cd ON c.id = cd.customerId
       WHERE cd.status IN ('Pendente', 'Atrasado')
+        AND (cd.purchaseDate IS NULL OR substr(cd.purchaseDate, 1, 10) >= '2025-10-01')
         AND c.phone IS NOT NULL 
         AND c.phone != ''
       GROUP BY c.id

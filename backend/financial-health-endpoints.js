@@ -623,6 +623,7 @@ module.exports = function (app, db) {
           FROM customer_debts cd
           LEFT JOIN customers c ON cd.customerId = c.id
           WHERE cd.status IN ('Pendente', 'Atrasado')
+            AND (cd.purchaseDate IS NULL OR substr(cd.purchaseDate, 1, 10) >= '2025-10-01')
           GROUP BY cd.customerId
           ORDER BY totalDevido DESC
         `).all();
@@ -648,6 +649,7 @@ module.exports = function (app, db) {
             MIN(c.FICHARIO_DATACOMPRA) as compraAntiga
           FROM FICHARIO c
           LEFT JOIN CLIENTES cli ON c.CLIENTE_ID = cli.CLIENTE_ID
+          WHERE CAST(c.FICHARIO_DATACOMPRA AS DATE) >= DATE '2025-10-01'
           GROUP BY cli.CLIENTE
           ORDER BY 2 DESC
         `, []);

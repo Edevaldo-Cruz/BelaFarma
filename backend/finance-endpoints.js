@@ -343,6 +343,7 @@ module.exports = function (db) {
   const syncCrediarioFromDigifarma = async () => {
     const crypto = require('crypto');
     const { listarCrediarioAtivo } = require('./services/crediario.service');
+    const { isBeforeCrediarioCutoff } = require('./services/crediario-unified.service');
 
     console.log('[Crediário] 🔄 Iniciando sincronização do Digifarma...');
     const crediarios = await listarCrediarioAtivo();
@@ -367,6 +368,7 @@ module.exports = function (db) {
     db.transaction(() => {
       for (const cred of crediarios) {
         if (!cred.clientId) continue;
+        if (cred.purchaseDate && isBeforeCrediarioCutoff(cred.purchaseDate)) continue;
         const customerId = String(cred.clientId);
 
         const exists = db.prepare('SELECT id FROM customers WHERE id = ?').get(customerId);
@@ -996,6 +998,7 @@ module.exports = function (db) {
         LEFT JOIN PRODUTOS p ON am.PRODUTO_ID = p.PRODUTO_ID
         LEFT JOIN CLIENTES c ON am.CLIENTE_ID = c.CLIENTE_ID
         WHERE am.ARQ_DATAPAG BETWEEN ? AND ?
+          AND CAST(am.ARQ_DATAPAG AS DATE) >= DATE '2025-10-01'
         ORDER BY am.ARQ_DATAPAG ASC
       `;
 
@@ -1010,6 +1013,7 @@ module.exports = function (db) {
         FROM CONTAS_RECEBIDAS cr
         LEFT JOIN CLIENTES c ON cr.CLIENTE_ID = c.CLIENTE_ID
         WHERE cr.CONTREC_DATAPAG BETWEEN ? AND ?
+          AND CAST(cr.CONTREC_DATAPAG AS DATE) >= DATE '2025-10-01'
         ORDER BY cr.CONTREC_DATAPAG ASC
       `;
 

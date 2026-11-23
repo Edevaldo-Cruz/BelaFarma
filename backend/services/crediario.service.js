@@ -1,8 +1,10 @@
 const { queryDigifarma } = require('./digifarma.service');
 const db = require('../database');
+const CREDIARIO_CUTOFF_DATE = '2025-10-01';
 
 /**
  * Lista crediário ativo (Lê do cache SQLite ultra-rápido com fallback para Firebird)
+ * Desconsidera registros anteriores a 01/10/2025.
  */
 async function listarCrediarioAtivo() {
   try {
@@ -17,8 +19,9 @@ async function listarCrediarioAtivo() {
         data_vencimento as dueDate,
         venda_nota_id as saleId
       FROM digifarma_crediario_cache
+      WHERE (data_compra IS NULL OR substr(data_compra, 1, 10) >= ?)
       ORDER BY data_vencimento ASC
-    `).all();
+    `).all(CREDIARIO_CUTOFF_DATE);
 
     if (rows && rows.length > 0) {
       return rows.map(r => ({
@@ -51,6 +54,7 @@ async function listarCrediarioAtivo() {
       c.VENDA_NOTA_ID as saleId
     FROM FICHARIO c
     LEFT JOIN CLIENTES cli ON c.CLIENTE_ID = cli.CLIENTE_ID
+    WHERE CAST(c.FICHARIO_DATACOMPRA AS DATE) >= DATE '${CREDIARIO_CUTOFF_DATE}'
     ORDER BY c.FICHARIO_VENCIMENTO ASC
   `;
   const result = await queryDigifarma(sql);

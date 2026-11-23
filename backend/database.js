@@ -3091,6 +3091,9 @@ try {
     try { db.exec('CREATE INDEX IF NOT EXISTS idx_bf_cards_df_cli ON belafarma_cards(digifarma_cliente_id)'); } catch(e) {}
     try { db.exec('CREATE INDEX IF NOT EXISTS idx_cred_local_card ON crediario_local_purchases(card_id, status)'); } catch(e) {}
     try { db.exec('CREATE INDEX IF NOT EXISTS idx_cred_msg_card ON crediario_message_log(card_id, created_at DESC)'); } catch(e) {}
+    // Desconsiderar registros de venda e pagamento anteriores a 01/10/2025 nos caches locais do Belinha
+    try { db.exec("DELETE FROM digifarma_crediario_cache WHERE data_compra IS NOT NULL AND substr(data_compra, 1, 10) < '2025-10-01'"); } catch(e) {}
+    try { db.exec("DELETE FROM digifarma_crediario_pagamentos_cache WHERE data_pag IS NOT NULL AND substr(data_pag, 1, 10) < '2025-10-01'"); } catch(e) {}
     console.log('💳 Cartão BelaFarma (Private Label) & Central Unificada de Crediário: Tabelas criadas/verificadas com sucesso.');
 
     // Colunas extras em napp_prices para rastrear fonte e mídia de rede sem sobrescrever histórico real
