@@ -525,6 +525,60 @@ function initErpDatabase() {
     console.warn('[Belinha ERP DB] Aviso ao migrar colunas de validade de promoções:', err.message);
   }
 
+  // Tabelas da função "Caderninho" no PDV (anotações rápidas por nome que só entram na venda ao pagar)
+  db.prepare(`
+    CREATE TABLE IF NOT EXISTS caderninho_people (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      normalized_name TEXT NOT NULL UNIQUE,
+      created_at TEXT DEFAULT (datetime('now', 'localtime')),
+      updated_at TEXT DEFAULT (datetime('now', 'localtime'))
+    )
+  `).run();
+
+  db.prepare(`
+    CREATE TABLE IF NOT EXISTS caderninho_entries (
+      id TEXT PRIMARY KEY,
+      person_id TEXT NOT NULL,
+      total_amount REAL NOT NULL DEFAULT 0,
+      discount_value REAL NOT NULL DEFAULT 0,
+      paid_amount REAL NOT NULL DEFAULT 0,
+      remaining_amount REAL NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'ABERTA',
+      items_json TEXT NOT NULL DEFAULT '[]',
+      operator_name TEXT DEFAULT 'Caixa',
+      seller_id TEXT,
+      seller_name TEXT,
+      notes TEXT DEFAULT '',
+      sale_id TEXT,
+      paid_at TEXT,
+      cancelled_at TEXT,
+      cancelled_by TEXT,
+      cancel_reason TEXT,
+      created_at TEXT DEFAULT (datetime('now', 'localtime'))
+    )
+  `).run();
+
+  db.prepare(`
+    CREATE TABLE IF NOT EXISTS caderninho_movements (
+      id TEXT PRIMARY KEY,
+      person_id TEXT NOT NULL,
+      entry_id TEXT,
+      type TEXT NOT NULL,
+      amount REAL NOT NULL DEFAULT 0,
+      payment_method TEXT,
+      sale_id TEXT,
+      operator_name TEXT DEFAULT 'Caixa',
+      reason TEXT DEFAULT '',
+      details_json TEXT DEFAULT '{}',
+      created_at TEXT DEFAULT (datetime('now', 'localtime'))
+    )
+  `).run();
+
+  db.prepare(`CREATE INDEX IF NOT EXISTS idx_cad_entries_person ON caderninho_entries (person_id, created_at DESC)`).run();
+  db.prepare(`CREATE INDEX IF NOT EXISTS idx_cad_entries_status ON caderninho_entries (status)`).run();
+  db.prepare(`CREATE INDEX IF NOT EXISTS idx_cad_mov_person ON caderninho_movements (person_id, created_at DESC)`).run();
+
   console.log('[Belinha ERP DB] ✅ Schema limpo do ERP verificado e pronto!');
   return true;
 }

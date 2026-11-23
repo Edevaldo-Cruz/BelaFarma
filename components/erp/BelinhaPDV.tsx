@@ -59,6 +59,7 @@ import { BelaFarmaLogo } from '../BelaFarmaLogo';
 import { DanfeNfceModal } from './DanfeNfceModal';
 import { FiscalSettingsModal } from './FiscalSettingsModal';
 import { PromotionsManagementModal } from './PromotionsManagementModal';
+import { CaderninhoModal } from './CaderninhoModal';
 import { imprimirCupomVenda, imprimirDanfeNfce, imprimirComprovanteMovimentacaoCaixa, imprimirComprovanteOrcamento } from '../../utils/thermalPrinter';
 import { ControlledRecipeModal, ControlledProductItem, ControlledRecipeData } from './ControlledRecipeModal';
 import { useThermalPrintSpooler } from './useThermalPrintSpooler';
@@ -522,6 +523,22 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
   const [preSalesList, setPreSalesList] = useState<any[]>([]);
   const [isLoadingPreSales, setIsLoadingPreSales] = useState<boolean>(false);
 
+  // Caderninho do PDV (pequenas anotações fora da venda do dia até o pagamento)
+  const [isCaderninhoModalOpen, setIsCaderninhoModalOpen] = useState<boolean>(false);
+  const [caderninhoSummary, setCaderninhoSummary] = useState<{
+    openPeopleCount: number;
+    openEntriesCount: number;
+    overduePeopleCount: number;
+    overdueEntriesCount: number;
+    totalOpenAmount: number;
+  }>({
+    openPeopleCount: 0,
+    openEntriesCount: 0,
+    overduePeopleCount: 0,
+    overdueEntriesCount: 0,
+    totalOpenAmount: 0
+  });
+
   // Status de Crediário e Limite do Cliente
   const [customerCreditInfo, setCustomerCreditInfo] = useState<any | null>(null);
 
@@ -877,6 +894,25 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
     return () => clearInterval(interval);
   }, [fetchPendingExpressCount]);
 
+  // Resumo de contas em aberto no Caderninho do PDV
+  const fetchCaderninhoSummary = useCallback(async () => {
+    try {
+      const res = await fetch('/api/erp/pos/caderninho/summary');
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && json.summary) {
+          setCaderninhoSummary(json.summary);
+        }
+      }
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    fetchCaderninhoSummary();
+    const interval = setInterval(fetchCaderninhoSummary, 60000);
+    return () => clearInterval(interval);
+  }, [fetchCaderninhoSummary]);
+
   // Verificação inicial da sessão JWT e escuta de erros 401 no PDV
   useEffect(() => {
     let active = true;
@@ -1220,6 +1256,9 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
   // Atalhos de teclado globais do PDV
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Quando o dialog nativo do Caderninho está aberto, não disparar atalhos de teclado do PDV por trás
+      if (isCaderninhoModalOpen) return;
+
       // Se estiver com modal de oferta escalonada aberta ("Leve X por Y")
       if (tieredOfferModal.isOpen) {
         if (e.key === 'Enter') {
@@ -1349,7 +1388,8 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
     handleOpenSellerModal,
     tieredOfferModal,
     handleConfirmTieredOffer,
-    handleDismissTieredOffer
+    handleDismissTieredOffer,
+    isCaderninhoModalOpen
   ]);
 
   // Autocomplete ao vivo ao digitar na barra de produto
@@ -2781,6 +2821,35 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
             )}
           </button>
 
+          {/* Caderninho do PDV */}
+          <button
+            type="button"
+            onClick={() => {
+              fetchCaderninhoSummary();
+              setIsCaderninhoModalOpen(true);
+            }}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/40 text-amber-200 text-xs font-bold transition shadow-sm cursor-pointer group"
+            title={
+              caderninhoSummary.overduePeopleCount > 0
+                ? `Caderninho do PDV (${caderninhoSummary.overduePeopleCount} pessoa(s) com anotação há mais de 2 dias)`
+                : 'Abrir Caderninho do PDV (anotações rápidas e recebimentos)'
+            }
+          >
+            <BookOpen size={13} />
+            <span>Caderninho</span>
+            {caderninhoSummary.openPeopleCount > 0 && (
+              <span
+                className={`font-black px-1.5 py-0.2 rounded-full text-[10px] ${
+                  caderninhoSummary.overduePeopleCount > 0
+                    ? 'bg-red-500 text-white animate-pulse'
+                    : 'bg-amber-500 text-slate-950'
+                }`}
+              >
+                {caderninhoSummary.openPeopleCount}
+              </span>
+            )}
+          </button>
+
           {/* [F8] Finalizar Venda */}
           <button
             onClick={() => handleStartCheckout()}
@@ -3914,6 +3983,30 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
           >
             <kbd className="bg-indigo-300 text-slate-950 font-black px-1.5 py-0.5 rounded text-[10px] font-mono">F7</kbd>
             <span className="font-bold">Orçamentos</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              fetchCaderninhoSummary();
+              setIsCaderninhoModalOpen(true);
+            }}
+            className="flex items-center gap-1.5 bg-amber-500/20 hover:bg-amber-500/30 px-2.5 py-1 rounded border border-amber-400/30 text-amber-200 transition cursor-pointer"
+            title="Abrir Caderninho do PDV (pequenas anotações e recebimentos)"
+          >
+            <BookOpen size={13} className="text-amber-300" />
+            <span className="font-bold">Caderninho</span>
+            {caderninhoSummary.openPeopleCount > 0 && (
+              <span
+                className={`font-black px-1.5 py-0.2 rounded-full text-[10px] ${
+                  caderninhoSummary.overduePeopleCount > 0
+                    ? 'bg-red-500 text-white animate-pulse'
+                    : 'bg-amber-400 text-slate-950'
+                }`}
+              >
+                {caderninhoSummary.openPeopleCount}
+              </span>
+            )}
           </button>
 
           <button
@@ -6856,6 +6949,34 @@ exit
           </div>
         );
       })()}
+
+      <CaderninhoModal
+        isOpen={isCaderninhoModalOpen}
+        onClose={() => {
+          setIsCaderninhoModalOpen(false);
+          focusBarcodeInput();
+        }}
+        cart={cart}
+        cartDiscount={totalDiscount}
+        cartTotal={totalFinal}
+        currentSeller={currentSeller}
+        currentUser={currentUser}
+        autoPrintCupom={autoPrintCupom}
+        isOfflineMode={isOfflineMode}
+        onEntryCreated={(summary) => {
+          if (summary) setCaderninhoSummary(summary);
+          setCart([]);
+          setDiscount(0);
+          setDiscountPercent(0);
+          setSelectedCustomer(null);
+          setCustomerCpf('');
+          setCustomerNameInput('');
+          setCustomerCreditInfo(null);
+        }}
+        onSummaryUpdated={(summary) => {
+          if (summary) setCaderninhoSummary(summary);
+        }}
+      />
     </div>
   );
 };

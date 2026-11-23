@@ -983,6 +983,156 @@ export function imprimirComprovanteOrcamento(orc: ComprovanteOrcamentoData) {
   });
 }
 
+export interface ComprovanteCaderninhoData {
+  entry_id: string;
+  pessoa_nome: string;
+  data_hora: string;
+  vendedor_nome?: string;
+  itens: Array<{
+    nome: string;
+    quantidade: number;
+    subtotal: number;
+  }>;
+  valor_anotacao: number;
+  saldo_acumulado: number;
+  desconto?: number;
+  teto_alerta?: number;
+  observacoes?: string;
+}
+
+/**
+ * Imprime Comprovante Térmico 80mm de Anotação no Caderninho do PDV
+ */
+export function imprimirComprovanteCaderninho(data: ComprovanteCaderninhoData) {
+  const itemsHtml = data.itens
+    .map(
+      (it) => `
+      <div class="item-row">
+        <div class="item-desc">${it.quantidade}x ${escapeHtml(it.nome)}</div>
+        <div class="item-val">R$ ${Number(it.subtotal || 0).toFixed(2)}</div>
+      </div>
+    `
+    )
+    .join('');
+
+  const teto = Number(data.teto_alerta || 100);
+  const aboveLimit = Number(data.saldo_acumulado || 0) > teto;
+
+  const html = `
+    <!DOCTYPE html>
+    <html lang="pt-BR">
+    <head>
+      <meta charset="utf-8">
+      <title>Caderninho - ${escapeHtml(data.pessoa_nome)}</title>
+      <style>
+        @page { size: 80mm auto; margin: 0; }
+        @media print {
+          html, body {
+            width: 72mm !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            filter: contrast(300%) grayscale(100%);
+          }
+        }
+        * {
+          box-sizing: border-box;
+          margin: 0;
+          padding: 0;
+          color: #000000 !important;
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+        }
+        body {
+          font-family: 'Courier New', Courier, monospace, 'DejaVu Sans Mono';
+          font-size: 11px;
+          line-height: 1.3;
+          padding: 3mm 4mm;
+          background: #fff;
+          font-weight: 700;
+        }
+        .header { text-align: center; margin-bottom: 6px; }
+        .title { font-size: 14px; font-weight: 900; text-transform: uppercase; }
+        .subtitle { font-size: 11px; font-weight: 900; margin-top: 2px; }
+        .client-box { border: 2px solid #000; padding: 5px; margin: 6px 0; text-align: center; }
+        .client-name { font-size: 15px; font-weight: 900; text-transform: uppercase; }
+        .divider { border-top: 1px dashed #000000; margin: 5px 0; }
+        .item-row { display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 2px; font-weight: 800; }
+        .item-desc { width: 72%; word-break: break-word; }
+        .item-val { width: 28%; text-align: right; white-space: nowrap; }
+        .row { display: flex; justify-content: space-between; font-size: 11px; margin-top: 2px; }
+        .total-row { display: flex; justify-content: space-between; font-size: 14px; font-weight: 900; margin-top: 4px; }
+        .warn-box { border: 1px dashed #000; padding: 4px; margin-top: 5px; font-size: 10px; font-weight: 900; text-align: center; }
+        .sign-box { margin-top: 16px; text-align: center; font-size: 10px; }
+        .sign-line { border-top: 1px solid #000; margin: 0 8mm 3px; }
+        .footer { text-align: center; font-size: 9px; margin-top: 8px; }
+        .cut-space { height: 14mm; }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <div class="title">DROGARIA BELA FARMA SUL</div>
+        <div class="subtitle">ANOTAÇÃO — CADERNINHO DO BALCÃO</div>
+      </div>
+
+      <div class="client-box">
+        <div style="font-size: 9px; font-weight: 800;">CLIENTE / NOME ANOTADO:</div>
+        <div class="client-name">${escapeHtml(data.pessoa_nome)}</div>
+      </div>
+
+      <div style="font-size: 10px; margin-bottom: 4px;">
+        <div>DATA/HORA: ${escapeHtml(data.data_hora)}</div>
+        <div>ATENDENTE: ${escapeHtml(data.vendedor_nome || 'Balcão')}</div>
+        <div>REGISTRO: ${escapeHtml(data.entry_id)}</div>
+      </div>
+
+      <div class="divider"></div>
+      <div style="font-size: 10px; font-weight: 900; margin-bottom: 3px;">PRODUTOS LEVADOS:</div>
+      ${itemsHtml}
+
+      <div class="divider"></div>
+      ${data.desconto && data.desconto > 0 ? `
+      <div class="row">
+        <span>DESCONTO:</span>
+        <span>- R$ ${Number(data.desconto).toFixed(2)}</span>
+      </div>
+      ` : ''}
+      <div class="row" style="font-weight: 900;">
+        <span>VALOR DESTA ANOTAÇÃO:</span>
+        <span>R$ ${Number(data.valor_anotacao).toFixed(2)}</span>
+      </div>
+      <div class="total-row">
+        <span>SALDO NO CADERNINHO:</span>
+        <span>R$ ${Number(data.saldo_acumulado).toFixed(2)}</span>
+      </div>
+
+      ${aboveLimit ? `
+      <div class="warn-box">
+        ATENÇÃO: SALDO ACUMULADO ACIMA DE R$ ${teto.toFixed(2)}
+      </div>
+      ` : ''}
+
+      <div class="sign-box">
+        <div class="sign-line"></div>
+        <div>Assinatura / Conferência</div>
+      </div>
+
+      <div class="divider"></div>
+      <div class="footer">
+        <div>* NÃO É DOCUMENTO FISCAL *</div>
+        <div style="margin-top: 2px;">A venda e o cupom serão emitidos no momento do pagamento.</div>
+      </div>
+      <div class="cut-space"></div>
+    </body>
+    </html>
+  `;
+
+  despacharImpressaoTermica(html, `Caderninho_${data.entry_id}`, {
+    print_type: 'CADERNINHO',
+    entry_id: data.entry_id,
+    person_name: data.pessoa_nome
+  });
+}
+
 function escapeHtml(text: string | null | undefined): string {
   if (!text) return '';
   return String(text)

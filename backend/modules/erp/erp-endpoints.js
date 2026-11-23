@@ -102,6 +102,8 @@ const {
   removerPromocaoEscalonada
 } = require('./erp-promotions.service');
 
+const { createCaderninhoRouter } = require('./caderninho.service');
+
 // ==========================================
 
 // 1. ROTAS DE PRODUTOS & ESTOQUE
@@ -564,6 +566,15 @@ router.post('/pos/pre-sales/:id/cancel', (req, res) => {
     res.status(400).json({ success: false, error: err.message });
   }
 });
+
+// Caderninho do Balcão (anotações rápidas por nome; só entra na venda ao pagar)
+router.use(
+  '/pos/caderninho',
+  createCaderninhoRouter(null, {
+    emitirCupomFiscalFn: emitirCupomFiscal,
+    sincronizarVendaDigifarmaFn: sincronizarVendaDigifarma
+  })
+);
 
 // ==========================================
 // CADASTRO EXPRESSO & SANEAMENTO FISCAL (PDV)

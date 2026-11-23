@@ -1,9 +1,14 @@
 {
   "version": "1.2.6",
-  "commitHash": "268b5a0",
-  "commitMessage": "fix(crediario): desconsiderar vendas e pagamentos anteriores a 01/10/2025",
-  "buildTime": "23/11/2026, 16:06:09",
+  "commitHash": "2f4f894",
+  "commitMessage": "feat(crediario): filtrar carteira padrao apenas para clientes com movimento no ano atual",
+  "buildTime": "23/11/2026, 18:40:44",
   "recentCommits": [
+    {
+      "hash": "2f4f894",
+      "date": "23/11/2026",
+      "message": "feat(crediario): filtrar carteira padrao apenas para clientes com movimento no ano atual"
+    },
     {
       "hash": "268b5a0",
       "date": "23/11/2026",
@@ -58,11 +63,6 @@
       "hash": "dfe325b",
       "date": "17/11/2026",
       "message": "fix(crediario): corrigir busca por nome no balcao ignorando filtro vazio de numeros"
-    },
-    {
-      "hash": "4fd1404",
-      "date": "17/11/2026",
-      "message": "fix: ajustar diretorio absoluto no script INICIAR_BELINHA"
     }
   ]
 }
