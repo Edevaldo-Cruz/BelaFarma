@@ -61,6 +61,8 @@ interface UnifiedClientRow {
   interest_exempt: boolean;
   bought_today: boolean;
   missing_contact: boolean;
+  has_movement_this_year?: boolean;
+  last_movement_date?: string;
   last_payment?: any;
 }
 
@@ -71,6 +73,8 @@ interface CrediarioKpis {
   totalOverdue: number;
   overdueClientsCount: number;
   activeOpenClientsCount: number;
+  activeThisYearClientsCount?: number;
+  currentYear?: number;
   totalClientsCount: number;
   paidThisMonth: number;
   interestEnabled: boolean;
@@ -129,14 +133,17 @@ interface CrediarioConfig {
   };
 }
 
+const CURRENT_YEAR = new Date().getFullYear();
+
 const FILTER_OPTIONS = [
-  { id: 'all', label: 'Todos' },
+  { id: 'movimento_ano', label: `Movimento ${CURRENT_YEAR}` },
   { id: 'com_saldo', label: 'Com Saldo' },
   { id: 'vencidos', label: 'Vencidos' },
   { id: 'em_dia', label: 'Em Dia' },
   { id: 'compras_hoje', label: 'Compraram Hoje' },
   { id: 'bloqueados', label: 'Bloqueados' },
-  { id: 'incompletos', label: 'Cadastro Incompleto' }
+  { id: 'incompletos', label: 'Cadastro Incompleto' },
+  { id: 'all', label: 'Todos os Cadastros' }
 ];
 
 const TEMPLATE_VARIABLES = [
@@ -213,7 +220,7 @@ async function copyClipboardSafe(text: string): Promise<boolean> {
 export const CrediarioHub: React.FC<CrediarioHubProps> = ({
   user,
   initialTab = 'clientes',
-  initialFilter = 'all'
+  initialFilter = 'movimento_ano'
 }) => {
   const { addToast } = useToast();
   const uid = useId();
@@ -238,7 +245,7 @@ export const CrediarioHub: React.FC<CrediarioHubProps> = ({
   const [syncMeta, setSyncMeta] = useState<any>(null);
   const [clientsLoading, setClientsLoading] = useState(true);
   const [clientSearch, setClientSearch] = useState('');
-  const [clientFilter, setClientFilter] = useState(initialFilter || 'all');
+  const [clientFilter, setClientFilter] = useState(initialFilter || 'movimento_ano');
   const [syncingDigifarma, setSyncingDigifarma] = useState(false);
 
   // Aba 2: Lançamentos & Compras
@@ -871,7 +878,22 @@ export const CrediarioHub: React.FC<CrediarioHubProps> = ({
                   ) : clients.length === 0 ? (
                     <tr>
                       <td colSpan={8} className="px-4 py-10 text-center text-slate-500">
-                        Nenhum cliente encontrado para o filtro selecionado.
+                        <div className="space-y-2.5">
+                          <p>
+                            {clientFilter === 'movimento_ano'
+                              ? `Nenhum cliente com movimentação em ${kpis.currentYear || CURRENT_YEAR} encontrado.`
+                              : 'Nenhum cliente encontrado para o filtro selecionado.'}
+                          </p>
+                          {clientFilter === 'movimento_ano' && (
+                            <button
+                              type="button"
+                              onClick={() => setClientFilter('all')}
+                              className="px-3.5 py-1.5 rounded-xl bg-slate-900 text-white dark:bg-white dark:text-slate-900 text-xs font-bold hover:opacity-90 transition-opacity"
+                            >
+                              Ver em Todos os Cadastros
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ) : (
@@ -898,6 +920,12 @@ export const CrediarioHub: React.FC<CrediarioHubProps> = ({
                               <span>{row.phone || 'Sem telefone'}</span>
                               <span>•</span>
                               <span>{row.cpf ? `CPF ${row.cpf}` : 'Sem CPF'}</span>
+                              {row.last_movement_date && (
+                                <>
+                                  <span>•</span>
+                                  <span>Últ. mov. {formatDateBR(row.last_movement_date)}</span>
+                                </>
+                              )}
                               {row.interest_exempt && (
                                 <span className="px-1.5 py-0 rounded bg-emerald-100 text-emerald-800 font-bold">
                                   Isento

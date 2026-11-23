@@ -277,7 +277,7 @@ function createUnifiedCrediarioEndpoints(db, options = {}) {
 
   router.get('/clients', (req, res) => {
     try {
-      const { q = '', filter = 'all' } = req.query;
+      const { q = '', filter = 'movimento_ano' } = req.query;
       const result = unified.listUnifiedClients(db, { q, filter });
       res.json({ success: true, ...result });
     } catch (err) {

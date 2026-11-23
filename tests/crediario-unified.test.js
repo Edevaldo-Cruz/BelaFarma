@@ -656,5 +656,52 @@ describe('Crediário Unificado Bela Farma — PIX, Motor Financeiro, Extratos & 
 
       memDb.close();
     });
+
+    it('MOV-01: filtro movimento_ano exibe apenas clientes com compra/pagamento/cadastro no ano atual e all mantém todos', () => {
+      const memDb = new Database(':memory:');
+      unified.ensureCrediarioUnifiedSchema(memDb);
+      const yr = String(new Date().getFullYear());
+
+      memDb.prepare(`
+        INSERT INTO belafarma_cards (
+          id, customer_id, digifarma_cliente_id, portal_token, customer_name, phone, cpf,
+          card_number, credit_limit, due_day, status, created_at
+        ) VALUES
+          (1, '101', 101, 'tok_mov_01', 'COMPRA ESTE ANO', '18999990001', '', '5489 0000 0000 0001', 500, 20, 'active', '2025-10-05 10:00:00'),
+          (2, '102', 102, 'tok_mov_02', 'PAGAMENTO ESTE ANO', '18999990002', '', '5489 0000 0000 0002', 500, 20, 'active', '2025-10-05 10:00:00'),
+          (3, 'cust_manual', NULL, 'tok_mov_03', 'MANUALESTE ANO', '18999990003', '', '5489 0000 0000 0003', 300, 20, 'active', '${yr}-04-01 10:00:00'),
+          (4, '104', 104, 'tok_mov_04', 'SEM MOVIMENTO NO ANO', '18999990004', '', '5489 0000 0000 0004', 500, 20, 'active', '2025-10-05 10:00:00')
+      `).run();
+
+      memDb.prepare(`
+        INSERT INTO digifarma_crediario_cache (id, cliente_id, cliente_nome, valor, data_compra, data_vencimento, venda_nota_id, produto_nome, quantidade, preco_unitario)
+        VALUES
+          ('df_m1', 101, 'COMPRA ESTE ANO', 50.00, '${yr}-05-10', '${yr}-06-10', 2001, 'PRODUTO NOVO', 1, 50.00),
+          ('df_m4', 104, 'SEM MOVIMENTO NO ANO', 80.00, '2025-11-15', '2025-12-15', 2002, 'PRODUTO 2025', 1, 80.00)
+      `).run();
+
+      memDb.prepare(`
+        INSERT INTO digifarma_crediario_pagamentos_cache (contrec_id, cliente_id, total_debito, valor_pago, tipo_pag, data_pag)
+        VALUES
+          (801, 102, 70.00, 70.00, 'T', '${yr}-03-12'),
+          (804, 104, 120.00, 40.00, 'P', '2025-11-20')
+      `).run();
+
+      const movList = unified.listUnifiedClients(memDb, { filter: 'movimento_ano' });
+      const names = movList.clients.map(c => c.customer_name);
+      assert.strictEqual(movList.clients.length, 3);
+      assert.ok(names.includes('COMPRA ESTE ANO'));
+      assert.ok(names.includes('PAGAMENTO ESTE ANO'));
+      assert.ok(names.includes('MANUALESTE ANO'));
+      assert.ok(!names.includes('SEM MOVIMENTO NO ANO'));
+      assert.strictEqual(movList.kpis.activeThisYearClientsCount, 3);
+      assert.strictEqual(movList.kpis.totalClientsCount, 4);
+
+      const allList = unified.listUnifiedClients(memDb, { filter: 'all' });
+      assert.strictEqual(allList.clients.length, 4);
+      assert.ok(allList.clients.some(c => c.customer_name === 'SEM MOVIMENTO NO ANO' && c.last_movement_date === '2025-11-20'));
+
+      memDb.close();
+    });
   });
 });

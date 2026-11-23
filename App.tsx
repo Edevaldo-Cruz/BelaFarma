@@ -1681,7 +1681,7 @@ const App: React.FC = () => {
                 <CheckingAccount user={user} />
               )}
               {currentView === 'crediario-report' && (user.role === UserRole.ADM || user.role === UserRole.OPERADOR) && (
-                <CrediarioHub user={user} initialTab="clientes" initialFilter="all" />
+                <CrediarioHub user={user} initialTab="clientes" initialFilter="movimento_ano" />
               )}
               {(currentView === 'agenda' || currentView === 'task-management') && (
                 <AgendaCalendar currentUser={user} users={users} />

@@ -1551,7 +1551,7 @@ function listUnifiedClients(db, { q = '', filter = 'all' } = {}) {
     .prepare('SELECT * FROM digifarma_crediario_cache WHERE (data_compra IS NULL OR substr(data_compra, 1, 10) >= ?) ORDER BY data_compra ASC, id ASC')
     .all(CREDIARIO_CUTOFF_DATE);
   const localPurchasesAll = db
-    .prepare("SELECT * FROM crediario_local_purchases WHERE status != 'paid' AND (purchased_at IS NULL OR substr(purchased_at, 1, 10) >= ?) ORDER BY purchased_at ASC")
+    .prepare('SELECT * FROM crediario_local_purchases WHERE (purchased_at IS NULL OR substr(purchased_at, 1, 10) >= ?) ORDER BY purchased_at ASC')
     .all(CREDIARIO_CUTOFF_DATE);
   const dfPaymentsAll = db
     .prepare('SELECT cliente_id, valor_pago, data_pag, contrec_id FROM digifarma_crediario_pagamentos_cache WHERE (data_pag IS NULL OR substr(data_pag, 1, 10) >= ?)')
@@ -1574,6 +1574,12 @@ function listUnifiedClients(db, { q = '', filter = 'all' } = {}) {
     localByCard.get(lp.card_id).push(lp);
   }
 
+  const localPayByCard = new Map();
+  for (const lp of localPaymentsAll) {
+    if (!localPayByCard.has(lp.card_id)) localPayByCard.set(lp.card_id, []);
+    localPayByCard.get(lp.card_id).push(lp);
+  }
+
   const lastPaymentByCli = new Map();
   for (const p of dfPaymentsAll) {
     const cid = Number(p.cliente_id);
@@ -1585,6 +1591,8 @@ function listUnifiedClients(db, { q = '', filter = 'all' } = {}) {
   }
 
   const todayYMD = toLocalDateYMD(new Date());
+  const currentYear = todayYMD.slice(0, 4);
+  const yearStartYMD = `${currentYear}-01-01`;
   const currentMonthPrefix = todayYMD.slice(0, 7);
 
   // Recebido no mês (Digifarma + local sem duplicação evidente)
@@ -1605,11 +1613,13 @@ function listUnifiedClients(db, { q = '', filter = 'all' } = {}) {
   let kpiTotalOverdue = 0;
   let kpiOverdueClients = 0;
   let kpiActiveOpenClients = 0;
+  let kpiActiveThisYearClients = 0;
 
   const computed = cards.map(card => {
     const dfId = card.digifarma_cliente_id || (/^\d+$/.test(String(card.customer_id || '')) ? Number(card.customer_id) : null);
     const dfItems = dfId ? (dfByCli.get(dfId) || []) : [];
     const localPurchases = localByCard.get(card.id) || [];
+    const localPayments = localPayByCard.get(card.id) || [];
     const fin = calculateAccountFinancials(card, dfItems, localPurchases, config);
 
     kpiTotalPrincipal = round2(kpiTotalPrincipal + fin.principalBalance);
@@ -1622,6 +1632,27 @@ function listUnifiedClients(db, { q = '', filter = 'all' } = {}) {
 
     const boughtToday = fin.openItems.some(it => it.purchaseDate === todayYMD);
     const lastPay = dfId ? lastPaymentByCli.get(dfId) || null : null;
+
+    const movementDates = [];
+    for (const it of dfItems) {
+      const d = toLocalDateYMD(it.data_compra);
+      if (d) movementDates.push(d);
+    }
+    for (const lp of localPurchases) {
+      const d = toLocalDateYMD(lp.purchased_at);
+      if (d) movementDates.push(d);
+    }
+    if (lastPay?.date) movementDates.push(lastPay.date);
+    for (const lpay of localPayments) {
+      const d = toLocalDateYMD(lpay.paid_at);
+      if (d) movementDates.push(d);
+    }
+    movementDates.sort();
+    const lastMovementDate = movementDates.length > 0 ? movementDates[movementDates.length - 1] : '';
+    const isManualCreatedThisYear = !dfId && toLocalDateYMD(card.created_at) >= yearStartYMD;
+    const hasMovementThisYear = Boolean((lastMovementDate && lastMovementDate >= yearStartYMD) || isManualCreatedThisYear);
+    if (hasMovementThisYear) kpiActiveThisYearClients++;
+
     const cleanCpf = sanitizeDigits(card.cpf);
     const cleanPhone = sanitizeDigits(card.phone);
     const missingContact = cleanCpf.length < 11 || cleanPhone.length < 8;
@@ -1657,6 +1688,8 @@ function listUnifiedClients(db, { q = '', filter = 'all' } = {}) {
       interest_exempt: fin.interestExempt,
       bought_today: boughtToday,
       missing_contact: missingContact,
+      has_movement_this_year: hasMovementThisYear,
+      last_movement_date: lastMovementDate,
       last_payment: lastPay
     };
   });
@@ -1679,6 +1712,7 @@ function listUnifiedClients(db, { q = '', filter = 'all' } = {}) {
       if (!nameMatch && !buyerMatch && !digitMatch) return false;
     }
 
+    if (filter === 'movimento_ano') return c.has_movement_this_year;
     if (filter === 'vencidos') return c.overdue_principal > 0;
     if (filter === 'em_dia') return c.principal_balance > 0 && c.overdue_principal <= 0 && !c.is_blocked;
     if (filter === 'compras_hoje') return c.bought_today;
@@ -1697,6 +1731,8 @@ function listUnifiedClients(db, { q = '', filter = 'all' } = {}) {
       totalOverdue: kpiTotalOverdue,
       overdueClientsCount: kpiOverdueClients,
       activeOpenClientsCount: kpiActiveOpenClients,
+      activeThisYearClientsCount: kpiActiveThisYearClients,
+      currentYear: Number(currentYear),
       totalClientsCount: computed.length,
       paidThisMonth,
       interestEnabled: config.interestEnabled

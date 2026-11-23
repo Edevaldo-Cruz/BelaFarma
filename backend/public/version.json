@@ -1,9 +1,14 @@
 {
   "version": "1.2.6",
-  "commitHash": "fd2ef24",
-  "commitMessage": "feat(crediario): central unificada com ficha 360, extratos simples/completo, juros, whatsapp e portal pix",
-  "buildTime": "23/11/2026, 12:03:55",
+  "commitHash": "268b5a0",
+  "commitMessage": "fix(crediario): desconsiderar vendas e pagamentos anteriores a 01/10/2025",
+  "buildTime": "23/11/2026, 16:06:09",
   "recentCommits": [
+    {
+      "hash": "268b5a0",
+      "date": "23/11/2026",
+      "message": "fix(crediario): desconsiderar vendas e pagamentos anteriores a 01/10/2025"
+    },
     {
       "hash": "fd2ef24",
       "date": "22/11/2026",
@@ -58,11 +63,6 @@
       "hash": "4fd1404",
       "date": "17/11/2026",
       "message": "fix: ajustar diretorio absoluto no script INICIAR_BELINHA"
-    },
-    {
-      "hash": "5b47545",
-      "date": "17/11/2026",
-      "message": "build: atualizacao do dist com central unificada de crediario"
     }
   ]
 }
