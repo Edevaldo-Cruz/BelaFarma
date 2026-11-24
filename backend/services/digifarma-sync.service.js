@@ -65,6 +65,9 @@ async function syncProdutos(db) {
         PROD_PRPROMOCAO,
         INICIO_PROMOCAO,
         TERMINO_PROMOCAO,
+        PROD_PRCREDIARIO,
+        PROMOCAO_VISTA,
+        PROMOCAO_CONVENIO,
         TRIBUTACAO_MONOFASICA,
         CST_PIS,
         CST_COFINS,
@@ -129,10 +132,11 @@ async function syncProdutos(db) {
     const insertOrReplaceStmt = db.prepare(`
       INSERT OR REPLACE INTO digifarma_products_cache (
         produto_id, descricao, codigo_barras, categoria_id, estoque_atual,
-        preco_venda, preco_custo, preco_promocao, preco_normal, curva, 
+        preco_venda, preco_custo, preco_promocao, preco_normal,
+        preco_crediario, promocao_vista, promocao_convenio, curva, 
         tributacao_monofasica, cst_pis, cst_cofins, aliquota_st, imposto_aliq, ncm, cest,
         atualizado_em
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
     `);
 
     const insertMany = db.transaction((prods) => {
@@ -140,6 +144,9 @@ async function syncProdutos(db) {
         const effectivePrice = getEffectivePrice(p);
         const normalPrice = parseFloat(p.PROD_PRVENDA || 0);
         const promoPrice = parseFloat(p.PROD_PRPROMOCAO || 0);
+        const crediarioPrice = parseFloat(p.PROD_PRCREDIARIO || 0);
+        const promoVista = p.PROMOCAO_VISTA === 'S' ? 'S' : 'N';
+        const promoConvenio = p.PROMOCAO_CONVENIO === 'S' ? 'S' : 'N';
         const cmv = parseFloat(p.PROD_CMV || 0);
         const pUlt = parseFloat(p.VALOR_ULT_COMPRA || 0);
         const pCompra = parseFloat(p.PROD_PRCOMPRA || 0);
@@ -155,6 +162,9 @@ async function syncProdutos(db) {
           custoCmv,
           promoPrice,
           normalPrice,
+          crediarioPrice,
+          promoVista,
+          promoConvenio,
           p.curve,
           p.TRIBUTACAO_MONOFASICA || null,
           p.CST_PIS || null,
@@ -186,6 +196,9 @@ async function syncProdutos(db) {
           ), products.barcode),
           sale_price = (SELECT d.preco_normal FROM digifarma_products_cache d WHERE d.produto_id = products.code),
           promo_price = (SELECT d.preco_promocao FROM digifarma_products_cache d WHERE d.produto_id = products.code),
+          crediario_price = COALESCE((SELECT d.preco_crediario FROM digifarma_products_cache d WHERE d.produto_id = products.code), 0),
+          promo_vista = COALESCE((SELECT d.promocao_vista FROM digifarma_products_cache d WHERE d.produto_id = products.code), 'N'),
+          promo_convenio = COALESCE((SELECT d.promocao_convenio FROM digifarma_products_cache d WHERE d.produto_id = products.code), 'N'),
           cost_price = (SELECT d.preco_custo FROM digifarma_products_cache d WHERE d.produto_id = products.code),
           stock_qty = (SELECT d.estoque_atual FROM digifarma_products_cache d WHERE d.produto_id = products.code),
           curve = COALESCE((SELECT d.curva FROM digifarma_products_cache d WHERE d.produto_id = products.code), products.curve),
@@ -199,13 +212,15 @@ async function syncProdutos(db) {
       db.prepare(`
         INSERT OR IGNORE INTO products (
           code, barcode, name, presentation, category_id,
-          sale_price, promo_price, cost_price, stock_qty, curve,
+          sale_price, promo_price, crediario_price, promo_vista, promo_convenio,
+          cost_price, stock_qty, curve,
           tributacao_monofasica, cst_pis, cst_cofins, aliquota_st, imposto_aliq, ncm, cest,
           is_active, updated_at
         )
         SELECT 
           d.produto_id, d.codigo_barras, d.descricao, '', d.categoria_id,
-          d.preco_normal, d.preco_promocao, d.preco_custo, d.estoque_atual, d.curva,
+          d.preco_normal, d.preco_promocao, COALESCE(d.preco_crediario, 0), COALESCE(d.promocao_vista, 'N'), COALESCE(d.promocao_convenio, 'N'),
+          d.preco_custo, d.estoque_atual, d.curva,
           d.tributacao_monofasica, d.cst_pis, d.cst_cofins, d.aliquota_st, d.imposto_aliq, d.ncm, d.cest,
           1, datetime('now', 'localtime')
         FROM digifarma_products_cache d

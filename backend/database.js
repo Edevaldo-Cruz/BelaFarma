@@ -887,6 +887,9 @@ try {
     try { db.exec('ALTER TABLE digifarma_products_cache ADD COLUMN imposto_aliq REAL'); } catch(e) {}
     try { db.exec('ALTER TABLE digifarma_products_cache ADD COLUMN ncm TEXT'); } catch(e) {}
     try { db.exec('ALTER TABLE digifarma_products_cache ADD COLUMN cest TEXT'); } catch(e) {}
+    try { db.exec('ALTER TABLE digifarma_products_cache ADD COLUMN preco_crediario REAL DEFAULT 0'); } catch(e) {}
+    try { db.exec("ALTER TABLE digifarma_products_cache ADD COLUMN promocao_vista TEXT DEFAULT 'N'"); } catch(e) {}
+    try { db.exec("ALTER TABLE digifarma_products_cache ADD COLUMN promocao_convenio TEXT DEFAULT 'N'"); } catch(e) {}
 
     // Inserir regras padrão de precificação se não existirem
     try {

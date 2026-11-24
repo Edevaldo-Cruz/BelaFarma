@@ -28,6 +28,9 @@ function enrichProduct(p) {
 
   return {
     ...p,
+    crediario_price: parseFloat(p.crediario_price || 0) || 0,
+    promo_vista: p.promo_vista === 'S' ? 'S' : 'N',
+    promo_convenio: p.promo_convenio === 'S' ? 'S' : 'N',
     is_controlado: classification.is_controlado,
     recipe_type: classification.recipe_type,
     recipe_label: classification.label,
@@ -159,18 +162,21 @@ function findInDigifarmaCacheAndPromote(parsed) {
     const cleanBarcode = String(cached.codigo_barras || '').trim().replace(/\s+/g, '');
     const salePrice = Number(cached.preco_normal) > 0 ? Number(cached.preco_normal) : Number(cached.preco_venda || 0);
     const promoPrice = Number(cached.preco_promocao || 0);
+    const crediarioPrice = Number(cached.preco_crediario || 0);
+    const promoVista = cached.promocao_vista === 'S' ? 'S' : 'N';
+    const promoConvenio = cached.promocao_convenio === 'S' ? 'S' : 'N';
     const costPrice = Number(cached.preco_custo || 0);
     const stockQty = Number(cached.estoque_atual || 0);
 
     db.prepare(`
       INSERT INTO products (
         code, barcode, name, presentation, category_id,
-        sale_price, promo_price, cost_price, stock_qty, curve,
+        sale_price, promo_price, crediario_price, promo_vista, promo_convenio, cost_price, stock_qty, curve,
         tributacao_monofasica, cst_pis, cst_cofins, aliquota_st, imposto_aliq, ncm, cest,
         is_active, updated_at
       ) VALUES (
         ?, ?, ?, '', ?,
-        ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?, ?, ?, ?,
         1, datetime('now', 'localtime')
       )
@@ -178,6 +184,9 @@ function findInDigifarmaCacheAndPromote(parsed) {
         barcode = CASE WHEN excluded.barcode != '' THEN excluded.barcode ELSE products.barcode END,
         sale_price = excluded.sale_price,
         promo_price = excluded.promo_price,
+        crediario_price = excluded.crediario_price,
+        promo_vista = excluded.promo_vista,
+        promo_convenio = excluded.promo_convenio,
         cost_price = excluded.cost_price,
         stock_qty = excluded.stock_qty,
         is_active = 1,
@@ -189,6 +198,9 @@ function findInDigifarmaCacheAndPromote(parsed) {
       cached.categoria_id || null,
       salePrice,
       promoPrice,
+      crediarioPrice,
+      promoVista,
+      promoConvenio,
       costPrice,
       stockQty,
       cached.curva || 'C',
@@ -245,7 +257,8 @@ async function syncSingleProductFromDigifarma(cleanQ) {
       SELECT FIRST 1
         PRODUTO_ID, PRODUTO, APRESENTACAO, COD_BARRAS, CATEGORIA_ID,
         PROD_SALDO, PROD_PRVENDA, PROD_PRCOMPRA, VALOR_ULT_COMPRA, PROD_CMV,
-        PROD_PRPROMOCAO, TRIBUTACAO_MONOFASICA, CST_PIS, CST_COFINS,
+        PROD_PRPROMOCAO, PROD_PRCREDIARIO, PROMOCAO_VISTA, PROMOCAO_CONVENIO,
+        TRIBUTACAO_MONOFASICA, CST_PIS, CST_COFINS,
         ALIQUOTA_ST, IMPOSTO_ALIQ, NCM, CEST, PSICOTROPICO, ANTIMICROBIANO
       FROM PRODUTOS
       WHERE ${whereCond} AND PROD_ATIVO = 'S'
@@ -266,6 +279,9 @@ async function syncSingleProductFromDigifarma(cleanQ) {
         category_id: p.CATEGORIA_ID ? parseInt(p.CATEGORIA_ID, 10) : null,
         sale_price: parseFloat(p.PROD_PRVENDA || 0),
         promo_price: parseFloat(p.PROD_PRPROMOCAO || 0),
+        crediario_price: parseFloat(p.PROD_PRCREDIARIO || 0),
+        promo_vista: p.PROMOCAO_VISTA === 'S' ? 'S' : 'N',
+        promo_convenio: p.PROMOCAO_CONVENIO === 'S' ? 'S' : 'N',
         cost_price: custo,
         stock_qty: parseFloat(p.PROD_SALDO || 0),
         curve: 'C',
@@ -284,12 +300,12 @@ async function syncSingleProductFromDigifarma(cleanQ) {
       db.prepare(`
         INSERT OR REPLACE INTO products (
           code, barcode, name, presentation, category_id,
-          sale_price, promo_price, cost_price, stock_qty, curve,
+          sale_price, promo_price, crediario_price, promo_vista, promo_convenio, cost_price, stock_qty, curve,
           tributacao_monofasica, cst_pis, cst_cofins, aliquota_st, imposto_aliq, ncm, cest,
           psicotropico, antimicrobiano, is_active, updated_at
         ) VALUES (
           @code, @barcode, @name, @presentation, @category_id,
-          @sale_price, @promo_price, @cost_price, @stock_qty, @curve,
+          @sale_price, @promo_price, @crediario_price, @promo_vista, @promo_convenio, @cost_price, @stock_qty, @curve,
           @tributacao_monofasica, @cst_pis, @cst_cofins, @aliquota_st, @imposto_aliq, @ncm, @cest,
           @psicotropico, @antimicrobiano, 1, datetime('now', 'localtime')
         )
@@ -299,10 +315,11 @@ async function syncSingleProductFromDigifarma(cleanQ) {
         db.prepare(`
           INSERT OR REPLACE INTO digifarma_products_cache (
             produto_id, descricao, codigo_barras, categoria_id, estoque_atual,
-            preco_venda, preco_custo, preco_promocao, preco_normal, curva,
+            preco_venda, preco_custo, preco_promocao, preco_normal,
+            preco_crediario, promocao_vista, promocao_convenio, curva,
             tributacao_monofasica, cst_pis, cst_cofins, aliquota_st, imposto_aliq, ncm, cest,
             atualizado_em
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
         `).run(
           newProd.code,
           newProd.name + (newProd.presentation ? ` ${newProd.presentation}` : ''),
@@ -313,6 +330,9 @@ async function syncSingleProductFromDigifarma(cleanQ) {
           newProd.cost_price,
           newProd.promo_price,
           newProd.sale_price,
+          newProd.crediario_price,
+          newProd.promo_vista,
+          newProd.promo_convenio,
           newProd.curve,
           newProd.tributacao_monofasica,
           newProd.cst_pis,
@@ -793,7 +813,7 @@ function buscarProdutosPaginados({
   const sql = `
     SELECT 
       p.code, p.barcode, p.name, p.presentation, p.category_id,
-      p.sale_price, p.promo_price, p.cost_price, p.stock_qty, p.curve,
+      p.sale_price, p.promo_price, p.crediario_price, p.promo_vista, p.promo_convenio, p.cost_price, p.stock_qty, p.curve,
       p.tributacao_monofasica, p.ncm, p.cest, p.psicotropico, p.antimicrobiano, p.recipe_type,
       p.is_active, p.updated_at,
       COALESCE(c.vendas_30d, p.vendas_30d, 0) as vendas_30d,

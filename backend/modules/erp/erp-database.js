@@ -43,8 +43,21 @@ function initErpDatabase() {
     if (!pCols.includes('psicotropico')) db.prepare(`ALTER TABLE products ADD COLUMN psicotropico TEXT DEFAULT 'N'`).run();
     if (!pCols.includes('antimicrobiano')) db.prepare(`ALTER TABLE products ADD COLUMN antimicrobiano TEXT DEFAULT 'N'`).run();
     if (!pCols.includes('recipe_type')) db.prepare(`ALTER TABLE products ADD COLUMN recipe_type TEXT DEFAULT NULL`).run();
+    if (!pCols.includes('crediario_price')) db.prepare(`ALTER TABLE products ADD COLUMN crediario_price REAL DEFAULT 0`).run();
+    if (!pCols.includes('promo_vista')) db.prepare(`ALTER TABLE products ADD COLUMN promo_vista TEXT DEFAULT 'N'`).run();
+    if (!pCols.includes('promo_convenio')) db.prepare(`ALTER TABLE products ADD COLUMN promo_convenio TEXT DEFAULT 'N'`).run();
   } catch (err) {
     console.warn('[Belinha ERP DB] Aviso ao verificar colunas products:', err.message);
+  }
+  try {
+    const cacheCols = db.pragma('table_info(digifarma_products_cache)').map(c => c.name);
+    if (cacheCols.length > 0) {
+      if (!cacheCols.includes('preco_crediario')) db.prepare(`ALTER TABLE digifarma_products_cache ADD COLUMN preco_crediario REAL DEFAULT 0`).run();
+      if (!cacheCols.includes('promocao_vista')) db.prepare(`ALTER TABLE digifarma_products_cache ADD COLUMN promocao_vista TEXT DEFAULT 'N'`).run();
+      if (!cacheCols.includes('promocao_convenio')) db.prepare(`ALTER TABLE digifarma_products_cache ADD COLUMN promocao_convenio TEXT DEFAULT 'N'`).run();
+    }
+  } catch (err) {
+    console.warn('[Belinha ERP DB] Aviso ao verificar colunas digifarma_products_cache:', err.message);
   }
 
   // Índices para buscas em milissegundos

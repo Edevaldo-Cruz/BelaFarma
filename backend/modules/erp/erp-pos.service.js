@@ -35,6 +35,10 @@ function registrarVenda(payload) {
   }
 
   // 1. Cálculos de conferência
+  const isCrediarioSale = payments.some(p => {
+    const pm = String(p.payment_method || p.method || '').toUpperCase();
+    return pm.includes('CREDIARIO');
+  });
   let totalItemsValue = 0;
   const processedItems = [];
 
@@ -42,9 +46,22 @@ function registrarVenda(payload) {
     const qtd = Math.max(1, parseFloat(it.quantity) || 1);
     const prod = obterProdutoPorCodigoSync(it.code || it.product_code || it.barcode);
 
-    // Preço unitário com proteção estrita contra NaN
+    // Preço unitário com proteção estrita contra NaN e regra de preço Crediário Digifarma
     const rawPrice = parseFloat(it.unit_price);
-    const fallbackPrice = prod ? ((parseFloat(prod.promo_price) > 0) ? parseFloat(prod.promo_price) : parseFloat(prod.sale_price)) : 0;
+    let fallbackPrice = 0;
+    if (prod) {
+      const salePrice = parseFloat(prod.sale_price) || 0;
+      const promoPrice = parseFloat(prod.promo_price) || 0;
+      const credPrice = parseFloat(prod.crediario_price) || 0;
+      const promoVista = String(prod.promo_vista || '').toUpperCase() === 'S';
+      if (isCrediarioSale) {
+        if (credPrice > 0) fallbackPrice = credPrice;
+        else if (promoPrice > 0 && promoVista) fallbackPrice = salePrice;
+        else fallbackPrice = promoPrice > 0 ? promoPrice : salePrice;
+      } else {
+        fallbackPrice = promoPrice > 0 ? promoPrice : salePrice;
+      }
+    }
     const precoUnit = (!isNaN(rawPrice) && rawPrice >= 0) ? rawPrice : (!isNaN(fallbackPrice) ? fallbackPrice : 0);
 
     // Custo unitário com proteção estrita contra NaN e NULL (garante integridade do NOT NULL do SQLite)

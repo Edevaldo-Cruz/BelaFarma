@@ -72,6 +72,13 @@ interface CartItem {
   barcode: string;
   name: string;
   unit_price: number;
+  base_sale_price?: number;
+  base_promo_price?: number;
+  crediario_price?: number;
+  promo_vista?: string;
+  promo_convenio?: string;
+  cash_unit_price?: number;
+  is_crediario_price?: boolean;
   unit_cost: number;
   quantity: number;
   discount: number;
@@ -99,6 +106,9 @@ interface ProductSearchResult {
   name: string;
   sale_price: number;
   promo_price: number;
+  crediario_price?: number;
+  promo_vista?: string;
+  promo_convenio?: string;
   cost_price: number;
   stock_qty: number;
   curve?: string;
@@ -110,6 +120,46 @@ interface ProductSearchResult {
   recipe_label?: string | null;
   is_controlado?: boolean;
   tiered_rules?: any[];
+}
+
+function resolveProductUnitPrice(
+  prod: {
+    sale_price?: number;
+    promo_price?: number;
+    crediario_price?: number;
+    promo_vista?: string;
+    promo_convenio?: string;
+  },
+  paymentMethod: string
+): { unitPrice: number; cashUnitPrice: number; isCrediarioRule: boolean } {
+  const sale = Math.max(0, Number(prod.sale_price || 0));
+  const promo = Math.max(0, Number(prod.promo_price || 0));
+  const crediario = Math.max(0, Number(prod.crediario_price || 0));
+  const promoVista = String(prod.promo_vista || '').toUpperCase() === 'S';
+  const cashUnitPrice = promo > 0 ? promo : sale;
+
+  if (paymentMethod === 'CREDIARIO') {
+    if (crediario > 0) {
+      return {
+        unitPrice: crediario,
+        cashUnitPrice,
+        isCrediarioRule: Math.abs(crediario - cashUnitPrice) > 0.004,
+      };
+    }
+    if (promo > 0 && promoVista) {
+      return {
+        unitPrice: sale,
+        cashUnitPrice,
+        isCrediarioRule: Math.abs(sale - cashUnitPrice) > 0.004,
+      };
+    }
+  }
+
+  return {
+    unitPrice: cashUnitPrice,
+    cashUnitPrice,
+    isCrediarioRule: false,
+  };
 }
 
 interface CustomerOption {
@@ -647,6 +697,12 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
   // Helper para calcular desconto escalonado (faixa por quantidade)
   const getTieredDiscount = useCallback((it: CartItem) => {
     if (!it || it.quantity <= 1) return null;
+    if (
+      selectedMethod === 'CREDIARIO' &&
+      (it.is_crediario_price || (it.crediario_price || 0) > 0 || String(it.promo_vista || '').toUpperCase() === 'S')
+    ) {
+      return null;
+    }
     const rulesList = [
       ...(tieredRules || []),
       ...TIERED_PRICING_SEED
@@ -685,7 +741,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
       savings: Math.round(savings * 100) / 100,
       label: `${applicable.quantity} un por R$ ${applicable.package_price.toFixed(2)}`
     };
-  }, [tieredRules]);
+  }, [tieredRules, selectedMethod]);
 
   // Aplicação da oferta escalonada a partir da modal instantânea
   const handleConfirmTieredOffer = useCallback(() => {
@@ -1707,6 +1763,81 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
     await processBarcodeLookup(barcodeInput);
   };
 
+  // Alterna forma de pagamento recalculando preços específicos do Crediário no carrinho
+  const handleSelectPaymentMethod = useCallback((
+    nextMethod: 'DINHEIRO' | 'CARTAO_DEBITO' | 'CARTAO_CREDITO' | 'PIX' | 'CREDIARIO'
+  ) => {
+    setSelectedMethod(nextMethod);
+    if (cart.length === 0) return;
+
+    let anyStateChanged = false;
+    let priceChangedCount = 0;
+    let oldSubtotal = 0;
+    let newSubtotal = 0;
+
+    const updated = cart.map(item => {
+      oldSubtotal += item.unit_price * item.quantity;
+      if (item.base_sale_price === undefined && item.base_promo_price === undefined) {
+        newSubtotal += item.unit_price * item.quantity;
+        return item;
+      }
+
+      const resolved = resolveProductUnitPrice(
+        {
+          sale_price: item.base_sale_price,
+          promo_price: item.base_promo_price,
+          crediario_price: item.crediario_price,
+          promo_vista: item.promo_vista,
+          promo_convenio: item.promo_convenio
+        },
+        nextMethod
+      );
+
+      const priceDiffers = Math.abs(resolved.unitPrice - item.unit_price) > 0.004;
+      const flagDiffers = Boolean(item.is_crediario_price) !== resolved.isCrediarioRule;
+      if (priceDiffers || flagDiffers) {
+        anyStateChanged = true;
+      }
+      if (priceDiffers) {
+        priceChangedCount++;
+      }
+
+      newSubtotal += resolved.unitPrice * item.quantity;
+      const clampedDiscount = Math.min(item.discount || 0, resolved.unitPrice);
+
+      return {
+        ...item,
+        unit_price: resolved.unitPrice,
+        cash_unit_price: resolved.cashUnitPrice,
+        is_crediario_price: resolved.isCrediarioRule,
+        discount: clampedDiscount,
+        total_price: Math.round(Math.max(0, (resolved.unitPrice - clampedDiscount) * item.quantity) * 100) / 100
+      };
+    });
+
+    if (anyStateChanged) {
+      setCart(updated);
+    }
+
+    if (priceChangedCount > 0) {
+      const diff = newSubtotal - oldSubtotal;
+      const diffAbs = Math.abs(diff).toFixed(2);
+      if (nextMethod === 'CREDIARIO') {
+        addToast(
+          `💳 Tabela Crediário aplicada: ${priceChangedCount} ${priceChangedCount === 1 ? 'item ajustado' : 'itens ajustados'} (${diff >= 0 ? '+' : '-'}R$ ${diffAbs}).`,
+          'info',
+          3800
+        );
+      } else {
+        addToast(
+          `💵 Tabela À Vista/Cartão restaurada em ${priceChangedCount} ${priceChangedCount === 1 ? 'item' : 'itens'} (${diff >= 0 ? '+' : '-'}R$ ${diffAbs}).`,
+          'info',
+          3200
+        );
+      }
+    }
+  }, [cart, addToast]);
+
   // Adiciona produto ao carrinho
   const addItemToCart = (prod: ProductSearchResult, qty: number = 1) => {
     if (!currentSeller) {
@@ -1715,7 +1846,12 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
       return;
     }
 
-    const effectivePrice = prod.promo_price > 0 ? prod.promo_price : prod.sale_price;
+    const { unitPrice: effectivePrice, cashUnitPrice, isCrediarioRule } = resolveProductUnitPrice(prod, selectedMethod);
+    const baseSalePrice = Math.max(0, Number(prod.sale_price || 0));
+    const basePromoPrice = Math.max(0, Number(prod.promo_price || 0));
+    const crediarioPrice = Math.max(0, Number(prod.crediario_price || 0));
+    const promoVista = String(prod.promo_vista || '').toUpperCase() === 'S' ? 'S' : 'N';
+    const promoConvenio = String(prod.promo_convenio || '').toUpperCase() === 'S' ? 'S' : 'N';
     const costPrice = prod.cost_price || 0;
     const cleanCode = String(prod.code || '').trim().replace(/\.0+$/, '');
     const cleanBarcode = String(prod.barcode || '').trim();
@@ -1735,15 +1871,23 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
       if (existingIdx >= 0) {
         const copy = [...prev];
         const newQty = copy[existingIdx].quantity + qty;
-        const unitPrice = effectivePrice; // Sempre alinha ao preço vigente mais recente
-        const itemDisc = copy[existingIdx].discount || 0;
+        const unitPrice = effectivePrice; // Sempre alinha ao preço vigente para a forma de pagamento selecionada
+        const itemDisc = Math.min(copy[existingIdx].discount || 0, unitPrice);
         copy[existingIdx] = {
           ...copy[existingIdx],
           code: cleanCode,
           barcode: cleanBarcode || copy[existingIdx].barcode,
           unit_price: unitPrice,
+          base_sale_price: baseSalePrice,
+          base_promo_price: basePromoPrice,
+          crediario_price: crediarioPrice,
+          promo_vista: promoVista,
+          promo_convenio: promoConvenio,
+          cash_unit_price: cashUnitPrice,
+          is_crediario_price: isCrediarioRule,
+          discount: itemDisc,
           quantity: newQty,
-          total_price: Math.round(newQty * (unitPrice - itemDisc) * 100) / 100
+          total_price: Math.round(Math.max(0, newQty * (unitPrice - itemDisc)) * 100) / 100
         };
         return copy;
       } else {
@@ -1754,10 +1898,17 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
             barcode: cleanBarcode,
             name: prod.name,
             unit_price: effectivePrice,
+            base_sale_price: baseSalePrice,
+            base_promo_price: basePromoPrice,
+            crediario_price: crediarioPrice,
+            promo_vista: promoVista,
+            promo_convenio: promoConvenio,
+            cash_unit_price: cashUnitPrice,
+            is_crediario_price: isCrediarioRule,
             unit_cost: costPrice,
             quantity: qty,
             discount: initialDiscount,
-            total_price: Math.round(qty * (effectivePrice - initialDiscount) * 100) / 100,
+            total_price: Math.round(Math.max(0, qty * (effectivePrice - initialDiscount)) * 100) / 100,
             recipe_type: prod.recipe_type || null,
             recipe_label: prod.recipe_label || null,
             is_controlado: prod.is_controlado || Boolean(prod.recipe_type),
@@ -1783,10 +1934,18 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
       setIsControlledRecipeOpen(true);
       addToast(`⚠️ Medicamento Controlado (${prod.recipe_label || prod.recipe_type}): Preencha os dados da receita retida conforme a legislação.`, 'warning', 4000);
     } else {
-      addToast(`${qty}x ${prod.name.substring(0, 24)}... adicionado!`, 'success', 1800);
+      addToast(
+        isCrediarioRule && Math.abs(effectivePrice - cashUnitPrice) > 0.004
+          ? `${qty}x ${prod.name.substring(0, 24)}... adicionado (Crediário: R$ ${effectivePrice.toFixed(2)})!`
+          : `${qty}x ${prod.name.substring(0, 24)}... adicionado!`,
+        'success',
+        1800
+      );
 
       // Verificação instantânea de regra de Desconto Escalonado ("Leve 3 por tanto")
-      const tieredRule = findTieredRuleForProduct(prod.code, prod.barcode, prod.tiered_rules);
+      // No Crediário, produtos com preço de crediário ou promoção à vista não recebem pacote à vista
+      const allowTieredInMethod = !(selectedMethod === 'CREDIARIO' && (crediarioPrice > 0 || promoVista === 'S'));
+      const tieredRule = allowTieredInMethod ? findTieredRuleForProduct(prod.code, prod.barcode, prod.tiered_rules) : null;
       if (tieredRule && qty < tieredRule.quantity) {
         const normalTotal = effectivePrice * tieredRule.quantity;
         const savings = Math.max(0, normalTotal - tieredRule.package_price);
@@ -3275,10 +3434,19 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
                       </div>
                     </div>
                     <div className="text-right pl-3">
-                      <div className="text-emerald-700 font-black font-mono text-sm sm:text-base">
-                        R$ {(prod.promo_price > 0 ? prod.promo_price : prod.sale_price).toFixed(2)}
-                      </div>
-                      <span className="text-[9px] text-slate-500 uppercase font-bold">Clique para Incluir</span>
+                      {(() => {
+                        const resolved = resolveProductUnitPrice(prod, selectedMethod);
+                        return (
+                          <>
+                            <div className={`font-black font-mono text-sm sm:text-base ${resolved.isCrediarioRule ? 'text-amber-700' : 'text-emerald-700'}`}>
+                              R$ {resolved.unitPrice.toFixed(2)}
+                            </div>
+                            <span className="text-[9px] text-slate-500 uppercase font-bold">
+                              {resolved.isCrediarioRule ? 'Preço Crediário • Incluir' : 'Clique para Incluir'}
+                            </span>
+                          </>
+                        );
+                      })()}
                     </div>
                   </div>
                 ))}
@@ -3454,6 +3622,24 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
                               )}
                             </div>
                             <div className="flex items-center space-x-2 mt-0.5 flex-wrap">
+                              {selectedMethod === 'CREDIARIO' && item.is_crediario_price && (
+                                <span
+                                  className="text-[10px] text-amber-900 bg-amber-100 px-1.5 py-0.5 rounded border border-amber-300 font-bold inline-flex items-center gap-1"
+                                  title={
+                                    (item.crediario_price || 0) > 0
+                                      ? `Valor diferenciado no Crediário (À vista: R$ ${(item.cash_unit_price ?? item.unit_price).toFixed(2)})`
+                                      : `Promoção exclusiva à vista/cartão não aplicável no Crediário (À vista: R$ ${(item.cash_unit_price ?? item.unit_price).toFixed(2)})`
+                                  }
+                                >
+                                  <span>💳</span>
+                                  <span>
+                                    Preço Crediário
+                                    {item.cash_unit_price !== undefined && Math.abs(item.unit_price - item.cash_unit_price) > 0.004
+                                      ? ` (À vista: R$ ${item.cash_unit_price.toFixed(2)})`
+                                      : ''}
+                                  </span>
+                                </span>
+                              )}
                               {(() => {
                                 const tiered = getTieredDiscount(item);
                                 if (tiered) {
@@ -3464,7 +3650,12 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
                                     </span>
                                   );
                                 }
-                                const availableRule = findTieredRuleForProduct(item.code, item.barcode);
+                                const suppressedByCrediario = selectedMethod === 'CREDIARIO' && Boolean(
+                                  item.is_crediario_price ||
+                                  (item.crediario_price || 0) > 0 ||
+                                  String(item.promo_vista || '').toUpperCase() === 'S'
+                                );
+                                const availableRule = suppressedByCrediario ? null : findTieredRuleForProduct(item.code, item.barcode);
                                 if (availableRule && item.quantity < availableRule.quantity) {
                                   const normalTotalForPromo = item.unit_price * availableRule.quantity;
                                   const promoSavings = Math.max(0, normalTotalForPromo - availableRule.package_price);
@@ -3821,7 +4012,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
                   return (
                     <button
                       key={method.id}
-                      onClick={() => setSelectedMethod(method.id as any)}
+                      onClick={() => handleSelectPaymentMethod(method.id as any)}
                       className={`flex items-center space-x-2 p-2 rounded-lg border font-bold transition-all cursor-pointer ${
                         isActive
                           ? 'bg-[#0f3460] border-[#0b2545] text-white shadow-sm ring-2 ring-[#0f3460]/20'
@@ -3922,6 +4113,24 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
 
               {selectedMethod === 'CREDIARIO' && (
                 <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-300 space-y-1.5">
+                  {(() => {
+                    const credItems = cart.filter(it => it.is_crediario_price);
+                    if (credItems.length === 0) return null;
+                    const diffTotal = credItems.reduce(
+                      (acc, it) => acc + ((it.unit_price - (it.cash_unit_price ?? it.unit_price)) * it.quantity),
+                      0
+                    );
+                    return (
+                      <div className="bg-amber-50 border border-amber-300 text-amber-900 rounded-md px-2 py-1.5 text-[11px] font-bold flex items-center justify-between gap-2">
+                        <span>💳 {credItems.length} {credItems.length === 1 ? 'item com preço de Crediário' : 'itens com preço de Crediário'}</span>
+                        {Math.abs(diffTotal) > 0.004 && (
+                          <span className="font-mono shrink-0">
+                            {diffTotal >= 0 ? '+' : '-'}R$ {Math.abs(diffTotal).toFixed(2)}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })()}
                   <label className="block text-[10px] font-bold text-slate-600">Cliente do Crediário:</label>
                   <input
                     type="text"
@@ -4262,8 +4471,18 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
                               {prod.stock_qty} un
                             </span>
                           </td>
-                          <td className="py-2.5 px-3 text-right font-bold text-emerald-400">
-                            R$ {(prod.promo_price > 0 ? prod.promo_price : prod.sale_price).toFixed(2)}
+                          <td className="py-2.5 px-3 text-right font-bold">
+                            {(() => {
+                              const resolved = resolveProductUnitPrice(prod, selectedMethod);
+                              return (
+                                <div className={resolved.isCrediarioRule ? 'text-amber-400' : 'text-emerald-400'}>
+                                  R$ {resolved.unitPrice.toFixed(2)}
+                                  {resolved.isCrediarioRule && (
+                                    <div className="text-[9px] font-sans uppercase tracking-wider text-amber-300">Crediário</div>
+                                  )}
+                                </div>
+                              );
+                            })()}
                           </td>
                           <td className="py-2.5 px-3 text-center">
                             <button
@@ -6043,7 +6262,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
                         </div>
                         <div className="text-right shrink-0 flex items-center gap-2">
                           <div className="font-mono text-xs font-black text-emerald-400">
-                            R$ {(prod.promo_price > 0 ? prod.promo_price : prod.sale_price).toFixed(2)}
+                            R$ {resolveProductUnitPrice(prod, selectedMethod).unitPrice.toFixed(2)}
                           </div>
                           <button
                             type="button"

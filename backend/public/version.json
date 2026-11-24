@@ -1,9 +1,14 @@
 {
   "version": "1.2.6",
-  "commitHash": "61f234e",
-  "commitMessage": "feat(pdv): implementar funcao caderninho com historico por nome, pagamento parcial, 80mm automatico e cancelamento seguro",
-  "buildTime": "23/11/2026, 19:24:34",
+  "commitHash": "850df24",
+  "commitMessage": "fix(caderninho): estabilizar callbacks para evitar reset durante digitacao; feat(pdv): botao de produto recusado na linha e analise de preco de mercado",
+  "buildTime": "24/11/2026, 09:12:18",
   "recentCommits": [
+    {
+      "hash": "850df24",
+      "date": "23/11/2026",
+      "message": "fix(caderninho): estabilizar callbacks para evitar reset durante digitacao; feat(pdv): botao de produto recusado na linha e analise de preco de mercado"
+    },
     {
       "hash": "61f234e",
       "date": "23/11/2026",
@@ -58,11 +63,6 @@
       "hash": "18a11d1",
       "date": "19/11/2026",
       "message": "fix(belaped): robustez de inicializacao puppeteer no windows e seletores de login"
-    },
-    {
-      "hash": "66a5c63",
-      "date": "18/11/2026",
-      "message": "fix(caixa-inteligente): corrigir ordem de inicializacao de variaveis e guards de seguranca"
     }
   ]
 }
