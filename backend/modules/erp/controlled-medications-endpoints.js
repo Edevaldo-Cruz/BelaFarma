@@ -9,9 +9,12 @@ const router = express.Router();
 const {
   classifyProduct,
   searchPrescribers,
+  searchPrescribersUnified,
   upsertPrescriber,
   searchBuyers,
+  searchBuyersUnified,
   upsertBuyer,
+  getProductLotsAndMs,
   recordSaleRecipes,
   listSaleRecipes,
   recordSanitaryLoss,
@@ -30,10 +33,21 @@ router.post('/classify', (req, res) => {
   }
 });
 
-// 2. Busca rápida de Prescritores / Médicos
-router.get('/prescribers', (req, res) => {
+// 1.1 Consulta Lotes em Estoque + Registro MS do Digifarma (com fallback histórico SQLite)
+router.get('/lots/:productCode', async (req, res) => {
   try {
-    const list = searchPrescribers(req.query.q);
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+    const data = await getProductLotsAndMs(req.params.productCode);
+    res.json({ success: true, data });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 2. Busca rápida de Prescritores / Médicos (SQLite + histórico Digifarma)
+router.get('/prescribers', async (req, res) => {
+  try {
+    const list = await searchPrescribersUnified(req.query.q);
     res.json({ success: true, count: list.length, data: list });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -49,10 +63,10 @@ router.post('/prescribers', (req, res) => {
   }
 });
 
-// 3. Busca rápida de Compradores
-router.get('/buyers', (req, res) => {
+// 3. Busca rápida de Compradores / Clientes (SQLite + Digifarma CLIENTES)
+router.get('/buyers', async (req, res) => {
   try {
-    const list = searchBuyers(req.query.q);
+    const list = await searchBuyersUnified(req.query.q);
     res.json({ success: true, count: list.length, data: list });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });

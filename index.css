@@ -782,9 +782,19 @@ dialog::backdrop {
   backdrop-filter: blur(4px);
 }
 dialog[open].lp-dialog,
-dialog[open].crediario-dialog {
+dialog[open].crediario-dialog,
+dialog[open].controlled-recipe-dialog {
   display: flex;
   flex-direction: column;
+}
+
+/* Validation feedback deferred until interaction/blur/submit (modern-web-guidance: validate-input-after-interaction) */
+:is(.controlled-recipe-dialog input, .controlled-recipe-dialog select):is(:user-invalid, .user-invalid-fallback) {
+  border-color: #d93025 !important;
+  background-color: #fef2f2 !important;
+}
+:is(.controlled-recipe-dialog input, .controlled-recipe-dialog select):is(:user-invalid, .user-invalid-fallback) + .controlled-error-msg {
+  display: block;
 }
 
 /* Visually hidden utility (modern-web-guidance: accessibility / forms) */
@@ -802,8 +812,44 @@ dialog[open].crediario-dialog {
 
 /* Sortable & responsive table helpers (modern-web-guidance: responsive-table, sortable-table) */
 .lp-table-region,
-.crediario-table-region {
+.crediario-table-region,
+.controlled-lots-table-region {
   container-type: inline-size;
+}
+
+@container (width < 560px) {
+  .controlled-lots-table-region table,
+  .controlled-lots-table-region thead,
+  .controlled-lots-table-region tbody,
+  .controlled-lots-table-region tr,
+  .controlled-lots-table-region th,
+  .controlled-lots-table-region td {
+    display: block;
+  }
+  .controlled-lots-table-region thead {
+    display: none;
+  }
+  .controlled-lots-table-region tbody tr {
+    margin-block-end: 0.65rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    background: #ffffff;
+  }
+  .controlled-lots-table-region td,
+  .controlled-lots-table-region tbody th {
+    padding: 0.25rem 0 !important;
+    text-align: left !important;
+    border: none !important;
+  }
+  .controlled-lots-table-region td[data-label]::before {
+    content: attr(data-label) ": ";
+    font-weight: 800;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    color: #475569;
+    margin-right: 0.35rem;
+  }
 }
 
 @container (width < 680px) {

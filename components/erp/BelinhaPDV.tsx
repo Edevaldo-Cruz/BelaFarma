@@ -1385,8 +1385,8 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
   // Atalhos de teclado globais do PDV
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Quando um dialog nativo (Caderninho ou Produtos Recusados) está aberto, não disparar atalhos do PDV por trás
-      if (isCaderninhoModalOpen || isRejectedListOpen || rejectTargetItem) return;
+      // Quando um dialog nativo (Caderninho, Produtos Recusados ou Receita Controlada) está aberto, não disparar atalhos do PDV por trás
+      if (isCaderninhoModalOpen || isRejectedListOpen || rejectTargetItem || isControlledRecipeOpen) return;
 
       // Se estiver com modal de oferta escalonada aberta ("Leve X por Y")
       if (tieredOfferModal.isOpen) {
@@ -1475,7 +1475,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
           setIsSellerModalOpen(false);
           setIsPendingCheckout(false);
         }
-        else if (isControlledRecipeOpen) setIsControlledRecipeOpen(false);
+        else if (isControlledRecipeOpen) return;
         else if (isSearchOpen) setIsSearchOpen(false);
         else if (isDiscountModalOpen) setIsDiscountModalOpen(false);
         else if (isCustomerModalOpen) setIsCustomerModalOpen(false);
@@ -5986,6 +5986,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
           phone: selectedCustomer?.phone
         }}
         existingRecipes={controlledRecipesData}
+        initialActiveCode={activeControlledItem?.code || null}
         onClose={() => {
           setIsControlledRecipeOpen(false);
           setIsFinishingSale(false);
