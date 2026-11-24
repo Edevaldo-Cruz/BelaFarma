@@ -498,47 +498,54 @@ describe('Crediário Unificado Bela Farma — PIX, Motor Financeiro, Extratos & 
       assert.strictEqual(admBody.success, true);
     });
 
-    it('API-09: GET /clients restringe por padrão ao movimento do ano atual (yearOnly=1) e libera tudo com yearOnly=0', async () => {
-      const yr = String(new Date().getFullYear());
-      // Inserir cliente 2 apenas com saldo em 2025 e cliente 3 com pagamento no ano atual
+    it('API-09: GET /clients restringe por padrão a quem comprou nos últimos 2 meses (somando tudo dele) e libera todos com recentOnly=0', async () => {
+      const todayYMD = unified.toLocalDateYMD(new Date());
+      const recentBuy = unified.addDaysYMD(todayYMD, -15);
+      const recentDue = unified.addDaysYMD(todayYMD, 15);
+      const staleBuy = unified.addDaysYMD(todayYMD, -90);
+      const staleDue = unified.addDaysYMD(todayYMD, -60);
+
       memDb.prepare(`
         INSERT INTO belafarma_cards (
           id, customer_id, digifarma_cliente_id, portal_token, customer_name, phone, cpf,
           card_number, credit_limit, due_day, status
         ) VALUES
-          (2, '202', 202, 'tok_old_2025_only_12345678', 'CLIENTE SO 2025', '18999992025', '', '5489 2222 0000 0002', 500, 20, 'active'),
-          (3, '203', 203, 'tok_new_year_only_12345678', 'CLIENTE ATIVO ESTE ANO', '18999992026', '', '5489 2222 0000 0003', 500, 20, 'active')
+          (2, '202', 202, 'tok_old_2025_only_12345678', 'CLIENTE COMPRA ANTIGA', '18999992025', '', '5489 2222 0000 0002', 500, 20, 'active'),
+          (3, '203', 203, 'tok_new_year_only_12345678', 'CLIENTE ATIVO 2 MESES', '18999992026', '', '5489 2222 0000 0003', 500, 20, 'active')
       `).run();
 
       memDb.prepare(`
         INSERT INTO digifarma_crediario_cache (id, cliente_id, cliente_nome, valor, data_compra, data_vencimento, venda_nota_id, produto_nome, quantidade, preco_unitario)
         VALUES
-          ('df_2025', 202, 'CLIENTE SO 2025', 90.00, '2025-11-10', '2025-12-10', 96001, 'ITEM 2025', 1, 90.00),
-          ('df_yr', 203, 'CLIENTE ATIVO ESTE ANO', 40.00, '${yr}-06-15', '${yr}-07-15', 96002, 'ITEM ANO', 1, 40.00)
-      `).run();
+          ('df_2025', 202, 'CLIENTE COMPRA ANTIGA', 90.00, ?, ?, 96001, 'ITEM ANTIGO', 1, 90.00),
+          ('df_yr_old', 203, 'CLIENTE ATIVO 2 MESES', 55.00, '2024-06-10', '2024-07-10', 96002, 'ITEM HISTORICO ANTIGO', 1, 55.00),
+          ('df_yr_new', 203, 'CLIENTE ATIVO 2 MESES', 40.00, ?, ?, 96003, 'ITEM RECENTE', 1, 40.00)
+      `).run(staleBuy, staleDue, recentBuy, recentDue);
 
       const resDefault = await fetch(`${baseUrl}/api/crediario-v2/clients?filter=all`, {
         headers: { Authorization: `Bearer ${opToken}` }
       });
       assert.strictEqual(resDefault.status, 200);
       const dataDefault = await resDefault.json();
-      assert.ok(dataDefault.clients.some(c => c.id === 3));
-      assert.ok(!dataDefault.clients.some(c => c.id === 2), 'Sem yearOnly=0 nao deve listar cliente sem movimento no ano');
-      assert.strictEqual(dataDefault.kpis.onlyCurrentYear, true);
+      const cli3 = dataDefault.clients.find(c => c.id === 3);
+      assert.ok(cli3, 'Cliente com compra nos últimos 2 meses deve aparecer por padrão');
+      assert.strictEqual(cli3.principal_balance, 95, 'Deve considerar TODAS as compras (40 + 55 antiga) do cliente ativo');
+      assert.ok(!dataDefault.clients.some(c => c.id === 2), 'Sem recentOnly=0 nao deve listar cliente sem compra nos últimos 2 meses');
+      assert.strictEqual(dataDefault.kpis.onlyRecentPurchases, true);
 
-      const resAll = await fetch(`${baseUrl}/api/crediario-v2/clients?filter=all&yearOnly=0`, {
+      const resAll = await fetch(`${baseUrl}/api/crediario-v2/clients?filter=all&recentOnly=0`, {
         headers: { Authorization: `Bearer ${opToken}` }
       });
       assert.strictEqual(resAll.status, 200);
       const dataAll = await resAll.json();
       assert.ok(dataAll.clients.some(c => c.id === 2));
       assert.ok(dataAll.clients.some(c => c.id === 3));
-      assert.strictEqual(dataAll.kpis.onlyCurrentYear, false);
+      assert.strictEqual(dataAll.kpis.onlyRecentPurchases, false);
     });
   });
 
-  describe('5. Corte Global de Histórico (< 01/10/2025)', () => {
-    it('CUT-01: calculateAccountFinancials desconsidera compras Digifarma e locais anteriores a 2025-10-01 e mantém >= 2025-10-01', () => {
+  describe('5. Elegibilidade por Compra Recente (Últimos 2 Meses) + Histórico Completo', () => {
+    it('REC-01: calculateAccountFinancials considera TODAS as compras (inclusive antigas) sem cortar datas anteriores a 01/10/2025', () => {
       const card = {
         id: 10,
         credit_limit: 500,
@@ -553,10 +560,10 @@ describe('Crediário Unificado Bela Farma — PIX, Motor Financeiro, Extratos & 
         {
           id: 'old_df',
           quantidade: 1,
-          preco_unitario: 250,
-          valor: 250,
-          data_compra: '2025-09-30',
-          data_vencimento: '2025-10-30',
+          preco_unitario: 150,
+          valor: 150,
+          data_compra: '2024-05-10',
+          data_vencimento: '2024-06-10',
           produto_nome: 'COMPRA ANTIGA DIGIFARMA'
         },
         {
@@ -564,9 +571,9 @@ describe('Crediário Unificado Bela Farma — PIX, Motor Financeiro, Extratos & 
           quantidade: 1,
           preco_unitario: 45,
           valor: 45,
-          data_compra: '2025-10-01',
-          data_vencimento: '2026-12-01',
-          produto_nome: 'COMPRA CORTE EXATO'
+          data_compra: '2026-11-05',
+          data_vencimento: '2026-12-05',
+          produto_nome: 'COMPRA RECENTE DIGIFARMA'
         }
       ];
       const localPurchases = [
@@ -577,7 +584,7 @@ describe('Crediário Unificado Bela Farma — PIX, Motor Financeiro, Extratos & 
           amount: 120,
           paid_amount: 0,
           status: 'open',
-          purchased_at: '2025-09-15 14:20:00'
+          purchased_at: '2025-02-15 14:20:00'
         },
         {
           id: 'loc_new',
@@ -586,7 +593,7 @@ describe('Crediário Unificado Bela Farma — PIX, Motor Financeiro, Extratos & 
           amount: 30,
           paid_amount: 0,
           status: 'open',
-          purchased_at: '2025-10-05 10:00:00'
+          purchased_at: '2026-11-10 10:00:00'
         }
       ];
 
@@ -595,15 +602,16 @@ describe('Crediário Unificado Bela Farma — PIX, Motor Financeiro, Extratos & 
         dfItems,
         localPurchases,
         { interestEnabled: false, graceDays: 5, lateFinePercent: 2, lateInterestMonthlyPercent: 1 },
-        new Date('2026-11-23T12:00:00')
+        new Date('2026-11-24T12:00:00')
       );
 
-      assert.strictEqual(fin.principalBalance, 75);
-      assert.strictEqual(fin.openItemsCount, 2);
-      assert.ok(fin.openItems.every(it => it.purchaseDate >= unified.CREDIARIO_CUTOFF_DATE));
+      assert.strictEqual(fin.principalBalance, 345);
+      assert.strictEqual(fin.openItemsCount, 4);
+      assert.ok(fin.openItems.some(it => it.purchaseDate === '2024-05-10'));
+      assert.ok(fin.openItems.some(it => it.purchaseDate === '2025-02-15'));
     });
 
-    it('CUT-02: ensureCrediarioUnifiedSchema limpa caches < 01/10/2025 e buildClientStatement ignora pagamentos/compras antigos', () => {
+    it('REC-02: ensureCrediarioUnifiedSchema preserva caches antigos e buildClientStatement inclui todo o histórico do cliente', () => {
       const memDb = new Database(':memory:');
       unified.ensureCrediarioUnifiedSchema(memDb);
 
@@ -611,135 +619,101 @@ describe('Crediário Unificado Bela Farma — PIX, Motor Financeiro, Extratos & 
         INSERT INTO belafarma_cards (
           id, customer_id, digifarma_cliente_id, portal_token, customer_name, phone, cpf,
           card_number, credit_limit, due_day, status
-        ) VALUES (1, '77', 77, 'tok_cut_0123456789abcdef', 'CLIENTE CORTE TESTE', '18999990000', '12345678901',
+        ) VALUES (1, '77', 77, 'tok_rec_0123456789abcdef', 'CLIENTE HISTORICO COMPLETO', '18999990000', '12345678901',
           '5489 0000 1111 2222', 800, 20, 'active')
       `).run();
 
-      // Inserir registros antigos e novos diretamente no cache + tabelas locais
       memDb.prepare(`
         INSERT INTO digifarma_crediario_cache (id, cliente_id, cliente_nome, valor, data_compra, data_vencimento, venda_nota_id, produto_nome, quantidade, preco_unitario)
         VALUES
-          ('df_old_1', 77, 'CLIENTE CORTE TESTE', 500.00, '2025-09-29', '2025-10-29', 1001, 'PRODUTO SETEMBRO', 1, 500.00),
-          ('df_new_1', 77, 'CLIENTE CORTE TESTE', 60.00, '2025-10-01', '2025-11-01', 1002, 'PRODUTO OUTUBRO', 1, 60.00)
+          ('df_old_1', 77, 'CLIENTE HISTORICO COMPLETO', 200.00, '2024-06-01', '2024-07-01', 1001, 'PRODUTO ANTIGO 2024', 1, 200.00),
+          ('df_new_1', 77, 'CLIENTE HISTORICO COMPLETO', 60.00, '2026-11-10', '2026-12-10', 1002, 'PRODUTO RECENTE 2026', 1, 60.00)
       `).run();
 
       memDb.prepare(`
         INSERT INTO digifarma_crediario_pagamentos_cache (contrec_id, cliente_id, total_debito, valor_pago, tipo_pag, data_pag)
         VALUES
-          (901, 77, 500.00, 500.00, 'T', '2025-09-25'),
-          (902, 77, 100.00, 40.00, 'P', '2025-10-02')
+          (901, 77, 300.00, 300.00, 'T', '2025-01-20'),
+          (902, 77, 100.00, 40.00, 'P', '2026-11-12')
       `).run();
 
       memDb.prepare(`
         INSERT INTO card_payments (card_id, amount, payment_method, paid_at, notes)
-        VALUES
-          (1, 200.00, 'DINHEIRO', '2025-08-15 10:00:00', 'Pagamento antigo local'),
-          (1, 25.00, 'PIX', '2025-10-10 10:00:00', 'Pagamento valido local')
+        VALUES (1, 50.00, 'DINHEIRO', '2025-08-15 10:00:00', 'Pagamento antigo local')
       `).run();
 
-      const beforeCleanup = unified.buildClientStatement(memDb, 1);
-      assert.strictEqual(beforeCleanup.financials.principalBalance, 60);
-      assert.strictEqual(beforeCleanup.simpleStatement.milestone.type, 'last_payment');
-      assert.match(beforeCleanup.simpleStatement.milestone.label, /10\/10\/2025/);
-      assert.ok(
-        beforeCleanup.completeStatement.entries.every(e => !e.date || e.date >= unified.CREDIARIO_CUTOFF_DATE),
-        'Extrato completo nunca deve listar entradas anteriores a 2025-10-01'
-      );
-
-      // Rodar novamente ensureCrediarioUnifiedSchema expurga caches < 2025-10-01
       unified.ensureCrediarioUnifiedSchema(memDb);
       const cacheOld = memDb.prepare("SELECT COUNT(*) as c FROM digifarma_crediario_cache WHERE data_compra < '2025-10-01'").get().c;
       const pagOld = memDb.prepare("SELECT COUNT(*) as c FROM digifarma_crediario_pagamentos_cache WHERE data_pag < '2025-10-01'").get().c;
-      assert.strictEqual(cacheOld, 0);
-      assert.strictEqual(pagOld, 0);
+      assert.strictEqual(cacheOld, 1, 'Não deve expurgar histórico antigo de cache');
+      assert.strictEqual(pagOld, 1, 'Não deve expurgar pagamentos antigos de cache');
+
+      const st = unified.buildClientStatement(memDb, 1);
+      assert.strictEqual(st.financials.principalBalance, 260);
+      assert.ok(st.completeStatement.entries.some(e => e.date === '2024-06-01'));
+      assert.ok(st.completeStatement.entries.some(e => e.date === '2025-01-20'));
+      assert.ok(st.completeStatement.entries.some(e => e.date === '2025-08-15'));
 
       memDb.close();
     });
 
-    it('CUT-03: listUnifiedClients e listUnifiedTransactions respeitam 2025-10-01 mesmo com periodDays = 9999', () => {
+    it('REC-03: listUnifiedClients e listUnifiedTransactions consideram apenas quem comprou nos últimos 2 meses, com todos os dados deles', () => {
       const memDb = new Database(':memory:');
       unified.ensureCrediarioUnifiedSchema(memDb);
-
-      memDb.prepare(`
-        INSERT INTO belafarma_cards (
-          id, customer_id, digifarma_cliente_id, portal_token, customer_name, phone, cpf,
-          card_number, credit_limit, due_day, status
-        ) VALUES (1, '88', 88, 'tok_tx_0123456789abcdef', 'CLIENTE TRANSACTIONS', '18999991111', '',
-          '5489 2222 3333 4444', 500, 20, 'active')
-      `).run();
-
-      memDb.prepare(`
-        INSERT INTO crediario_local_purchases (id, card_id, sale_id, description, amount, paid_amount, status, purchased_at)
-        VALUES
-          ('p_old', 1, 'S_OLD', 'ITEM ANTES DO CORTE', 99.00, 0, 'open', '2025-09-30 23:59:00'),
-          ('p_new', 1, 'S_NEW', 'ITEM POS CORTE', 42.00, 0, 'open', '2025-10-01 08:00:00')
-      `).run();
-
-      memDb.prepare(`
-        INSERT INTO card_payments (card_id, amount, payment_method, paid_at, notes)
-        VALUES
-          (1, 99.00, 'DINHEIRO', '2025-09-30 15:00:00', 'Pgto antes'),
-          (1, 15.00, 'PIX', '2025-10-03 15:00:00', 'Pgto depois')
-      `).run();
-
-      const clientsList = unified.listUnifiedClients(memDb, { filter: 'all' });
-      assert.strictEqual(clientsList.kpis.totalPrincipal, 42);
-      assert.strictEqual(clientsList.clients[0].principal_balance, 42);
-
-      const tx = unified.listUnifiedTransactions(memDb, { periodDays: 9999 });
-      assert.strictEqual(tx.purchases.length, 1);
-      assert.strictEqual(tx.purchases[0].saleId, 'S_NEW');
-      assert.strictEqual(tx.payments.length, 1);
-      assert.strictEqual(tx.payments[0].amount, 15);
-
-      memDb.close();
-    });
-
-    it('MOV-01: filtro anual (onlyCurrentYear) exibe apenas clientes com compra ou pagamento real no ano e recalcula KPIs', () => {
-      const memDb = new Database(':memory:');
-      unified.ensureCrediarioUnifiedSchema(memDb);
-      const yr = String(new Date().getFullYear());
+      const todayYMD = unified.toLocalDateYMD(new Date());
+      const recentBuy = unified.addDaysYMD(todayYMD, -10);
+      const staleBuy = unified.addDaysYMD(todayYMD, -90);
+      const recentPayNoBuy = unified.addDaysYMD(todayYMD, -5);
 
       memDb.prepare(`
         INSERT INTO belafarma_cards (
           id, customer_id, digifarma_cliente_id, portal_token, customer_name, phone, cpf,
           card_number, credit_limit, due_day, status, created_at
         ) VALUES
-          (1, '101', 101, 'tok_mov_01', 'COMPRA ESTE ANO', '18999990001', '', '5489 0000 0000 0001', 500, 20, 'active', '2025-10-05 10:00:00'),
-          (2, '102', 102, 'tok_mov_02', 'PAGAMENTO ESTE ANO', '18999990002', '', '5489 0000 0000 0002', 500, 20, 'active', '2025-10-05 10:00:00'),
-          (3, 'cust_manual', NULL, 'tok_mov_03', 'MANUAL SEM MOVIMENTO', '18999990003', '', '5489 0000 0000 0003', 300, 20, 'active', '${yr}-04-01 10:00:00'),
-          (4, '104', 104, 'tok_mov_04', 'SEM MOVIMENTO NO ANO', '18999990004', '', '5489 0000 0000 0004', 500, 20, 'active', '2025-10-05 10:00:00')
+          (1, '101', 101, 'tok_rec_01', 'ATIVO COM COMPRA RECENTE', '18999990001', '', '5489 0000 0000 0001', 500, 20, 'active', '2024-01-10 10:00:00'),
+          (2, '102', 102, 'tok_rec_02', 'SO PAGOU RECENTE', '18999990002', '', '5489 0000 0000 0002', 500, 20, 'active', '2024-01-10 10:00:00'),
+          (3, 'cust_manual', NULL, 'tok_rec_03', 'MANUAL SEM COMPRA', '18999990003', '', '5489 0000 0000 0003', 300, 20, 'active', '2026-11-01 10:00:00'),
+          (4, '104', 104, 'tok_rec_04', 'COMPRA HA 90 DIAS', '18999990004', '', '5489 0000 0000 0004', 500, 20, 'active', '2024-01-10 10:00:00')
       `).run();
 
+      // Cliente 101 tem compra antiga (2024-08-10 = 70) + compra recente (50) => saldo total 120
+      // Cliente 104 tem só compra antiga (-90 dias = 80)
       memDb.prepare(`
         INSERT INTO digifarma_crediario_cache (id, cliente_id, cliente_nome, valor, data_compra, data_vencimento, venda_nota_id, produto_nome, quantidade, preco_unitario)
         VALUES
-          ('df_m1', 101, 'COMPRA ESTE ANO', 50.00, '${yr}-05-10', '${yr}-06-10', 2001, 'PRODUTO NOVO', 1, 50.00),
-          ('df_m4', 104, 'SEM MOVIMENTO NO ANO', 80.00, '2025-11-15', '2025-12-15', 2002, 'PRODUTO 2025', 1, 80.00)
-      `).run();
+          ('df_r1_old', 101, 'ATIVO COM COMPRA RECENTE', 70.00, '2024-08-10', '2024-09-10', 2000, 'ITEM ANTIGO ATIVO', 1, 70.00),
+          ('df_r1_new', 101, 'ATIVO COM COMPRA RECENTE', 50.00, ?, '2026-12-20', 2001, 'ITEM RECENTE ATIVO', 1, 50.00),
+          ('df_r4', 104, 'COMPRA HA 90 DIAS', 80.00, ?, '2026-10-01', 2002, 'ITEM VELHO', 1, 80.00)
+      `).run(recentBuy, staleBuy);
 
+      // Pagamentos no mês atual para 101 (R$ 30) e 104 (R$ 25, que está fora do recorte padrão), e para 102 (R$ 70 há 5 dias, sem compra)
       memDb.prepare(`
         INSERT INTO digifarma_crediario_pagamentos_cache (contrec_id, cliente_id, total_debito, valor_pago, tipo_pag, data_pag)
         VALUES
-          (801, 102, 70.00, 70.00, 'T', '${yr}-03-12'),
-          (804, 104, 120.00, 40.00, 'P', '2025-11-20')
-      `).run();
+          (801, 101, 150.00, 30.00, 'P', ?),
+          (802, 102, 70.00, 70.00, 'T', ?),
+          (804, 104, 120.00, 25.00, 'P', ?)
+      `).run(todayYMD, recentPayNoBuy, todayYMD);
 
-      const movList = unified.listUnifiedClients(memDb, { filter: 'all', onlyCurrentYear: true });
-      const names = movList.clients.map(c => c.customer_name);
-      assert.strictEqual(movList.clients.length, 2);
-      assert.ok(names.includes('COMPRA ESTE ANO'));
-      assert.ok(names.includes('PAGAMENTO ESTE ANO'));
-      assert.ok(!names.includes('MANUAL SEM MOVIMENTO'));
-      assert.ok(!names.includes('SEM MOVIMENTO NO ANO'));
-      assert.strictEqual(movList.kpis.totalPrincipal, 50);
-      assert.strictEqual(movList.kpis.totalClientsCount, 2);
-      assert.strictEqual(movList.kpis.allClientsCount, 4);
+      const recList = unified.listUnifiedClients(memDb, { filter: 'all', onlyRecentPurchases: true });
+      assert.strictEqual(recList.clients.length, 1);
+      assert.strictEqual(recList.clients[0].customer_name, 'ATIVO COM COMPRA RECENTE');
+      assert.strictEqual(recList.clients[0].principal_balance, 120, 'Saldo deve somar 70 antiga + 50 recente');
+      assert.strictEqual(recList.kpis.totalPrincipal, 120);
+      assert.strictEqual(recList.kpis.totalClientsCount, 1);
+      assert.strictEqual(recList.kpis.allClientsCount, 4);
+      assert.strictEqual(recList.kpis.paidThisMonth, 30, 'Recebido no mês no escopo ativo considera apenas clientes com compra nos últimos 2 meses');
 
-      const allList = unified.listUnifiedClients(memDb, { filter: 'all', onlyCurrentYear: false });
+      const allList = unified.listUnifiedClients(memDb, { filter: 'all', onlyRecentPurchases: false });
       assert.strictEqual(allList.clients.length, 4);
-      assert.strictEqual(allList.kpis.totalPrincipal, 130);
-      assert.ok(allList.clients.some(c => c.customer_name === 'SEM MOVIMENTO NO ANO' && c.last_movement_date === '2025-11-20'));
+      assert.strictEqual(allList.kpis.totalPrincipal, 200);
+
+      // Aba Lançamentos com periodDays = 0 ("Todo o histórico") traz todo histórico dos clientes ativos
+      const txAll = unified.listUnifiedTransactions(memDb, { periodDays: 0, onlyRecentClients: true });
+      assert.strictEqual(txAll.purchases.length, 2);
+      assert.ok(txAll.purchases.some(p => p.date === '2024-08-10'));
+      assert.strictEqual(txAll.payments.length, 1);
+      assert.strictEqual(txAll.payments[0].amount, 30);
 
       memDb.close();
     });

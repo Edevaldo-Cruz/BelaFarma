@@ -341,7 +341,6 @@ function createCardEndpoints(db, whatsappService = null) {
         items = db.prepare(`
           SELECT * FROM card_invoice_items
           WHERE invoice_id = ?
-            AND (purchased_at IS NULL OR substr(purchased_at, 1, 10) >= '2025-10-01')
           ORDER BY purchased_at DESC
         `).all(latestInvoice.id);
       }
@@ -397,7 +396,6 @@ function createCardEndpoints(db, whatsappService = null) {
         SELECT id, invoice_id, sale_id, description, amount, payment_method, purchased_at
         FROM card_invoice_items
         WHERE card_id = ?
-          AND (purchased_at IS NULL OR substr(purchased_at, 1, 10) >= '2025-10-01')
         ORDER BY purchased_at DESC, id DESC
       `).all(card.id);
 
@@ -423,7 +421,6 @@ function createCardEndpoints(db, whatsappService = null) {
         cardPayments = db.prepare(`
           SELECT * FROM card_payments
           WHERE card_id = ?
-            AND (paid_at IS NULL OR substr(paid_at, 1, 10) >= '2025-10-01')
           ORDER BY paid_at DESC
         `).all(card.id);
       } catch (_) {}
@@ -442,7 +439,7 @@ function createCardEndpoints(db, whatsappService = null) {
         });
       } else {
         invoices.forEach(inv => {
-          if (inv.paid_amount > 0 && (!inv.paid_at || String(inv.paid_at).slice(0, 10) >= '2025-10-01')) {
+          if (inv.paid_amount > 0) {
             transactions.push({
               id: `pagamento_${inv.id}`,
               type: 'PAYMENT',
@@ -520,7 +517,6 @@ function createCardEndpoints(db, whatsappService = null) {
         SELECT id, description, amount, purchased_at
         FROM card_invoice_items
         WHERE card_id = ?
-          AND (purchased_at IS NULL OR substr(purchased_at, 1, 10) >= '2025-10-01')
         ORDER BY purchased_at DESC LIMIT 30
       `).all(card.id);
 
@@ -549,7 +545,6 @@ function createCardEndpoints(db, whatsappService = null) {
         cPayments = db.prepare(`
           SELECT * FROM card_payments
           WHERE card_id = ?
-            AND (paid_at IS NULL OR substr(paid_at, 1, 10) >= '2025-10-01')
           ORDER BY paid_at DESC
         `).all(card.id);
       } catch (_) {}
@@ -566,7 +561,7 @@ function createCardEndpoints(db, whatsappService = null) {
         });
       } else {
         invoices
-          .filter(i => i.paid_amount > 0 && (!i.paid_at || String(i.paid_at).slice(0, 10) >= '2025-10-01'))
+          .filter(i => i.paid_amount > 0)
           .forEach(i => {
           const dStr = i.paid_at ? i.paid_at.substring(0, 10).split('-').reverse().join('/') : '';
           pagamentosHtml += `

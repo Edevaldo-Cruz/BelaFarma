@@ -1,9 +1,14 @@
 {
   "version": "1.2.6",
-  "commitHash": "e5b3c2c",
-  "commitMessage": "feat(pdv): aplicar regra de preco diferenciado para crediario conforme Digifarma",
-  "buildTime": "24/11/2026, 15:25:26",
+  "commitHash": "6c728d8",
+  "commitMessage": "feat(pdv): redefinir modal de receita retida com selecao de lotes e comprador estilo Digifarma",
+  "buildTime": "24/11/2026, 15:27:42",
   "recentCommits": [
+    {
+      "hash": "6c728d8",
+      "date": "24/11/2026",
+      "message": "feat(pdv): redefinir modal de receita retida com selecao de lotes e comprador estilo Digifarma"
+    },
     {
       "hash": "e5b3c2c",
       "date": "24/11/2026",
@@ -58,11 +63,6 @@
       "hash": "79dd473",
       "date": "20/11/2026",
       "message": "feat(provisoes): implementar central de contas variaveis (cartao, simples, inss, cemig, nuv) com persistencia permanente no mes"
-    },
-    {
-      "hash": "347c001",
-      "date": "20/11/2026",
-      "message": "feat(caixa-inteligente): separar sobra operacional para boletos e sobra livre para caixinhas"
     }
   ]
 }

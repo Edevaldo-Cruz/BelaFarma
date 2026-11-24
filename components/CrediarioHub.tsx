@@ -61,6 +61,8 @@ interface UnifiedClientRow {
   interest_exempt: boolean;
   bought_today: boolean;
   missing_contact: boolean;
+  has_recent_purchase?: boolean;
+  last_purchase_date?: string;
   has_movement_this_year?: boolean;
   last_movement_date?: string;
   last_payment?: any;
@@ -73,7 +75,11 @@ interface CrediarioKpis {
   totalOverdue: number;
   overdueClientsCount: number;
   activeOpenClientsCount: number;
+  activeRecentClientsCount?: number;
   activeThisYearClientsCount?: number;
+  recentCutoffDate?: string;
+  recentPurchaseMonths?: number;
+  onlyRecentPurchases?: boolean;
   currentYear?: number;
   totalClientsCount: number;
   allClientsCount?: number;
@@ -134,8 +140,6 @@ interface CrediarioConfig {
     payment_receipt: string;
   };
 }
-
-const CURRENT_YEAR = new Date().getFullYear();
 
 const FILTER_OPTIONS = [
   { id: 'all', label: 'Todos' },
@@ -298,7 +302,7 @@ export const CrediarioHub: React.FC<CrediarioHubProps> = ({
     activeOpenClientsCount: 0,
     totalClientsCount: 0,
     allClientsCount: 0,
-    onlyCurrentYear: true,
+    onlyRecentPurchases: true,
     paidThisMonth: 0,
     interestEnabled: false
   });
@@ -306,7 +310,7 @@ export const CrediarioHub: React.FC<CrediarioHubProps> = ({
   const [clientsLoading, setClientsLoading] = useState(true);
   const [clientSearch, setClientSearch] = useState('');
   const [clientFilter, setClientFilter] = useState(initialFilter || 'all');
-  const [onlyCurrentYear, setOnlyCurrentYear] = useState(true);
+  const [onlyRecentPurchases, setOnlyRecentPurchases] = useState(true);
   const [syncingDigifarma, setSyncingDigifarma] = useState(false);
 
   // Aba 2: Lançamentos & Compras
@@ -375,7 +379,7 @@ export const CrediarioHub: React.FC<CrediarioHubProps> = ({
 
   useEffect(() => {
     if (initialFilter) {
-      setClientFilter(initialFilter === 'movimento_ano' ? 'all' : initialFilter);
+      setClientFilter(initialFilter === 'movimento_ano' || initialFilter === 'compra_recente' ? 'all' : initialFilter);
     }
   }, [initialFilter]);
 
@@ -385,7 +389,7 @@ export const CrediarioHub: React.FC<CrediarioHubProps> = ({
       const params = new URLSearchParams();
       if (clientSearch.trim()) params.set('q', clientSearch.trim());
       if (clientFilter) params.set('filter', clientFilter);
-      params.set('yearOnly', onlyCurrentYear ? '1' : '0');
+      params.set('recentOnly', onlyRecentPurchases ? '1' : '0');
       const res = await fetch(`/api/crediario-v2/clients?${params.toString()}`);
       const data = await res.json();
       if (!res.ok || !data.success) {
@@ -399,13 +403,14 @@ export const CrediarioHub: React.FC<CrediarioHubProps> = ({
     } finally {
       setClientsLoading(false);
     }
-  }, [clientSearch, clientFilter, onlyCurrentYear, addToast]);
+  }, [clientSearch, clientFilter, onlyRecentPurchases, addToast]);
 
   const fetchTransactions = useCallback(async () => {
     setTxLoading(true);
     try {
       const params = new URLSearchParams();
       params.set('periodDays', String(txPeriodDays));
+      params.set('recentOnly', onlyRecentPurchases ? '1' : '0');
       if (txSearch.trim()) params.set('q', txSearch.trim());
       const res = await fetch(`/api/crediario-v2/transactions?${params.toString()}`);
       const data = await res.json();
@@ -419,7 +424,7 @@ export const CrediarioHub: React.FC<CrediarioHubProps> = ({
     } finally {
       setTxLoading(false);
     }
-  }, [txPeriodDays, txSearch, addToast]);
+  }, [txPeriodDays, txSearch, onlyRecentPurchases, addToast]);
 
   const fetchSettings = useCallback(async () => {
     if (!isAdmin) return;
@@ -474,7 +479,7 @@ export const CrediarioHub: React.FC<CrediarioHubProps> = ({
     setAnnotationForm({ description: '', unitPrice: '', quantity: '1', buyerName: '' });
     setLoadingDirectory(true);
     try {
-      const res = await fetch('/api/crediario-v2/clients?yearOnly=0&filter=all');
+      const res = await fetch('/api/crediario-v2/clients?recentOnly=0&filter=all');
       const data = await res.json();
       if (res.ok && data.success && Array.isArray(data.clients)) {
         setAnnotationDirectory(data.clients);
@@ -747,7 +752,7 @@ export const CrediarioHub: React.FC<CrediarioHubProps> = ({
             <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1">
               <span>Ficha 360° • Extrato Simples (Idosos) &amp; Completo • PIX &amp; WhatsApp</span>
               <span className="text-slate-400">•</span>
-              <span>Histórico a partir de 01/10/2025</span>
+              <span>Clientes com compra nos últimos 2 meses (histórico completo)</span>
               <span className="text-slate-400">•</span>
               <span>
                 Último sync Digifarma:{' '}
@@ -829,8 +834,8 @@ export const CrediarioHub: React.FC<CrediarioHubProps> = ({
             {kpis.activeOpenClientsCount}
           </p>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            {onlyCurrentYear
-              ? `de ${kpis.totalClientsCount} cliente(s) com movimento em ${kpis.currentYear || CURRENT_YEAR}`
+            {onlyRecentPurchases
+              ? `de ${kpis.totalClientsCount} cliente(s) com compra nos últimos 2 meses`
               : `de ${kpis.totalClientsCount} ficha(s) cadastradas`}
           </p>
         </div>
@@ -950,19 +955,19 @@ export const CrediarioHub: React.FC<CrediarioHubProps> = ({
               </div>
 
               <div className="flex flex-wrap items-center gap-3">
-                {onlyCurrentYear && (
+                {onlyRecentPurchases && (
                   <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-sky-50 dark:bg-sky-900/30 border border-sky-200 dark:border-sky-800 text-sky-800 dark:text-sky-200 text-[11px] font-bold">
-                    Mostrando apenas clientes com movimento em {kpis.currentYear || CURRENT_YEAR}
+                    Mostrando clientes com compra nos últimos 2 meses{kpis.recentCutoffDate ? ` (desde ${formatDateBR(kpis.recentCutoffDate)})` : ''} • Histórico completo
                   </span>
                 )}
                 <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-pointer select-none">
                   <input
                     type="checkbox"
-                    checked={!onlyCurrentYear}
-                    onChange={e => setOnlyCurrentYear(!e.target.checked)}
+                    checked={!onlyRecentPurchases}
+                    onChange={e => setOnlyRecentPurchases(!e.target.checked)}
                     className="w-4 h-4 accent-red-600 rounded"
                   />
-                  <span>Incluir cadastros sem movimento em {CURRENT_YEAR}</span>
+                  <span>Incluir cadastros sem compra nos últimos 2 meses</span>
                 </label>
               </div>
             </div>
@@ -1017,17 +1022,17 @@ export const CrediarioHub: React.FC<CrediarioHubProps> = ({
                       <td colSpan={8} className="px-4 py-10 text-center text-slate-500">
                         <div className="space-y-2.5">
                           <p>
-                            {onlyCurrentYear
-                              ? `Nenhum cliente com movimentação em ${kpis.currentYear || CURRENT_YEAR} para este filtro.`
+                            {onlyRecentPurchases
+                              ? 'Nenhum cliente com compra nos últimos 2 meses para este filtro.'
                               : 'Nenhum cliente encontrado para o filtro selecionado.'}
                           </p>
-                          {onlyCurrentYear && (
+                          {onlyRecentPurchases && (
                             <button
                               type="button"
-                              onClick={() => setOnlyCurrentYear(false)}
+                              onClick={() => setOnlyRecentPurchases(false)}
                               className="px-3.5 py-1.5 rounded-xl bg-slate-900 text-white dark:bg-white dark:text-slate-900 text-xs font-bold hover:opacity-90 transition-opacity"
                             >
-                              Incluir cadastros sem movimento em {kpis.currentYear || CURRENT_YEAR}
+                              Incluir cadastros sem compra nos últimos 2 meses
                             </button>
                           )}
                         </div>
@@ -1057,10 +1062,14 @@ export const CrediarioHub: React.FC<CrediarioHubProps> = ({
                               <span>{row.phone || 'Sem telefone'}</span>
                               <span>•</span>
                               <span>{row.cpf ? `CPF ${row.cpf}` : 'Sem CPF'}</span>
-                              {row.last_movement_date && (
+                              {(row.last_purchase_date || row.last_movement_date) && (
                                 <>
                                   <span>•</span>
-                                  <span>Últ. mov. {formatDateBR(row.last_movement_date)}</span>
+                                  <span>
+                                    {row.last_purchase_date
+                                      ? `Últ. compra ${formatDateBR(row.last_purchase_date)}`
+                                      : `Últ. mov. ${formatDateBR(row.last_movement_date)}`}
+                                  </span>
                                 </>
                               )}
                               {row.interest_exempt && (
@@ -1249,6 +1258,7 @@ export const CrediarioHub: React.FC<CrediarioHubProps> = ({
                   <option value={30}>Últimos 30 dias</option>
                   <option value={60}>Últimos 60 dias</option>
                   <option value={90}>Últimos 90 dias</option>
+                  <option value={0}>Todo o histórico</option>
                 </select>
               </div>
 

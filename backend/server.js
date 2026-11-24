@@ -8,6 +8,7 @@ const fs = require('fs');
 const fetch = require('node-fetch');
 const config = require('./config.js');
 const { queryDigifarma } = require('./services/digifarma.service');
+const { getRecentPurchaseCutoffYMD } = require('./services/crediario-unified.service');
 const security = require('./security.js');
 
 const app = express();
@@ -3307,9 +3308,13 @@ app.get('/api/customer-debts', (req, res) => {
       SELECT cd.*, c.name as customerName, c.nickname as customerNickname
       FROM customer_debts cd
       LEFT JOIN customers c ON cd.customerId = c.id
-      WHERE (cd.purchaseDate IS NULL OR substr(cd.purchaseDate, 1, 10) >= '2025-10-01')
+      WHERE cd.customerId IN (
+        SELECT DISTINCT customerId
+        FROM customer_debts
+        WHERE substr(purchaseDate, 1, 10) >= ?
+      )
       ORDER BY cd.purchaseDate DESC
-    `).all();
+    `).all(getRecentPurchaseCutoffYMD());
     res.json(debts);
   } catch (err) {
     console.error('Error fetching customer debts:', err);
@@ -3324,7 +3329,6 @@ app.get('/api/customers/:id/debts', (req, res) => {
     const debts = db.prepare(`
       SELECT * FROM customer_debts 
       WHERE customerId = ?
-        AND (purchaseDate IS NULL OR substr(purchaseDate, 1, 10) >= '2025-10-01')
       ORDER BY purchaseDate DESC
     `).all(id);
     res.json(debts);
@@ -3348,7 +3352,6 @@ app.get('/api/customers/:id/balance', (req, res) => {
       FROM customer_debts 
       WHERE customerId = ?
         AND status IN ('Pendente', 'Atrasado')
-        AND (purchaseDate IS NULL OR substr(purchaseDate, 1, 10) >= '2025-10-01')
     `).get(id);
     
     res.json({
@@ -3549,10 +3552,14 @@ app.get('/api/debtors-report', security.requireAdmin, (req, res) => {
       FROM customers c
       INNER JOIN customer_debts cd ON c.id = cd.customerId
       WHERE cd.status IN ('Pendente', 'Atrasado')
-        AND (cd.purchaseDate IS NULL OR substr(cd.purchaseDate, 1, 10) >= '2025-10-01')
+        AND cd.customerId IN (
+          SELECT DISTINCT customerId
+          FROM customer_debts
+          WHERE substr(purchaseDate, 1, 10) >= ?
+        )
       GROUP BY c.id
       ORDER BY totalOwed DESC
-    `).all();
+    `).all(getRecentPurchaseCutoffYMD());
 
     const currentDay = new Date().getDate();
     const debtorsWithStatus = debtors.map(d => ({

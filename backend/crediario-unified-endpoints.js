@@ -263,7 +263,7 @@ function createUnifiedCrediarioEndpoints(db, options = {}) {
 
   router.get('/summary-badge', (req, res) => {
     try {
-      const { kpis } = unified.listUnifiedClients(db, { onlyCurrentYear: true });
+      const { kpis } = unified.listUnifiedClients(db, { onlyRecentPurchases: true });
       res.json({
         success: true,
         hasOverdue: kpis.overdueClientsCount > 0,
@@ -277,15 +277,17 @@ function createUnifiedCrediarioEndpoints(db, options = {}) {
 
   router.get('/clients', (req, res) => {
     try {
-      const { q = '', filter = 'all', yearOnly, includeInactive } = req.query;
-      const onlyCurrentYear =
+      const { q = '', filter = 'all', recentOnly, yearOnly, includeInactive } = req.query;
+      const onlyRecentPurchases =
+        recentOnly !== '0' &&
+        recentOnly !== 'false' &&
         yearOnly !== '0' &&
         yearOnly !== 'false' &&
         includeInactive !== '1' &&
         includeInactive !== 'true' &&
         filter !== 'todos_cadastros';
       const normalizedFilter = filter === 'todos_cadastros' ? 'all' : filter;
-      const result = unified.listUnifiedClients(db, { q, filter: normalizedFilter, onlyCurrentYear });
+      const result = unified.listUnifiedClients(db, { q, filter: normalizedFilter, onlyRecentPurchases });
       res.json({ success: true, ...result });
     } catch (err) {
       console.error('[Crediário Unificado] Erro ao listar clientes:', err);
@@ -295,10 +297,14 @@ function createUnifiedCrediarioEndpoints(db, options = {}) {
 
   router.get('/transactions', (req, res) => {
     try {
-      const { periodDays = 60, q = '' } = req.query;
+      const { periodDays, q = '', recentOnly } = req.query;
+      const rawParsed = periodDays === undefined ? 60 : parseInt(periodDays, 10);
+      const parsedDays = Number.isNaN(rawParsed) ? 60 : rawParsed;
+      const onlyRecentClients = recentOnly !== '0' && recentOnly !== 'false';
       const result = unified.listUnifiedTransactions(db, {
-        periodDays: parseInt(periodDays, 10) || 60,
-        q
+        periodDays: parsedDays,
+        q,
+        onlyRecentClients
       });
       res.json({ success: true, ...result });
     } catch (err) {

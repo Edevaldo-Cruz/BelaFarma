@@ -1,12 +1,13 @@
 const { queryDigifarma } = require('./digifarma.service');
+const { getRecentPurchaseCutoffYMD } = require('./crediario-unified.service');
 const db = require('../database');
-const CREDIARIO_CUTOFF_DATE = '2025-10-01';
 
 /**
  * Lista crediário ativo (Lê do cache SQLite ultra-rápido com fallback para Firebird)
- * Desconsidera registros anteriores a 01/10/2025.
+ * Considera clientes com compra nos últimos 2 meses e traz todo o histórico/débitos deles.
  */
 async function listarCrediarioAtivo() {
+  const recentCutoff = getRecentPurchaseCutoffYMD();
   try {
     const rows = db.prepare(`
       SELECT 
@@ -19,9 +20,14 @@ async function listarCrediarioAtivo() {
         data_vencimento as dueDate,
         venda_nota_id as saleId
       FROM digifarma_crediario_cache
-      WHERE (data_compra IS NULL OR substr(data_compra, 1, 10) >= ?)
+      WHERE cliente_id IN (
+        SELECT DISTINCT cliente_id
+        FROM digifarma_crediario_cache
+        WHERE cliente_id IS NOT NULL
+          AND substr(data_compra, 1, 10) >= ?
+      )
       ORDER BY data_vencimento ASC
-    `).all(CREDIARIO_CUTOFF_DATE);
+    `).all(recentCutoff);
 
     if (rows && rows.length > 0) {
       return rows.map(r => ({
@@ -54,7 +60,11 @@ async function listarCrediarioAtivo() {
       c.VENDA_NOTA_ID as saleId
     FROM FICHARIO c
     LEFT JOIN CLIENTES cli ON c.CLIENTE_ID = cli.CLIENTE_ID
-    WHERE CAST(c.FICHARIO_DATACOMPRA AS DATE) >= DATE '${CREDIARIO_CUTOFF_DATE}'
+    WHERE c.CLIENTE_ID IN (
+      SELECT DISTINCT CLIENTE_ID
+      FROM FICHARIO
+      WHERE CAST(FICHARIO_DATACOMPRA AS DATE) >= DATE '${recentCutoff}'
+    )
     ORDER BY c.FICHARIO_VENCIMENTO ASC
   `;
   const result = await queryDigifarma(sql);

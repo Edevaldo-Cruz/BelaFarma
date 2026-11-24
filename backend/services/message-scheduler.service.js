@@ -15,6 +15,7 @@ const cron = require('node-cron');
 const sender = require('./message-sender.service');
 const templates = require('./message-templates.service');
 const rpaWhatsapp = require('./rpa-whatsapp.service');
+const { getRecentPurchaseCutoffYMD } = require('./crediario-unified.service');
 
 let scheduledJobs = {};
 let dbInstance = null;
@@ -99,6 +100,7 @@ function getBirthdayCustomers(db) {
  */
 function getDebtors(db) {
   try {
+    const recentCutoff = getRecentPurchaseCutoffYMD();
     const customers = db.prepare(`
       SELECT 
         c.id, c.name, c.nickname, c.phone, c.dueDay,
@@ -107,12 +109,16 @@ function getDebtors(db) {
       FROM customers c
       INNER JOIN customer_debts cd ON c.id = cd.customerId
       WHERE cd.status IN ('Pendente', 'Atrasado')
-        AND (cd.purchaseDate IS NULL OR substr(cd.purchaseDate, 1, 10) >= '2025-10-01')
+        AND c.id IN (
+          SELECT DISTINCT customerId
+          FROM customer_debts
+          WHERE substr(purchaseDate, 1, 10) >= ?
+        )
         AND c.phone IS NOT NULL 
         AND c.phone != ''
       GROUP BY c.id
       ORDER BY totalOwed DESC
-    `).all();
+    `).all(recentCutoff);
 
     return customers;
   } catch (error) {

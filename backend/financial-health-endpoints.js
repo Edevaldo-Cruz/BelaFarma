@@ -7,6 +7,7 @@ const path = require('path');
 const fs = require('fs');
 const { callAI } = require('./services/ai.service');
 const { queryDigifarma } = require('./services/digifarma.service');
+const { getRecentPurchaseCutoffYMD } = require('./services/crediario-unified.service');
 
 const LAST_ANALYSIS_FILE = path.join(__dirname, 'last_financial_analysis.json');
 
@@ -613,6 +614,7 @@ module.exports = function (app, db) {
       }
 
       // 4. Crediário a receber — CRM local (customer_debts)
+      const recentCrediarioCutoff = getRecentPurchaseCutoffYMD();
       let crediarioTotal = 0;
       let crediarioDetalhes = [];
       try {
@@ -623,10 +625,14 @@ module.exports = function (app, db) {
           FROM customer_debts cd
           LEFT JOIN customers c ON cd.customerId = c.id
           WHERE cd.status IN ('Pendente', 'Atrasado')
-            AND (cd.purchaseDate IS NULL OR substr(cd.purchaseDate, 1, 10) >= '2025-10-01')
+            AND cd.customerId IN (
+              SELECT DISTINCT customerId
+              FROM customer_debts
+              WHERE substr(purchaseDate, 1, 10) >= ?
+            )
           GROUP BY cd.customerId
           ORDER BY totalDevido DESC
-        `).all();
+        `).all(recentCrediarioCutoff);
         crediarioTotal = debts.reduce((a, d) => a + (d.totalDevido || 0), 0);
         crediarioDetalhes = debts.map(d => ({
           cliente: d.clientName || d.nickname || 'Desconhecido',
@@ -649,7 +655,11 @@ module.exports = function (app, db) {
             MIN(c.FICHARIO_DATACOMPRA) as compraAntiga
           FROM FICHARIO c
           LEFT JOIN CLIENTES cli ON c.CLIENTE_ID = cli.CLIENTE_ID
-          WHERE CAST(c.FICHARIO_DATACOMPRA AS DATE) >= DATE '2025-10-01'
+          WHERE c.CLIENTE_ID IN (
+            SELECT DISTINCT CLIENTE_ID
+            FROM FICHARIO
+            WHERE CAST(FICHARIO_DATACOMPRA AS DATE) >= DATE '${recentCrediarioCutoff}'
+          )
           GROUP BY cli.CLIENTE
           ORDER BY 2 DESC
         `, []);
