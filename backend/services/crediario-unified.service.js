@@ -363,7 +363,8 @@ function ensureCrediarioUnifiedSchema(db) {
     'ALTER TABLE card_payments ADD COLUMN waived_interest REAL DEFAULT 0',
     "ALTER TABLE card_payments ADD COLUMN operator_name TEXT DEFAULT ''",
     'ALTER TABLE card_payments ADD COLUMN synced_digifarma INTEGER DEFAULT 0',
-    'ALTER TABLE card_payments ADD COLUMN is_full_settlement INTEGER DEFAULT 0'
+    'ALTER TABLE card_payments ADD COLUMN is_full_settlement INTEGER DEFAULT 0',
+    'ALTER TABLE card_payments ADD COLUMN digifarma_contrec_id INTEGER'
   ];
 
   for (const sql of alterColumns) {
@@ -729,23 +730,157 @@ function groupItemsBySale(openItems) {
   return groups;
 }
 
+function mapPaymentMethodToDigifarmaRecebimento(paymentMethod = 'DINHEIRO', amount = 0) {
+  const val = Math.max(0, round2(amount));
+  const m = String(paymentMethod || 'DINHEIRO')
+    .trim()
+    .toUpperCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+
+  if (m.includes('PIX')) {
+    return {
+      tipoPagamentoId: 8,
+      bandeira: '',
+      admCartaoId: null,
+      dinheiro: 0,
+      cartao: 0,
+      cheque: 0,
+      chequePre: 0,
+      outros: 0,
+      caixaTotalDelta: 0,
+      caixaDinheiroDelta: 0,
+      caixaCartaoDelta: 0,
+      caixaChequeDelta: 0,
+      caixaOutrosDelta: 0,
+      displayLabel: 'PIX'
+    };
+  }
+  if (m.includes('DEBITO')) {
+    return {
+      tipoPagamentoId: 4,
+      bandeira: 'DEBITO',
+      admCartaoId: null,
+      dinheiro: 0,
+      cartao: val,
+      cheque: 0,
+      chequePre: 0,
+      outros: 0,
+      caixaTotalDelta: val,
+      caixaDinheiroDelta: 0,
+      caixaCartaoDelta: val,
+      caixaChequeDelta: 0,
+      caixaOutrosDelta: 0,
+      displayLabel: 'Cartão Débito'
+    };
+  }
+  if (m.includes('CREDITO') || m.includes('CARTAO')) {
+    return {
+      tipoPagamentoId: 4,
+      bandeira: 'CREDITO',
+      admCartaoId: null,
+      dinheiro: 0,
+      cartao: val,
+      cheque: 0,
+      chequePre: 0,
+      outros: 0,
+      caixaTotalDelta: val,
+      caixaDinheiroDelta: 0,
+      caixaCartaoDelta: val,
+      caixaChequeDelta: 0,
+      caixaOutrosDelta: 0,
+      displayLabel: 'Cartão Crédito'
+    };
+  }
+  if (m.includes('CHEQUE')) {
+    return {
+      tipoPagamentoId: 2,
+      bandeira: '',
+      admCartaoId: null,
+      dinheiro: 0,
+      cartao: 0,
+      cheque: val,
+      chequePre: 0,
+      outros: 0,
+      caixaTotalDelta: val,
+      caixaDinheiroDelta: 0,
+      caixaCartaoDelta: 0,
+      caixaChequeDelta: val,
+      caixaOutrosDelta: 0,
+      displayLabel: 'Cheque'
+    };
+  }
+  if (m.includes('OUTRO')) {
+    return {
+      tipoPagamentoId: 9,
+      bandeira: '',
+      admCartaoId: null,
+      dinheiro: 0,
+      cartao: 0,
+      cheque: 0,
+      chequePre: 0,
+      outros: val,
+      caixaTotalDelta: val,
+      caixaDinheiroDelta: 0,
+      caixaCartaoDelta: 0,
+      caixaChequeDelta: 0,
+      caixaOutrosDelta: val,
+      displayLabel: 'Outros'
+    };
+  }
+  return {
+    tipoPagamentoId: 1,
+    bandeira: '',
+    admCartaoId: null,
+    dinheiro: val,
+    cartao: 0,
+    cheque: 0,
+    chequePre: 0,
+    outros: 0,
+    caixaTotalDelta: val,
+    caixaDinheiroDelta: val,
+    caixaCartaoDelta: 0,
+    caixaChequeDelta: 0,
+    caixaOutrosDelta: 0,
+    displayLabel: 'Dinheiro'
+  };
+}
+
+function resolveDigifarmaPaymentMethodLabel(p = {}, linkedLocal = null) {
+  if (linkedLocal && linkedLocal.payment_method) {
+    return mapPaymentMethodToDigifarmaRecebimento(linkedLocal.payment_method, linkedLocal.amount).displayLabel;
+  }
+  if (Number(p.cartao || 0) > 0 && Number(p.dinheiro || 0) <= 0) return 'Cartão';
+  if (Number(p.cheque || 0) > 0) return 'Cheque';
+  if (Number(p.dinheiro || 0) <= 0 && Number(p.cartao || 0) <= 0) return 'Baixa Caixa / PIX';
+  return 'Dinheiro';
+}
+
 function normalizePaymentEvents(digifarmaPayments = [], localPayments = []) {
   const events = [];
+  const dfByContrecId = new Map();
+  for (const p of digifarmaPayments) {
+    if (p.contrec_id) dfByContrecId.set(Number(p.contrec_id), p);
+  }
+  const localByContrecId = new Map();
+  for (const lp of localPayments) {
+    if (lp.digifarma_contrec_id) {
+      localByContrecId.set(Number(lp.digifarma_contrec_id), lp);
+    }
+  }
 
   for (const p of digifarmaPayments) {
     const val = round2(p.valor_pago || 0);
     const totalDeb = round2(p.total_debito || 0);
     if (val <= 0) continue;
 
+    const linkedLp = localByContrecId.get(Number(p.contrec_id)) || null;
     const dateYMD = toLocalDateYMD(p.data_pag);
     const isZeroed =
       String(p.tipo_pag || '').toUpperCase() === 'T' ||
       (totalDeb > 0 && Math.abs(totalDeb - val) <= 0.05);
 
-    let method = 'Dinheiro';
-    if (Number(p.cartao || 0) > 0 && Number(p.dinheiro || 0) <= 0) method = 'Cartão';
-    else if (Number(p.cheque || 0) > 0) method = 'Cheque';
-    else if (Number(p.dinheiro || 0) <= 0 && Number(p.cartao || 0) <= 0) method = 'Baixa Caixa / PIX';
+    const method = resolveDigifarmaPaymentMethodLabel(p, linkedLp);
 
     events.push({
       id: `df_pag_${p.contrec_id}`,
@@ -757,13 +892,24 @@ function normalizePaymentEvents(digifarmaPayments = [], localPayments = []) {
       remainingAfter: Math.max(0, round2(totalDeb - val)),
       isFullSettlement: isZeroed,
       method,
+      notes: linkedLp?.notes || '',
       receiptNumber: p.n_recibo || String(p.contrec_id)
     });
   }
 
   for (const lp of localPayments) {
-    const val = round2(lp.amount || 0);
+    let val = round2(lp.amount || 0);
     if (val <= 0) continue;
+
+    if (lp.digifarma_contrec_id && dfByContrecId.has(Number(lp.digifarma_contrec_id))) {
+      const dfPaid = round2(dfByContrecId.get(Number(lp.digifarma_contrec_id)).valor_pago || 0);
+      const localOnlyVal = round2(val - dfPaid);
+      if (localOnlyVal <= 0.05) {
+        continue;
+      }
+      val = localOnlyVal;
+    }
+
     const dateYMD = toLocalDateYMD(lp.paid_at || lp.created_at);
     const isZeroed =
       Boolean(Number(lp.is_full_settlement)) ||
@@ -948,7 +1094,7 @@ function buildCompleteStatement(financials, paymentEvents, purchaseGroups) {
 // ============================================================================
 // Sincronização Híbrida com Digifarma (CLIENTES, FICHARIO+PRODUTOS, CONTAS_RECEBIDAS)
 // ============================================================================
-async function syncAllFromDigifarma(db, { notifyNewPurchases = false } = {}) {
+async function syncAllFromDigifarma(db, { notifyNewPurchases = false, queryDigifarmaFn = queryDigifarma } = {}) {
   if (isSyncingDigifarma) {
     return { success: false, busy: true, message: 'Sincronização com Digifarma já está em andamento.' };
   }
@@ -979,7 +1125,7 @@ async function syncAllFromDigifarma(db, { notifyNewPurchases = false } = {}) {
     const eligibleSubquery = `SELECT DISTINCT CLIENTE_ID FROM FICHARIO WHERE CAST(FICHARIO_DATACOMPRA AS DATE) >= DATE '${recentCutoffYMD}'`;
 
     // 1. Buscar TODAS as compras em aberto no FICHARIO dos clientes que compraram nos últimos 2 meses
-    const ficharioRows = await queryDigifarma(`
+    const ficharioRows = await queryDigifarmaFn(`
       SELECT
         f.FICHARIO_ID,
         f.CLIENTE_ID,
@@ -1004,8 +1150,8 @@ async function syncAllFromDigifarma(db, { notifyNewPurchases = false } = {}) {
       ORDER BY f.FICHARIO_VENCIMENTO ASC, f.FICHARIO_ID ASC
     `, [], 25000);
 
-    // 2. Buscar TODO o histórico de CONTAS_RECEBIDAS desses clientes elegíveis (sem corte fixo de data)
-    const pagamentosRows = await queryDigifarma(`
+    // 2. Buscar TODO o histórico de CONTAS_RECEBIDAS dos clientes elegíveis + pagamentos recentes (inclui recém-quitados)
+    const pagamentosRows = await queryDigifarmaFn(`
       SELECT
         CONTREC_ID,
         CLIENTE_ID,
@@ -1021,7 +1167,7 @@ async function syncAllFromDigifarma(db, { notifyNewPurchases = false } = {}) {
         CONTREC_VENDEDOR,
         CONTREC_NRECIBO
       FROM CONTAS_RECEBIDAS
-      WHERE CLIENTE_ID IN (${eligibleSubquery})${extraLocalSql}
+      WHERE CLIENTE_ID IN (${eligibleSubquery})${extraLocalSql} OR CAST(CONTREC_DATAPAG AS DATE) >= DATE '${recentCutoffYMD}'
       ORDER BY CONTREC_DATAPAG DESC
     `, [], 25000);
 
@@ -1038,7 +1184,7 @@ async function syncAllFromDigifarma(db, { notifyNewPurchases = false } = {}) {
       }
     }
 
-    const clientesRows = await queryDigifarma(`
+    const clientesRows = await queryDigifarmaFn(`
       SELECT
         CLIENTE_ID, CLIENTE, CLI_CPF, CLI_RG, CLI_NASCIMENTO,
         CLI_TELEFONE, CLI_CELULAR, CLI_EMAIL,
@@ -1575,7 +1721,7 @@ function listUnifiedClients(db, { q = '', filter = 'all', onlyRecentPurchases = 
     .prepare('SELECT cliente_id, valor_pago, data_pag, contrec_id FROM digifarma_crediario_pagamentos_cache')
     .all();
   const localPaymentsAll = db
-    .prepare('SELECT card_id, amount, paid_at FROM card_payments')
+    .prepare('SELECT id, card_id, amount, paid_at, digifarma_contrec_id, payment_method FROM card_payments')
     .all();
 
   const dfByCli = new Map();
@@ -1598,8 +1744,12 @@ function listUnifiedClients(db, { q = '', filter = 'all', onlyRecentPurchases = 
     localPayByCard.get(lp.card_id).push(lp);
   }
 
+  const dfPaidByContrecId = new Map();
   const lastPaymentByCli = new Map();
   for (const p of dfPaymentsAll) {
+    if (p.contrec_id) {
+      dfPaidByContrecId.set(Number(p.contrec_id), round2(p.valor_pago || 0));
+    }
     const cid = Number(p.cliente_id);
     const d = toLocalDateYMD(p.data_pag);
     const prev = lastPaymentByCli.get(cid);
@@ -1628,7 +1778,13 @@ function listUnifiedClients(db, { q = '', filter = 'all', onlyRecentPurchases = 
     const fin = calculateAccountFinancials(card, dfItems, localPurchases, config);
 
     const boughtToday = fin.openItems.some(it => it.purchaseDate === todayYMD);
-    const lastPay = dfId ? lastPaymentByCli.get(dfId) || null : null;
+    let lastPay = dfId ? lastPaymentByCli.get(dfId) || null : null;
+    for (const lpay of localPayments) {
+      const ld = toLocalDateYMD(lpay.paid_at);
+      if (ld && (!lastPay || ld > lastPay.date)) {
+        lastPay = { date: ld, amount: round2(lpay.amount || 0) };
+      }
+    }
 
     const purchaseDates = [];
     const movementDates = [];
@@ -1721,7 +1877,7 @@ function listUnifiedClients(db, { q = '', filter = 'all', onlyRecentPurchases = 
   );
   const scopedCardIds = new Set(scoped.map(c => c.id));
 
-  // Recebido no mês apenas dos clientes incluídos no escopo ativo (Digifarma + local)
+  // Recebido no mês apenas dos clientes incluídos no escopo ativo (Digifarma + local, sem duplicação)
   let paidThisMonth = 0;
   for (const p of dfPaymentsAll) {
     if (applyRecentScope && !scopedDfIds.has(Number(p.cliente_id))) continue;
@@ -1731,8 +1887,15 @@ function listUnifiedClients(db, { q = '', filter = 'all', onlyRecentPurchases = 
   }
   for (const lp of localPaymentsAll) {
     if (applyRecentScope && !scopedCardIds.has(lp.card_id)) continue;
-    if (toLocalDateYMD(lp.paid_at).startsWith(currentMonthPrefix)) {
-      paidThisMonth = round2(paidThisMonth + Number(lp.amount || 0));
+    if (!toLocalDateYMD(lp.paid_at).startsWith(currentMonthPrefix)) continue;
+
+    let amountToAdd = round2(lp.amount || 0);
+    if (lp.digifarma_contrec_id && dfPaidByContrecId.has(Number(lp.digifarma_contrec_id))) {
+      const dfPaid = dfPaidByContrecId.get(Number(lp.digifarma_contrec_id));
+      amountToAdd = Math.max(0, round2(amountToAdd - dfPaid));
+    }
+    if (amountToAdd > 0.05) {
+      paidThisMonth = round2(paidThisMonth + amountToAdd);
     }
   }
 
@@ -1914,15 +2077,23 @@ function listUnifiedTransactions(db, { periodDays = 60, q = '', onlyRecentClient
     });
   }
 
+  const dfPaidByContrecId = new Map();
+  for (const dp of dfPaymentsAll) {
+    if (dp.contrec_id) dfPaidByContrecId.set(Number(dp.contrec_id), round2(dp.valor_pago || 0));
+  }
+  const localByContrecId = new Map();
+  for (const lp of localPaymentsAll) {
+    if (lp.digifarma_contrec_id) localByContrecId.set(Number(lp.digifarma_contrec_id), lp);
+  }
+
   const payments = [];
   for (const p of dfPaymentsAll) {
     if (onlyRecentClients && !eligibleDfIds.has(Number(p.cliente_id))) continue;
     const dYMD = toLocalDateYMD(p.data_pag);
     if (effectiveCutoff && dYMD && dYMD < effectiveCutoff) continue;
     const card = cardByDfId.get(Number(p.cliente_id));
-    let method = 'Dinheiro';
-    if (Number(p.cartao || 0) > 0 && Number(p.dinheiro || 0) <= 0) method = 'Cartão';
-    else if (Number(p.dinheiro || 0) <= 0 && Number(p.cartao || 0) <= 0) method = 'Baixa Caixa / PIX';
+    const linkedLp = localByContrecId.get(Number(p.contrec_id)) || null;
+    const method = resolveDigifarmaPaymentMethodLabel(p, linkedLp);
 
     payments.push({
       id: `df_pag_${p.contrec_id}`,
@@ -1941,13 +2112,21 @@ function listUnifiedTransactions(db, { periodDays = 60, q = '', onlyRecentClient
     if (onlyRecentClients && !eligibleCardIds.has(lp.card_id)) continue;
     const dYMD = toLocalDateYMD(lp.paid_at || lp.created_at);
     if (effectiveCutoff && dYMD && dYMD < effectiveCutoff) continue;
+
+    let netLocalAmount = round2(lp.amount);
+    if (lp.digifarma_contrec_id && dfPaidByContrecId.has(Number(lp.digifarma_contrec_id))) {
+      const dfPaid = dfPaidByContrecId.get(Number(lp.digifarma_contrec_id));
+      netLocalAmount = round2(netLocalAmount - dfPaid);
+      if (netLocalAmount <= 0.05) continue;
+    }
+
     const card = cardById.get(lp.card_id);
     payments.push({
       id: `loc_pag_${lp.id}`,
       cardId: lp.card_id,
       clientName: card?.customer_name || `Conta #${lp.card_id}`,
       date: dYMD,
-      amount: round2(lp.amount),
+      amount: netLocalAmount,
       debtBefore: 0,
       isFullSettlement: Boolean(lp.is_full_settlement),
       method: lp.payment_method || 'BALCÃO',
@@ -2839,6 +3018,365 @@ async function deleteLocalPurchase(db, { cardId, purchaseId, isAdmin = false, qu
   return { success: true, deletedId: `df_${rawDfId}` };
 }
 
+async function syncCrediarioPaymentToDigifarma(db, {
+  clienteId,
+  amount,
+  paidCharges = 0,
+  paymentMethod = 'DINHEIRO',
+  isFullSettlement = false,
+  selectedDfIds = []
+} = {}, queryDigifarmaFn = queryDigifarma) {
+  if (!clienteId || Number(clienteId) <= 0) {
+    return { synced: false, notApplicable: true, settledPrincipal: 0, settledCount: 0, partialCount: 0 };
+  }
+
+  const principalBudget = Math.max(0, round2(amount));
+  const chargesVal = Math.max(0, round2(paidCharges));
+  if (principalBudget <= 0 && chargesVal <= 0) {
+    return { synced: false, notApplicable: true, settledPrincipal: 0, settledCount: 0, partialCount: 0 };
+  }
+
+  // 1. Verificar se há CAIXA aberto no Digifarma
+  const caixas = await queryDigifarmaFn(
+    'SELECT FIRST 1 CAIXA_ID, OPERADOR_ABERTURA FROM CAIXA WHERE FECHAMENTO IS NULL ORDER BY CAIXA_ID DESC',
+    [],
+    8000
+  );
+  if (!caixas || caixas.length === 0 || !caixas[0].CAIXA_ID) {
+    return {
+      synced: false,
+      warning: 'Nenhum caixa aberto no Digifarma no momento. Pagamento salvo no Belinha; abra o caixa no Digifarma e confira a baixa.'
+    };
+  }
+  const caixa = caixas[0];
+  const caixaId = Number(caixa.CAIXA_ID);
+  const vendedorId = Number(caixa.OPERADOR_ABERTURA || 11);
+
+  // 2. Consultar itens realmente em aberto no FICHARIO do Digifarma
+  const dfRows = await queryDigifarmaFn(`
+    SELECT
+      FICHARIO_ID, PRODUTO_ID, VENDA_NOTA_ID,
+      FICHARIO_QUANTIDADE, FICHARIO_VALOR, FICHARIO_DESCONTO, FICHARIO_FRETE,
+      FICHARIO_COMPRADOR, FICHARIO_DATACOMPRA, FICHARIO_VENCIMENTO
+    FROM FICHARIO
+    WHERE CLIENTE_ID = ?
+    ORDER BY FICHARIO_DATACOMPRA ASC, FICHARIO_ID ASC
+  `, [Number(clienteId)], 8000);
+
+  if (!dfRows || dfRows.length === 0) {
+    return { synced: false, notApplicable: true, settledPrincipal: 0, settledCount: 0, partialCount: 0 };
+  }
+
+  const computeRowTotal = (row) => {
+    const qty = Number(row.FICHARIO_QUANTIDADE || 1);
+    const unitVal = Number(row.FICHARIO_VALOR || 0);
+    const discount = Number(row.FICHARIO_DESCONTO || 0);
+    const freight = Number(row.FICHARIO_FRETE || 0);
+    return {
+      qty,
+      unitVal,
+      discount,
+      freight,
+      lineTotal: Math.max(0, round2((qty * unitVal) - discount + freight))
+    };
+  };
+
+  let totalOpenDfPrincipal = 0;
+  for (const r of dfRows) {
+    totalOpenDfPrincipal = round2(totalOpenDfPrincipal + computeRowTotal(r).lineTotal);
+  }
+
+  const selectedSet = Array.isArray(selectedDfIds) && selectedDfIds.length > 0
+    ? new Set(selectedDfIds.map(id => String(id).replace(/^df_/, '')))
+    : null;
+  const targetRows = selectedSet
+    ? dfRows.filter(r => selectedSet.has(String(r.FICHARIO_ID)))
+    : dfRows;
+
+  if (targetRows.length === 0) {
+    return { synced: false, notApplicable: true, settledPrincipal: 0, settledCount: 0, partialCount: 0 };
+  }
+
+  // 3. Planejar baixa FIFO / parcial exatamente como o Digifarma opera
+  let remainingPrincipal = principalBudget;
+  let settledPrincipal = 0;
+  let settledCount = 0;
+  let partialCount = 0;
+  const operations = [];
+
+  for (const row of targetRows) {
+    const { qty, unitVal, discount, freight, lineTotal } = computeRowTotal(row);
+    if (lineTotal <= 0) continue;
+    if (!isFullSettlement && remainingPrincipal <= 0.004) break;
+
+    if (isFullSettlement || remainingPrincipal + 0.01 >= lineTotal) {
+      const arqUnitVal = (discount > 0 || freight > 0)
+        ? round2(lineTotal / (qty || 1))
+        : unitVal;
+      operations.push({
+        mode: 'full',
+        row,
+        lineTotal,
+        paidQty: qty,
+        arqUnitVal
+      });
+      remainingPrincipal = Math.max(0, round2(remainingPrincipal - lineTotal));
+      settledPrincipal = round2(settledPrincipal + lineTotal);
+      settledCount++;
+    } else if (remainingPrincipal > 0.004) {
+      const effectiveUnit = qty > 0 ? (lineTotal / qty) : lineTotal;
+      const paidQty = effectiveUnit > 0 ? Number((remainingPrincipal / effectiveUnit).toFixed(6)) : 0;
+      const remainingQty = Number(Math.max(0, qty - paidQty).toFixed(6));
+
+      if (remainingQty <= 0.0001) {
+        const arqUnitVal = (discount > 0 || freight > 0)
+          ? round2(lineTotal / (qty || 1))
+          : unitVal;
+        operations.push({
+          mode: 'full',
+          row,
+          lineTotal,
+          paidQty: qty,
+          arqUnitVal
+        });
+        remainingPrincipal = Math.max(0, round2(remainingPrincipal - lineTotal));
+        settledPrincipal = round2(settledPrincipal + lineTotal);
+        settledCount++;
+      } else {
+        const ratio = qty > 0 ? (remainingQty / qty) : 0;
+        const newDiscount = round2(discount * ratio);
+        const newFreight = round2(freight * ratio);
+        const newLineTotal = round2(lineTotal - remainingPrincipal);
+        const arqUnitVal = (discount > 0 || freight > 0)
+          ? round2(effectiveUnit)
+          : unitVal;
+
+        operations.push({
+          mode: 'partial',
+          row,
+          paidQty,
+          remainingQty,
+          newDiscount,
+          newFreight,
+          newLineTotal,
+          arqUnitVal,
+          paidAmount: remainingPrincipal
+        });
+        settledPrincipal = round2(settledPrincipal + remainingPrincipal);
+        remainingPrincipal = 0;
+        partialCount++;
+        break;
+      }
+    }
+  }
+
+  const dfValorPago = round2(settledPrincipal + chargesVal);
+  if (operations.length === 0 || dfValorPago <= 0) {
+    return { synced: false, notApplicable: true, settledPrincipal: 0, settledCount: 0, partialCount: 0 };
+  }
+
+  const todayYMD = toLocalDateYMD(new Date());
+  const totalDebitoBefore = round2(totalOpenDfPrincipal + chargesVal);
+  const remainingDfAfter = Math.max(0, round2(totalOpenDfPrincipal - settledPrincipal));
+  const tipoPagFlag = remainingDfAfter <= 0.01 ? 'T' : 'P';
+  const oldestVencYMD = toLocalDateYMD(targetRows[0]?.FICHARIO_VENCIMENTO) || todayYMD;
+  const pm = mapPaymentMethodToDigifarmaRecebimento(paymentMethod, dfValorPago);
+
+  // 4. Gravar no Firebird
+  const genRes = await queryDigifarmaFn('SELECT GEN_ID(GEN_CONTAS_RECEBIDAS, 1) AS NEW_ID FROM RDB$DATABASE', [], 5000);
+  const contrecId = Number(genRes?.[0]?.NEW_ID);
+  if (!contrecId || isNaN(contrecId)) {
+    throw new Error('Falha ao obter GEN_CONTAS_RECEBIDAS no Firebird.');
+  }
+
+  await queryDigifarmaFn(`
+    INSERT INTO CONTAS_RECEBIDAS (
+      CONTREC_ID, CLIENTE_ID, CONTREC_CONVENIO, CONTREC_TOTALDEBITO,
+      CONTREC_VALORPAG, CONTREC_NRECIBO, CONTREC_TIPOPAG, CONTREC_DATAPAG,
+      CONTREC_VENCIMENTO, CONTREC_VENDEDOR, CAIXA_ID, CONTREC_VALORLIQ,
+      DINHEIRO, CHEQUE, CHEQUE_PRE, LOJA_ID, CARTAO,
+      VALOR_CORRECAO, REMESSA, ADM_CARTAO_ID, OUTROS, CONVENIO_ID
+    ) VALUES (
+      ?, ?, NULL, ?,
+      ?, NULL, ?, CURRENT_TIMESTAMP,
+      ?, ?, ?, ?,
+      ?, ?, ?, 0, ?,
+      ?, 0, ?, ?, NULL
+    )
+  `, [
+    contrecId,
+    Number(clienteId),
+    totalDebitoBefore,
+    dfValorPago,
+    tipoPagFlag,
+    oldestVencYMD,
+    vendedorId,
+    caixaId,
+    dfValorPago,
+    pm.dinheiro,
+    pm.cheque,
+    pm.chequePre,
+    pm.cartao,
+    chargesVal,
+    pm.admCartaoId,
+    pm.outros
+  ], 8000);
+
+  await queryDigifarmaFn(`
+    INSERT INTO CONTAS_RECEBIDAS_FPAGTOS (
+      CONTAS_RECEBIDAS_FPAGTO_ID, TIPO_PAGAMENTO_ID, CONTREC_ID,
+      ORDEM_ID, NSU, PARCELAS, VALOR, BANDEIRA
+    ) VALUES (
+      GEN_ID(GEN_CONTAS_RECEBIDAS_FPAGTOS, 1), ?, ?,
+      1, '', 1, ?, ?
+    )
+  `, [
+    pm.tipoPagamentoId,
+    contrecId,
+    dfValorPago,
+    pm.bandeira
+  ], 8000);
+
+  for (const op of operations) {
+    const prodId = op.row.PRODUTO_ID && Number(op.row.PRODUTO_ID) > 0 ? Number(op.row.PRODUTO_ID) : null;
+    const notaId = op.row.VENDA_NOTA_ID && Number(op.row.VENDA_NOTA_ID) > 0 ? Number(op.row.VENDA_NOTA_ID) : null;
+    const comprador20 = String(op.row.FICHARIO_COMPRADOR || '').trim().slice(0, 20);
+    const dataCompraYMD = toLocalDateYMD(op.row.FICHARIO_DATACOMPRA) || todayYMD;
+
+    // NAO chamar GEN_ID para ARQUIVO_MORTO_ID pois a trigger ARQUIVO_MORTOTRIGGER1 ja gera automaticamente
+    await queryDigifarmaFn(`
+      INSERT INTO ARQUIVO_MORTO (
+        ARQUIVO_MORTO_ID, PRODUTO_ID, CLIENTE_ID, ARQ_NOTA, ARQ_QUANTIDADE,
+        ARQ_COMPRADOR, ARQ_VALORPAG, OLD_ITEM, ARQ_DATAPAG, ARQ_DATACOMPRA, CONTREC_ID
+      ) VALUES (
+        0, ?, ?, ?, ?, ?, ?, NULL, CURRENT_DATE, ?, ?
+      )
+    `, [
+      prodId,
+      Number(clienteId),
+      notaId,
+      op.paidQty,
+      comprador20,
+      op.arqUnitVal,
+      dataCompraYMD,
+      contrecId
+    ], 8000);
+
+    if (op.mode === 'full') {
+      await queryDigifarmaFn('DELETE FROM FICHARIO WHERE FICHARIO_ID = ?', [Number(op.row.FICHARIO_ID)], 8000);
+    } else {
+      await queryDigifarmaFn(`
+        UPDATE FICHARIO
+        SET FICHARIO_QUANTIDADE = ?, FICHARIO_DESCONTO = ?, FICHARIO_FRETE = ?
+        WHERE FICHARIO_ID = ?
+      `, [op.remainingQty, op.newDiscount, op.newFreight, Number(op.row.FICHARIO_ID)], 8000);
+    }
+  }
+
+  if (pm.caixaTotalDelta > 0) {
+    await queryDigifarmaFn(`
+      UPDATE CAIXA
+      SET TOTAL_RECEBIMENTO = COALESCE(TOTAL_RECEBIMENTO, 0) + ?,
+          RECEB_DINHEIRO = COALESCE(RECEB_DINHEIRO, 0) + ?,
+          RECEB_CHEQUE = COALESCE(RECEB_CHEQUE, 0) + ?,
+          RECEB_CARTAO = COALESCE(RECEB_CARTAO, 0) + ?,
+          RECEB_OUTROS = COALESCE(RECEB_OUTROS, 0) + ?
+      WHERE CAIXA_ID = ?
+    `, [
+      pm.caixaTotalDelta,
+      pm.caixaDinheiroDelta,
+      pm.caixaChequeDelta,
+      pm.caixaCartaoDelta,
+      pm.caixaOutrosDelta,
+      caixaId
+    ], 8000);
+  }
+
+  const existingCaixaFp = await queryDigifarmaFn(`
+    SELECT FIRST 1 CAIXA_RECEB_FPAGTO_ID
+    FROM CAIXA_RECEB_FPAGTOS
+    WHERE CAIXA_ID = ? AND TIPO_PAGAMENTO_ID = ? AND COALESCE(BANDEIRA, '') = ?
+  `, [caixaId, pm.tipoPagamentoId, pm.bandeira], 5000);
+
+  if (existingCaixaFp && existingCaixaFp.length > 0 && existingCaixaFp[0].CAIXA_RECEB_FPAGTO_ID) {
+    await queryDigifarmaFn(
+      'UPDATE CAIXA_RECEB_FPAGTOS SET VALOR = COALESCE(VALOR, 0) + ? WHERE CAIXA_RECEB_FPAGTO_ID = ?',
+      [dfValorPago, Number(existingCaixaFp[0].CAIXA_RECEB_FPAGTO_ID)],
+      5000
+    );
+  } else {
+    await queryDigifarmaFn(`
+      INSERT INTO CAIXA_RECEB_FPAGTOS (
+        CAIXA_RECEB_FPAGTO_ID, TIPO_PAGAMENTO_ID, CAIXA_ID, BANDEIRA, VALOR
+      ) VALUES (
+        GEN_ID(GEN_CAIXA_RECEB_FPAGTO, 1), ?, ?, ?, ?
+      )
+    `, [pm.tipoPagamentoId, caixaId, pm.bandeira, dfValorPago], 5000);
+  }
+
+  try {
+    await queryDigifarmaFn(`
+      UPDATE FLUXO_CAIXA
+      SET CONTAS_RECEBIDAS = COALESCE(CONTAS_RECEBIDAS, 0) + ?
+      WHERE CAST(DATA AS DATE) = CURRENT_DATE
+    `, [dfValorPago], 5000);
+  } catch (fluxoErr) {
+    console.warn('[Crediário Unificado] Aviso ao atualizar FLUXO_CAIXA:', fluxoErr.message);
+  }
+
+  // 5. Espelhar imediatamente no SQLite local (evita espera do sync e mantém integridade)
+  db.transaction(() => {
+    for (const op of operations) {
+      const fId = String(op.row.FICHARIO_ID);
+      if (op.mode === 'full') {
+        db.prepare('DELETE FROM digifarma_crediario_cache WHERE id = ?').run(fId);
+        try {
+          db.prepare('DELETE FROM crediario_fichario_labels WHERE fichario_id = ?').run(fId);
+        } catch (_) {}
+      } else {
+        db.prepare(`
+          UPDATE digifarma_crediario_cache
+          SET quantidade = ?, valor = ?, desconto = ?, atualizado_em = datetime('now', 'localtime')
+          WHERE id = ?
+        `).run(op.remainingQty, op.newLineTotal, op.newDiscount, fId);
+      }
+    }
+
+    db.prepare(`
+      INSERT OR REPLACE INTO digifarma_crediario_pagamentos_cache (
+        contrec_id, cliente_id, total_debito, valor_pago, tipo_pag, data_pag,
+        vencimento, dinheiro, cartao, cheque, outros, vendedor, n_recibo, atualizado_em
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, datetime('now', 'localtime'))
+    `).run(
+      contrecId,
+      Number(clienteId),
+      totalDebitoBefore,
+      dfValorPago,
+      tipoPagFlag,
+      todayYMD,
+      oldestVencYMD,
+      pm.dinheiro,
+      pm.cartao,
+      pm.cheque,
+      pm.outros,
+      vendedorId
+    );
+  })();
+
+  return {
+    synced: true,
+    contrecId,
+    caixaId,
+    tipoPagFlag,
+    dfValorPago,
+    settledPrincipal,
+    totalDebitoBefore,
+    settledCount,
+    partialCount,
+    operationsCount: operations.length
+  };
+}
+
 async function receiveCrediarioPayment(db, {
   cardId,
   amount,
@@ -2848,8 +3386,10 @@ async function receiveCrediarioPayment(db, {
   itemIds = [],
   notes = '',
   operatorName = 'Balcão',
-  isAdmin = false
-}) {
+  isAdmin = false,
+  queryDigifarmaFn: payloadQueryFn
+}, options = {}) {
+  const queryDigifarmaFn = options.queryDigifarmaFn || payloadQueryFn || queryDigifarma;
   const card = findCard(db, cardId);
   if (!card) throw new Error('Conta de crediário não encontrada.');
 
@@ -2879,70 +3419,114 @@ async function receiveCrediarioPayment(db, {
   const paidCharges = Math.min(remainingToAllocate, effectiveChargesDue);
   remainingToAllocate = round2(remainingToAllocate - paidCharges);
 
-  // 1. Abater compras locais (FIFO)
-  db.transaction(() => {
-    for (const lp of localPurchases) {
-      if (lp.status === 'paid' || remainingToAllocate <= 0) continue;
-      const openVal = round2(Number(lp.amount) - Number(lp.paid_amount || 0));
-      if (openVal <= 0) continue;
+  const rawItemIds = Array.isArray(itemIds) ? itemIds.map(id => String(id)) : [];
+  const selectedDfIds = rawItemIds
+    .filter(id => !id.startsWith('local_'))
+    .map(id => id.replace(/^df_/, ''))
+    .filter(Boolean);
+  const selectedLocalIds = new Set(
+    rawItemIds
+      .filter(id => id.startsWith('local_') || localPurchases.some(lp => String(lp.id) === id))
+      .map(id => id.replace(/^local_/, ''))
+  );
 
-      const payOnLp = Math.min(remainingToAllocate, openVal);
-      const nextPaid = round2(Number(lp.paid_amount || 0) + payOnLp);
-      const nextStatus = nextPaid >= Number(lp.amount) - 0.01 ? 'paid' : 'partial';
+  const skipLocalBecauseOnlyDfSelected = selectedDfIds.length > 0 && selectedLocalIds.size === 0;
 
-      db.prepare('UPDATE crediario_local_purchases SET paid_amount = ?, status = ? WHERE id = ?')
-        .run(nextPaid, nextStatus, lp.id);
-      remainingToAllocate = round2(remainingToAllocate - payOnLp);
-    }
-  })();
+  // 1. Abater compras locais (selecionadas ou FIFO)
+  if (!skipLocalBecauseOnlyDfSelected) {
+    db.transaction(() => {
+      for (const lp of localPurchases) {
+        if (lp.status === 'paid' || remainingToAllocate <= 0) continue;
+        if (selectedLocalIds.size > 0 && !selectedLocalIds.has(String(lp.id))) continue;
+        const openVal = round2(Number(lp.amount) - Number(lp.paid_amount || 0));
+        if (openVal <= 0) continue;
 
-  // 2. Dar baixa de itens específicos do Digifarma (ou todos se quitação total) quando Digifarma acessível
-  const selectedDfIds = Array.isArray(itemIds)
-    ? itemIds.map(id => String(id).replace(/^df_/, '')).filter(Boolean)
-    : [];
+        const payOnLp = Math.min(remainingToAllocate, openVal);
+        const nextPaid = round2(Number(lp.paid_amount || 0) + payOnLp);
+        const nextStatus = nextPaid >= Number(lp.amount) - 0.01 ? 'paid' : 'partial';
 
-  let dfItemsToClose = [];
-  if (isFullSettlement) {
-    dfItemsToClose = dfItems.map(i => String(i.id));
-  } else if (selectedDfIds.length > 0) {
-    dfItemsToClose = selectedDfIds;
+        db.prepare('UPDATE crediario_local_purchases SET paid_amount = ?, status = ? WHERE id = ?')
+          .run(nextPaid, nextStatus, lp.id);
+        remainingToAllocate = round2(remainingToAllocate - payOnLp);
+      }
+    })();
   }
 
+  // 2. Sincronizar baixa com Digifarma (FICHARIO + CONTAS_RECEBIDAS + ARQUIVO_MORTO + CAIXA)
+  let dfId = card.digifarma_cliente_id
+    || (dfItems[0]?.cliente_id ? Number(dfItems[0].cliente_id) : null)
+    || (/^\d+$/.test(String(card.customer_id || '')) ? Number(card.customer_id) : null);
+
   let syncedDigifarmaCount = 0;
+  let digifarmaSynced = false;
+  let digifarmaNotApplicable = false;
+  let digifarmaContrecId = null;
+  let digifarmaCaixaId = null;
   let digifarmaOfflineWarning = null;
 
-  if (dfItemsToClose.length > 0) {
-    const dfIdSet = new Set(dfItemsToClose);
-    const matchedDfRows = dfItems.filter(it => dfIdSet.has(String(it.id)));
+  const hasDfScope = dfItems.length > 0 || Boolean(dfId);
+  if (hasDfScope && (remainingToAllocate > 0.004 || (paidCharges > 0 && dfItems.length > 0))) {
+    try {
+      if (!dfId) {
+        const resolvedCli = await resolveDigifarmaClienteId(db, {
+          card,
+          cardId: card.id,
+          customerId: card.customer_id,
+          digifarmaClienteId: card.digifarma_cliente_id,
+          customerName: card.customer_name,
+          customerCpf: card.cpf
+        }, queryDigifarmaFn);
+        dfId = resolvedCli?.clienteId || null;
+      }
 
-    for (const row of matchedDfRows) {
-      const itemVal = round2(Number(row.valor || 0));
-      if (!isFullSettlement && remainingToAllocate + 0.05 < itemVal && selectedDfIds.length === 0) {
-        continue;
+      if (dfId) {
+        const syncRes = await syncCrediarioPaymentToDigifarma(db, {
+          clienteId: dfId,
+          amount: remainingToAllocate,
+          paidCharges,
+          paymentMethod,
+          isFullSettlement,
+          selectedDfIds
+        }, queryDigifarmaFn);
+
+        if (syncRes.synced) {
+          digifarmaSynced = true;
+          digifarmaContrecId = syncRes.contrecId;
+          digifarmaCaixaId = syncRes.caixaId;
+          syncedDigifarmaCount = syncRes.settledCount + syncRes.partialCount;
+          remainingToAllocate = Math.max(0, round2(remainingToAllocate - syncRes.settledPrincipal));
+        } else if (syncRes.notApplicable) {
+          digifarmaNotApplicable = true;
+        } else if (syncRes.warning) {
+          digifarmaOfflineWarning = syncRes.warning;
+        }
+      } else {
+        digifarmaNotApplicable = true;
       }
-      try {
-        await queryDigifarma('DELETE FROM FICHARIO WHERE FICHARIO_ID = ?', [Number(row.id)], 5000);
-        db.prepare('DELETE FROM digifarma_crediario_cache WHERE id = ?').run(String(row.id));
-        remainingToAllocate = Math.max(0, round2(remainingToAllocate - itemVal));
-        syncedDigifarmaCount++;
-      } catch (errDf) {
-        digifarmaOfflineWarning = errDf.message;
-        break;
-      }
+    } catch (errDf) {
+      digifarmaOfflineWarning = errDf?.message || 'Digifarma indisponível no momento.';
     }
+  } else {
+    digifarmaNotApplicable = true;
   }
 
   // 3. Registrar pagamento em card_payments e ajustar local_credit_balance + used_limit
   db.transaction(() => {
-    const nextLocalCredit = isFullSettlement && syncedDigifarmaCount === dfItems.length
-      ? 0
-      : round2(Number(card.local_credit_balance || 0) + remainingToAllocate);
+    const { dfItems: remDf, localPurchases: remLocal } = getDigifarmaDataForCard(db, card);
+    const remDfOpenTotal = round2(remDf.reduce((acc, it) => acc + Number(it.valor || 0), 0));
+
+    let nextLocalCredit = round2(Number(card.local_credit_balance || 0) + remainingToAllocate);
+    if (remDfOpenTotal <= 0.01) {
+      nextLocalCredit = 0;
+    } else if (isFullSettlement && remainingToAllocate <= 0.01 && Number(card.local_credit_balance || 0) <= 0.01) {
+      nextLocalCredit = 0;
+    }
 
     db.prepare(`
       INSERT INTO card_payments (
         card_id, invoice_id, amount, payment_method, paid_at, origin, notes,
-        interest_amount, waived_interest, operator_name, synced_digifarma, is_full_settlement
-      ) VALUES (?, NULL, ?, ?, datetime('now', 'localtime'), 'BALCAO_CAIXA', ?, ?, ?, ?, ?, ?)
+        interest_amount, waived_interest, operator_name, synced_digifarma, is_full_settlement, digifarma_contrec_id
+      ) VALUES (?, NULL, ?, ?, datetime('now', 'localtime'), 'BALCAO_CAIXA', ?, ?, ?, ?, ?, ?, ?)
     `).run(
       card.id,
       payVal,
@@ -2951,11 +3535,11 @@ async function receiveCrediarioPayment(db, {
       paidCharges,
       waivedAmount,
       operatorName,
-      syncedDigifarmaCount > 0 ? 1 : 0,
-      isFullSettlement ? 1 : 0
+      digifarmaSynced ? 1 : 0,
+      isFullSettlement ? 1 : 0,
+      digifarmaContrecId || null
     );
 
-    const { dfItems: remDf, localPurchases: remLocal } = getDigifarmaDataForCard(db, card);
     const updatedCardSnapshot = { ...card, local_credit_balance: nextLocalCredit };
     const nextFin = calculateAccountFinancials(updatedCardSnapshot, remDf, remLocal, config);
 
@@ -2977,6 +3561,10 @@ async function receiveCrediarioPayment(db, {
     paidCharges,
     waivedInterest: waivedAmount,
     syncedDigifarmaCount,
+    digifarmaSynced,
+    digifarmaNotApplicable,
+    digifarmaContrecId,
+    digifarmaCaixaId,
     digifarmaOfflineWarning,
     statement: updatedStatement
   };
@@ -3087,6 +3675,8 @@ module.exports = {
   resolveOrCreateBelafarmaCard,
   resolveDigifarmaClienteId,
   insertItemsIntoDigifarmaFichario,
+  mapPaymentMethodToDigifarmaRecebimento,
+  syncCrediarioPaymentToDigifarma,
   deleteLocalPurchase,
   receiveCrediarioPayment,
   runUnifiedDailyNotifications

@@ -561,14 +561,26 @@ export const CrediarioCustomerProfileModal: React.FC<CustomerProfileModalProps> 
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        addToast(
-          data.isFullSettlement
-            ? 'Quitação total registrada! Conta zerada e limite restaurado.'
-            : `Pagamento de ${formatCurrency(val)} registrado com sucesso!`,
-          'success'
-        );
+        if (data.digifarmaSynced) {
+          addToast(
+            data.isFullSettlement
+              ? `Quitação total registrada no Belinha e no Digifarma (Recibo #${data.digifarmaContrecId})! Conta zerada e limite restaurado.`
+              : `Pagamento de ${formatCurrency(val)} registrado no Belinha e no Digifarma (Recibo #${data.digifarmaContrecId})!`,
+            'success'
+          );
+        } else {
+          addToast(
+            data.isFullSettlement
+              ? 'Quitação total registrada! Conta zerada e limite restaurado.'
+              : `Pagamento de ${formatCurrency(val)} registrado com sucesso!`,
+            'success'
+          );
+        }
         if (data.digifarmaOfflineWarning) {
-          addToast('Baixa salva no Belinha. Lembre de conferir no caixa do Digifarma (offline no momento).', 'warning');
+          addToast(
+            `Pagamento de ${formatCurrency(val)} salvo no Belinha, mas não sincronizado no Digifarma: ${data.digifarmaOfflineWarning}`,
+            'warning'
+          );
         }
         setActivePanel('none');
         setPayNotes('');
@@ -1270,6 +1282,10 @@ export const CrediarioCustomerProfileModal: React.FC<CustomerProfileModalProps> 
                   </div>
                 )}
 
+                <p id={`${uidPrefix}-pay-sync-hint`} className="text-[11px] text-emerald-800 dark:text-emerald-300 font-medium">
+                  A baixa é sincronizada automaticamente no FICHARIO, Contas Recebidas e Caixa aberto do Digifarma.
+                </p>
+
                 <div className="flex justify-end gap-2">
                   <button
                     type="button"
@@ -1281,10 +1297,20 @@ export const CrediarioCustomerProfileModal: React.FC<CustomerProfileModalProps> 
                   <button
                     type="submit"
                     disabled={submittingPay}
+                    aria-describedby={`${uidPrefix}-pay-sync-hint`}
                     className="inline-flex items-center gap-1.5 px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black shadow cursor-pointer disabled:opacity-50"
                   >
                     <CheckCircle className="w-4 h-4" />
-                    <span>{submittingPay ? 'Registrando...' : 'Confirmar Recebimento'}</span>
+                    <span>
+                      {submittingPay
+                        ? 'Registrando...'
+                        : (() => {
+                            const parsedPay = parseFloat(payAmount);
+                            return !isNaN(parsedPay) && parsedPay > 0
+                              ? `Confirmar Recebimento (${formatCurrency(parsedPay)})`
+                              : 'Confirmar Recebimento';
+                          })()}
+                    </span>
                   </button>
                 </div>
               </form>

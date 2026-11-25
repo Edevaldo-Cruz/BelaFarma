@@ -3088,6 +3088,7 @@ try {
     try { db.exec("ALTER TABLE card_payments ADD COLUMN operator_name TEXT DEFAULT ''"); } catch(e) {}
     try { db.exec('ALTER TABLE card_payments ADD COLUMN synced_digifarma INTEGER DEFAULT 0'); } catch(e) {}
     try { db.exec('ALTER TABLE card_payments ADD COLUMN is_full_settlement INTEGER DEFAULT 0'); } catch(e) {}
+    try { db.exec('ALTER TABLE card_payments ADD COLUMN digifarma_contrec_id INTEGER'); } catch(e) {}
 
     try { db.exec('CREATE INDEX IF NOT EXISTS idx_df_pag_cli ON digifarma_crediario_pagamentos_cache(cliente_id, data_pag)'); } catch(e) {}
     try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_bf_cards_portal_token ON belafarma_cards(portal_token)'); } catch(e) {}

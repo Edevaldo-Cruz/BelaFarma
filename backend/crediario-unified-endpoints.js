@@ -604,7 +604,7 @@ function createUnifiedCrediarioEndpoints(db, options = {}) {
         notes,
         operatorName: req.user?.name || 'Balcão',
         isAdmin
-      });
+      }, { queryDigifarmaFn: options.queryDigifarmaFn });
 
       res.json(result);
     } catch (err) {

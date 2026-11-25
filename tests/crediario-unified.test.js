@@ -1117,5 +1117,491 @@ describe('Crediário Unificado Bela Farma — PIX, Motor Financeiro, Extratos & 
 
       memDb.close();
     });
+
+    it('DFW-03: Quitação total via PIX grava CONTAS_RECEBIDAS, FPAGTOS (TIPO 8), ARQUIVO_MORTO, CAIXA_RECEB_FPAGTOS, FLUXO_CAIXA e não duplica no Belinha nem após sync', async () => {
+      const memDb = new Database(':memory:');
+      unified.ensureCrediarioUnifiedSchema(memDb);
+
+      const todayYMD = unified.toLocalDateYMD(new Date());
+      const dueYMD = unified.addDaysYMD(todayYMD, 15);
+
+      memDb.prepare(`
+        INSERT INTO belafarma_cards (
+          id, customer_id, digifarma_cliente_id, portal_token, customer_name, phone, cpf,
+          card_number, credit_limit, due_day, status
+        ) VALUES (1, '38', 38, 'tok_dfw3_0123456789abcdef', 'DONA MARIA PIX', '18999990038', '12345678901',
+          '5489 1010 2020 3030', 500, 20, 'active')
+      `).run();
+
+      memDb.prepare(`
+        INSERT INTO digifarma_crediario_cache (
+          id, cliente_id, cliente_nome, valor, data_compra, data_vencimento, venda_nota_id,
+          produto_id, produto_nome, quantidade, preco_unitario, comprador
+        ) VALUES
+        ('9101', 38, 'DONA MARIA PIX', 40, ?, ?, 98001, 186748, 'FRALDA P', 1, 40, 'YASMIN'),
+        ('9102', 38, 'DONA MARIA PIX', 60, ?, ?, 98002, 187225, 'LEITE NAN', 1, 60, 'COMPRADOR NOME MUITO LONGO QUE EXCEDE VINTE CHARS')
+      `).run(todayYMD, dueYMD, todayYMD, dueYMD);
+
+      const fb = {
+        caixas: [
+          {
+            CAIXA_ID: 1149,
+            OPERADOR_ABERTURA: 11,
+            FECHAMENTO: null,
+            TOTAL_RECEBIMENTO: 0,
+            RECEB_DINHEIRO: 0,
+            RECEB_CHEQUE: 0,
+            RECEB_CARTAO: 0,
+            RECEB_OUTROS: 0
+          }
+        ],
+        fichario: [
+          {
+            FICHARIO_ID: 9101,
+            CLIENTE_ID: 38,
+            PRODUTO_ID: 186748,
+            VENDA_NOTA_ID: 98001,
+            FICHARIO_QUANTIDADE: 1,
+            FICHARIO_VALOR: 40,
+            FICHARIO_DESCONTO: 0,
+            FICHARIO_FRETE: 0,
+            FICHARIO_COMPRADOR: 'YASMIN',
+            FICHARIO_DATACOMPRA: todayYMD,
+            FICHARIO_VENCIMENTO: dueYMD,
+            PRODUTO: 'FRALDA P',
+            APRESENTACAO: 'PCT',
+            CLIENTE: 'DONA MARIA PIX',
+            CLI_CELULAR: '18999990038',
+            CLI_TELEFONE: ''
+          },
+          {
+            FICHARIO_ID: 9102,
+            CLIENTE_ID: 38,
+            PRODUTO_ID: 187225,
+            VENDA_NOTA_ID: 98002,
+            FICHARIO_QUANTIDADE: 1,
+            FICHARIO_VALOR: 60,
+            FICHARIO_DESCONTO: 0,
+            FICHARIO_FRETE: 0,
+            FICHARIO_COMPRADOR: 'COMPRADOR NOME MUITO LONGO QUE EXCEDE VINTE CHARS',
+            FICHARIO_DATACOMPRA: todayYMD,
+            FICHARIO_VENCIMENTO: dueYMD,
+            PRODUTO: 'LEITE NAN',
+            APRESENTACAO: 'LATA',
+            CLIENTE: 'DONA MARIA PIX',
+            CLI_CELULAR: '18999990038',
+            CLI_TELEFONE: ''
+          }
+        ],
+        contasRecebidas: [],
+        contasRecebidasFpagtos: [],
+        arquivoMorto: [],
+        caixaRecebFpagtos: [],
+        fluxoCaixa: [{ DATA: todayYMD, CONTAS_RECEBIDAS: 0 }],
+        seqContrec: 1200,
+        seqCrFpag: 1200,
+        seqArqMorto: 7600,
+        seqCaixaRf: 10650
+      };
+
+      const queryMock = async (sql, params = []) => {
+        const u = String(sql || '').toUpperCase().trim();
+        if (u.includes('FROM CAIXA WHERE FECHAMENTO IS NULL')) {
+          return fb.caixas.filter(c => c.FECHAMENTO === null);
+        }
+        if (u.includes('FROM FICHARIO f') || (u.includes('FROM FICHARIO') && u.includes('WHERE CLIENTE_ID = ?'))) {
+          return fb.fichario.filter(r => Number(r.CLIENTE_ID) === Number(params[0] ?? 38));
+        }
+        if (u.includes('FROM FICHARIO') && !u.startsWith('DELETE') && !u.startsWith('UPDATE')) {
+          return fb.fichario;
+        }
+        if (u.includes('FROM CONTAS_RECEBIDAS') && u.startsWith('SELECT')) {
+          return fb.contasRecebidas;
+        }
+        if (u.includes('FROM CLIENTES')) {
+          return [{
+            CLIENTE_ID: 38,
+            CLIENTE: 'DONA MARIA PIX',
+            CLI_CPF: '12345678901',
+            CLI_CELULAR: '18999990038',
+            CLI_TELEFONE: '',
+            CLI_LIMITE: 500,
+            CLI_DIA_PAGAMENTO: 20
+          }];
+        }
+        if (u.includes('GEN_ID(GEN_CONTAS_RECEBIDAS, 1)')) {
+          return [{ NEW_ID: fb.seqContrec++ }];
+        }
+        if (u.startsWith('INSERT INTO CONTAS_RECEBIDAS (')) {
+          fb.contasRecebidas.push({
+            CONTREC_ID: params[0],
+            CLIENTE_ID: params[1],
+            CONTREC_TOTALDEBITO: params[2],
+            CONTREC_VALORPAG: params[3],
+            CONTREC_TIPOPAG: params[4],
+            CONTREC_DATAPAG: todayYMD,
+            CONTREC_VENCIMENTO: params[5],
+            CONTREC_VENDEDOR: params[6],
+            CAIXA_ID: params[7],
+            CONTREC_VALORLIQ: params[8],
+            DINHEIRO: params[9],
+            CHEQUE: params[10],
+            CHEQUE_PRE: params[11],
+            CARTAO: params[12],
+            VALOR_CORRECAO: params[13],
+            ADM_CARTAO_ID: params[14],
+            OUTROS: params[15]
+          });
+          return [];
+        }
+        if (u.startsWith('INSERT INTO CONTAS_RECEBIDAS_FPAGTOS')) {
+          fb.contasRecebidasFpagtos.push({
+            CONTAS_RECEBIDAS_FPAGTO_ID: fb.seqCrFpag++,
+            TIPO_PAGAMENTO_ID: params[0],
+            CONTREC_ID: params[1],
+            VALOR: params[2],
+            BANDEIRA: params[3]
+          });
+          return [];
+        }
+        if (u.startsWith('INSERT INTO ARQUIVO_MORTO')) {
+          fb.arquivoMorto.push({
+            ARQUIVO_MORTO_ID: fb.seqArqMorto++,
+            PRODUTO_ID: params[0],
+            CLIENTE_ID: params[1],
+            ARQ_NOTA: params[2],
+            ARQ_QUANTIDADE: params[3],
+            ARQ_COMPRADOR: params[4],
+            ARQ_VALORPAG: params[5],
+            ARQ_DATACOMPRA: params[6],
+            CONTREC_ID: params[7]
+          });
+          return [];
+        }
+        if (u.startsWith('DELETE FROM FICHARIO WHERE FICHARIO_ID = ?')) {
+          fb.fichario = fb.fichario.filter(r => Number(r.FICHARIO_ID) !== Number(params[0]));
+          return [];
+        }
+        if (u.startsWith('UPDATE CAIXA')) {
+          const cx = fb.caixas.find(c => c.CAIXA_ID === Number(params[5]));
+          if (cx) {
+            cx.TOTAL_RECEBIMENTO += Number(params[0]);
+            cx.RECEB_DINHEIRO += Number(params[1]);
+            cx.RECEB_CHEQUE += Number(params[2]);
+            cx.RECEB_CARTAO += Number(params[3]);
+            cx.RECEB_OUTROS += Number(params[4]);
+          }
+          return [];
+        }
+        if (u.includes('FROM CAIXA_RECEB_FPAGTOS')) {
+          return fb.caixaRecebFpagtos.filter(
+            r => r.CAIXA_ID === Number(params[0]) && r.TIPO_PAGAMENTO_ID === Number(params[1]) && (r.BANDEIRA || '') === (params[2] || '')
+          );
+        }
+        if (u.startsWith('INSERT INTO CAIXA_RECEB_FPAGTOS')) {
+          fb.caixaRecebFpagtos.push({
+            CAIXA_RECEB_FPAGTO_ID: fb.seqCaixaRf++,
+            TIPO_PAGAMENTO_ID: params[0],
+            CAIXA_ID: params[1],
+            BANDEIRA: params[2],
+            VALOR: params[3]
+          });
+          return [];
+        }
+        if (u.startsWith('UPDATE FLUXO_CAIXA')) {
+          fb.fluxoCaixa[0].CONTAS_RECEBIDAS += Number(params[0]);
+          return [];
+        }
+        return [];
+      };
+
+      const opToken = security.signToken({ id: 'op-dfw3', name: 'Operador PIX', role: 'Operador' });
+      const app = express();
+      app.use(express.json());
+      app.use('/api', security.apiAuthMiddleware);
+      app.use('/api/crediario-v2', createUnifiedCrediarioEndpoints(memDb, { queryDigifarmaFn: queryMock }));
+
+      let srv;
+      let url;
+      await new Promise(resolve => {
+        srv = app.listen(0, '127.0.0.1', () => {
+          url = `http://127.0.0.1:${srv.address().port}`;
+          resolve();
+        });
+      });
+
+      try {
+        const res = await fetch(`${url}/api/crediario-v2/clients/1/receive`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${opToken}` },
+          body: JSON.stringify({ amount: 100, paymentMethod: 'PIX' })
+        });
+        assert.strictEqual(res.status, 200);
+        const body = await res.json();
+
+        assert.strictEqual(body.success, true);
+        assert.strictEqual(body.isFullSettlement, true);
+        assert.strictEqual(body.digifarmaSynced, true);
+        assert.strictEqual(body.digifarmaContrecId, 1200);
+        assert.strictEqual(body.digifarmaCaixaId, 1149);
+
+        // Validar estrutura Firebird
+        assert.strictEqual(fb.contasRecebidas.length, 1);
+        assert.strictEqual(fb.contasRecebidas[0].CONTREC_TIPOPAG, 'T');
+        assert.strictEqual(fb.contasRecebidas[0].CONTREC_VALORPAG, 100);
+        assert.strictEqual(fb.contasRecebidas[0].DINHEIRO, 0);
+        assert.strictEqual(fb.contasRecebidas[0].CARTAO, 0);
+        assert.strictEqual(fb.contasRecebidas[0].OUTROS, 0);
+
+        assert.strictEqual(fb.contasRecebidasFpagtos.length, 1);
+        assert.strictEqual(fb.contasRecebidasFpagtos[0].TIPO_PAGAMENTO_ID, 8);
+        assert.strictEqual(fb.contasRecebidasFpagtos[0].VALOR, 100);
+
+        assert.strictEqual(fb.arquivoMorto.length, 2);
+        assert.strictEqual(fb.arquivoMorto[0].CONTREC_ID, 1200);
+        assert.ok(fb.arquivoMorto[1].ARQ_COMPRADOR.length <= 20, 'ARQ_COMPRADOR deve respeitar VARCHAR(20)');
+        assert.strictEqual(fb.fichario.length, 0);
+
+        // PIX não soma em CAIXA.TOTAL_RECEBIMENTO, mas soma em CAIXA_RECEB_FPAGTOS e FLUXO_CAIXA
+        assert.strictEqual(fb.caixas[0].TOTAL_RECEBIMENTO, 0);
+        assert.strictEqual(fb.caixaRecebFpagtos.length, 1);
+        assert.strictEqual(fb.caixaRecebFpagtos[0].TIPO_PAGAMENTO_ID, 8);
+        assert.strictEqual(fb.caixaRecebFpagtos[0].VALOR, 100);
+        assert.strictEqual(fb.fluxoCaixa[0].CONTAS_RECEBIDAS, 100);
+
+        // Validar anti-duplicação no Belinha antes e depois do sync
+        assert.strictEqual(body.statement.financials.principalBalance, 0);
+        const creditEntries = body.statement.completeStatement.entries.filter(e => e.type === 'CREDITO');
+        assert.strictEqual(creditEntries.length, 1);
+        assert.strictEqual(creditEntries[0].amount, 100);
+        assert.strictEqual(creditEntries[0].source, 'DIGIFARMA');
+
+        assert.strictEqual(unified.listUnifiedClients(memDb).kpis.paidThisMonth, 100);
+        assert.strictEqual(unified.listUnifiedTransactions(memDb, { onlyRecentClients: false }).payments.length, 1);
+
+        // Rodar syncAllFromDigifarma mockado depois e garantir 0 duplicação
+        const syncRes = await unified.syncAllFromDigifarma(memDb, { queryDigifarmaFn: queryMock });
+        assert.strictEqual(syncRes.success, true);
+        assert.strictEqual(unified.listUnifiedClients(memDb).kpis.paidThisMonth, 100);
+        assert.strictEqual(unified.listUnifiedTransactions(memDb, { onlyRecentClients: false }).payments.length, 1);
+        assert.strictEqual(unified.buildClientStatement(memDb, 1).completeStatement.entries.filter(e => e.type === 'CREDITO').length, 1);
+      } finally {
+        await new Promise(resolve => srv.close(resolve));
+        memDb.close();
+      }
+    });
+
+    it('DFW-04: Pagamento parcial FIFO em dinheiro reduz FICHARIO_QUANTIDADE proporcionalmente, grava ARQUIVO_MORTO e soma CAIXA sem duplicar', async () => {
+      const memDb = new Database(':memory:');
+      unified.ensureCrediarioUnifiedSchema(memDb);
+
+      const todayYMD = unified.toLocalDateYMD(new Date());
+      const dueYMD = unified.addDaysYMD(todayYMD, 15);
+
+      memDb.prepare(`
+        INSERT INTO belafarma_cards (
+          id, customer_id, digifarma_cliente_id, portal_token, customer_name, phone, cpf,
+          card_number, credit_limit, due_day, status
+        ) VALUES (1, '65', 65, 'tok_dfw4_0123456789abcdef', 'CARLOS PARCIAL FIFO', '18999990065', '',
+          '5489 4040 5050 6060', 500, 20, 'active')
+      `).run();
+
+      memDb.prepare(`
+        INSERT INTO digifarma_crediario_cache (
+          id, cliente_id, cliente_nome, valor, data_compra, data_vencimento, venda_nota_id,
+          produto_id, produto_nome, quantidade, preco_unitario, comprador
+        ) VALUES
+        ('9010', 65, 'CARLOS PARCIAL FIFO', 40, ?, ?, 99001, 1001, 'ITEM A', 1, 40, 'CARLOS'),
+        ('9011', 65, 'CARLOS PARCIAL FIFO', 60, ?, ?, 99002, 1002, 'ITEM B', 2, 30, 'CARLOS')
+      `).run(todayYMD, dueYMD, todayYMD, dueYMD);
+
+      const fb = {
+        caixa: {
+          CAIXA_ID: 1149,
+          OPERADOR_ABERTURA: 11,
+          FECHAMENTO: null,
+          TOTAL_RECEBIMENTO: 0,
+          RECEB_DINHEIRO: 0,
+          RECEB_CHEQUE: 0,
+          RECEB_CARTAO: 0,
+          RECEB_OUTROS: 0
+        },
+        fichario: [
+          {
+            FICHARIO_ID: 9010,
+            CLIENTE_ID: 65,
+            PRODUTO_ID: 1001,
+            VENDA_NOTA_ID: 99001,
+            FICHARIO_QUANTIDADE: 1,
+            FICHARIO_VALOR: 40,
+            FICHARIO_DESCONTO: 0,
+            FICHARIO_FRETE: 0,
+            FICHARIO_COMPRADOR: 'CARLOS',
+            FICHARIO_DATACOMPRA: todayYMD,
+            FICHARIO_VENCIMENTO: dueYMD
+          },
+          {
+            FICHARIO_ID: 9011,
+            CLIENTE_ID: 65,
+            PRODUTO_ID: 1002,
+            VENDA_NOTA_ID: 99002,
+            FICHARIO_QUANTIDADE: 2,
+            FICHARIO_VALOR: 30,
+            FICHARIO_DESCONTO: 0,
+            FICHARIO_FRETE: 0,
+            FICHARIO_COMPRADOR: 'CARLOS',
+            FICHARIO_DATACOMPRA: todayYMD,
+            FICHARIO_VENCIMENTO: dueYMD
+          }
+        ],
+        contasRecebidas: [],
+        arquivoMorto: [],
+        caixaRecebFpagtos: []
+      };
+
+      const queryMock = async (sql, params = []) => {
+        const u = String(sql || '').toUpperCase().trim();
+        if (u.includes('FROM CAIXA WHERE FECHAMENTO IS NULL')) return [fb.caixa];
+        if (u.includes('FROM FICHARIO') && u.includes('WHERE CLIENTE_ID = ?')) return [...fb.fichario];
+        if (u.includes('GEN_ID(GEN_CONTAS_RECEBIDAS, 1)')) return [{ NEW_ID: 1205 }];
+        if (u.startsWith('INSERT INTO CONTAS_RECEBIDAS (')) {
+          fb.contasRecebidas.push({
+            CONTREC_ID: params[0],
+            CONTREC_TOTALDEBITO: params[2],
+            CONTREC_VALORPAG: params[3],
+            CONTREC_TIPOPAG: params[4],
+            DINHEIRO: params[9]
+          });
+          return [];
+        }
+        if (u.startsWith('INSERT INTO ARQUIVO_MORTO')) {
+          fb.arquivoMorto.push({
+            PRODUTO_ID: params[0],
+            ARQ_QUANTIDADE: params[3],
+            ARQ_VALORPAG: params[5],
+            CONTREC_ID: params[7]
+          });
+          return [];
+        }
+        if (u.startsWith('DELETE FROM FICHARIO WHERE FICHARIO_ID = ?')) {
+          fb.fichario = fb.fichario.filter(r => Number(r.FICHARIO_ID) !== Number(params[0]));
+          return [];
+        }
+        if (u.startsWith('UPDATE FICHARIO')) {
+          const row = fb.fichario.find(r => Number(r.FICHARIO_ID) === Number(params[3]));
+          if (row) {
+            row.FICHARIO_QUANTIDADE = params[0];
+            row.FICHARIO_DESCONTO = params[1];
+            row.FICHARIO_FRETE = params[2];
+          }
+          return [];
+        }
+        if (u.startsWith('UPDATE CAIXA')) {
+          fb.caixa.TOTAL_RECEBIMENTO += Number(params[0]);
+          fb.caixa.RECEB_DINHEIRO += Number(params[1]);
+          return [];
+        }
+        if (u.includes('FROM CAIXA_RECEB_FPAGTOS')) return [];
+        if (u.startsWith('INSERT INTO CAIXA_RECEB_FPAGTOS')) {
+          fb.caixaRecebFpagtos.push({ TIPO_PAGAMENTO_ID: params[0], VALOR: params[3] });
+          return [];
+        }
+        return [];
+      };
+
+      const res = await unified.receiveCrediarioPayment(memDb, {
+        cardId: 1,
+        amount: 55,
+        paymentMethod: 'DINHEIRO',
+        operatorName: 'Balcão'
+      }, { queryDigifarmaFn: queryMock });
+
+      assert.strictEqual(res.success, true);
+      assert.strictEqual(res.isFullSettlement, false);
+      assert.strictEqual(res.digifarmaSynced, true);
+      assert.strictEqual(res.digifarmaContrecId, 1205);
+
+      // Item 9010 quitado e deletado; 9011 reduzido de qty 2 -> 1.5 (1.5 * 30 = 45)
+      assert.strictEqual(fb.fichario.length, 1);
+      assert.strictEqual(fb.fichario[0].FICHARIO_ID, 9011);
+      assert.strictEqual(fb.fichario[0].FICHARIO_QUANTIDADE, 1.5);
+
+      // ARQUIVO_MORTO recebeu 1x40 e 0.5x30
+      assert.strictEqual(fb.arquivoMorto.length, 2);
+      assert.strictEqual(fb.arquivoMorto[0].ARQ_QUANTIDADE, 1);
+      assert.strictEqual(fb.arquivoMorto[0].ARQ_VALORPAG, 40);
+      assert.strictEqual(fb.arquivoMorto[1].ARQ_QUANTIDADE, 0.5);
+      assert.strictEqual(fb.arquivoMorto[1].ARQ_VALORPAG, 30);
+
+      // CONTAS_RECEBIDAS e CAIXA atualizados
+      assert.strictEqual(fb.contasRecebidas[0].CONTREC_TIPOPAG, 'P');
+      assert.strictEqual(fb.contasRecebidas[0].CONTREC_TOTALDEBITO, 100);
+      assert.strictEqual(fb.contasRecebidas[0].CONTREC_VALORPAG, 55);
+      assert.strictEqual(fb.contasRecebidas[0].DINHEIRO, 55);
+      assert.strictEqual(fb.caixa.TOTAL_RECEBIMENTO, 55);
+      assert.strictEqual(fb.caixa.RECEB_DINHEIRO, 55);
+      assert.strictEqual(fb.caixaRecebFpagtos[0].VALOR, 55);
+
+      // Saldo local e totais sem duplicação
+      assert.strictEqual(res.statement.financials.principalBalance, 45);
+      const cardRow = memDb.prepare('SELECT local_credit_balance, used_limit FROM belafarma_cards WHERE id = 1').get();
+      assert.strictEqual(cardRow.local_credit_balance, 0);
+      assert.strictEqual(cardRow.used_limit, 45);
+      assert.strictEqual(unified.listUnifiedClients(memDb).kpis.paidThisMonth, 55);
+
+      memDb.close();
+    });
+
+    it('DFW-05: Sem caixa aberto no Digifarma realiza fallback seguro no Belinha sem escrever no Firebird', async () => {
+      const memDb = new Database(':memory:');
+      unified.ensureCrediarioUnifiedSchema(memDb);
+
+      const todayYMD = unified.toLocalDateYMD(new Date());
+      const dueYMD = unified.addDaysYMD(todayYMD, 15);
+
+      memDb.prepare(`
+        INSERT INTO belafarma_cards (
+          id, customer_id, digifarma_cliente_id, portal_token, customer_name, phone, cpf,
+          card_number, credit_limit, due_day, status
+        ) VALUES (1, '77', 77, 'tok_dfw5_0123456789abcdef', 'JOANA CAIXA FECHADO', '18999990077', '',
+          '5489 7070 8080 9090', 500, 20, 'active')
+      `).run();
+
+      memDb.prepare(`
+        INSERT INTO digifarma_crediario_cache (
+          id, cliente_id, cliente_nome, valor, data_compra, data_vencimento, venda_nota_id,
+          produto_id, produto_nome, quantidade, preco_unitario, comprador
+        ) VALUES ('9020', 77, 'JOANA CAIXA FECHADO', 80, ?, ?, 99100, 1001, 'PRODUTO Z', 1, 80, 'JOANA')
+      `).run(todayYMD, dueYMD);
+
+      const writes = [];
+      const queryNoOpenCaixa = async (sql) => {
+        const u = String(sql || '').toUpperCase().trim();
+        if (u.includes('FROM CAIXA WHERE FECHAMENTO IS NULL')) {
+          return [];
+        }
+        writes.push(u);
+        return [];
+      };
+
+      const res = await unified.receiveCrediarioPayment(memDb, {
+        cardId: 1,
+        amount: 30,
+        paymentMethod: 'DINHEIRO'
+      }, { queryDigifarmaFn: queryNoOpenCaixa });
+
+      assert.strictEqual(res.success, true);
+      assert.strictEqual(res.digifarmaSynced, false);
+      assert.ok(String(res.digifarmaOfflineWarning || '').toLowerCase().includes('caixa aberto'));
+      assert.strictEqual(writes.length, 0, 'Não deve escrever nada no Firebird quando não houver caixa aberto');
+      assert.strictEqual(res.statement.financials.principalBalance, 50);
+
+      const cpRow = memDb.prepare('SELECT synced_digifarma, digifarma_contrec_id, amount FROM card_payments WHERE card_id = 1').get();
+      assert.strictEqual(cpRow.synced_digifarma, 0);
+      assert.strictEqual(cpRow.digifarma_contrec_id, null);
+      assert.strictEqual(cpRow.amount, 30);
+
+      memDb.close();
+    });
   });
 });

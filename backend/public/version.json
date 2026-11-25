@@ -1,9 +1,14 @@
 {
   "version": "1.2.6",
-  "commitHash": "6b12220",
-  "commitMessage": "feat(equipe): adicionar modulo Escala e Equipe com simulador CLT/CRF-MG e impressao",
-  "buildTime": "25/11/2026, 12:33:00",
+  "commitHash": "371545e",
+  "commitMessage": "feat(marketing): plano de crescimento social, aba Isa, pagina /bio e artes com Brasil Card",
+  "buildTime": "25/11/2026, 13:07:20",
   "recentCommits": [
+    {
+      "hash": "371545e",
+      "date": "25/11/2026",
+      "message": "feat(marketing): plano de crescimento social, aba Isa, pagina /bio e artes com Brasil Card"
+    },
     {
       "hash": "6b12220",
       "date": "25/11/2026",
@@ -58,11 +63,6 @@
       "hash": "fd2ef24",
       "date": "22/11/2026",
       "message": "feat(crediario): central unificada com ficha 360, extratos simples/completo, juros, whatsapp e portal pix"
-    },
-    {
-      "hash": "d68bd55",
-      "date": "22/11/2026",
-      "message": "chore: salvar alteracoes pendentes de levantamento proffer, compras/faltas e pdv"
     }
   ]
 }
