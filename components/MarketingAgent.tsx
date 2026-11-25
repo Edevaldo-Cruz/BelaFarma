@@ -2,8 +2,9 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useToast } from './ToastContext';
 import { 
   Bot, Sparkles, Send, History, Newspaper, TrendingUp, CloudRain, 
-  Calendar, CheckCircle, AlertTriangle, AlertCircle, MapPin
+  Calendar, CheckCircle, AlertTriangle, AlertCircle, MapPin, Rocket
 } from 'lucide-react';
+import { SocialGrowthTab } from './SocialGrowthTab';
 
 const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:3001' : '';
 
@@ -45,7 +46,7 @@ interface SchedulerStatus {
   } | null;
 }
 
-type Tab = 'dashboard' | 'relatorio' | 'historico' | 'noticias' | 'trends' | 'clima';
+type Tab = 'dashboard' | 'social' | 'relatorio' | 'historico' | 'noticias' | 'trends' | 'clima';
 
 export default function MarketingAgent() {
   const { addToast } = useToast();
@@ -283,6 +284,7 @@ export default function MarketingAgent() {
 
   const tabs: { id: Tab; label: string; icon: any }[] = [
     { id: 'dashboard', label: 'Dashboard', icon: Bot },
+    { id: 'social', label: 'Crescimento Social', icon: Rocket },
     { id: 'relatorio', label: 'Relatório', icon: Sparkles },
     { id: 'historico', label: 'Histórico', icon: History },
     { id: 'noticias', label: 'Notícias', icon: Newspaper },
@@ -359,6 +361,9 @@ export default function MarketingAgent() {
       </div>
 
       <div>
+        {/* ─── CRESCIMENTO SOCIAL ────────────────────────────────────────────── */}
+        {activeTab === 'social' && <SocialGrowthTab />}
+
         {/* ─── DASHBOARD ─────────────────────────────────────────────────────── */}
         {activeTab === 'dashboard' && (
           <div className="space-y-6 animate-in fade-in duration-300">

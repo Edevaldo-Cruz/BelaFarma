@@ -434,6 +434,14 @@ function isPublicApiRoute(req) {
     return true;
   }
 
+  // Página Pública Link na Bio e telemetria de cliques sociais
+  if (reqPath === '/marketing/public/bio-config' && method === 'GET') {
+    return true;
+  }
+  if (reqPath === '/marketing/public/bio-click' && method === 'POST') {
+    return true;
+  }
+
   // Termo Digital e Portal Público do Crediário BelaFarma
   if (reqPath.startsWith('/cards/terms/') || reqPath.startsWith('/cards/public/') || reqPath.startsWith('/crediario-v2/public/')) {
     return true;
@@ -599,6 +607,7 @@ function apiAuthMiddleware(req, res, next) {
     if (
       method === 'POST' &&
       (reqPath.startsWith('/liquidacao/public/') ||
+        reqPath === '/marketing/public/bio-click' ||
         reqPath === '/system/visitors/record' ||
         reqPath.startsWith('/cards/public/') ||
         reqPath.startsWith('/crediario-v2/public/'))

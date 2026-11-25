@@ -197,6 +197,7 @@ if (typeof window !== 'undefined' && typeof window.fetch === 'function') {
         !urlStr.includes('/api/logout') &&
         !urlStr.includes('/api/auth/session') &&
         !urlStr.includes('/api/liquidacao/public/') &&
+        !urlStr.includes('/api/marketing/public/') &&
         !urlStr.includes('/api/cards/public/') &&
         !urlStr.includes('/api/crediario-v2/public/') &&
         !urlStr.includes('/api/erp/pos/identify-seller')

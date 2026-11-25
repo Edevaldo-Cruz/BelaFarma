@@ -1,9 +1,14 @@
 {
   "version": "1.2.6",
-  "commitHash": "cc933fd",
-  "commitMessage": "fix(crediario): gravar lancamentos do pdv e central no belinha e no fichario do digifarma",
-  "buildTime": "25/11/2026, 11:07:04",
+  "commitHash": "6b12220",
+  "commitMessage": "feat(equipe): adicionar modulo Escala e Equipe com simulador CLT/CRF-MG e impressao",
+  "buildTime": "25/11/2026, 12:33:00",
   "recentCommits": [
+    {
+      "hash": "6b12220",
+      "date": "25/11/2026",
+      "message": "feat(equipe): adicionar modulo Escala e Equipe com simulador CLT/CRF-MG e impressao"
+    },
     {
       "hash": "cc933fd",
       "date": "25/11/2026",
@@ -58,11 +63,6 @@
       "hash": "d68bd55",
       "date": "22/11/2026",
       "message": "chore: salvar alteracoes pendentes de levantamento proffer, compras/faltas e pdv"
-    },
-    {
-      "hash": "6e2c92a",
-      "date": "21/11/2026",
-      "message": "feat(belaped): adicionar utilitarios de lote oriente e busca de barbear/perfumaria"
     }
   ]
 }

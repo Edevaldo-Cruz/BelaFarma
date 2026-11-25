@@ -76,7 +76,8 @@ import { AnaliseReposicao } from "./components/AnaliseReposicao";
 import { LiquidacaoCaixa } from "./components/LiquidacaoCaixa";
 import { VitrineSplash } from "./components/vitrine/VitrineSplash";
 import { VitrineAniversario } from "./components/vitrine/VitrineAniversario";
-import { isPublicVitrineRoute } from "./components/vitrine/vitrineTypes";
+import { BioLinksPage } from "./components/vitrine/BioLinksPage";
+import { isPublicVitrineRoute, isPublicBioRoute } from "./components/vitrine/vitrineTypes";
 import { BelinhaPDV } from "./components/erp/BelinhaPDV";
 import { SalesHistory } from "./components/erp/SalesHistory";
 import { ProductsCatalog } from "./components/erp/ProductsCatalog";
@@ -144,12 +145,15 @@ const App: React.FC = () => {
   });
   const [isMobile, setIsMobile] = useState(false);
   const [isPublicRoute, setIsPublicRoute] = useState<boolean>(() => isPublicVitrineRoute());
+  const [isBioRoute, setIsBioRoute] = useState<boolean>(() => isPublicBioRoute());
   const [showSplash, setShowSplash] = useState<boolean>(true);
 
   useEffect(() => {
     const handleRouteChange = () => {
       const active = isPublicVitrineRoute();
+      const bioActive = isPublicBioRoute();
       setIsPublicRoute(active);
+      setIsBioRoute(bioActive);
       if (active) {
         setShowSplash(true);
       }
@@ -262,6 +266,7 @@ const App: React.FC = () => {
 
   // Consulta periodicamente o total de produtos proibidos pela ANVISA em estoque
   useEffect(() => {
+    if (!user || isPublicRoute || isBioRoute) return;
     const fetchAnvisaAlertCount = async () => {
       try {
         const res = await fetch('/api/anvisa/summary');
@@ -276,7 +281,7 @@ const App: React.FC = () => {
     fetchAnvisaAlertCount();
     const interval = setInterval(fetchAnvisaAlertCount, 120000);
     return () => clearInterval(interval);
-  }, []);
+  }, [user, isPublicRoute, isBioRoute]);
   const [isBudgetSummaryOpen, setIsBudgetSummaryOpen] = useState(false);
   const [showMobileFloatingButton, setShowMobileFloatingButton] = useState(true);
   const [selectedPendingReview, setSelectedPendingReview] = useState<Delivery | null>(null);
@@ -449,7 +454,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const onUnauthorized = () => {
-      if (user && !isPublicRoute) {
+      if (user && !isPublicRoute && !isBioRoute) {
         // Se estiver no PDV, nunca desloga a tela por 401 de background, preservando o terminal sempre ativo
         if (currentViewRef.current === "belinha-pdv") {
           console.warn("[BelaFarma] Evento de não autorizado ignorado no PDV para manter o terminal de caixa sempre aberto.");
@@ -461,7 +466,7 @@ const App: React.FC = () => {
     };
     window.addEventListener("belinha:unauthorized", onUnauthorized);
     return () => window.removeEventListener("belinha:unauthorized", onUnauthorized);
-  }, [user, isPublicRoute]);
+  }, [user, isPublicRoute, isBioRoute]);
 
   const handleNavigate = (view: View) => {
     setCurrentView(view);
@@ -501,7 +506,7 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
-    if (user) {
+    if (user && !isPublicRoute && !isBioRoute) {
       const initSessionAndFetch = async () => {
         // Migração transparente: se a sessão legada tinha accessKey mas não token JWT, renova silenciosamente
         const existingToken = localStorage.getItem("belinha_auth_token");
@@ -751,7 +756,7 @@ const App: React.FC = () => {
         if (logoutTimerRef.current) clearTimeout(logoutTimerRef.current);
       };
     }
-  }, [user, isMobile]);
+  }, [user, isMobile, isPublicRoute, isBioRoute]);
 
   // Checagem de Contas Variáveis do Mês exclusiva para Edevaldo ao iniciar
   useEffect(() => {
@@ -1416,6 +1421,32 @@ const App: React.FC = () => {
         initialShowSplash={showSplash}
       />
     );
+  }
+
+  if (isBioRoute) {
+    const handleExitBioRoute = () => {
+      try {
+        if (
+          window.location.hash.includes("bio") ||
+          window.location.hash.includes("links")
+        ) {
+          window.location.hash = "";
+        }
+        if (
+          window.location.pathname.includes("bio") ||
+          window.location.pathname.includes("links") ||
+          window.location.search.includes("bio=") ||
+          window.location.search.includes("links=")
+        ) {
+          window.history.pushState({}, "", "/");
+        }
+      } catch (e) {
+        console.error("Erro ao sincronizar histórico de rotas (/bio):", e);
+      }
+      setIsBioRoute(false);
+    };
+
+    return <BioLinksPage onExit={handleExitBioRoute} />;
   }
 
   // Rotas públicas do Portal do Cliente do Crediário (sem necessidade de login)

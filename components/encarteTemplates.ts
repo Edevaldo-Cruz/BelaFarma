@@ -16,15 +16,25 @@ import html2canvas from 'html2canvas';
 export const LOJA = {
   nome: 'BELA FARMA SUL',
   endereco: 'Ipiranga, Juiz de Fora - MG',
-  horario: '', // Ex.: 'Seg a Sáb: 07h às 22h | Dom: 08h às 20h' (omitido se vazio)
-  whatsapp: '(32) 9822-8189',
-  site: '', // Ex.: '@belafarmasul' (omitido se vazio)
-  pagamentos: 'Pix • Cartão de Crédito e Débito • Dinheiro',
+  horario: 'Seg–Sáb 07h30 às 20h • Dom 07h30 às 13h',
+  whatsapp: '(32) 99822-8189',
+  site: '@belafarmasul',
+  pagamentos: 'Cartão Brasil Card • Pix • Crédito/Débito • Dinheiro',
   aviso: 'Imagens meramente ilustrativas. Ofertas válidas enquanto durarem os estoques.',
   campanha: 'FESTIVAL DE ANIVERSÁRIO • 1 ANO BELA FARMA SUL',
   tituloTopo: 'MEGA',
   titulo: 'LIQUIDAÇÃO'
 };
+
+export interface LojaOverrides {
+  nome?: string;
+  endereco?: string;
+  horario?: string;
+  whatsapp?: string;
+  site?: string;
+  pagamentos?: string;
+  aviso?: string;
+}
 
 export interface CoordenadasElemento {
   x: number;
@@ -71,6 +81,8 @@ export interface EstiloArte {
   imagemFundoCustom?: string;
   // Posições personalizadas (arrastar e soltar)
   posicoes?: PosicoesArte;
+  // Dados públicos sobrescritos via configuração da Isa-Marketing
+  lojaOverrides?: LojaOverrides;
 }
 
 export const ESTILO_PADRAO: EstiloArte = {
@@ -505,14 +517,24 @@ const tituloPromo = (fsTopo: number, fsTitulo: number, textoTopo: string, textoP
 const fitaCampanha = (fs: number, pad: string, texto: string, corFundo: string, corTexto: string, corBorda: string, fontCorpo: string) => `
   <div style="display:inline-block;background:${corFundo};color:${corTexto};font-family:${fontCorpo};font-weight:900;font-size:${fs}px;letter-spacing:0.6px;padding:${pad};border-radius:6px;border-left:5px solid ${corBorda};white-space:nowrap;">${esc(texto)}</div>`;
 
-const rodapeHtml = (W: number, H: number, id: string, fs: number, extraDireita = '', c1: string, c2: string, cAcento: string, fontCorpo: string) => {
+const rodapeHtml = (W: number, H: number, id: string, fs: number, extraDireita = '', c1: string, c2: string, cAcento: string, fontCorpo: string, lojaOverrides?: LojaOverrides) => {
+  const loja = { ...LOJA };
+  if (lojaOverrides) {
+    if (lojaOverrides.nome !== undefined) loja.nome = lojaOverrides.nome;
+    if (lojaOverrides.endereco !== undefined) loja.endereco = lojaOverrides.endereco;
+    if (lojaOverrides.horario !== undefined) loja.horario = lojaOverrides.horario;
+    if (lojaOverrides.whatsapp !== undefined) loja.whatsapp = lojaOverrides.whatsapp;
+    if (lojaOverrides.site !== undefined) loja.site = lojaOverrides.site;
+    if (lojaOverrides.pagamentos !== undefined) loja.pagamentos = lojaOverrides.pagamentos;
+    if (lojaOverrides.aviso !== undefined) loja.aviso = lojaOverrides.aviso;
+  }
   const linhas: string[] = [];
-  const contato = `<span style="font-size:${Math.round(fs * 1.55)}px;font-weight:900;color:${cAcento};">🛵 WHATSAPP ${esc(LOJA.whatsapp)}</span><span style="margin-left:10px;font-weight:800;">ENTREGA RÁPIDA${LOJA.site ? ' • ' + esc(LOJA.site) : ''}</span>`;
+  const contato = `<span style="font-size:${Math.round(fs * 1.55)}px;font-weight:900;color:${cAcento};">🛵 WHATSAPP ${esc(loja.whatsapp)}</span><span style="margin-left:10px;font-weight:800;">ENTREGA RÁPIDA${loja.site ? ' • ' + esc(loja.site) : ''}</span>`;
   linhas.push(`<div style="white-space:nowrap;">${contato}</div>`);
-  const loc = [`📍 ${esc(LOJA.endereco)}`, LOJA.horario ? `🕒 ${esc(LOJA.horario)}` : ''].filter(Boolean).join('  |  ');
+  const loc = [`📍 ${esc(loja.endereco)}`, loja.horario ? `🕒 ${esc(loja.horario)}` : ''].filter(Boolean).join('  |  ');
   linhas.push(`<div style="white-space:nowrap;font-weight:800;">${loc}</div>`);
-  linhas.push(`<div style="white-space:nowrap;font-size:${Math.round(fs * 0.82)}px;opacity:0.95;">💳 ${esc(LOJA.pagamentos)}${extraDireita ? '   |   ' + extraDireita : ''}</div>`);
-  linhas.push(`<div style="white-space:nowrap;font-size:${Math.round(fs * 0.74)}px;opacity:0.85;">${esc(LOJA.aviso)}</div>`);
+  linhas.push(`<div style="white-space:nowrap;font-size:${Math.round(fs * 0.82)}px;opacity:0.95;">💳 ${esc(loja.pagamentos)}${extraDireita ? '   |   ' + extraDireita : ''}</div>`);
+  linhas.push(`<div style="white-space:nowrap;font-size:${Math.round(fs * 0.74)}px;opacity:0.85;">${esc(loja.aviso)}</div>`);
   return `
     <div style="position:absolute;left:0;bottom:0;width:${W}px;height:${H}px;">
       ${ondaBase(W, H, id, c1, c2, cAcento)}
@@ -644,7 +666,7 @@ export function htmlArteUnitaria(
         ${nomeBloco}
         ${badgePreco}
         ${faixaValidadeBloco}
-        ${!temFundoCustom && e.exibirRodape ? rodapeHtml(W, footerH, 'gFu', story ? 13 : 10.5, '', e.corPrimaria, e.corSecundaria, e.corDestaque, e.fonteCorpo) : ''}
+        ${!temFundoCustom && e.exibirRodape ? rodapeHtml(W, footerH, 'gFu', story ? 13 : 10.5, '', e.corPrimaria, e.corSecundaria, e.corDestaque, e.fonteCorpo, e.lojaOverrides) : ''}
       </div>
     </div>`;
 }
@@ -771,7 +793,7 @@ export function htmlPaginaEncarte(
         <div style="position:absolute;left:${margem}px;top:${bodyTop}px;width:${W - margem * 2}px;height:${bodyH}px;display:grid;grid-template-columns:repeat(${colunas}, 1fr);grid-template-rows:repeat(${linhas}, 1fr);grid-auto-flow:dense;gap:12px;box-sizing:border-box;padding:10px 0 12px;">
           ${cards}
         </div>
-        ${!temFundoCustom && estilo.exibirRodape ? rodapeHtml(W, footerH, 'gFe', 12, `Página ${paginaNum} de ${totalPaginas}`, estilo.corPrimaria, estilo.corSecundaria, estilo.corDestaque, estilo.fonteCorpo) : ''}
+        ${!temFundoCustom && estilo.exibirRodape ? rodapeHtml(W, footerH, 'gFe', 12, `Página ${paginaNum} de ${totalPaginas}`, estilo.corPrimaria, estilo.corSecundaria, estilo.corDestaque, estilo.fonteCorpo, estilo.lojaOverrides) : ''}
         ${temFundoCustom ? `<div style="position:absolute;left:0;right:0;bottom:8px;text-align:center;font-family:${estilo.fonteCorpo};font-weight:900;font-size:11px;color:#ffffff;text-shadow:1px 1px 2px rgba(0,0,0,0.5);z-index:3;">Página ${paginaNum} de ${totalPaginas}</div>` : ''}
       </div>
     </div>`;

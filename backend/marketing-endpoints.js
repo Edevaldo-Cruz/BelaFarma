@@ -16,6 +16,8 @@ const {
   getDatasComemorativasProximos,
   gerarMensagemClimaDiaria,
   analisarProdutosParados90Dias,
+  gerarCalendarioSemanalSocial,
+  formatarPlanoSocialWhatsApp,
 } = require('./services/marketing-agent.service');
 
 const { sendMessage } = require('./services/message-sender.service');
@@ -1411,6 +1413,499 @@ Responda APENAS com o texto final da mensagem de pós-venda, sem explicações o
           sentAt: ultimoRelatorio.sentAt,
         } : null,
       });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ─── MÓDULO CRESCIMENTO SOCIAL (ABAS ISA + LINK NA BIO + KPIs) ────────────
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS social_growth_config (
+        id TEXT PRIMARY KEY,
+        instagramHandle TEXT,
+        whatsappNumber TEXT,
+        whatsappDisplay TEXT,
+        storeAddress TEXT,
+        openingHours TEXT,
+        paymentsText TEXT,
+        googleMapsUrl TEXT,
+        googleReviewUrl TEXT,
+        ifoodUrl TEXT,
+        vitrineUrl TEXT,
+        bioHeadline TEXT,
+        bioSubheadline TEXT,
+        showHours INTEGER DEFAULT 1,
+        showIfood INTEGER DEFAULT 0,
+        showBrasilCard INTEGER DEFAULT 1,
+        monthlyAdBudget REAL DEFAULT 450,
+        updatedAt TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS social_growth_checklist (
+        id TEXT PRIMARY KEY,
+        phase TEXT,
+        sortOrder INTEGER,
+        title TEXT,
+        description TEXT,
+        completed INTEGER DEFAULT 0,
+        completedAt TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS social_growth_weeks (
+        id TEXT PRIMARY KEY,
+        weekLabel TEXT,
+        focusTheme TEXT,
+        climateContext TEXT,
+        planJson TEXT,
+        progressJson TEXT,
+        sentToWhatsapp INTEGER DEFAULT 0,
+        sentAt TEXT,
+        createdAt TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS social_growth_kpis (
+        id TEXT PRIMARY KEY,
+        weekStart TEXT,
+        followersCount INTEGER,
+        localReach INTEGER,
+        profileVisits INTEGER,
+        bioClicks INTEGER,
+        whatsappOrders INTEGER,
+        googleReviews INTEGER,
+        adSpend REAL,
+        notes TEXT,
+        createdAt TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS social_bio_clicks (
+        id TEXT PRIMARY KEY,
+        buttonId TEXT,
+        buttonLabel TEXT,
+        utmSource TEXT,
+        utmMedium TEXT,
+        utmCampaign TEXT,
+        referrer TEXT,
+        deviceType TEXT,
+        createdAt TEXT
+      );
+    `);
+
+    const nowIso = new Date().toISOString();
+    db.prepare(`
+      INSERT OR IGNORE INTO social_growth_config (
+        id, instagramHandle, whatsappNumber, whatsappDisplay, storeAddress, openingHours,
+        paymentsText, googleMapsUrl, googleReviewUrl, ifoodUrl, vitrineUrl, bioHeadline,
+        bioSubheadline, showHours, showIfood, showBrasilCard, monthlyAdBudget, updatedAt
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      'default',
+      '@belafarmasul',
+      '5532998228189',
+      '(32) 99822-8189',
+      'Bairro Ipiranga, Juiz de Fora - MG',
+      'Seg–Sáb 07h30 às 20h • Dom 07h30 às 13h',
+      'Cartão Brasil Card • Pix • Crédito/Débito • Dinheiro',
+      'https://www.google.com/maps/search/?api=1&query=Drogaria+Bela+Farma+Sul+Ipiranga+Juiz+de+Fora+MG',
+      '',
+      '',
+      '/promocao?utm_source=instagram&utm_medium=bio&utm_campaign=link_bio',
+      'Bela Farma Sul • Bairro Ipiranga, JF',
+      'Entrega super rápida e grátis nos bairros próximos • Aceitamos Cartão Brasil Card',
+      1,
+      0,
+      1,
+      450,
+      nowIso
+    );
+
+    const seedChecklist = [
+      ['chk_s1_1', 'Semana 1', 1, 'Atualizar nome pesquisável e bio do Instagram', 'Incluir "Farmácia Ipiranga JF", entrega grátis, Cartão Brasil Card e CTA claro para /bio.', 0, null],
+      ['chk_s1_2', 'Semana 1', 2, 'Colocar o link /bio na bio do Instagram', 'Usar drogariabelafarma.com.br/bio?utm_source=instagram&utm_medium=bio na bio oficial.', 0, null],
+      ['chk_s1_3', 'Semana 1', 3, 'Criar os 5 Destaques oficiais no Instagram', 'Entrega Grátis, Brasil Card, Ofertas, Skincare/Beleza e Infantil/Fraldas.', 0, null],
+      ['chk_s1_4', 'Semana 1', 4, 'Ativar espelhamento Instagram → Facebook', 'Conectar na Central de Contas / Meta Business Suite para publicar automaticamente no Facebook.', 0, null],
+      ['chk_s1_5', 'Semana 1', 5, 'Otimizar Google Perfil da Empresa (Maps)', 'Conferir horário Seg–Sáb 07h30–20h | Dom 07h30–13h, subir fotos reais, link /bio?utm_source=google&utm_medium=maps e 1ª atualização.', 0, null],
+      ['chk_s1_6', 'Semana 1', 6, 'Revisar dados públicos da loja aqui na Isa', 'Conferir @ do Instagram, endereço completo e links do Google Maps para sincronizar /bio e artes.', 0, null],
+      ['chk_s1_7', 'Semana 1', 7, 'Reservar bloco semanal de 30 min para gravação', 'Definir horário fixo com a equipe para gravar 1–2 vídeos curtos (30–45s) na vertical com boa luz.', 0, null],
+      ['chk_s1_8', 'Semana 2', 8, 'Ativar micro-verba hiperlocal no Meta Ads', 'Configurar R$ 300–600/mês travado em raio de 2–5 km do Bairro Ipiranga/Zona Sul JF (40% Perfil + 60% WhatsApp/bio).', 0, null],
+    ];
+
+    const insertChk = db.prepare(`
+      INSERT OR IGNORE INTO social_growth_checklist (id, phase, sortOrder, title, description, completed, completedAt)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+    for (const item of seedChecklist) {
+      insertChk.run(...item);
+    }
+    console.log('[IsaMarketing] 🚀 Tabelas de Crescimento Social inicializadas.');
+  } catch (socialDbErr) {
+    console.error('[IsaMarketing] ❌ Erro ao inicializar tabelas de Crescimento Social:', socialDbErr.message);
+  }
+
+  const getSocialGrowthConfig = () => {
+    const row = db.prepare('SELECT * FROM social_growth_config WHERE id = ?').get('default');
+    return row || {
+      id: 'default',
+      instagramHandle: '@belafarmasul',
+      whatsappNumber: '5532998228189',
+      whatsappDisplay: '(32) 99822-8189',
+      storeAddress: 'Bairro Ipiranga, Juiz de Fora - MG',
+      openingHours: 'Seg–Sáb 07h30 às 20h • Dom 07h30 às 13h',
+      paymentsText: 'Cartão Brasil Card • Pix • Crédito/Débito • Dinheiro',
+      googleMapsUrl: 'https://www.google.com/maps/search/?api=1&query=Drogaria+Bela+Farma+Sul+Ipiranga+Juiz+de+Fora+MG',
+      googleReviewUrl: '',
+      ifoodUrl: '',
+      vitrineUrl: '/promocao?utm_source=instagram&utm_medium=bio&utm_campaign=link_bio',
+      bioHeadline: 'Bela Farma Sul • Bairro Ipiranga, JF',
+      bioSubheadline: 'Entrega super rápida e grátis nos bairros próximos • Aceitamos Cartão Brasil Card',
+      showHours: 1,
+      showIfood: 0,
+      showBrasilCard: 1,
+      monthlyAdBudget: 450,
+      updatedAt: new Date().toISOString(),
+    };
+  };
+
+  // ─── GET /api/marketing/public/bio-config (PÚBLICA) ───────────────────────
+  app.get('/api/marketing/public/bio-config', (req, res) => {
+    try {
+      const cfg = getSocialGrowthConfig();
+      res.json({
+        instagramHandle: cfg.instagramHandle || '@belafarmasul',
+        whatsappNumber: cfg.whatsappNumber || '5532998228189',
+        whatsappDisplay: cfg.whatsappDisplay || '(32) 99822-8189',
+        storeAddress: cfg.storeAddress || 'Bairro Ipiranga, Juiz de Fora - MG',
+        openingHours: cfg.openingHours || 'Seg–Sáb 07h30 às 20h • Dom 07h30 às 13h',
+        paymentsText: cfg.paymentsText || 'Cartão Brasil Card • Pix • Crédito/Débito • Dinheiro',
+        googleMapsUrl: cfg.googleMapsUrl || '',
+        googleReviewUrl: cfg.googleReviewUrl || '',
+        ifoodUrl: cfg.ifoodUrl || '',
+        vitrineUrl: cfg.vitrineUrl || '/promocao?utm_source=instagram&utm_medium=bio&utm_campaign=link_bio',
+        bioHeadline: cfg.bioHeadline || 'Bela Farma Sul • Bairro Ipiranga, JF',
+        bioSubheadline: cfg.bioSubheadline || 'Entrega super rápida e grátis nos bairros próximos • Aceitamos Cartão Brasil Card',
+        showHours: !!cfg.showHours,
+        showIfood: !!cfg.showIfood,
+        showBrasilCard: !!cfg.showBrasilCard,
+        updatedAt: cfg.updatedAt || null,
+      });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ─── POST /api/marketing/public/bio-click (PÚBLICA) ───────────────────────
+  app.post('/api/marketing/public/bio-click', (req, res) => {
+    try {
+      const body = req.body || {};
+      const buttonId = String(body.buttonId || '').trim().slice(0, 80);
+      if (!buttonId) {
+        return res.status(400).json({ error: 'buttonId é obrigatório.' });
+      }
+      const buttonLabel = String(body.buttonLabel || buttonId).trim().slice(0, 120);
+      const utmSource = String(body.utmSource || 'bio_direto').trim().slice(0, 80);
+      const utmMedium = String(body.utmMedium || '').trim().slice(0, 80);
+      const utmCampaign = String(body.utmCampaign || '').trim().slice(0, 80);
+      const referrer = String(body.referrer || '').trim().slice(0, 250);
+      const deviceType = String(body.deviceType || '').trim().slice(0, 30) || (
+        req.headers['user-agent'] && /mobile|android|iphone|ipad/i.test(req.headers['user-agent']) ? 'mobile' : 'desktop'
+      );
+
+      const id = `bioclk_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      db.prepare(`
+        INSERT INTO social_bio_clicks (id, buttonId, buttonLabel, utmSource, utmMedium, utmCampaign, referrer, deviceType, createdAt)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(id, buttonId, buttonLabel, utmSource, utmMedium, utmCampaign, referrer, deviceType, new Date().toISOString());
+
+      res.json({ success: true, id });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ─── GET /api/marketing/social-growth/overview ────────────────────────────
+  app.get('/api/marketing/social-growth/overview', (req, res) => {
+    try {
+      const config = getSocialGrowthConfig();
+      const checklist = db.prepare('SELECT * FROM social_growth_checklist ORDER BY sortOrder ASC').all().map(item => ({
+        ...item,
+        completed: !!item.completed,
+      }));
+      const weeks = db.prepare('SELECT * FROM social_growth_weeks ORDER BY createdAt DESC LIMIT 12').all().map(w => {
+        let plan = {};
+        let progress = {};
+        try { plan = JSON.parse(w.planJson || '{}'); } catch (_) {}
+        try { progress = JSON.parse(w.progressJson || '{}'); } catch (_) {}
+        return {
+          id: w.id,
+          weekLabel: w.weekLabel,
+          focusTheme: w.focusTheme,
+          climateContext: w.climateContext,
+          plan,
+          progress,
+          sentToWhatsapp: !!w.sentToWhatsapp,
+          sentAt: w.sentAt,
+          createdAt: w.createdAt,
+        };
+      });
+      const kpis = db.prepare('SELECT * FROM social_growth_kpis ORDER BY weekStart DESC, createdAt DESC LIMIT 30').all();
+
+      const since30d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+      const totalRow = db.prepare('SELECT COUNT(*) as total FROM social_bio_clicks WHERE createdAt >= ?').get(since30d);
+      const byButton = db.prepare(`
+        SELECT buttonId, buttonLabel, COUNT(*) as count
+        FROM social_bio_clicks
+        WHERE createdAt >= ?
+        GROUP BY buttonId, buttonLabel
+        ORDER BY count DESC
+      `).all(since30d);
+      const bySource = db.prepare(`
+        SELECT COALESCE(NULLIF(utmSource, ''), 'bio_direto') as source, COUNT(*) as count
+        FROM social_bio_clicks
+        WHERE createdAt >= ?
+        GROUP BY source
+        ORDER BY count DESC
+      `).all(since30d);
+
+      res.json({
+        config: {
+          ...config,
+          showHours: !!config.showHours,
+          showIfood: !!config.showIfood,
+          showBrasilCard: !!config.showBrasilCard,
+        },
+        checklist,
+        weeks,
+        kpis,
+        bioStats: {
+          total30Days: totalRow?.total || 0,
+          byButton,
+          bySource,
+        },
+      });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ─── PUT /api/marketing/social-growth/config ──────────────────────────────
+  app.put('/api/marketing/social-growth/config', (req, res) => {
+    try {
+      const current = getSocialGrowthConfig();
+      const body = req.body || {};
+
+      let igRaw = String(body.instagramHandle ?? current.instagramHandle ?? '').trim().slice(0, 120);
+      if (igRaw.includes('instagram.com/')) {
+        igRaw = igRaw.split('instagram.com/')[1].split(/[/?#]/)[0].trim();
+      }
+      if (igRaw && !igRaw.startsWith('@')) {
+        igRaw = `@${igRaw}`;
+      }
+
+      const digitsOnly = String(body.whatsappNumber ?? current.whatsappNumber ?? '').replace(/\D/g, '').slice(0, 15);
+      const whatsappNumber = digitsOnly || current.whatsappNumber || '5532998228189';
+      const whatsappDisplay = String(body.whatsappDisplay ?? current.whatsappDisplay ?? '(32) 99822-8189').trim().slice(0, 40);
+      const storeAddress = String(body.storeAddress ?? current.storeAddress ?? '').trim().slice(0, 200);
+      const openingHours = String(body.openingHours ?? current.openingHours ?? '').trim().slice(0, 160);
+      const paymentsText = String(body.paymentsText ?? current.paymentsText ?? '').trim().slice(0, 200);
+      const googleMapsUrl = String(body.googleMapsUrl ?? current.googleMapsUrl ?? '').trim().slice(0, 500);
+      const googleReviewUrl = String(body.googleReviewUrl ?? current.googleReviewUrl ?? '').trim().slice(0, 500);
+      const ifoodUrl = String(body.ifoodUrl ?? current.ifoodUrl ?? '').trim().slice(0, 500);
+      const vitrineUrl = String(body.vitrineUrl ?? current.vitrineUrl ?? '/promocao').trim().slice(0, 300);
+      const bioHeadline = String(body.bioHeadline ?? current.bioHeadline ?? '').trim().slice(0, 140);
+      const bioSubheadline = String(body.bioSubheadline ?? current.bioSubheadline ?? '').trim().slice(0, 240);
+      const showHours = body.showHours === undefined ? (current.showHours ? 1 : 0) : (body.showHours ? 1 : 0);
+      const showIfood = body.showIfood === undefined ? (current.showIfood ? 1 : 0) : (body.showIfood ? 1 : 0);
+      const showBrasilCard = body.showBrasilCard === undefined ? (current.showBrasilCard ? 1 : 0) : (body.showBrasilCard ? 1 : 0);
+      const monthlyAdBudget = Math.max(0, Number(body.monthlyAdBudget ?? current.monthlyAdBudget ?? 450) || 0);
+      const updatedAt = new Date().toISOString();
+
+      db.prepare(`
+        UPDATE social_growth_config
+        SET instagramHandle = ?, whatsappNumber = ?, whatsappDisplay = ?, storeAddress = ?,
+            openingHours = ?, paymentsText = ?, googleMapsUrl = ?, googleReviewUrl = ?,
+            ifoodUrl = ?, vitrineUrl = ?, bioHeadline = ?, bioSubheadline = ?,
+            showHours = ?, showIfood = ?, showBrasilCard = ?, monthlyAdBudget = ?, updatedAt = ?
+        WHERE id = 'default'
+      `).run(
+        igRaw, whatsappNumber, whatsappDisplay, storeAddress, openingHours, paymentsText,
+        googleMapsUrl, googleReviewUrl, ifoodUrl, vitrineUrl, bioHeadline, bioSubheadline,
+        showHours, showIfood, showBrasilCard, monthlyAdBudget, updatedAt
+      );
+
+      const updated = getSocialGrowthConfig();
+      res.json({
+        success: true,
+        config: {
+          ...updated,
+          showHours: !!updated.showHours,
+          showIfood: !!updated.showIfood,
+          showBrasilCard: !!updated.showBrasilCard,
+        },
+      });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ─── PATCH /api/marketing/social-growth/checklist/:id ─────────────────────
+  app.patch('/api/marketing/social-growth/checklist/:id', (req, res) => {
+    try {
+      const { id } = req.params;
+      const existing = db.prepare('SELECT * FROM social_growth_checklist WHERE id = ?').get(id);
+      if (!existing) return res.status(404).json({ error: 'Item do checklist não encontrado.' });
+
+      const nextCompleted = req.body && req.body.completed !== undefined
+        ? (req.body.completed ? 1 : 0)
+        : (existing.completed ? 0 : 1);
+      const completedAt = nextCompleted ? new Date().toISOString() : null;
+
+      db.prepare('UPDATE social_growth_checklist SET completed = ?, completedAt = ? WHERE id = ?')
+        .run(nextCompleted, completedAt, id);
+
+      res.json({ success: true, id, completed: !!nextCompleted, completedAt });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ─── POST /api/marketing/social-growth/generate-week ──────────────────────
+  app.post('/api/marketing/social-growth/generate-week', async (req, res) => {
+    try {
+      const config = getSocialGrowthConfig();
+      const focusTheme = String(req.body?.focusTheme || '').trim().slice(0, 160);
+      const defaultDate = new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+      const weekLabel = String(req.body?.weekLabel || `Semana de ${defaultDate}`).trim().slice(0, 80);
+
+      const plan = await gerarCalendarioSemanalSocial(config, { focusTheme, weekLabel });
+      const id = `socwk_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      const createdAt = new Date().toISOString();
+      const climateContext = String(plan.climateContext || '');
+
+      db.prepare(`
+        INSERT INTO social_growth_weeks (id, weekLabel, focusTheme, climateContext, planJson, progressJson, sentToWhatsapp, sentAt, createdAt)
+        VALUES (?, ?, ?, ?, ?, ?, 0, NULL, ?)
+      `).run(id, weekLabel, focusTheme, climateContext, JSON.stringify(plan), '{}', createdAt);
+
+      res.json({
+        success: true,
+        week: {
+          id,
+          weekLabel,
+          focusTheme,
+          climateContext,
+          plan,
+          progress: {},
+          sentToWhatsapp: false,
+          sentAt: null,
+          createdAt,
+        },
+      });
+    } catch (err) {
+      console.error('[IsaMarketing] Erro ao gerar pauta social:', err);
+      res.status(500).json({ error: err.message || 'Erro ao gerar pauta semanal' });
+    }
+  });
+
+  // ─── PATCH /api/marketing/social-growth/weeks/:id/progress ────────────────
+  app.patch('/api/marketing/social-growth/weeks/:id/progress', (req, res) => {
+    try {
+      const { id } = req.params;
+      const existing = db.prepare('SELECT id, progressJson FROM social_growth_weeks WHERE id = ?').get(id);
+      if (!existing) return res.status(404).json({ error: 'Semana não encontrada.' });
+
+      const progressObj = (req.body && typeof req.body.progress === 'object' && req.body.progress !== null)
+        ? req.body.progress
+        : {};
+      db.prepare('UPDATE social_growth_weeks SET progressJson = ? WHERE id = ?')
+        .run(JSON.stringify(progressObj), id);
+
+      res.json({ success: true, id, progress: progressObj });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ─── POST /api/marketing/social-growth/weeks/:id/send-whatsapp ────────────
+  app.post('/api/marketing/social-growth/weeks/:id/send-whatsapp', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const row = db.prepare('SELECT * FROM social_growth_weeks WHERE id = ?').get(id);
+      if (!row) return res.status(404).json({ error: 'Semana não encontrada.' });
+
+      const destinatario = String(req.body?.phone || process.env.MARKETING_ROSANA_PHONE || process.env.ADMIN_WHATSAPP || '').trim();
+      if (!destinatario) {
+        return res.status(400).json({ error: 'Informe um número de WhatsApp ou configure MARKETING_ROSANA_PHONE.' });
+      }
+
+      const config = getSocialGrowthConfig();
+      const plan = JSON.parse(row.planJson || '{}');
+      const mensagem = formatarPlanoSocialWhatsApp({ ...plan, climateContext: row.climateContext }, config);
+
+      const envio = await sendMessage(destinatario, mensagem);
+      if (!envio.success) {
+        return res.status(502).json({ error: envio.error || 'Falha ao enviar via WhatsApp.' });
+      }
+
+      const sentAt = new Date().toISOString();
+      db.prepare('UPDATE social_growth_weeks SET sentToWhatsapp = 1, sentAt = ? WHERE id = ?').run(sentAt, id);
+
+      res.json({ success: true, sentAt, phone: destinatario });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ─── POST /api/marketing/social-growth/kpis ───────────────────────────────
+  app.post('/api/marketing/social-growth/kpis', (req, res) => {
+    try {
+      const body = req.body || {};
+      const weekStart = String(body.weekStart || '').trim().slice(0, 20);
+      if (!weekStart) {
+        return res.status(400).json({ error: 'Informe a data de início da semana (weekStart).' });
+      }
+
+      const toNonNegInt = (v) => Math.max(0, Math.round(Number(v) || 0));
+      const toNonNegFloat = (v) => Math.max(0, Number(v) || 0);
+
+      const kpi = {
+        id: `sockpi_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        weekStart,
+        followersCount: toNonNegInt(body.followersCount),
+        localReach: toNonNegInt(body.localReach),
+        profileVisits: toNonNegInt(body.profileVisits),
+        bioClicks: toNonNegInt(body.bioClicks),
+        whatsappOrders: toNonNegInt(body.whatsappOrders),
+        googleReviews: toNonNegInt(body.googleReviews),
+        adSpend: toNonNegFloat(body.adSpend),
+        notes: String(body.notes || '').trim().slice(0, 300),
+        createdAt: new Date().toISOString(),
+      };
+
+      db.prepare(`
+        INSERT INTO social_growth_kpis (
+          id, weekStart, followersCount, localReach, profileVisits, bioClicks,
+          whatsappOrders, googleReviews, adSpend, notes, createdAt
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        kpi.id, kpi.weekStart, kpi.followersCount, kpi.localReach, kpi.profileVisits,
+        kpi.bioClicks, kpi.whatsappOrders, kpi.googleReviews, kpi.adSpend, kpi.notes, kpi.createdAt
+      );
+
+      res.json({ success: true, kpi });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ─── DELETE /api/marketing/social-growth/kpis/:id ─────────────────────────
+  app.delete('/api/marketing/social-growth/kpis/:id', (req, res) => {
+    try {
+      const { id } = req.params;
+      const result = db.prepare('DELETE FROM social_growth_kpis WHERE id = ?').run(id);
+      if (!result.changes) {
+        return res.status(404).json({ error: 'Registro de KPI não encontrado.' });
+      }
+      res.json({ success: true, id });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

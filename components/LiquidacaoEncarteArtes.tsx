@@ -9,6 +9,7 @@ import {
   DIMENSOES_UNITARIO,
   DIMENSOES_A4,
   EstiloArte,
+  LojaOverrides,
   ESTILO_PADRAO,
   TEMAS_PRONTOS,
   FONTES_DISPONIVEIS
@@ -125,6 +126,33 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
     else if (tipoAtual === 'feed') setEstiloFeed(update);
     else setEstiloStory(update);
   };
+
+  // Sincronização silenciosa dos dados públicos da loja (Instagram @, WhatsApp, Horário, Brasil Card)
+  const [lojaOverrides, setLojaOverrides] = useState<LojaOverrides | undefined>(undefined);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/marketing/public/bio-config')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((cfg) => {
+        if (!cancelled && cfg && typeof cfg === 'object') {
+          setLojaOverrides({
+            site: cfg.instagramHandle ?? undefined,
+            whatsapp: cfg.whatsappDisplay ?? undefined,
+            endereco: cfg.storeAddress ?? undefined,
+            horario: cfg.openingHours ?? undefined,
+            pagamentos: cfg.paymentsText ?? undefined,
+          });
+        }
+      })
+      .catch(() => { /* fail-silent */ });
+    return () => { cancelled = true; };
+  }, []);
+
+  const estiloEfetivo = React.useMemo<EstiloArte>(
+    () => (lojaOverrides ? { ...estilo, lojaOverrides } : estilo),
+    [estilo, lojaOverrides]
+  );
 
   // ─── ESTÚDIO VISUAL / EDITOR PROFISSIONAL DE ARTES ───
   const [painelEditorAberto, setPainelEditorAberto] = useState(false);
@@ -438,13 +466,13 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
   const zoomUnit = formatoUnitario === 'story' ? 0.62 : 0.8;
 
   const htmlArteAtual = React.useMemo(
-    () => (produtoAtual ? htmlArteUnitaria(produtoAtual, formatoUnitario, periodoArte, estilo) : ''),
-    [produtoAtual, formatoUnitario, inicioFmt, terminoFmt, imgVersion, estilo]
+    () => (produtoAtual ? htmlArteUnitaria(produtoAtual, formatoUnitario, periodoArte, estiloEfetivo) : ''),
+    [produtoAtual, formatoUnitario, inicioFmt, terminoFmt, imgVersion, estiloEfetivo]
   );
 
   const htmlEncartePaginaAtual = React.useMemo(
-    () => htmlPaginaEncarte(itensPaginaEncarte, paginaEncarteAtual, totalPaginasEncarte, periodoArte, colunasEncarte, estilo),
-    [itensPaginaEncarte, paginaEncarteAtual, totalPaginasEncarte, inicioFmt, terminoFmt, colunasEncarte, imgVersion, estilo]
+    () => htmlPaginaEncarte(itensPaginaEncarte, paginaEncarteAtual, totalPaginasEncarte, periodoArte, colunasEncarte, estiloEfetivo),
+    [itensPaginaEncarte, paginaEncarteAtual, totalPaginasEncarte, inicioFmt, terminoFmt, colunasEncarte, imgVersion, estiloEfetivo]
   );
 
   const slugProduto = (desc: string) => desc.toLowerCase().replace(/[^a-z0-9]/g, '_').substring(0, 30);
@@ -455,7 +483,7 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
     try {
       await prepararImagensArte([produtoAtual]);
       const canvas = await renderizarHtmlParaCanvas(
-        htmlArteUnitaria(produtoAtual, formatoUnitario, periodoArte, estilo), dimUnit.w, dimUnit.h, 3
+        htmlArteUnitaria(produtoAtual, formatoUnitario, periodoArte, estiloEfetivo), dimUnit.w, dimUnit.h, 3
       );
       const link = document.createElement('a');
       link.download = `BelaFarma_Arte_${formatoUnitario}_${slugProduto(produtoAtual.descricao)}.png`;
@@ -546,7 +574,7 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
 
     try {
       await prepararImagensArte([produtoAtual]);
-      const html = htmlArteUnitaria(produtoAtual, formatoUnitario, periodoArte, estilo);
+      const html = htmlArteUnitaria(produtoAtual, formatoUnitario, periodoArte, estiloEfetivo);
       const canvas = await renderizarHtmlParaCanvas(html, dimUnit.w, dimUnit.h, 2);
 
       const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/png'));
@@ -601,7 +629,7 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
         const item = itens[i];
         setProgressoRobo({ atual: i + 1, total: itens.length });
 
-        const html = htmlArteUnitaria(item, formatoUnitario, periodoArte, estilo);
+        const html = htmlArteUnitaria(item, formatoUnitario, periodoArte, estiloEfetivo);
         const canvas = await renderizarHtmlParaCanvas(html, dimUnit.w, dimUnit.h, 2);
         const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/png'));
 
@@ -666,7 +694,7 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
     try {
       await prepararImagensArte([produtoAtual]);
       const canvas = await renderizarHtmlParaCanvas(
-        htmlArteUnitaria(produtoAtual, formatoUnitario, periodoArte, estilo), dimUnit.w, dimUnit.h, 3
+        htmlArteUnitaria(produtoAtual, formatoUnitario, periodoArte, estiloEfetivo), dimUnit.w, dimUnit.h, 3
       );
       canvas.toBlob(async (blob) => {
         if (blob) {
@@ -692,7 +720,7 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
       addToast('Permita pop-ups no navegador para abrir a arte em HTML.', 'warning');
       return;
     }
-    const htmlArte = htmlArteUnitaria(produtoAtual, formatoUnitario, periodoArte, estilo);
+    const htmlArte = htmlArteUnitaria(produtoAtual, formatoUnitario, periodoArte, estiloEfetivo);
     win.document.write(`
       <!DOCTYPE html>
       <html lang="pt-BR">
@@ -736,7 +764,7 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
         const item = itens[i];
         setProgressoZip({ atual: i + 1, total: itens.length });
         const canvas = await renderizarHtmlParaCanvas(
-          htmlArteUnitaria(item, formatoUnitario, periodoArte, estilo), dimUnit.w, dimUnit.h, 3
+          htmlArteUnitaria(item, formatoUnitario, periodoArte, estiloEfetivo), dimUnit.w, dimUnit.h, 3
         );
         const base64Data = canvas.toDataURL('image/png').replace(/^data:image\/png;base64,/, '');
         const fileName = `${String(i + 1).padStart(2, '0')}_${item.produto_id}_${slugProduto(item.descricao)}.png`;
@@ -762,7 +790,7 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
     try {
       await prepararImagensArte(itensPaginaEncarte);
       const canvas = await renderizarHtmlParaCanvas(
-        htmlPaginaEncarte(itensPaginaEncarte, paginaEncarteAtual, totalPaginasEncarte, periodoArte, colunasEncarte, estilo),
+        htmlPaginaEncarte(itensPaginaEncarte, paginaEncarteAtual, totalPaginasEncarte, periodoArte, colunasEncarte, estiloEfetivo),
         DIMENSOES_A4.w, DIMENSOES_A4.h, 3
       );
       const link = document.createElement('a');
@@ -788,7 +816,7 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
       for (let p = 1; p <= totalPaginasEncarte; p++) {
         const itensDaPagina = itens.slice((p - 1) * produtosPorPagina, p * produtosPorPagina);
         const canvas = await renderizarHtmlParaCanvas(
-          htmlPaginaEncarte(itensDaPagina, p, totalPaginasEncarte, periodoArte, colunasEncarte, estilo),
+          htmlPaginaEncarte(itensDaPagina, p, totalPaginasEncarte, periodoArte, colunasEncarte, estiloEfetivo),
           DIMENSOES_A4.w, DIMENSOES_A4.h, 2
         );
         if (p > 1) pdf.addPage();
@@ -821,7 +849,7 @@ export const LiquidacaoEncarteArtes: React.FC<LiquidacaoEncarteArtesProps> = ({
       const itensDaPagina = itens.slice((p - 1) * produtosPorPagina, p * produtosPorPagina);
       paginasHtml += `
         <div class="folha-encarte-a4" style="width:210mm;height:297mm;overflow:hidden;page-break-after:always;page-break-inside:avoid;box-sizing:border-box;">
-          ${htmlPaginaEncarte(itensDaPagina, p, totalPaginasEncarte, periodoArte, colunasEncarte, estilo)}
+          ${htmlPaginaEncarte(itensDaPagina, p, totalPaginasEncarte, periodoArte, colunasEncarte, estiloEfetivo)}
         </div>
       `;
     }
