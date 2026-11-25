@@ -4582,6 +4582,9 @@ console.log('💳 Módulo Controle de Maquininhas inicializado.');
 
 const temperatureEndpoints = require('./temperature-endpoints.js');
 app.use('/api/temperature', temperatureEndpoints(db));
+const teamScheduleEndpoints = require('./team-schedule-endpoints.js');
+app.use('/api/team-schedule', teamScheduleEndpoints(db));
+console.log('👥 Módulo Escala & Equipe inicializado.');
 console.log('🌡️ Módulo Mapa de Temperatura (Termo-Higrômetro) inicializado.');
 
 // Rotina periódica em segundo plano para checar atualizações da ANVISA (a cada 12 horas)

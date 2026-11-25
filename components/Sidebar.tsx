@@ -56,6 +56,7 @@ import {
   Zap,
   Scale,
   ThumbsDown,
+  CalendarClock,
 } from 'lucide-react';
 import { View, User, UserRole, Task, Boleto, BoletoStatus } from '../types';
 import { NotificationPanel } from './NotificationPanel';
@@ -307,6 +308,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'perdas-avarias', label: 'Perdas e Avarias', icon: Trash2 },
     { id: 'orders', label: 'Pedidos', icon: ShoppingCart },
     { id: 'users', label: 'Usuários', icon: UsersIcon },
+    { id: 'team-schedule', label: 'Escala & Equipe', icon: CalendarClock },
     { id: 'safe', label: 'Cofre', icon: Lock },
     { id: 'backups', label: 'Backups', icon: Database },
     { id: 'quotations', label: 'Cotações', icon: MessageSquare },
@@ -544,6 +546,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       itemIds: [
         'customers',
         'users',
+        'team-schedule',
         'backups',
         'settings'
       ]
