@@ -318,9 +318,16 @@ function ensureCrediarioUnifiedSchema(db) {
       sent_by TEXT,
       created_at TEXT DEFAULT (datetime('now', 'localtime'))
     );
+
+    CREATE TABLE IF NOT EXISTS crediario_fichario_labels (
+      fichario_id TEXT PRIMARY KEY,
+      description TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now', 'localtime'))
+    );
   `);
 
   const alterColumns = [
+    'ALTER TABLE crediario_local_purchases ADD COLUMN digifarma_fichario_id TEXT',
     'ALTER TABLE digifarma_crediario_cache ADD COLUMN produto_id INTEGER',
     "ALTER TABLE digifarma_crediario_cache ADD COLUMN produto_nome TEXT DEFAULT ''",
     "ALTER TABLE digifarma_crediario_cache ADD COLUMN apresentacao TEXT DEFAULT ''",
@@ -1061,6 +1068,15 @@ async function syncAllFromDigifarma(db, { notifyNewPurchases = false } = {}) {
 
       const buyersByClienteId = new Map();
       const openSumByClienteId = new Map();
+      const labelByFicharioId = new Map();
+      try {
+        const lRows = db.prepare('SELECT fichario_id, description FROM crediario_fichario_labels').all();
+        for (const lr of lRows) {
+          if (lr.fichario_id && lr.description) {
+            labelByFicharioId.set(String(lr.fichario_id), String(lr.description).trim());
+          }
+        }
+      } catch (_) {}
 
       for (const row of ficharioRows) {
         const purchaseYMD = toLocalDateYMD(row.FICHARIO_DATACOMPRA);
@@ -1075,7 +1091,8 @@ async function syncAllFromDigifarma(db, { notifyNewPurchases = false } = {}) {
         const buyer = String(row.FICHARIO_COMPRADOR || '').trim().toUpperCase();
         const phone = sanitizeDigits(row.CLI_CELULAR) || sanitizeDigits(row.CLI_TELEFONE) || '';
         const dueYMD = toLocalDateYMD(row.FICHARIO_VENCIMENTO) || (purchaseYMD ? addDaysYMD(purchaseYMD, 30) : '');
-        const prodName = String(row.PRODUTO || '').trim() || `Produto #${row.PRODUTO_ID || ''}`;
+        const labelRow = !row.PRODUTO ? labelByFicharioId.get(String(row.FICHARIO_ID)) : null;
+        const prodName = String(row.PRODUTO || '').trim() || labelRow || (row.PRODUTO_ID ? `Produto #${row.PRODUTO_ID}` : (buyer || 'ANOTACAO CREDIARIO'));
         const pres = String(row.APRESENTACAO || '').trim();
         const saleIdStr = row.VENDA_NOTA_ID ? String(row.VENDA_NOTA_ID) : '';
 
@@ -2214,6 +2231,373 @@ function buildThermalReceiptHtml(statementData, mode = 'simple') {
 }
 
 // ============================================================================
+// Helpers de Cartão Unificado & Integração com FICHARIO (Digifarma Firebird)
+// ============================================================================
+function resolveOrCreateBelafarmaCard(db, {
+  cardId = null,
+  customerId = null,
+  digifarmaClienteId = null,
+  customerName = '',
+  customerCpf = '',
+  customerPhone = ''
+} = {}) {
+  ensureCrediarioUnifiedSchema(db);
+  const cleanCpf = sanitizeDigits(customerCpf);
+  const cleanPhone = sanitizeDigits(customerPhone);
+  const cleanName = String(customerName || '').trim().toUpperCase();
+  const candidateDfId = digifarmaClienteId && Number(digifarmaClienteId) > 0
+    ? Number(digifarmaClienteId)
+    : (/^\d+$/.test(String(customerId || '')) && Number(customerId) > 0 ? Number(customerId) : null);
+
+  let card = null;
+  if (cardId) {
+    card = db.prepare('SELECT * FROM belafarma_cards WHERE id = ?').get(Number(cardId));
+  }
+  if (!card && candidateDfId) {
+    card = db.prepare('SELECT * FROM belafarma_cards WHERE digifarma_cliente_id = ?').get(candidateDfId);
+  }
+  if (!card && customerId) {
+    card = db.prepare('SELECT * FROM belafarma_cards WHERE customer_id = ?').get(String(customerId));
+  }
+  if (!card && cleanCpf.length >= 11) {
+    card = db.prepare("SELECT * FROM belafarma_cards WHERE REPLACE(REPLACE(REPLACE(COALESCE(cpf, ''), '.', ''), '-', ''), ' ', '') = ?").get(cleanCpf);
+  }
+  if (!card && cleanName) {
+    card = db.prepare('SELECT * FROM belafarma_cards WHERE UPPER(TRIM(customer_name)) = ?').get(cleanName);
+  }
+
+  if (card) {
+    const token = card.portal_token || generatePortalToken();
+    const nextDfId = card.digifarma_cliente_id || candidateDfId || null;
+    if (!card.portal_token || (nextDfId && !card.digifarma_cliente_id)) {
+      db.prepare(`
+        UPDATE belafarma_cards
+        SET portal_token = ?,
+            digifarma_cliente_id = COALESCE(digifarma_cliente_id, ?),
+            cpf = COALESCE(NULLIF(TRIM(cpf), ''), NULLIF(?, '')),
+            phone = COALESCE(NULLIF(TRIM(phone), ''), ?),
+            updated_at = datetime('now', 'localtime')
+        WHERE id = ?
+      `).run(token, nextDfId, cleanCpf || null, cleanPhone, card.id);
+      card = db.prepare('SELECT * FROM belafarma_cards WHERE id = ?').get(card.id);
+    }
+    return card;
+  }
+
+  let custRow = null;
+  try {
+    if (customerId) {
+      custRow = db.prepare('SELECT * FROM customers WHERE id = ?').get(String(customerId));
+    }
+    if (!custRow && cleanCpf.length >= 11) {
+      custRow = db.prepare("SELECT * FROM customers WHERE REPLACE(REPLACE(REPLACE(COALESCE(cpf, ''), '.', ''), '-', ''), ' ', '') = ?").get(cleanCpf);
+    }
+    if (!custRow && cleanName) {
+      custRow = db.prepare('SELECT * FROM customers WHERE UPPER(TRIM(name)) = ?').get(cleanName);
+    }
+  } catch (_) {}
+
+  const resolvedCustId = customerId ? String(customerId) : (custRow?.id ? String(custRow.id) : (candidateDfId ? String(candidateDfId) : `cust_${Date.now()}`));
+  const finalName = cleanName || String(custRow?.name || 'CLIENTE CREDIARIO BALCAO').trim().toUpperCase();
+  const finalPhone = cleanPhone || sanitizeDigits(custRow?.phone || '');
+  const finalCpf = cleanCpf || sanitizeDigits(custRow?.cpf || '');
+  const finalLimit = Number(custRow?.creditLimit || 0) > 0 ? Number(custRow.creditLimit) : 300;
+  const custDue = Number(custRow?.dueDay || 0);
+  const finalDueDay = custDue >= 1 && custDue <= 28 ? custDue : 20;
+  const token = generatePortalToken();
+  const cardNumber = generateCardNumber();
+
+  const info = db.prepare(`
+    INSERT INTO belafarma_cards (
+      customer_id, digifarma_cliente_id, portal_token, customer_name, nickname,
+      phone, cpf, address, card_number, credit_limit, used_limit, due_day, due_day_mode,
+      closing_offset_days, status, notes, created_at, updated_at
+    ) VALUES (
+      ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?, 0, ?, 'auto',
+      10, 'active', ?, datetime('now', 'localtime'), datetime('now', 'localtime')
+    )
+  `).run(
+    resolvedCustId,
+    candidateDfId || null,
+    token,
+    finalName,
+    String(custRow?.nickname || '').trim(),
+    finalPhone,
+    finalCpf || null,
+    String(custRow?.address || '').trim(),
+    cardNumber,
+    finalLimit,
+    finalDueDay,
+    String(custRow?.notes || '').trim()
+  );
+
+  return db.prepare('SELECT * FROM belafarma_cards WHERE id = ?').get(info.lastInsertRowid);
+}
+
+async function resolveDigifarmaClienteId(db, {
+  card = null,
+  cardId = null,
+  customerId = null,
+  digifarmaClienteId = null,
+  customerName = '',
+  customerCpf = ''
+} = {}, queryDigifarmaFn = queryDigifarma) {
+  let localCard = card;
+  if (!localCard && cardId) {
+    localCard = findCard(db, cardId);
+  }
+  if (!localCard && customerId) {
+    localCard = db.prepare('SELECT * FROM belafarma_cards WHERE customer_id = ?').get(String(customerId)) || null;
+  }
+
+  const candidateId = Number(
+    digifarmaClienteId ||
+    localCard?.digifarma_cliente_id ||
+    (/^\d+$/.test(String(customerId || '')) ? Number(customerId) : 0) ||
+    (/^\d+$/.test(String(localCard?.customer_id || '')) ? Number(localCard.customer_id) : 0)
+  );
+
+  let found = null;
+
+  // 1. Por CLIENTE_ID numérico direto
+  if (candidateId > 0 && Number.isInteger(candidateId)) {
+    const rows = await queryDigifarmaFn(
+      'SELECT FIRST 1 CLIENTE_ID, CLIENTE, CLI_DIA_PAGAMENTO FROM CLIENTES WHERE CLIENTE_ID = ?',
+      [candidateId],
+      5000
+    );
+    if (rows && rows.length > 0) found = rows[0];
+  }
+
+  // 2. Por CPF limpo (>= 11 dígitos)
+  const cleanCpf = sanitizeDigits(customerCpf || localCard?.cpf || '');
+  if (!found && cleanCpf.length >= 11) {
+    const rows = await queryDigifarmaFn(
+      'SELECT FIRST 10 CLIENTE_ID, CLIENTE, CLI_CPF, CLI_DIA_PAGAMENTO FROM CLIENTES WHERE CLI_CPF CONTAINING ?',
+      [cleanCpf.slice(-6)],
+      5000
+    );
+    if (Array.isArray(rows)) {
+      found = rows.find(r => sanitizeDigits(r.CLI_CPF) === cleanCpf) || null;
+    }
+  }
+
+  // 3. Por nome exato (uppercase trimmed)
+  const cleanName = String(customerName || localCard?.customer_name || '').trim().toUpperCase();
+  if (!found && cleanName) {
+    const rows = await queryDigifarmaFn(
+      'SELECT FIRST 1 CLIENTE_ID, CLIENTE, CLI_DIA_PAGAMENTO FROM CLIENTES WHERE UPPER(TRIM(CLIENTE)) = ?',
+      [cleanName],
+      5000
+    );
+    if (rows && rows.length > 0) found = rows[0];
+  }
+
+  if (!found || !found.CLIENTE_ID) {
+    return null;
+  }
+
+  const resolvedId = Number(found.CLIENTE_ID);
+  if (localCard && !localCard.digifarma_cliente_id) {
+    try {
+      db.prepare("UPDATE belafarma_cards SET digifarma_cliente_id = ?, updated_at = datetime('now', 'localtime') WHERE id = ?")
+        .run(resolvedId, localCard.id);
+    } catch (_) {}
+  }
+
+  return {
+    clienteId: resolvedId,
+    clienteNome: String(found.CLIENTE || cleanName || 'Cliente').trim().toUpperCase(),
+    cliDiaPagamento: found.CLI_DIA_PAGAMENTO ? Number(found.CLI_DIA_PAGAMENTO) : null
+  };
+}
+
+async function insertItemsIntoDigifarmaFichario(db, {
+  clienteId,
+  clienteNome = '',
+  phone = '',
+  vendaNotaId = null,
+  items = [],
+  totalCrediarioAmount = 0,
+  buyerName = '',
+  purchaseDateYMD = '',
+  dueDateYMD = ''
+} = {}, queryDigifarmaFn = queryDigifarma) {
+  if (!clienteId || Number(clienteId) <= 0) {
+    throw new Error('CLIENTE_ID do Digifarma é obrigatório para gravar no FICHARIO.');
+  }
+  ensureCrediarioUnifiedSchema(db);
+
+  const pDate = toLocalDateYMD(purchaseDateYMD) || toLocalDateYMD(new Date());
+  const dDate = toLocalDateYMD(dueDateYMD) || addDaysYMD(pDate, 30);
+  const targetTotal = round2(totalCrediarioAmount);
+
+  let normalized = (Array.isArray(items) && items.length > 0 ? items : [
+    {
+      itemVendaId: null,
+      produtoId: null,
+      productName: 'COMPRA CREDIARIO',
+      quantity: 1,
+      unitPrice: targetTotal > 0 ? targetTotal : 0
+    }
+  ]).map((it, idx) => {
+    const rawProdId = parseInt(it.produtoId ?? it.product_code ?? it.code, 10);
+    const produtoId = !isNaN(rawProdId) && rawProdId > 0 ? rawProdId : null;
+    const qty = Math.max(0.001, Number(it.quantity) || 1);
+    const unitPrice = Math.max(0, round2(it.unitPrice ?? it.unit_price ?? 0));
+    return {
+      itemVendaId: it.itemVendaId ?? (vendaNotaId ? idx + 1 : null),
+      produtoId,
+      productName: String(it.productName || it.product_name || it.description || it.name || (produtoId ? `Produto #${produtoId}` : 'ANOTACAO CREDIARIO')).trim(),
+      quantity: qty,
+      unitPrice,
+      lineDiscount: 0
+    };
+  });
+
+  // Garantir que a soma líquida no FICHARIO (qty * unitPrice - lineDiscount) bata exato com totalCrediarioAmount
+  if (targetTotal > 0) {
+    let grossTotal = round2(normalized.reduce((acc, it) => acc + round2(it.quantity * it.unitPrice), 0));
+    if (grossTotal <= 0) {
+      normalized = [{
+        itemVendaId: normalized[0]?.itemVendaId ?? null,
+        produtoId: normalized[0]?.produtoId ?? null,
+        productName: normalized[0]?.productName || 'COMPRA CREDIARIO',
+        quantity: 1,
+        unitPrice: targetTotal,
+        lineDiscount: 0
+      }];
+      grossTotal = targetTotal;
+    }
+
+    if (grossTotal > targetTotal + 0.004) {
+      const totalDiscount = round2(grossTotal - targetTotal);
+      let allocated = 0;
+      for (let i = 0; i < normalized.length; i++) {
+        const lineGross = round2(normalized[i].quantity * normalized[i].unitPrice);
+        let share = i === normalized.length - 1
+          ? round2(totalDiscount - allocated)
+          : round2((lineGross / grossTotal) * totalDiscount);
+        share = Math.max(0, Math.min(lineGross, share));
+        normalized[i].lineDiscount = share;
+        allocated = round2(allocated + share);
+      }
+    } else if (grossTotal < targetTotal - 0.004) {
+      const factor = targetTotal / grossTotal;
+      for (let i = 0; i < normalized.length; i++) {
+        normalized[i].unitPrice = round2(normalized[i].unitPrice * factor);
+      }
+      const adjustedGross = round2(normalized.reduce((acc, it) => acc + round2(it.quantity * it.unitPrice), 0));
+      const diff = round2(targetTotal - adjustedGross);
+      if (Math.abs(diff) > 0.004) {
+        const last = normalized[normalized.length - 1];
+        if (Math.abs(last.quantity - 1) <= 0.001) {
+          last.unitPrice = Math.max(0, round2(last.unitPrice + diff));
+        } else if (diff < 0) {
+          last.lineDiscount = Math.min(round2(last.quantity * last.unitPrice), round2(Math.abs(diff)));
+        } else {
+          normalized.push({
+            itemVendaId: vendaNotaId ? normalized.length + 1 : null,
+            produtoId: null,
+            productName: 'AJUSTE CREDIARIO',
+            quantity: 1,
+            unitPrice: diff,
+            lineDiscount: 0
+          });
+        }
+      }
+    }
+  }
+
+  const comprador20 = String(buyerName || clienteNome || '').trim().toUpperCase().slice(0, 20);
+  const cleanPhone = sanitizeDigits(phone);
+  const ficharioIds = [];
+
+  const insertCacheStmt = db.prepare(`
+    INSERT OR REPLACE INTO digifarma_crediario_cache (
+      id, cliente_id, cliente_nome, telefone, valor, data_compra, data_vencimento,
+      venda_nota_id, produto_id, produto_nome, apresentacao, quantidade, preco_unitario,
+      desconto, comprador, atualizado_em
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, datetime('now', 'localtime'))
+  `);
+
+  const insertLabelStmt = db.prepare(`
+    INSERT OR REPLACE INTO crediario_fichario_labels (fichario_id, description, created_at)
+    VALUES (?, ?, datetime('now', 'localtime'))
+  `);
+
+  const insertSql = `
+    INSERT INTO FICHARIO (
+      FICHARIO_ID, ITEM_VENDA_ID, CLIENTE_ID, FICHARIO_QUANTIDADE, FICHARIO_VALOR,
+      FICHARIO_SITUACAO, FICHARIO_COMPRADOR, FICHARIO_VENCIMENTO, FICHARIO_DATACOMPRA,
+      VENDA_NOTA_ID, PRODUTO_ID, FICHARIOQTDE_PAGA, FICHARIO_DESCONTO,
+      FECHAMENTO_CONV_ID, LOJA_ID, FICHARIO_ME, STATUS_TRANSF, LASTUPDATE,
+      INTEGRACAO_ID, FICHARIO_FRETE, FECHAMENTO_CONV_ID_ORIGEM, FICHARIO_FRETE_TOTAL
+    ) VALUES (
+      ?, ?, ?, ?, ?,
+      NULL, ?, CAST(? AS TIMESTAMP), CAST(? AS TIMESTAMP),
+      ?, ?, NULL, ?,
+      NULL, 0, NULL, 'I', CURRENT_TIMESTAMP,
+      NULL, 0, NULL, 0
+    )
+  `;
+
+  for (const it of normalized) {
+    const genRows = await queryDigifarmaFn('SELECT GEN_ID(GEN_FICHARIO, 1) AS NEW_ID FROM RDB$DATABASE', [], 5000);
+    const ficharioId = Number(genRows?.[0]?.NEW_ID);
+    if (!ficharioId || isNaN(ficharioId)) {
+      throw new Error('Falha ao obter GEN_FICHARIO no Digifarma.');
+    }
+
+    await queryDigifarmaFn(insertSql, [
+      ficharioId,
+      it.itemVendaId,
+      Number(clienteId),
+      it.quantity,
+      it.unitPrice,
+      comprador20,
+      dDate,
+      pDate,
+      vendaNotaId ? Number(vendaNotaId) : null,
+      it.produtoId,
+      it.lineDiscount
+    ], 8000);
+
+    const lineNet = Math.max(0, round2((it.quantity * it.unitPrice) - it.lineDiscount));
+    insertCacheStmt.run(
+      String(ficharioId),
+      Number(clienteId),
+      String(clienteNome || comprador20 || `Cliente #${clienteId}`).trim(),
+      cleanPhone,
+      lineNet,
+      pDate,
+      dDate,
+      vendaNotaId ? Number(vendaNotaId) : null,
+      it.produtoId,
+      it.productName,
+      it.quantity,
+      it.unitPrice,
+      it.lineDiscount,
+      comprador20
+    );
+
+    if (!it.produtoId && it.productName) {
+      insertLabelStmt.run(String(ficharioId), it.productName);
+    }
+
+    ficharioIds.push(ficharioId);
+  }
+
+  return {
+    success: true,
+    clienteId: Number(clienteId),
+    ficharioIds,
+    insertedCount: ficharioIds.length
+  };
+}
+
+// ============================================================================
 // Lançamento de Compra e Recebimento no Belinha (+ Baixa Digifarma)
 // ============================================================================
 function createLocalPurchase(db, {
@@ -2313,34 +2697,146 @@ function createLocalPurchase(db, {
   };
 }
 
-function deleteLocalPurchase(db, { cardId, purchaseId, isAdmin = false }) {
+async function createPurchaseWithDigifarmaSync(db, params, { queryDigifarmaFn = queryDigifarma } = {}) {
+  const resLocal = createLocalPurchase(db, params);
+  const card = findCard(db, params.cardId);
+
+  let digifarmaSynced = false;
+  let digifarmaFicharioIds = [];
+  let digifarmaClienteId = null;
+  let digifarmaWarning = null;
+
+  try {
+    const resolved = await resolveDigifarmaClienteId(db, {
+      card,
+      cardId: params.cardId,
+      customerId: card?.customer_id,
+      digifarmaClienteId: card?.digifarma_cliente_id,
+      customerName: card?.customer_name,
+      customerCpf: card?.cpf
+    }, queryDigifarmaFn);
+
+    if (!resolved || !resolved.clienteId) {
+      digifarmaWarning = 'Cliente sem vínculo no Digifarma — lançamento mantido apenas no Belinha.';
+    } else {
+      digifarmaClienteId = resolved.clienteId;
+      const todayYMD = toLocalDateYMD(new Date());
+      const dfRes = await insertItemsIntoDigifarmaFichario(db, {
+        clienteId: resolved.clienteId,
+        clienteNome: resolved.clienteNome || card?.customer_name || '',
+        phone: card?.phone || '',
+        vendaNotaId: null,
+        items: [
+          {
+            itemVendaId: null,
+            produtoId: null,
+            productName: resLocal.description,
+            quantity: resLocal.quantity,
+            unitPrice: resLocal.unitPrice
+          }
+        ],
+        totalCrediarioAmount: resLocal.amount,
+        buyerName: params.buyerName || resLocal.description,
+        purchaseDateYMD: todayYMD,
+        dueDateYMD: resLocal.dueDate
+      }, queryDigifarmaFn);
+
+      // Anti-duplicação: já foi espelhado com o FICHARIO_ID oficial no digifarma_crediario_cache
+      db.transaction(() => {
+        db.prepare('DELETE FROM crediario_local_purchases WHERE id = ?').run(resLocal.purchaseId);
+        const updatedCard = findCard(db, card.id);
+        if (updatedCard) {
+          const config = getCrediarioConfig(db);
+          const { dfItems, localPurchases } = getDigifarmaDataForCard(db, updatedCard);
+          const finNow = calculateAccountFinancials(updatedCard, dfItems, localPurchases, config);
+          db.prepare("UPDATE belafarma_cards SET used_limit = ?, updated_at = datetime('now', 'localtime') WHERE id = ?")
+            .run(finNow.principalBalance, updatedCard.id);
+        }
+      })();
+
+      digifarmaSynced = true;
+      digifarmaFicharioIds = dfRes.ficharioIds;
+    }
+  } catch (errDf) {
+    digifarmaWarning = errDf?.message || 'Digifarma indisponível no momento — lançamento mantido no Belinha.';
+  }
+
+  return {
+    ...resLocal,
+    purchaseId: digifarmaSynced && digifarmaFicharioIds.length > 0 ? `df_${digifarmaFicharioIds[0]}` : resLocal.purchaseId,
+    digifarmaSynced,
+    digifarmaFicharioIds,
+    digifarmaClienteId,
+    digifarmaWarning
+  };
+}
+
+async function deleteLocalPurchase(db, { cardId, purchaseId, isAdmin = false, queryDigifarmaFn = queryDigifarma }) {
   const card = findCard(db, cardId);
   if (!card) throw new Error('Conta de crediário não encontrada.');
 
   const lp = db
     .prepare('SELECT * FROM crediario_local_purchases WHERE id = ? AND card_id = ?')
     .get(String(purchaseId), card.id);
-  if (!lp) throw new Error('Anotação/compra não encontrada.');
 
-  if (lp.status === 'paid' || Number(lp.paid_amount || 0) > 0) {
-    throw new Error('Não é possível excluir uma anotação que já possui pagamento.');
+  if (lp) {
+    if (lp.status === 'paid' || Number(lp.paid_amount || 0) > 0) {
+      throw new Error('Não é possível excluir uma anotação que já possui pagamento.');
+    }
+
+    const todayYMD = toLocalDateYMD(new Date());
+    const purchaseYMD = toLocalDateYMD(lp.purchased_at);
+    if (!isAdmin && purchaseYMD && purchaseYMD !== todayYMD) {
+      const err = new Error('Apenas Administradores podem excluir anotações de dias anteriores.');
+      err.code = 'FORBIDDEN_DELETE_OLD_PURCHASE';
+      throw err;
+    }
+
+    db.transaction(() => {
+      db.prepare('DELETE FROM crediario_local_purchases WHERE id = ? AND card_id = ?').run(lp.id, card.id);
+      db.prepare("UPDATE belafarma_cards SET used_limit = MAX(0, used_limit - ?), updated_at = datetime('now', 'localtime') WHERE id = ?")
+        .run(round2(lp.amount || 0), card.id);
+    })();
+
+    return { success: true, deletedId: lp.id };
+  }
+
+  // Fallback para anotação manual sincronizada no FICHARIO (df_<fichario_id>)
+  const dfId = card.digifarma_cliente_id || (/^\d+$/.test(String(card.customer_id || '')) ? Number(card.customer_id) : null);
+  const rawDfId = String(purchaseId).replace(/^df_/, '');
+  if (!dfId || !/^\d+$/.test(rawDfId)) {
+    throw new Error('Anotação/compra não encontrada.');
+  }
+
+  const dfRow = db
+    .prepare('SELECT * FROM digifarma_crediario_cache WHERE id = ? AND cliente_id = ?')
+    .get(rawDfId, dfId);
+  if (!dfRow) {
+    throw new Error('Anotação/compra não encontrada.');
+  }
+  if (dfRow.venda_nota_id) {
+    throw new Error('Compras de venda PDV no Digifarma não podem ser excluídas diretamente; cancele a venda no caixa.');
   }
 
   const todayYMD = toLocalDateYMD(new Date());
-  const purchaseYMD = toLocalDateYMD(lp.purchased_at);
-  if (!isAdmin && purchaseYMD && purchaseYMD !== todayYMD) {
+  const dfPurchaseYMD = toLocalDateYMD(dfRow.data_compra);
+  if (!isAdmin && dfPurchaseYMD && dfPurchaseYMD !== todayYMD) {
     const err = new Error('Apenas Administradores podem excluir anotações de dias anteriores.');
     err.code = 'FORBIDDEN_DELETE_OLD_PURCHASE';
     throw err;
   }
 
+  await queryDigifarmaFn('DELETE FROM FICHARIO WHERE FICHARIO_ID = ?', [Number(rawDfId)], 5000);
   db.transaction(() => {
-    db.prepare('DELETE FROM crediario_local_purchases WHERE id = ? AND card_id = ?').run(lp.id, card.id);
+    db.prepare('DELETE FROM digifarma_crediario_cache WHERE id = ?').run(rawDfId);
+    try {
+      db.prepare('DELETE FROM crediario_fichario_labels WHERE fichario_id = ?').run(rawDfId);
+    } catch (_) {}
     db.prepare("UPDATE belafarma_cards SET used_limit = MAX(0, used_limit - ?), updated_at = datetime('now', 'localtime') WHERE id = ?")
-      .run(round2(lp.amount || 0), card.id);
+      .run(round2(dfRow.valor || 0), card.id);
   })();
 
-  return { success: true, deletedId: lp.id };
+  return { success: true, deletedId: `df_${rawDfId}` };
 }
 
 async function receiveCrediarioPayment(db, {
@@ -2587,6 +3083,10 @@ module.exports = {
   sendCrediarioWhatsApp,
   buildThermalReceiptHtml,
   createLocalPurchase,
+  createPurchaseWithDigifarmaSync,
+  resolveOrCreateBelafarmaCard,
+  resolveDigifarmaClienteId,
+  insertItemsIntoDigifarmaFichario,
   deleteLocalPurchase,
   receiveCrediarioPayment,
   runUnifiedDailyNotifications

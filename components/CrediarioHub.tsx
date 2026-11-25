@@ -535,7 +535,14 @@ export const CrediarioHub: React.FC<CrediarioHubProps> = ({
       }
 
       const targetCardId = selectedAnnotationCardId;
-      addToast('Anotação somada como produto no crediário com sucesso!', 'success');
+      if (data.digifarmaSynced) {
+        addToast('Anotação lançada no Belinha e gravada no Digifarma!', 'success');
+      } else {
+        addToast(
+          `Anotação salva no Belinha (não gravada no Digifarma: ${data.digifarmaWarning || 'Digifarma indisponível'})`,
+          'warning'
+        );
+      }
       setIsAnnotationOpen(false);
       await fetchClients();
       if (activeTab === 'lancamentos') await fetchTransactions();

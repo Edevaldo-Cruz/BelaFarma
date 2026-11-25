@@ -6,6 +6,13 @@
 const { db } = require('./erp-database');
 const { obterProdutoPorCodigo, obterProdutoPorCodigoSync } = require('./erp-products.service');
 const { recordSaleRecipes } = require('./controlled-medications.service');
+const {
+  ensureCrediarioUnifiedSchema,
+  resolveOrCreateBelafarmaCard,
+  computeFixedDueDate,
+  toLocalDateYMD,
+  addDaysYMD
+} = require('../../services/crediario-unified.service');
 
 /**
  * Registra uma nova venda de PDV com baixa atômica de estoque
@@ -16,6 +23,11 @@ function registrarVenda(payload) {
     payments = [],
     customer_id = null,
     customer_name = null,
+    customer_cpf = null,
+    customer_phone = null,
+    buyer_name = '',
+    card_id = null,
+    digifarma_cliente_id = null,
     discount_value = 0,
     user_name = 'Caixa',
     seller_id = null,
@@ -117,6 +129,12 @@ function registrarVenda(payload) {
   const timeStr = now.toTimeString().split(' ')[0];
   const saleId = `VND-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 
+  const cleanBuyerName = String(buyer_name || '').trim().toUpperCase();
+  let finalValidCustomerId = null;
+  let finalCustomerName = customer_name ? String(customer_name).trim() : null;
+  let resolvedCrediarioCard = null;
+  let crediarioDueDate = null;
+
   // 3. Execução Transacional Atômica (ACID no SQLite)
   const executeSaleTransaction = db.transaction(() => {
     // A. Garantir existência de cliente válido no banco
@@ -130,9 +148,9 @@ function registrarVenda(payload) {
             validCustomerId = byName.id;
           } else {
             db.prepare(`
-              INSERT INTO customers (id, name, createdAt, updatedAt, source) 
-              VALUES (?, ?, datetime('now', 'localtime'), datetime('now', 'localtime'), 'PDV_VENDA')
-            `).run(validCustomerId, String(customer_name).trim());
+              INSERT INTO customers (id, name, cpf, phone, createdAt, updatedAt, source) 
+              VALUES (?, ?, ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime'), 'PDV_VENDA')
+            `).run(validCustomerId, String(customer_name).trim(), customer_cpf || null, customer_phone || '');
           }
         } else {
           validCustomerId = null;
@@ -151,10 +169,16 @@ function registrarVenda(payload) {
       const fallbackId = `CUST-${Date.now()}`;
       const fallbackName = customer_name && String(customer_name).trim() ? String(customer_name).trim() : 'Consumidor Crediário Balcão';
       db.prepare(`
-        INSERT INTO customers (id, name, createdAt, updatedAt, source)
-        VALUES (?, ?, datetime('now', 'localtime'), datetime('now', 'localtime'), 'PDV_CREDIARIO')
-      `).run(fallbackId, fallbackName);
+        INSERT INTO customers (id, name, cpf, phone, createdAt, updatedAt, source)
+        VALUES (?, ?, ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime'), 'PDV_CREDIARIO')
+      `).run(fallbackId, fallbackName, customer_cpf || null, customer_phone || '');
       validCustomerId = fallbackId;
+    }
+
+    finalValidCustomerId = validCustomerId;
+    if (!finalCustomerName && validCustomerId) {
+      const custRow = db.prepare('SELECT name FROM customers WHERE id = ?').get(validCustomerId);
+      if (custRow?.name) finalCustomerName = custRow.name;
     }
 
     // B. Gravar cabeçalho da venda
@@ -164,11 +188,11 @@ function registrarVenda(payload) {
     db.prepare(`
       INSERT INTO sales (
         id, sale_date, sale_time, total_items_value, discount_value, total_value,
-        payment_method, customer_id, customer_name, user_id, user_name,
+        payment_method, customer_id, customer_name, customer_cpf, user_id, user_name,
         seller_id, seller_name, status, notes, created_at
       ) VALUES (
         ?, ?, ?, ?, ?, ?,
-        ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?,
         ?, ?, 'CONCLUIDA', ?, datetime('now', 'localtime')
       )
     `).run(
@@ -180,7 +204,8 @@ function registrarVenda(payload) {
       totalFinal,
       paymentMethodSummary,
       validCustomerId,
-      customer_name || null,
+      finalCustomerName || null,
+      customer_cpf || null,
       userIdVal,
       finalSellerName,
       seller_id || userIdVal,
@@ -253,11 +278,31 @@ function registrarVenda(payload) {
         parseInt(p.installments, 10) || 1
       );
 
-      // Se for crediário, gera o débito para cobrança vinculado ao cliente garantido
+      // Se for crediário, gera o débito legado E grava na Central Unificada do Crediário (belafarma_cards + crediario_local_purchases)
       if (methodStr === 'CREDIARIO') {
         const debtId = `DEBT-${saleId}`;
         const custId = validCustomerId;
-        const dueDate = p.due_date || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        const credAmt = Math.round((parseFloat(p.amount) || 0) * 100) / 100;
+
+        ensureCrediarioUnifiedSchema(db);
+        resolvedCrediarioCard = resolveOrCreateBelafarmaCard(db, {
+          cardId: card_id,
+          customerId: custId,
+          digifarmaClienteId: digifarma_cliente_id,
+          customerName: finalCustomerName,
+          customerCpf: customer_cpf,
+          customerPhone: customer_phone
+        });
+
+        const dueDate = p.due_date
+          ? toLocalDateYMD(p.due_date)
+          : (resolvedCrediarioCard.due_day_mode === 'fixed' && resolvedCrediarioCard.due_day
+            ? computeFixedDueDate(dateStr, resolvedCrediarioCard.due_day, resolvedCrediarioCard.closing_offset_days || 10)
+            : addDaysYMD(dateStr, 30));
+        crediarioDueDate = dueDate;
+        if (!finalCustomerName && resolvedCrediarioCard.customer_name) {
+          finalCustomerName = resolvedCrediarioCard.customer_name;
+        }
 
         db.prepare(`
           INSERT INTO customer_debts (
@@ -270,12 +315,46 @@ function registrarVenda(payload) {
           custId,
           dateStr,
           `Venda PDV #${saleId}`,
-          p.amount,
+          credAmt,
           finalSellerName,
           saleId,
           dueDate,
-          p.amount
+          credAmt
         );
+
+        const lpId = `lp_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+        const summaryDesc = processedItems
+          .map(it => (it.quantity > 1 ? `${it.quantity}x ${it.product_name}` : it.product_name))
+          .join(', ')
+          .slice(0, 180) || `Venda PDV #${saleId}`;
+        const itemsJson = JSON.stringify(
+          processedItems.map(it => ({
+            product_code: it.product_code,
+            productName: it.product_name,
+            quantity: it.quantity,
+            unitPrice: it.unit_price,
+            amount: it.total_price
+          }))
+        );
+
+        db.prepare(`
+          INSERT INTO crediario_local_purchases (
+            id, card_id, sale_id, buyer_name, description, items_json, amount, paid_amount, status, purchased_at, due_date, created_by
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 'open', datetime('now', 'localtime'), ?, ?)
+        `).run(
+          lpId,
+          resolvedCrediarioCard.id,
+          saleId,
+          cleanBuyerName || String(finalCustomerName || '').trim().toUpperCase(),
+          summaryDesc,
+          itemsJson,
+          credAmt,
+          dueDate,
+          finalSellerName
+        );
+
+        db.prepare("UPDATE belafarma_cards SET used_limit = used_limit + ?, updated_at = datetime('now', 'localtime') WHERE id = ?")
+          .run(credAmt, resolvedCrediarioCard.id);
       }
     }
   });
@@ -303,6 +382,13 @@ function registrarVenda(payload) {
     total_value: totalFinal,
     seller_id: finalSellerId,
     seller_name: finalSellerName,
+    customer_id: finalValidCustomerId,
+    customer_name: finalCustomerName,
+    customer_cpf: customer_cpf || null,
+    buyer_name: cleanBuyerName,
+    card_id: resolvedCrediarioCard?.id || null,
+    digifarma_cliente_id: resolvedCrediarioCard?.digifarma_cliente_id || null,
+    due_date: crediarioDueDate || null,
     items: processedItems,
     payments
   };
@@ -366,12 +452,24 @@ async function cancelarVenda(saleId, { user_name = 'Admin', reason = 'Cancelamen
       restockStmt.run(it.quantity, it.product_code);
     }
 
-    // 3. Cancela débito de crediário se houver
+    // 3. Cancela débito de crediário se houver (legado + Central Unificada + cache Digifarma)
     db.prepare(`
       UPDATE customer_debts 
       SET status = 'CANCELADO', balance = 0
       WHERE sale_id = ?
     `).run(saleId);
+
+    try {
+      const lpRows = db.prepare('SELECT id, card_id, amount FROM crediario_local_purchases WHERE sale_id = ?').all(saleId);
+      for (const lp of lpRows) {
+        db.prepare("UPDATE belafarma_cards SET used_limit = MAX(0, used_limit - ?), updated_at = datetime('now', 'localtime') WHERE id = ?")
+          .run(Number(lp.amount || 0), lp.card_id);
+      }
+      db.prepare('DELETE FROM crediario_local_purchases WHERE sale_id = ?').run(saleId);
+      if (sale.digifarma_venda_id) {
+        db.prepare('DELETE FROM digifarma_crediario_cache WHERE venda_nota_id = ?').run(String(sale.digifarma_venda_id));
+      }
+    } catch (_) {}
   });
 
   executeCancelTransaction();

@@ -535,11 +535,11 @@ function createUnifiedCrediarioEndpoints(db, options = {}) {
     }
   });
 
-  router.post('/clients/:id/purchase', (req, res) => {
+  router.post('/clients/:id/purchase', async (req, res) => {
     try {
       const isAdmin = security.isAdminUser(req.user);
       const { amount, unitPrice, quantity, description, buyerName, saleId, dueDate, bypassLock, isAnnotation } = req.body || {};
-      const resPurchase = unified.createLocalPurchase(db, {
+      const resPurchase = await unified.createPurchaseWithDigifarmaSync(db, {
         cardId: req.params.id,
         amount,
         unitPrice,
@@ -551,7 +551,7 @@ function createUnifiedCrediarioEndpoints(db, options = {}) {
         createdBy: req.user?.name || 'Balcão',
         bypassLock: isAdmin && Boolean(bypassLock),
         isAnnotation: Boolean(isAnnotation)
-      });
+      }, { queryDigifarmaFn: options.queryDigifarmaFn });
       const statement = unified.buildClientStatement(db, req.params.id);
       res.json({ ...resPurchase, statement });
     } catch (err) {
@@ -559,13 +559,14 @@ function createUnifiedCrediarioEndpoints(db, options = {}) {
     }
   });
 
-  router.delete('/clients/:id/purchases/:purchaseId', (req, res) => {
+  router.delete('/clients/:id/purchases/:purchaseId', async (req, res) => {
     try {
       const isAdmin = security.isAdminUser(req.user);
-      const result = unified.deleteLocalPurchase(db, {
+      const result = await unified.deleteLocalPurchase(db, {
         cardId: req.params.id,
         purchaseId: req.params.purchaseId,
-        isAdmin
+        isAdmin,
+        queryDigifarmaFn: options.queryDigifarmaFn
       });
       const statement = unified.buildClientStatement(db, req.params.id);
       res.json({ ...result, statement });

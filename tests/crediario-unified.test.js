@@ -327,7 +327,14 @@ describe('Crediário Unificado Bela Farma — PIX, Motor Financeiro, Extratos & 
       const app = express();
       app.use(express.json());
       app.use('/api', security.apiAuthMiddleware);
-      app.use('/api/crediario-v2', createUnifiedCrediarioEndpoints(memDb));
+      app.use(
+        '/api/crediario-v2',
+        createUnifiedCrediarioEndpoints(memDb, {
+          queryDigifarmaFn: async () => {
+            throw new Error('Digifarma offline em teste HTTP');
+          }
+        })
+      );
 
       await new Promise(resolve => {
         server = app.listen(0, '127.0.0.1', () => {
@@ -741,7 +748,14 @@ describe('Crediário Unificado Bela Farma — PIX, Motor Financeiro, Extratos & 
       const app = express();
       app.use(express.json());
       app.use('/api', security.apiAuthMiddleware);
-      app.use('/api/crediario-v2', createUnifiedCrediarioEndpoints(memDb));
+      app.use(
+        '/api/crediario-v2',
+        createUnifiedCrediarioEndpoints(memDb, {
+          queryDigifarmaFn: async () => {
+            throw new Error('Digifarma offline em teste HTTP');
+          }
+        })
+      );
 
       let srv;
       let url;
@@ -812,6 +826,296 @@ describe('Crediário Unificado Bela Farma — PIX, Motor Financeiro, Extratos & 
         await new Promise(resolve => srv.close(resolve));
         memDb.close();
       }
+    });
+  });
+
+  describe('6. Sincronização Dupla (Belinha + FICHARIO Digifarma)', () => {
+    it('DFW-01: POST /clients/:id/purchase grava no FICHARIO quando online (sem duplicar) e mantém local quando offline', async () => {
+      const memDb = new Database(':memory:');
+      unified.ensureCrediarioUnifiedSchema(memDb);
+
+      memDb.prepare(`
+        INSERT INTO belafarma_cards (
+          id, customer_id, digifarma_cliente_id, portal_token, customer_name, phone, cpf,
+          card_number, credit_limit, due_day, status
+        ) VALUES (1, '38', 38, 'tok_dfw_0123456789abcdef', 'DONA MARIA SYNC', '18999990038', '12345678901',
+          '5489 4444 5555 6666', 500, 20, 'active')
+      `).run();
+
+      let firebirdOnline = true;
+      let nextFicharioId = 9001;
+      const mockFicharioRows = [];
+
+      const queryDigifarmaMock = async (sql, params = []) => {
+        if (!firebirdOnline) {
+          throw new Error('Firebird timeout simulado');
+        }
+        const upper = String(sql || '').toUpperCase();
+        if (upper.includes('FROM CLIENTES WHERE CLIENTE_ID = ?')) {
+          if (Number(params[0]) === 38) {
+            return [{ CLIENTE_ID: 38, CLIENTE: 'DONA MARIA SYNC', CLI_DIA_PAGAMENTO: 20 }];
+          }
+          return [];
+        }
+        if (upper.includes('GEN_ID(GEN_FICHARIO, 1)')) {
+          return [{ NEW_ID: nextFicharioId++ }];
+        }
+        if (upper.startsWith('\n    INSERT INTO FICHARIO') || upper.includes('INSERT INTO FICHARIO')) {
+          mockFicharioRows.push({
+            FICHARIO_ID: params[0],
+            ITEM_VENDA_ID: params[1],
+            CLIENTE_ID: params[2],
+            FICHARIO_QUANTIDADE: params[3],
+            FICHARIO_VALOR: params[4],
+            FICHARIO_COMPRADOR: params[5],
+            FICHARIO_VENCIMENTO: params[6],
+            FICHARIO_DATACOMPRA: params[7],
+            VENDA_NOTA_ID: params[8],
+            PRODUTO_ID: params[9],
+            FICHARIO_DESCONTO: params[10]
+          });
+          return [];
+        }
+        if (upper.includes('DELETE FROM FICHARIO WHERE FICHARIO_ID = ?')) {
+          const idx = mockFicharioRows.findIndex(r => Number(r.FICHARIO_ID) === Number(params[0]));
+          if (idx !== -1) mockFicharioRows.splice(idx, 1);
+          return [];
+        }
+        return [];
+      };
+
+      const opToken = security.signToken({ id: 'op-dfw', name: 'Operador Caixa', role: 'Operador' });
+      const app = express();
+      app.use(express.json());
+      app.use('/api', security.apiAuthMiddleware);
+      app.use('/api/crediario-v2', createUnifiedCrediarioEndpoints(memDb, { queryDigifarmaFn: queryDigifarmaMock }));
+
+      let srv;
+      let url;
+      await new Promise(resolve => {
+        srv = app.listen(0, '127.0.0.1', () => {
+          url = `http://127.0.0.1:${srv.address().port}`;
+          resolve();
+        });
+      });
+
+      try {
+        // 1) Firebird online: grava no FICHARIO, espelha no cache local, limpa temporario sem duplicar saldo
+        const resOn = await fetch(`${url}/api/crediario-v2/clients/1/purchase`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${opToken}` },
+          body: JSON.stringify({
+            description: 'Vitamina D3 2000UI Avulsa',
+            unitPrice: 15.5,
+            quantity: 2,
+            buyerName: 'Pedro Filho',
+            isAnnotation: true
+          })
+        });
+        assert.strictEqual(resOn.status, 200);
+        const dataOn = await resOn.json();
+        assert.strictEqual(dataOn.digifarmaSynced, true);
+        assert.strictEqual(dataOn.digifarmaClienteId, 38);
+        assert.deepStrictEqual(dataOn.digifarmaFicharioIds, [9001]);
+        assert.strictEqual(mockFicharioRows.length, 1);
+        assert.strictEqual(mockFicharioRows[0].CLIENTE_ID, 38);
+        assert.strictEqual(mockFicharioRows[0].FICHARIO_QUANTIDADE, 2);
+        assert.strictEqual(mockFicharioRows[0].FICHARIO_VALOR, 15.5);
+        assert.strictEqual(mockFicharioRows[0].FICHARIO_COMPRADOR, 'PEDRO FILHO');
+
+        const localCountAfterOn = memDb.prepare('SELECT COUNT(*) as c FROM crediario_local_purchases WHERE card_id = 1').get().c;
+        assert.strictEqual(localCountAfterOn, 0, 'Nao deve deixar duplicado em crediario_local_purchases apos gravar no FICHARIO');
+        assert.strictEqual(dataOn.statement.financials.principalBalance, 31, 'Saldo deve ser somado exatamente 1 vez');
+
+        const labelSaved = memDb.prepare('SELECT description FROM crediario_fichario_labels WHERE fichario_id = ?').get('9001');
+        assert.strictEqual(labelSaved?.description, 'Vitamina D3 2000UI Avulsa');
+
+        // 2) Excluir anotacao sincronizada via DELETE remove tambem do FICHARIO e zera saldo
+        const delSyncRes = await fetch(`${url}/api/crediario-v2/clients/1/purchases/${dataOn.purchaseId}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${opToken}` }
+        });
+        assert.strictEqual(delSyncRes.status, 200);
+        assert.strictEqual(mockFicharioRows.length, 0);
+        const delJson = await delSyncRes.json();
+        assert.strictEqual(delJson.statement.financials.principalBalance, 0);
+
+        // 3) Firebird offline: mantém na tabela local e retorna digifarmaSynced = false
+        firebirdOnline = false;
+        const resOff = await fetch(`${url}/api/crediario-v2/clients/1/purchase`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${opToken}` },
+          body: JSON.stringify({
+            description: 'Pomada Avulsa Offline',
+            unitPrice: 22,
+            quantity: 1,
+            isAnnotation: true
+          })
+        });
+        assert.strictEqual(resOff.status, 200);
+        const dataOff = await resOff.json();
+        assert.strictEqual(dataOff.digifarmaSynced, false);
+        assert.ok(dataOff.digifarmaWarning);
+        assert.strictEqual(dataOff.statement.financials.principalBalance, 22);
+      } finally {
+        await new Promise(resolve => srv.close(resolve));
+        memDb.close();
+      }
+    });
+
+    it('DFW-02: sincronizarVendaDigifarma grava CAB_VENDAS, ITEM_VENDAS, FPAGTOS (PARCELAS) e FICHARIO; estornarVendaDigifarma remove do FICHARIO', async () => {
+      const {
+        sincronizarVendaDigifarma,
+        estornarVendaDigifarma
+      } = require('../backend/modules/erp/erp-digifarma-sales-sync.service.js');
+
+      const memDb = new Database(':memory:');
+      unified.ensureCrediarioUnifiedSchema(memDb);
+      memDb.exec(`
+        CREATE TABLE sales (
+          id TEXT PRIMARY KEY,
+          status TEXT DEFAULT 'CONCLUIDA',
+          digifarma_sync_status TEXT DEFAULT 'PENDENTE',
+          digifarma_venda_id INTEGER,
+          digifarma_sync_at TEXT,
+          digifarma_sync_error TEXT
+        );
+      `);
+
+      memDb.prepare(`
+        INSERT INTO belafarma_cards (
+          id, customer_id, digifarma_cliente_id, portal_token, customer_name, phone, cpf,
+          card_number, credit_limit, due_day, status
+        ) VALUES (1, '38', 38, 'tok_dfw2_0123456789abcdef', 'RENI DANIEL DA SILVA', '18999990038', '12345678901',
+          '5489 7777 8888 9999', 500, 20, 'active')
+      `).run();
+
+      const saleId = 'VND-TEST-CRED-1';
+      memDb.prepare('INSERT INTO sales (id, status) VALUES (?, ?)').run(saleId, 'CONCLUIDA');
+      memDb.prepare(`
+        INSERT INTO crediario_local_purchases (
+          id, card_id, sale_id, buyer_name, description, items_json, amount, paid_amount, status, purchased_at, due_date, created_by
+        ) VALUES ('lp_pdv_1', 1, ?, 'YASMIN', 'Fralda A + Fralda B', '[]', 90.00, 0, 'open', datetime('now', 'localtime'), '2026-12-25', 'Caixa')
+      `).run(saleId);
+
+      const mockOps = {
+        cab: [],
+        fpagtos: [],
+        items: [],
+        fichario: [],
+        deletedFicharioVendas: []
+      };
+      let nextFichId = 8400;
+
+      const queryMock = async (sql, params = []) => {
+        const u = String(sql || '').toUpperCase();
+        if (u.includes('FROM CAIXA') && u.includes('FECHAMENTO IS NULL')) {
+          return [{ CAIXA_ID: 1148, OPERADOR_ABERTURA: 11 }];
+        }
+        if (u.includes('GEN_ID(GEN_CAB_VENDAS, 1)')) {
+          return [{ NEW_ID: 50001 }];
+        }
+        if (u.includes('FROM CLIENTES WHERE CLIENTE_ID = ?')) {
+          return [{ CLIENTE_ID: 38, CLIENTE: 'RENI DANIEL DA SILVA', CLI_DIA_PAGAMENTO: 20 }];
+        }
+        if (u.includes('GEN_ID(GEN_FICHARIO, 1)')) {
+          return [{ NEW_ID: nextFichId++ }];
+        }
+        if (u.includes('INSERT INTO CAB_VENDAS ')) {
+          mockOps.cab.push(params);
+          return [];
+        }
+        if (u.includes('INSERT INTO CAB_VENDAS_FPAGTOS')) {
+          mockOps.fpagtos.push(params);
+          return [];
+        }
+        if (u.includes('INSERT INTO ITEM_VENDAS')) {
+          mockOps.items.push(params);
+          return [];
+        }
+        if (u.includes('INSERT INTO FICHARIO')) {
+          mockOps.fichario.push({
+            FICHARIO_ID: params[0],
+            ITEM_VENDA_ID: params[1],
+            CLIENTE_ID: params[2],
+            FICHARIO_QUANTIDADE: params[3],
+            FICHARIO_VALOR: params[4],
+            FICHARIO_COMPRADOR: params[5],
+            VENDA_NOTA_ID: params[8],
+            PRODUTO_ID: params[9],
+            FICHARIO_DESCONTO: params[10]
+          });
+          return [];
+        }
+        if (u.includes('SELECT VENDA_NOTA_ID, VENDA_TOTAL')) {
+          return [{ VENDA_NOTA_ID: 50001, VENDA_TOTAL: 90, DINHEIRO: 0, CARTAO: 0, CREDIARIO: 90, CAIXA_ID: 1148, CANCELADO: 'N' }];
+        }
+        if (u.includes('DELETE FROM FICHARIO WHERE VENDA_NOTA_ID = ?')) {
+          mockOps.deletedFicharioVendas.push(Number(params[0]));
+          return [];
+        }
+        if (u.includes('SELECT PRODUTO_ID, ITEMVEND_QUANT')) {
+          return [
+            { PRODUTO_ID: 189394, ITEMVEND_QUANT: 1 },
+            { PRODUTO_ID: 186748, ITEMVEND_QUANT: 2 }
+          ];
+        }
+        return [];
+      };
+
+      const syncRes = await sincronizarVendaDigifarma({
+        sale_id: saleId,
+        sale_date: '2026-11-25',
+        card_id: 1,
+        customer_id: '38',
+        customer_name: 'RENI DANIEL DA SILVA',
+        buyer_name: 'YASMIN',
+        due_date: '2026-12-25',
+        items: [
+          { product_code: '189394', product_name: 'FRALDA A', quantity: 1, unit_price: 60 },
+          { product_code: '186748', product_name: 'FRALDA B', quantity: 2, unit_price: 20 }
+        ],
+        payments: [{ payment_method: 'CREDIARIO', amount: 90, installments: 1 }],
+        total_items_value: 100,
+        discount_value: 10,
+        total_value: 90,
+        user_name: 'Caixa'
+      }, null, { db: memDb, queryDigifarmaFn: queryMock });
+
+      assert.strictEqual(syncRes.success, true);
+      assert.strictEqual(syncRes.venda_nota_id, 50001);
+      assert.strictEqual(syncRes.fichario_synced, true);
+      assert.deepStrictEqual(syncRes.fichario_ids, [8400, 8401]);
+      assert.strictEqual(mockOps.cab.length, 1);
+      assert.strictEqual(mockOps.fpagtos.length, 1);
+      assert.strictEqual(mockOps.fpagtos[0][0], 5, 'TIPO_PAGAMENTO_ID=5 (CREDIARIO)');
+      assert.strictEqual(mockOps.items.length, 2);
+      assert.strictEqual(mockOps.fichario.length, 2);
+      assert.strictEqual(mockOps.fichario[0].VENDA_NOTA_ID, 50001);
+      assert.strictEqual(mockOps.fichario[0].CLIENTE_ID, 38);
+      assert.strictEqual(mockOps.fichario[0].FICHARIO_COMPRADOR, 'YASMIN');
+
+      // Soma líquida dos itens no FICHARIO deve bater exato com R$ 90,00 (com rateio do desconto de R$ 10,00)
+      const fichNetTotal = unified.round2(
+        mockOps.fichario.reduce(
+          (acc, f) => acc + ((f.FICHARIO_QUANTIDADE * f.FICHARIO_VALOR) - f.FICHARIO_DESCONTO),
+          0
+        )
+      );
+      assert.strictEqual(fichNetTotal, 90);
+
+      // Anti-duplicação: crediario_local_purchases limpo e cache preenchido com saldo único 90
+      assert.strictEqual(memDb.prepare('SELECT COUNT(*) as c FROM crediario_local_purchases WHERE sale_id = ?').get(saleId).c, 0);
+      const st = unified.buildClientStatement(memDb, 1);
+      assert.strictEqual(st.financials.principalBalance, 90);
+
+      // Estorno da venda remove também do FICHARIO e do cache local
+      const estRes = await estornarVendaDigifarma(50001, 'Teste estorno', { db: memDb, queryDigifarmaFn: queryMock });
+      assert.strictEqual(estRes.success, true);
+      assert.deepStrictEqual(mockOps.deletedFicharioVendas, [50001]);
+      assert.strictEqual(memDb.prepare('SELECT COUNT(*) as c FROM digifarma_crediario_cache WHERE venda_nota_id = ?').get('50001').c, 0);
+
+      memDb.close();
     });
   });
 });

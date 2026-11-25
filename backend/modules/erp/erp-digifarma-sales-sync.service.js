@@ -10,14 +10,15 @@
  */
 
 const { queryDigifarma } = require('../../services/digifarma.service');
+const crediarioUnified = require('../../services/crediario-unified.service');
 
 /**
  * Obtém o Caixa atualmente aberto no Digifarma
  * @returns {Promise<Object|null>}
  */
-async function obterCaixaAbertoDigifarma() {
+async function obterCaixaAbertoDigifarma(queryFn = queryDigifarma) {
   try {
-    const rows = await queryDigifarma(`
+    const rows = await queryFn(`
       SELECT FIRST 1 
         CAIXA_ID, 
         OPERADOR_ABERTURA, 
@@ -49,7 +50,9 @@ async function obterCaixaAbertoDigifarma() {
  * @param {Object|null} fiscalInfo Informações da emissão fiscal (chave, protocolo, status, url)
  * @returns {Promise<Object>} Resultado da sincronização
  */
-async function sincronizarVendaDigifarma(saleData, fiscalInfo = null) {
+async function sincronizarVendaDigifarma(saleData, fiscalInfo = null, deps = {}) {
+  const queryFn = deps.queryDigifarmaFn || queryDigifarma;
+  const localDb = deps.db || require('./erp-database').db;
   const {
     sale_id,
     items = [],
@@ -63,7 +66,7 @@ async function sincronizarVendaDigifarma(saleData, fiscalInfo = null) {
   console.log(`[Digifarma Sync] 🔄 Iniciando sincronização da Venda #${sale_id} para o Digifarma...`);
 
   // 1. Localiza o caixa ativo
-  const caixa = await obterCaixaAbertoDigifarma();
+  const caixa = await obterCaixaAbertoDigifarma(queryFn);
   if (!caixa) {
     console.warn('[Digifarma Sync] ⚠️ Nenhum Caixa com status aberto encontrado no Digifarma. A venda foi gravada localmente no Belinha, mas o Caixa do Digifarma precisa ser aberto.');
     return {
@@ -77,7 +80,7 @@ async function sincronizarVendaDigifarma(saleData, fiscalInfo = null) {
 
   try {
     // 2. Gerar novo VENDA_NOTA_ID via generator do Firebird
-    const genRes = await queryDigifarma('SELECT GEN_ID(GEN_CAB_VENDAS, 1) as NEW_ID FROM RDB$DATABASE');
+    const genRes = await queryFn('SELECT GEN_ID(GEN_CAB_VENDAS, 1) as NEW_ID FROM RDB$DATABASE');
     const vendaNotaId = genRes[0]?.NEW_ID;
     if (!vendaNotaId) {
       throw new Error('Falha ao obter GEN_CAB_VENDAS do Firebird.');
@@ -137,7 +140,7 @@ async function sincronizarVendaDigifarma(saleData, fiscalInfo = null) {
       )
     `;
 
-    await queryDigifarma(insertCabSql, [
+    await queryFn(insertCabSql, [
       vendaNotaId,
       operadorId,
       totalVendaFinal,
@@ -178,15 +181,16 @@ async function sincronizarVendaDigifarma(saleData, fiscalInfo = null) {
       try {
         const insertFpSql = `
           INSERT INTO CAB_VENDAS_FPAGTOS (
-            CAB_VENDAS_FPAGTO_ID, TIPO_PAGAMENTO_ID, VENDA_NOTA_ID, ORDEM_ID, BANDEIRA, VALOR, VALOR_CANCELADO
+            CAB_VENDAS_FPAGTO_ID, TIPO_PAGAMENTO_ID, VENDA_NOTA_ID, ORDEM_ID, PARCELAS, BANDEIRA, VALOR, VALOR_CANCELADO
           ) VALUES (
-            GEN_ID(GEN_CAB_VENDAS_FPAGTOS, 1), ?, ?, ?, ?, ?, 0
+            GEN_ID(GEN_CAB_VENDAS_FPAGTOS, 1), ?, ?, ?, ?, ?, ?, 0
           )
         `;
-        await queryDigifarma(insertFpSql, [
+        await queryFn(insertFpSql, [
           tipoPagtoId,
           vendaNotaId,
           pIdx + 1,
+          parseInt(p.installments, 10) || 1,
           bandeira,
           netAmt
         ]);
@@ -230,7 +234,7 @@ async function sincronizarVendaDigifarma(saleData, fiscalInfo = null) {
           )
         `;
 
-        await queryDigifarma(insertItemSql, [
+        await queryFn(insertItemSql, [
           idx + 1,
           vendaNotaId,
           produtoId,
@@ -244,7 +248,7 @@ async function sincronizarVendaDigifarma(saleData, fiscalInfo = null) {
 
         // Baixa imediata de estoque no Digifarma (PRODUTOS)
         try {
-          await queryDigifarma(`
+          await queryFn(`
             UPDATE PRODUTOS 
             SET PROD_SALDO = COALESCE(PROD_SALDO, 0) - ? 
             WHERE PRODUTO_ID = ?
@@ -252,6 +256,90 @@ async function sincronizarVendaDigifarma(saleData, fiscalInfo = null) {
         } catch (stockErr) {
           console.error(`[Digifarma Sync] ⚠️ Erro ao atualizar PROD_SALDO do produto ${produtoId}:`, stockErr.message);
         }
+      }
+    }
+
+    // 5.5 Gravar parcelas no FICHARIO quando houver valor em Crediário
+    let ficharioSynced = false;
+    let ficharioIds = [];
+    let ficharioWarning = null;
+    let resolvedDigifarmaClienteId = null;
+
+    if (valorCrediario > 0) {
+      try {
+        const resolvedCli = await crediarioUnified.resolveDigifarmaClienteId(localDb, {
+          cardId: saleData.card_id,
+          customerId: saleData.customer_id,
+          digifarmaClienteId: saleData.digifarma_cliente_id,
+          customerName: saleData.customer_name,
+          customerCpf: saleData.customer_cpf
+        }, queryFn);
+
+        if (!resolvedCli || !resolvedCli.clienteId) {
+          ficharioWarning = 'Cliente não encontrado no cadastro do Digifarma — crediário mantido apenas no Belinha.';
+        } else {
+          resolvedDigifarmaClienteId = resolvedCli.clienteId;
+          let cardForDue = null;
+          try {
+            cardForDue = saleData.card_id
+              ? localDb.prepare('SELECT * FROM belafarma_cards WHERE id = ?').get(saleData.card_id)
+              : localDb.prepare('SELECT * FROM belafarma_cards WHERE digifarma_cliente_id = ?').get(resolvedCli.clienteId);
+          } catch (_) {}
+
+          const purchaseDateYMD = crediarioUnified.toLocalDateYMD(saleData.sale_date || new Date());
+          let dueDateYMD = crediarioUnified.toLocalDateYMD(saleData.due_date);
+          if (!dueDateYMD) {
+            if (cardForDue?.due_day_mode === 'fixed' && cardForDue?.due_day) {
+              dueDateYMD = crediarioUnified.computeFixedDueDate(purchaseDateYMD, cardForDue.due_day, cardForDue.closing_offset_days || 10);
+            } else {
+              dueDateYMD = crediarioUnified.addDaysYMD(purchaseDateYMD, 30);
+            }
+          }
+
+          const ficharioItems = items.map((it, idx) => {
+            const rawCode = it.product_code || it.code;
+            const prodIdNum = parseInt(rawCode, 10);
+            return {
+              itemVendaId: idx + 1,
+              produtoId: !isNaN(prodIdNum) && prodIdNum > 0 ? prodIdNum : null,
+              productName: it.product_name || it.name || `Item #${idx + 1}`,
+              quantity: parseFloat(it.quantity) || 1,
+              unitPrice: parseFloat(it.unit_price) || 0
+            };
+          });
+
+          const fRes = await crediarioUnified.insertItemsIntoDigifarmaFichario(localDb, {
+            clienteId: resolvedCli.clienteId,
+            clienteNome: resolvedCli.clienteNome || saleData.customer_name || '',
+            phone: cardForDue?.phone || saleData.customer_phone || '',
+            vendaNotaId,
+            items: ficharioItems,
+            totalCrediarioAmount: valorCrediario,
+            buyerName: saleData.buyer_name || saleData.customer_name || '',
+            purchaseDateYMD,
+            dueDateYMD
+          }, queryFn);
+
+          ficharioSynced = true;
+          ficharioIds = fRes.ficharioIds || [];
+
+          // Anti-duplicação: já está gravado no FICHARIO e espelhado em digifarma_crediario_cache
+          try {
+            localDb.prepare('DELETE FROM crediario_local_purchases WHERE sale_id = ?').run(String(sale_id));
+            if (cardForDue) {
+              const cfg = crediarioUnified.getCrediarioConfig(localDb);
+              const dfItemsNow = localDb.prepare('SELECT * FROM digifarma_crediario_cache WHERE cliente_id = ?').all(resolvedCli.clienteId);
+              const localPurchasesNow = localDb.prepare('SELECT * FROM crediario_local_purchases WHERE card_id = ?').all(cardForDue.id);
+              const finNow = crediarioUnified.calculateAccountFinancials(cardForDue, dfItemsNow, localPurchasesNow, cfg);
+              localDb.prepare("UPDATE belafarma_cards SET used_limit = ?, updated_at = datetime('now', 'localtime') WHERE id = ?")
+                .run(finNow.principalBalance, cardForDue.id);
+            }
+          } catch (_) {}
+        }
+      } catch (fichErr) {
+        ficharioSynced = false;
+        ficharioWarning = fichErr.message || 'Falha ao inserir no FICHARIO do Digifarma.';
+        console.error(`[Digifarma Sync] ⚠️ Venda #${vendaNotaId} gravada, mas falhou ao inserir no FICHARIO:`, ficharioWarning);
       }
     }
 
@@ -267,7 +355,7 @@ async function sincronizarVendaDigifarma(saleData, fiscalInfo = null) {
         WHERE CAIXA_ID = ?
       `;
 
-      await queryDigifarma(updateCaixaSql, [
+      await queryFn(updateCaixaSql, [
         totalVendaFinal,
         valorDinheiro,
         valorCartao,
@@ -289,7 +377,7 @@ async function sincronizarVendaDigifarma(saleData, fiscalInfo = null) {
       // Se o número não veio ou veio <= 1, obtém sempre o último número registrado no Digifarma + 1
       if (nfId <= 1) {
         try {
-          const maxRows = await queryDigifarma(`
+          const maxRows = await queryFn(`
             SELECT 
               COALESCE((SELECT FIRST 1 SERIE_ID FROM SERIE_NF WHERE TIPO_NF = 'NFCE'), 1) AS SERIE_OFICIAL,
               COALESCE((SELECT MAX(NF_ID) FROM SERIE_NF WHERE TIPO_NF = 'NFCE'), 0) AS MAX_SERIE_NF,
@@ -312,7 +400,7 @@ async function sincronizarVendaDigifarma(saleData, fiscalInfo = null) {
       // Atualiza SERIE_NF no Digifarma para manter o sequencial sincronizado com o caixa físico
       if (nfId > 1) {
         try {
-          await queryDigifarma(`
+          await queryFn(`
             UPDATE SERIE_NF 
             SET NF_ID = CASE WHEN COALESCE(NF_ID, 0) < ? THEN ? ELSE NF_ID END,
                 DATA_ULT_VENDA = CURRENT_TIMESTAMP
@@ -345,7 +433,7 @@ async function sincronizarVendaDigifarma(saleData, fiscalInfo = null) {
             )
           `;
 
-          await queryDigifarma(insertNfceSql, [
+          await queryFn(insertNfceSql, [
             serieId,
             nfId,
             vendaNotaId,
@@ -382,7 +470,7 @@ async function sincronizarVendaDigifarma(saleData, fiscalInfo = null) {
             )
           `;
 
-          await queryDigifarma(insertNfceSql, [
+          await queryFn(insertNfceSql, [
             serieId,
             nfId,
             vendaNotaId,
@@ -402,8 +490,7 @@ async function sincronizarVendaDigifarma(saleData, fiscalInfo = null) {
 
     // Atualiza status no banco local SQLite
     try {
-      const { db } = require('./erp-database');
-      db.prepare(`
+      localDb.prepare(`
         UPDATE sales 
         SET digifarma_sync_status = 'SINCRONIZADO',
             digifarma_venda_id = ?,
@@ -417,15 +504,18 @@ async function sincronizarVendaDigifarma(saleData, fiscalInfo = null) {
       success: true,
       venda_nota_id: vendaNotaId,
       caixa_id: caixaId,
-      fiscal_status: nfceRecordStatus
+      fiscal_status: nfceRecordStatus,
+      fichario_synced: ficharioSynced,
+      fichario_ids: ficharioIds,
+      fichario_warning: ficharioWarning,
+      digifarma_cliente_id: resolvedDigifarmaClienteId
     };
   } catch (err) {
     console.error(`[Digifarma Sync] ❌ Erro ao sincronizar venda #${sale_id} no Digifarma:`, err.message);
 
     // Grava status de ERRO / PENDENTE no banco local para reprocessamento posterior
     try {
-      const { db } = require('./erp-database');
-      db.prepare(`
+      localDb.prepare(`
         UPDATE sales 
         SET digifarma_sync_status = 'ERRO',
             digifarma_sync_error = ?
@@ -504,14 +594,26 @@ async function reprocessarVendasPendentesDigifarma() {
         url_qrcode: s.qr_code_url
       } : null;
 
+      let lpCred = null;
+      try {
+        lpCred = db.prepare('SELECT card_id, buyer_name, due_date FROM crediario_local_purchases WHERE sale_id = ? LIMIT 1').get(s.id);
+      } catch (_) {}
+
       const res = await sincronizarVendaDigifarma({
         sale_id: s.id,
+        sale_date: s.sale_date,
         items,
         payments,
         total_items_value: s.total_items_value,
         discount_value: s.discount_value,
         total_value: s.total_value,
-        user_name: s.user_name || s.seller_name || 'Caixa'
+        user_name: s.user_name || s.seller_name || 'Caixa',
+        customer_id: s.customer_id || null,
+        customer_name: s.customer_name || null,
+        customer_cpf: s.customer_cpf || null,
+        card_id: lpCred?.card_id || null,
+        buyer_name: lpCred?.buyer_name || '',
+        due_date: lpCred?.due_date || null
       }, fiscalInfo);
 
       if (res && res.success) {
@@ -594,7 +696,9 @@ async function sincronizarMovimentacaoCaixaDigifarma(mov) {
  * @param {string} motivo Justificativa do estorno
  * @returns {Promise<Object>}
  */
-async function estornarVendaDigifarma(digifarmaVendaId, motivo = '') {
+async function estornarVendaDigifarma(digifarmaVendaId, motivo = '', deps = {}) {
+  const queryFn = deps.queryDigifarmaFn || queryDigifarma;
+  const localDb = deps.db || (() => { try { return require('./erp-database').db; } catch (_) { return null; } })();
   const vId = parseInt(digifarmaVendaId, 10);
   if (isNaN(vId) || vId <= 0) {
     console.warn('[Digifarma Estorno] ⚠️ ID da venda no Digifarma não informado ou inválido.');
@@ -605,7 +709,7 @@ async function estornarVendaDigifarma(digifarmaVendaId, motivo = '') {
 
   try {
     // 1. Obter dados da venda gravada no Firebird
-    const cabRows = await queryDigifarma(`
+    const cabRows = await queryFn(`
       SELECT VENDA_NOTA_ID, VENDA_TOTAL, DINHEIRO, CARTAO, CREDIARIO, CAIXA_ID, CANCELADO 
       FROM CAB_VENDAS 
       WHERE VENDA_NOTA_ID = ?
@@ -622,8 +726,19 @@ async function estornarVendaDigifarma(digifarmaVendaId, motivo = '') {
       return { success: true, already_cancelled: true };
     }
 
-    // 2. Marcar CAB_VENDAS como cancelada
-    await queryDigifarma(`
+    // 2. Remover lançamentos no FICHARIO e marcar CAB_VENDAS como cancelada
+    try {
+      await queryFn('DELETE FROM FICHARIO WHERE VENDA_NOTA_ID = ?', [vId], 10000);
+    } catch (fichErr) {
+      console.warn(`[Digifarma Estorno] ⚠️ Aviso ao limpar FICHARIO da Venda #${vId}:`, fichErr.message);
+    }
+    if (localDb) {
+      try {
+        localDb.prepare('DELETE FROM digifarma_crediario_cache WHERE venda_nota_id = ?').run(String(vId));
+      } catch (_) {}
+    }
+
+    await queryFn(`
       UPDATE CAB_VENDAS 
       SET CANCELADO = 'S',
           CANCELADO_CUPOM = 'S',
@@ -633,7 +748,7 @@ async function estornarVendaDigifarma(digifarmaVendaId, motivo = '') {
     `, [vId], 10000);
 
     // 3. Obter itens para estornar estoque em PRODUTOS
-    const itemRows = await queryDigifarma(`
+    const itemRows = await queryFn(`
       SELECT PRODUTO_ID, ITEMVEND_QUANT 
       FROM ITEM_VENDAS 
       WHERE VENDA_NOTA_ID = ?
@@ -646,7 +761,7 @@ async function estornarVendaDigifarma(digifarmaVendaId, motivo = '') {
 
         if (prodId > 0 && qtd > 0) {
           try {
-            await queryDigifarma(`
+            await queryFn(`
               UPDATE PRODUTOS 
               SET PROD_SALDO = COALESCE(PROD_SALDO, 0) + ? 
               WHERE PRODUTO_ID = ?
@@ -658,7 +773,7 @@ async function estornarVendaDigifarma(digifarmaVendaId, motivo = '') {
       }
 
       // Marcar itens como cancelados
-      await queryDigifarma(`
+      await queryFn(`
         UPDATE ITEM_VENDAS 
         SET CANCELADO = 'S',
             ITEMVEND_CANCELADO_CUPOM = 'S',
@@ -676,7 +791,7 @@ async function estornarVendaDigifarma(digifarmaVendaId, motivo = '') {
       const vCred = parseFloat(cab.CREDIARIO) || 0;
 
       try {
-        await queryDigifarma(`
+        await queryFn(`
           UPDATE CAIXA 
           SET TOTAL_VENDAS = CASE WHEN TOTAL_VENDAS >= ? THEN TOTAL_VENDAS - ? ELSE 0 END,
               VENDAS_DINHEIRO = CASE WHEN VENDAS_DINHEIRO >= ? THEN VENDAS_DINHEIRO - ? ELSE 0 END,
@@ -697,7 +812,7 @@ async function estornarVendaDigifarma(digifarmaVendaId, motivo = '') {
 
     // 5. Atualizar status na tabela NFCE
     try {
-      await queryDigifarma(`
+      await queryFn(`
         UPDATE NFCE 
         SET STATUS = 'C',
             MOTIVO_CANC = ?,
@@ -783,6 +898,18 @@ async function estornarItemVendaDigifarma({
         WHERE PRODUTO_ID = ?
       `, [qtd, it.PRODUTO_ID], 10000);
 
+      try {
+        await queryDigifarma(
+          'DELETE FROM FICHARIO WHERE VENDA_NOTA_ID = ? AND ITEM_VENDA_ID = ?',
+          [vId, it.ITEM_VENDA_ID],
+          10000
+        );
+        const { db: localDbItem } = require('./erp-database');
+        localDbItem
+          .prepare('DELETE FROM digifarma_crediario_cache WHERE venda_nota_id = ? AND produto_id = ?')
+          .run(String(vId), Number(it.PRODUTO_ID));
+      } catch (_) {}
+
       console.log(`[Digifarma Estorno Item] ✅ Estoque do produto #${it.PRODUTO_ID} devolvido (+${qtd}) e item marcado como CANCELADO.`);
     } else if (pId > 0) {
       await queryDigifarma(`
@@ -790,6 +917,18 @@ async function estornarItemVendaDigifarma({
         SET PROD_SALDO = COALESCE(PROD_SALDO, 0) + ?
         WHERE PRODUTO_ID = ?
       `, [qtd, pId], 10000);
+
+      try {
+        await queryDigifarma(
+          'DELETE FROM FICHARIO WHERE VENDA_NOTA_ID = ? AND PRODUTO_ID = ?',
+          [vId, pId],
+          10000
+        );
+        const { db: localDbItem } = require('./erp-database');
+        localDbItem
+          .prepare('DELETE FROM digifarma_crediario_cache WHERE venda_nota_id = ? AND produto_id = ?')
+          .run(String(vId), pId);
+      } catch (_) {}
     }
 
     // 2. Atualiza CAB_VENDAS (VALOR_DEVOLUCAO)

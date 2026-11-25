@@ -619,7 +619,14 @@ export const CrediarioCustomerProfileModal: React.FC<CustomerProfileModalProps> 
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        addToast('Anotação lançada e somada no crediário com sucesso!', 'success');
+        if (data.digifarmaSynced) {
+          addToast('Anotação lançada no Belinha e gravada no Digifarma!', 'success');
+        } else {
+          addToast(
+            `Anotação salva no Belinha (não gravada no Digifarma: ${data.digifarmaWarning || 'Digifarma indisponível'})`,
+            'warning'
+          );
+        }
         setActivePanel('none');
         setPurchaseAmount('');
         setPurchaseQuantity('1');

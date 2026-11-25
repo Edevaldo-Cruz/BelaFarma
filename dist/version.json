@@ -1,9 +1,14 @@
 {
   "version": "1.2.6",
-  "commitHash": "6c728d8",
-  "commitMessage": "feat(pdv): redefinir modal de receita retida com selecao de lotes e comprador estilo Digifarma",
-  "buildTime": "24/11/2026, 15:27:42",
+  "commitHash": "8751025",
+  "commitMessage": "feat(crediario): considerar clientes com compra nos ultimos 2 meses com historico completo",
+  "buildTime": "25/11/2026, 08:39:29",
   "recentCommits": [
+    {
+      "hash": "8751025",
+      "date": "24/11/2026",
+      "message": "feat(crediario): considerar clientes com compra nos ultimos 2 meses com historico completo"
+    },
     {
       "hash": "6c728d8",
       "date": "24/11/2026",
@@ -58,11 +63,6 @@
       "hash": "f85ece2",
       "date": "20/11/2026",
       "message": "fix(oriente): auto-dispensar modal de pedido em andamento no login"
-    },
-    {
-      "hash": "79dd473",
-      "date": "20/11/2026",
-      "message": "feat(provisoes): implementar central de contas variaveis (cartao, simples, inss, cemig, nuv) com persistencia permanente no mes"
     }
   ]
 }

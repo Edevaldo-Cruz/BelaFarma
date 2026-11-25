@@ -337,6 +337,29 @@ router.post('/pos/checkout', async (req, res) => {
       }
     }
 
+    const isCrediarioCheckout = Array.isArray(resultado.payments) && resultado.payments.some(p =>
+      String(p.payment_method || '').toUpperCase().includes('CREDIARIO')
+    );
+
+    if (isCrediarioCheckout) {
+      const syncPromise = sincronizarVendaDigifarma(resultado, fiscalResult).catch(syncErr => {
+        console.log(`[Belinha PDV] ℹ️ Digifarma crediario sync: ${syncErr.message}`);
+        return { success: false, fichario_synced: false, error: syncErr.message };
+      });
+
+      const digifarmaSyncResult = await Promise.race([
+        syncPromise,
+        new Promise(resolve => setTimeout(() => resolve({ pending: true }), 4500))
+      ]);
+
+      return res.status(201).json({
+        ...resultado,
+        fiscal: fiscalResult || (emit_nfce ? { status: 'ERRO' } : null),
+        danfe: danfe || null,
+        digifarma: digifarmaSyncResult
+      });
+    }
+
     // Retorna a resposta ao PDV com danfe completo pronto para impressão térmica com QR Code
     res.status(201).json({
       ...resultado,
@@ -390,14 +413,26 @@ router.post('/pos/digifarma/sync/:saleId', async (req, res) => {
       url_qrcode: s.qr_code_url
     } : null;
 
+    let lpCred = null;
+    try {
+      lpCred = db.prepare('SELECT card_id, buyer_name, due_date FROM crediario_local_purchases WHERE sale_id = ? LIMIT 1').get(s.id);
+    } catch (_) {}
+
     const syncResult = await sincronizarVendaDigifarma({
       sale_id: s.id,
+      sale_date: s.sale_date,
       items,
       payments,
       total_items_value: s.total_items_value,
       discount_value: s.discount_value,
       total_value: s.total_value,
-      user_name: s.user_name || s.seller_name || 'Caixa'
+      user_name: s.user_name || s.seller_name || 'Caixa',
+      customer_id: s.customer_id || null,
+      customer_name: s.customer_name || null,
+      customer_cpf: s.customer_cpf || null,
+      card_id: lpCred?.card_id || null,
+      buyer_name: lpCred?.buyer_name || '',
+      due_date: lpCred?.due_date || null
     }, fiscalInfo);
 
     res.json(syncResult);

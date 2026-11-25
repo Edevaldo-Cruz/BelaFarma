@@ -167,6 +167,9 @@ interface CustomerOption {
   name: string;
   phone: string;
   cpf?: string;
+  card_id?: number;
+  digifarma_cliente_id?: number | null;
+  authorized_buyers?: string[];
 }
 
 interface TieredOfferModalState {
@@ -418,6 +421,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
   const [customerSearch, setCustomerSearch] = useState('');
   const [customerCpf, setCustomerCpf] = useState<string>('');
   const [customerNameInput, setCustomerNameInput] = useState<string>('');
+  const [crediarioBuyerName, setCrediarioBuyerName] = useState<string>('');
   const [customerPoints, setCustomerPoints] = useState<number>(380);
   const [convenioNome, setConvenioNome] = useState<string>('Farmácia Popular / BelaFarma Club');
 
@@ -1361,22 +1365,84 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
     }
   };
 
-  // Carregar lista de clientes para crediário e fidelidade
+  // Carregar lista de clientes para crediário e fidelidade (mesclando CRM + Central Unificada)
   useEffect(() => {
     const fetchCustomers = async () => {
       try {
-        const res = await fetch('/api/customers');
-        if (res.ok) {
-          const data = await res.json();
-          if (Array.isArray(data)) {
-            setCustomersList(data.map((c: any) => ({ 
-              id: c.id, 
-              name: c.name, 
-              phone: c.phone || '', 
-              cpf: c.cpf || c.document || '' 
-            })));
+        const [resCust, resCards] = await Promise.allSettled([
+          fetch('/api/customers'),
+          fetch('/api/crediario-v2/clients?recentOnly=0&filter=all')
+        ]);
+
+        const custRows =
+          resCust.status === 'fulfilled' && resCust.value.ok
+            ? await resCust.value.json().catch(() => [])
+            : [];
+        const cardJson =
+          resCards.status === 'fulfilled' && resCards.value.ok
+            ? await resCards.value.json().catch(() => null)
+            : null;
+        const cardRows: any[] = cardJson?.success && Array.isArray(cardJson.clients) ? cardJson.clients : [];
+
+        const cleanDigits = (v: any) => String(v || '').replace(/\D/g, '');
+        const cleanUpper = (v: any) => String(v || '').trim().toUpperCase();
+
+        const cardByCustId = new Map<string, any>();
+        const cardByDfId = new Map<number, any>();
+        const cardByCpf = new Map<string, any>();
+        const cardByName = new Map<string, any>();
+        for (const card of cardRows) {
+          if (card.customer_id) cardByCustId.set(String(card.customer_id), card);
+          if (card.digifarma_cliente_id) cardByDfId.set(Number(card.digifarma_cliente_id), card);
+          const cpfD = cleanDigits(card.cpf);
+          if (cpfD.length >= 11) cardByCpf.set(cpfD, card);
+          const nm = cleanUpper(card.customer_name);
+          if (nm) cardByName.set(nm, card);
+        }
+
+        const merged: CustomerOption[] = [];
+        const matchedCardIds = new Set<number>();
+
+        if (Array.isArray(custRows)) {
+          for (const c of custRows) {
+            const cpfD = cleanDigits(c.cpf || c.document);
+            const nm = cleanUpper(c.name);
+            const numericCustId = /^\d+$/.test(String(c.id || '')) ? Number(c.id) : null;
+            const matchedCard =
+              cardByCustId.get(String(c.id)) ||
+              (numericCustId ? cardByDfId.get(numericCustId) : undefined) ||
+              (cpfD.length >= 11 ? cardByCpf.get(cpfD) : undefined) ||
+              (nm ? cardByName.get(nm) : undefined);
+
+            if (matchedCard?.id) matchedCardIds.add(matchedCard.id);
+
+            merged.push({
+              id: String(c.id),
+              name: c.name,
+              phone: c.phone || matchedCard?.phone || '',
+              cpf: c.cpf || c.document || matchedCard?.cpf || '',
+              card_id: matchedCard?.id,
+              digifarma_cliente_id: matchedCard?.digifarma_cliente_id ?? numericCustId,
+              authorized_buyers: Array.isArray(matchedCard?.authorized_buyers) ? matchedCard.authorized_buyers : []
+            });
           }
         }
+
+        for (const card of cardRows) {
+          if (matchedCardIds.has(card.id)) continue;
+          merged.push({
+            id: String(card.customer_id || card.digifarma_cliente_id || `card_${card.id}`),
+            name: card.customer_name,
+            phone: card.phone || '',
+            cpf: card.cpf || '',
+            card_id: card.id,
+            digifarma_cliente_id: card.digifarma_cliente_id ?? null,
+            authorized_buyers: Array.isArray(card.authorized_buyers) ? card.authorized_buyers : []
+          });
+        }
+
+        merged.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+        setCustomersList(merged);
       } catch (e) {}
     };
     fetchCustomers();
@@ -2062,6 +2128,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
     setSelectedCustomer(null);
     setCustomerCpf('');
     setCustomerNameInput('');
+    setCrediarioBuyerName('');
     setCustomerCreditInfo(null);
     setCart(prev => prev.map(it => ({
       ...it,
@@ -2413,6 +2480,10 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
         ],
         customer_id: selectedCustomer ? selectedCustomer.id : null,
         customer_name: (selectedCustomer ? selectedCustomer.name : customerNameInput.trim()) || null,
+        customer_phone: selectedCustomer?.phone || null,
+        card_id: selectedCustomer?.card_id ?? null,
+        digifarma_cliente_id: selectedCustomer?.digifarma_cliente_id ?? null,
+        buyer_name: selectedMethod === 'CREDIARIO' ? crediarioBuyerName.trim() : '',
         discount_value: totalDiscount,
         user_name: seller.name,
         seller_id: seller.id,
@@ -2420,7 +2491,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
         controlled_recipes: controlledRecipesData || undefined,
         emit_nfce: emitNfce,
         force_contingency: isOfflineMode,
-        customer_cpf: customerCpf.trim() || null
+        customer_cpf: (customerCpf.trim() || selectedCustomer?.cpf || '').trim() || null
       };
 
       const res = await fetch('/api/erp/pos/checkout', {
@@ -2457,6 +2528,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
         setControlledRecipesData(null);
         setCustomerCpf('');
         setCustomerNameInput('');
+        setCrediarioBuyerName('');
 
         // Venda finalizada com sucesso imediato no balcão
         completedSaleTimeRef.current = Date.now();
@@ -2482,6 +2554,18 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
             }, 50);
           }
           addToast(`✅ Venda finalizada por ${seller.name}! (R$ ${totalFinal.toFixed(2)})`, 'success', 3000);
+        }
+
+        if (selectedMethod === 'CREDIARIO') {
+          if (json.digifarma?.fichario_synced) {
+            addToast(`📒 Crediário gravado no Belinha e no Digifarma (${finalCustomerName || 'Cliente'})!`, 'success', 4000);
+          } else if (json.digifarma && json.digifarma.fichario_synced === false) {
+            addToast(
+              `⚠️ Crediário salvo no Belinha; pendência para gravar no Digifarma: ${json.digifarma.fichario_warning || json.digifarma.error || 'verifique o Caixa aberto no Digifarma'}.`,
+              'warning',
+              5500
+            );
+          }
         }
 
         focusBarcodeInput();
@@ -4141,7 +4225,15 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
                   />
                   <div className="max-h-20 overflow-y-auto border border-slate-300 rounded-md bg-white divide-y divide-slate-200">
                     {customersList
-                      .filter(c => c.name.toLowerCase().includes(customerSearch.toLowerCase()))
+                      .filter(c => {
+                        const q = customerSearch.trim().toLowerCase();
+                        if (!q) return true;
+                        return (
+                          c.name.toLowerCase().includes(q) ||
+                          (c.cpf && c.cpf.toLowerCase().includes(q)) ||
+                          (c.phone && c.phone.toLowerCase().includes(q))
+                        );
+                      })
                       .slice(0, 6)
                       .map(c => (
                         <div
@@ -4150,20 +4242,53 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
                             setSelectedCustomer(c);
                             setCustomerNameInput(c.name);
                             if (c.cpf) setCustomerCpf(c.cpf);
+                            setCrediarioBuyerName('');
                           }}
                           className={`p-1.5 text-xs cursor-pointer font-bold flex justify-between ${
                             selectedCustomer?.id === c.id ? 'bg-[#0f3460] text-white' : 'hover:bg-slate-100 text-slate-700'
                           }`}
                         >
                           <span>{c.name}</span>
-                          <span className="opacity-75">{c.phone}</span>
+                          <span className="opacity-75">{c.phone || c.cpf}</span>
                         </div>
                       ))}
                   </div>
                   {selectedCustomer && (
-                    <p className="text-[11px] font-bold text-emerald-700 mt-1">
-                      Vinculado: {selectedCustomer.name}
-                    </p>
+                    <div className="space-y-1.5 pt-1">
+                      <p className="text-[11px] font-bold text-emerald-700">
+                        Vinculado: {selectedCustomer.name}
+                      </p>
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-600 mb-0.5">
+                          Comprador / Quem retirou (opcional):
+                        </label>
+                        <input
+                          type="text"
+                          value={crediarioBuyerName}
+                          onChange={(e) => setCrediarioBuyerName(e.target.value)}
+                          placeholder="Ex: Próprio cliente ou familiar"
+                          className="w-full bg-white border border-slate-300 rounded-md px-2 py-1 text-xs text-slate-800 font-medium"
+                        />
+                        {Array.isArray(selectedCustomer.authorized_buyers) && selectedCustomer.authorized_buyers.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {selectedCustomer.authorized_buyers.map((buyer) => (
+                              <button
+                                key={buyer}
+                                type="button"
+                                onClick={() => setCrediarioBuyerName(buyer)}
+                                className={`px-1.5 py-0.5 rounded text-[10px] font-bold border transition cursor-pointer ${
+                                  crediarioBuyerName.toUpperCase() === buyer.toUpperCase()
+                                    ? 'bg-[#0f3460] text-white border-[#0f3460]'
+                                    : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+                                }`}
+                              >
+                                {buyer}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   )}
                 </div>
               )}

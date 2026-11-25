@@ -960,12 +960,24 @@ async function cancelarCupomFiscal(saleId, motivo = 'Cancelamento a pedido do op
       restockStmt.run(it.quantity, it.product_code);
     }
 
-    // Cancela débitos de crediário
+    // Cancela débitos de crediário (legado + Central Unificada + cache Digifarma)
     db.prepare(`
       UPDATE customer_debts 
       SET status = 'CANCELADO', balance = 0 
       WHERE sale_id = ?
     `).run(saleId);
+
+    try {
+      const lpRows = db.prepare('SELECT id, card_id, amount FROM crediario_local_purchases WHERE sale_id = ?').all(saleId);
+      for (const lp of lpRows) {
+        db.prepare("UPDATE belafarma_cards SET used_limit = MAX(0, used_limit - ?), updated_at = datetime('now', 'localtime') WHERE id = ?")
+          .run(Number(lp.amount || 0), lp.card_id);
+      }
+      db.prepare('DELETE FROM crediario_local_purchases WHERE sale_id = ?').run(saleId);
+      if (sale.digifarma_venda_id) {
+        db.prepare('DELETE FROM digifarma_crediario_cache WHERE venda_nota_id = ?').run(String(sale.digifarma_venda_id));
+      }
+    } catch (_) {}
   });
 
   tx();
