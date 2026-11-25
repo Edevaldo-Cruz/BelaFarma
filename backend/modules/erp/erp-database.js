@@ -621,6 +621,70 @@ function initErpDatabase() {
   db.prepare(`CREATE INDEX IF NOT EXISTS idx_pdv_rej_status ON pdv_product_rejections (status)`).run();
   db.prepare(`CREATE INDEX IF NOT EXISTS idx_pdv_rej_created ON pdv_product_rejections (created_at DESC)`).run();
 
+  // 16. Posologia & Guia Farmacêutico no PDV (cache local populado gradualmente por IA + revisão farmacêutica)
+  db.prepare(`
+    CREATE TABLE IF NOT EXISTS product_posologies (
+      product_code TEXT PRIMARY KEY,
+      barcode TEXT DEFAULT '',
+      product_name TEXT NOT NULL,
+      is_medication INTEGER NOT NULL DEFAULT 1,
+      active_ingredient TEXT DEFAULT '',
+      concentration TEXT DEFAULT '',
+      therapeutic_class TEXT DEFAULT '',
+      prescription_stripe TEXT DEFAULT '',
+      indication TEXT DEFAULT '',
+      adult_dosage TEXT DEFAULT '',
+      pediatric_dosage TEXT DEFAULT '',
+      usage_instructions TEXT DEFAULT '',
+      warnings TEXT DEFAULT '',
+      interactions TEXT DEFAULT '',
+      contraindications TEXT DEFAULT '',
+      side_effects TEXT DEFAULT '',
+      storage_care TEXT DEFAULT '',
+      brand_synonyms TEXT DEFAULT '',
+      source TEXT NOT NULL DEFAULT 'AI',
+      ai_model TEXT DEFAULT '',
+      reviewed_by_pharmacist INTEGER NOT NULL DEFAULT 0,
+      updated_by TEXT DEFAULT 'Sistema IA',
+      created_at TEXT DEFAULT (datetime('now', 'localtime')),
+      updated_at TEXT DEFAULT (datetime('now', 'localtime'))
+    )
+  `).run();
+  try {
+    const posCols = db.pragma('table_info(product_posologies)').map(c => c.name);
+    if (!posCols.includes('concentration')) db.prepare(`ALTER TABLE product_posologies ADD COLUMN concentration TEXT DEFAULT ''`).run();
+    if (!posCols.includes('therapeutic_class')) db.prepare(`ALTER TABLE product_posologies ADD COLUMN therapeutic_class TEXT DEFAULT ''`).run();
+    if (!posCols.includes('prescription_stripe')) db.prepare(`ALTER TABLE product_posologies ADD COLUMN prescription_stripe TEXT DEFAULT ''`).run();
+    if (!posCols.includes('interactions')) db.prepare(`ALTER TABLE product_posologies ADD COLUMN interactions TEXT DEFAULT ''`).run();
+    if (!posCols.includes('contraindications')) db.prepare(`ALTER TABLE product_posologies ADD COLUMN contraindications TEXT DEFAULT ''`).run();
+    if (!posCols.includes('side_effects')) db.prepare(`ALTER TABLE product_posologies ADD COLUMN side_effects TEXT DEFAULT ''`).run();
+    if (!posCols.includes('storage_care')) db.prepare(`ALTER TABLE product_posologies ADD COLUMN storage_care TEXT DEFAULT ''`).run();
+    if (!posCols.includes('brand_synonyms')) db.prepare(`ALTER TABLE product_posologies ADD COLUMN brand_synonyms TEXT DEFAULT ''`).run();
+  } catch (errPos) {
+    console.warn('[Belinha ERP DB] Aviso ao migrar colunas de product_posologies:', errPos.message);
+  }
+  db.prepare(`CREATE INDEX IF NOT EXISTS idx_posology_barcode ON product_posologies (barcode)`).run();
+  db.prepare(`CREATE INDEX IF NOT EXISTS idx_posology_is_med ON product_posologies (is_medication)`).run();
+  db.prepare(`CREATE INDEX IF NOT EXISTS idx_posology_active_ing ON product_posologies (active_ingredient)`).run();
+
+  // 17. Histórico e Cache de Dúvidas Clínicas Rápidas (Aba Pergunta Livre do Guia Farmacêutico)
+  db.prepare(`
+    CREATE TABLE IF NOT EXISTS posology_qa_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      question_key TEXT UNIQUE NOT NULL,
+      question TEXT NOT NULL,
+      answer_summary TEXT NOT NULL,
+      clinical_details TEXT DEFAULT '',
+      warnings TEXT DEFAULT '',
+      related_ingredients TEXT DEFAULT '',
+      ai_model TEXT DEFAULT '',
+      asked_by TEXT DEFAULT 'Caixa',
+      created_at TEXT DEFAULT (datetime('now', 'localtime')),
+      updated_at TEXT DEFAULT (datetime('now', 'localtime'))
+    )
+  `).run();
+  db.prepare(`CREATE INDEX IF NOT EXISTS idx_posology_qa_updated ON posology_qa_history (updated_at DESC)`).run();
+
   console.log('[Belinha ERP DB] ✅ Schema limpo do ERP verificado e pronto!');
   return true;
 }

@@ -104,6 +104,7 @@ const {
 
 const { createCaderninhoRouter } = require('./caderninho.service');
 const { createRejectedProductsRouter } = require('./rejected-products.service');
+const { createPosologyRouter } = require('./posology.service');
 
 // ==========================================
 
@@ -1397,6 +1398,11 @@ router.post('/fiscal/settings', (req, res) => {
 // 6. ROTAS DE MEDICAMENTOS CONTROLADOS & SNGPC
 // ==========================================
 router.use('/controlled', require('./controlled-medications-endpoints'));
+
+// ==========================================
+// 7. ROTAS DE POSOLOGIA DE MEDICAMENTOS (PDV + IA)
+// ==========================================
+router.use('/posology', createPosologyRouter());
 
 module.exports = router;
 

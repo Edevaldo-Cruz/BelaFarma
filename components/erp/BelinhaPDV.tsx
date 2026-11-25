@@ -53,7 +53,8 @@ import {
   Calendar,
   Filter,
   Eye,
-  ThumbsDown
+  ThumbsDown,
+  Pill
 } from 'lucide-react';
 import { useToast } from '../ToastContext';
 import { BelaFarmaLogo } from '../BelaFarmaLogo';
@@ -62,6 +63,7 @@ import { FiscalSettingsModal } from './FiscalSettingsModal';
 import { PromotionsManagementModal } from './PromotionsManagementModal';
 import { CaderninhoModal } from './CaderninhoModal';
 import { RegisterRejectionModal, RejectedProductsListModal } from './RejectedProductsModal';
+import { ProductPosologyModal, PosologyProductRef } from './ProductPosologyModal';
 import { imprimirCupomVenda, imprimirDanfeNfce, imprimirComprovanteMovimentacaoCaixa, imprimirComprovanteOrcamento } from '../../utils/thermalPrinter';
 import { ControlledRecipeModal, ControlledProductItem, ControlledRecipeData } from './ControlledRecipeModal';
 import { useThermalPrintSpooler } from './useThermalPrintSpooler';
@@ -600,6 +602,45 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
   const [isRejectedListOpen, setIsRejectedListOpen] = useState<boolean>(false);
   const [rejectedPendingCount, setRejectedPendingCount] = useState<number>(0);
 
+  // Guia Farmacêutico & Posologia (IA gradual + cache SQLite)
+  const [isPosologyModalOpen, setIsPosologyModalOpen] = useState<boolean>(false);
+  const [posologyTarget, setPosologyTarget] = useState<PosologyProductRef | null>(null);
+  const [posologyStatusMap, setPosologyStatusMap] = useState<Record<string, 'READY' | 'NON_MED' | 'LOADING'>>({});
+
+  const triggerPosologyPrefetch = useCallback((code: string, barcode: string, name: string) => {
+    const cleanCode = String(code || '').trim().replace(/\.0+$/, '');
+    if (!cleanCode || cleanCode.startsWith('AVULSO')) return;
+
+    fetch('/api/erp/posology/lookup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        product_code: cleanCode,
+        barcode: barcode || '',
+        product_name: name || '',
+        wait: false
+      })
+    })
+      .then(res => (res.ok ? res.json() : null))
+      .then(json => {
+        if (!json?.success) return;
+        if (json.status === 'CACHED' && json.data) {
+          setPosologyStatusMap(prev => ({
+            ...prev,
+            [cleanCode]: json.data.is_medication ? 'READY' : 'NON_MED'
+          }));
+        } else if (json.status === 'QUEUED') {
+          setPosologyStatusMap(prev => ({ ...prev, [cleanCode]: 'LOADING' }));
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const openPosologyModal = useCallback((target: PosologyProductRef | null) => {
+    setPosologyTarget(target);
+    setIsPosologyModalOpen(true);
+  }, []);
+
   // Status de Crediário e Limite do Cliente
   const [customerCreditInfo, setCustomerCreditInfo] = useState<any | null>(null);
 
@@ -926,10 +967,10 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
 
   // Foco automático no input de bipagem
   const focusBarcodeInput = useCallback(() => {
-    if (!isSearchOpen && !isSellerModalOpen && !isUnregisteredModalOpen && !isControlledRecipeOpen && !isDiscountModalOpen && !isCustomerModalOpen && !isRecentSalesOpen && !isClearCartModalOpen && !isCaderninhoModalOpen && !isRejectedListOpen && !rejectTargetItem && !completedSale && !tieredOfferModal.isOpen) {
+    if (!isSearchOpen && !isSellerModalOpen && !isUnregisteredModalOpen && !isControlledRecipeOpen && !isPosologyModalOpen && !isDiscountModalOpen && !isCustomerModalOpen && !isRecentSalesOpen && !isClearCartModalOpen && !isCaderninhoModalOpen && !isRejectedListOpen && !rejectTargetItem && !completedSale && !tieredOfferModal.isOpen) {
       setTimeout(() => barcodeInputRef.current?.focus(), 50);
     }
-  }, [isSearchOpen, isSellerModalOpen, isUnregisteredModalOpen, isControlledRecipeOpen, isDiscountModalOpen, isCustomerModalOpen, isRecentSalesOpen, isClearCartModalOpen, isCaderninhoModalOpen, isRejectedListOpen, rejectTargetItem, completedSale, tieredOfferModal.isOpen]);
+  }, [isSearchOpen, isSellerModalOpen, isUnregisteredModalOpen, isControlledRecipeOpen, isPosologyModalOpen, isDiscountModalOpen, isCustomerModalOpen, isRecentSalesOpen, isClearCartModalOpen, isCaderninhoModalOpen, isRejectedListOpen, rejectTargetItem, completedSale, tieredOfferModal.isOpen]);
 
   const handleCloseCaderninho = useCallback(() => {
     setIsCaderninhoModalOpen(false);
@@ -1497,8 +1538,8 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
   // Atalhos de teclado globais do PDV
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Quando um dialog nativo (Caderninho, Produtos Recusados ou Receita Controlada) está aberto, não disparar atalhos do PDV por trás
-      if (isCaderninhoModalOpen || isRejectedListOpen || rejectTargetItem || isControlledRecipeOpen) return;
+      // Quando um dialog nativo (Caderninho, Produtos Recusados, Receita Controlada ou Guia Farmacêutico) está aberto, não disparar atalhos do PDV por trás
+      if (isCaderninhoModalOpen || isRejectedListOpen || rejectTargetItem || isControlledRecipeOpen || isPosologyModalOpen) return;
 
       // Se estiver com modal de oferta escalonada aberta ("Leve X por Y")
       if (tieredOfferModal.isOpen) {
@@ -1632,7 +1673,8 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
     handleDismissTieredOffer,
     isCaderninhoModalOpen,
     isRejectedListOpen,
-    rejectTargetItem
+    rejectTargetItem,
+    isPosologyModalOpen
   ]);
 
   // Autocomplete ao vivo ao digitar na barra de produto
@@ -1967,6 +2009,9 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
     const costPrice = prod.cost_price || 0;
     const cleanCode = String(prod.code || '').trim().replace(/\.0+$/, '');
     const cleanBarcode = String(prod.barcode || '').trim();
+
+    // Captura gradual de posologia em segundo plano (sem bloquear a bipagem)
+    triggerPosologyPrefetch(cleanCode, cleanBarcode, prod.name);
 
     // Desconto automático para genéricos se o cliente estiver identificado
     let initialDiscount = 0;
@@ -3214,6 +3259,17 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
             )}
           </button>
 
+          {/* Guia Farmacêutico & Posologia (sem precisar pesquisar no Google) */}
+          <button
+            type="button"
+            onClick={() => openPosologyModal(null)}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-teal-500/20 hover:bg-teal-500/30 border border-teal-400/50 text-teal-100 text-xs font-bold transition shadow-sm cursor-pointer"
+            title="Abrir Guia Farmacêutico: princípio ativo, posologia, interações, equivalentes em estoque e dúvidas clínicas"
+          >
+            <Pill size={13} className="text-teal-300" />
+            <span>Guia Farmacêutico</span>
+          </button>
+
           {/* [F8] Finalizar Venda */}
           <button
             onClick={() => handleStartCheckout()}
@@ -3661,6 +3717,25 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
                       </div>
                     </div>
                     <div className="h-7 w-[1px] bg-slate-300" />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        openPosologyModal({
+                          code: lastScannedItem.code,
+                          barcode: lastScannedItem.barcode,
+                          name: lastScannedItem.name
+                        })
+                      }
+                      className="px-2.5 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-500 text-white font-sans text-[11px] font-black flex items-center gap-1.5 shadow-xs cursor-pointer transition-colors shrink-0"
+                      title="Ver princípio ativo, posologia, alertas e equivalentes deste medicamento"
+                    >
+                      <Pill className="w-3.5 h-3.5" />
+                      <span>Posologia</span>
+                      {posologyStatusMap[lastScannedItem.code] === 'READY' && (
+                        <span className="w-2 h-2 rounded-full bg-emerald-300" title="Ficha já salva em cache" />
+                      )}
+                    </button>
+                    <div className="h-7 w-[1px] bg-slate-300" />
                     <div className="text-right">
                       <div className="text-[10px] text-emerald-700 uppercase font-sans font-black">Subtotal Item</div>
                       <div className="text-base sm:text-lg font-black text-emerald-700">
@@ -3922,6 +3997,33 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
                           </td>
                           <td className="py-2 px-2 text-center whitespace-nowrap">
                             <div className="inline-flex items-center justify-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  openPosologyModal({
+                                    code: item.code,
+                                    barcode: item.barcode,
+                                    name: item.name
+                                  })
+                                }
+                                className={`p-1.5 rounded transition-colors cursor-pointer ${
+                                  posologyStatusMap[item.code] === 'READY'
+                                    ? 'text-teal-700 bg-teal-50 hover:bg-teal-100'
+                                    : posologyStatusMap[item.code] === 'NON_MED'
+                                      ? 'text-slate-300 hover:text-slate-500 hover:bg-slate-100'
+                                      : 'text-teal-600 hover:text-teal-800 hover:bg-teal-50'
+                                }`}
+                                title={
+                                  posologyStatusMap[item.code] === 'READY'
+                                    ? 'Ver Posologia e Guia Farmacêutico (ficha salva)'
+                                    : posologyStatusMap[item.code] === 'NON_MED'
+                                      ? 'Produto classificado como não-medicamento (clique para ver ou editar)'
+                                      : 'Consultar Posologia, Princípio Ativo e Equivalentes'
+                                }
+                                aria-label={`Ver posologia de ${item.name}`}
+                              >
+                                <Pill className="w-4 h-4" />
+                              </button>
                               <button
                                 type="button"
                                 onClick={() => setRejectTargetItem({ item, index })}
@@ -6175,6 +6277,31 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
           } else {
             focusBarcodeInput();
           }
+        }}
+      />
+
+      {/* ========================================================================= */}
+      {/* MODAL 9.5: GUIA FARMACÊUTICO & POSOLOGIA (BALCÃO + IA GRADUAL)           */}
+      {/* ========================================================================= */}
+      <ProductPosologyModal
+        isOpen={isPosologyModalOpen}
+        initialProduct={posologyTarget}
+        operatorName={currentSeller?.name || currentUser?.name || 'Farmacêutico'}
+        selectedPaymentMethod={selectedMethod}
+        onClose={() => {
+          setIsPosologyModalOpen(false);
+          setPosologyTarget(null);
+          focusBarcodeInput();
+        }}
+        onAddProductToCart={(prod) => {
+          addItemToCart(prod, 1);
+          focusBarcodeInput();
+        }}
+        onPosologyUpdated={(code, rec) => {
+          setPosologyStatusMap(prev => ({
+            ...prev,
+            [code]: rec.is_medication ? 'READY' : 'NON_MED'
+          }));
         }}
       />
 

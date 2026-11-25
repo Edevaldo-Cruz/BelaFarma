@@ -1,9 +1,14 @@
 {
   "version": "1.2.6",
-  "commitHash": "97d26c4",
-  "commitMessage": "feat(equivalentes): refinar motor farmaceutico, trava OUTROS (6) e edicao de categoria no Digifarma",
-  "buildTime": "25/11/2026, 14:36:50",
+  "commitHash": "5b849b2",
+  "commitMessage": "fix(crediario): eliminar race condition no FICHARIO (#8376), ampliar motor de unificacao e criar modal visual Belinha+Digifarma",
+  "buildTime": "25/11/2026, 19:41:05",
   "recentCommits": [
+    {
+      "hash": "5b849b2",
+      "date": "25/11/2026",
+      "message": "fix(crediario): eliminar race condition no FICHARIO (#8376), ampliar motor de unificacao e criar modal visual Belinha+Digifarma"
+    },
     {
       "hash": "97d26c4",
       "date": "25/11/2026",
@@ -58,11 +63,6 @@
       "hash": "61f234e",
       "date": "23/11/2026",
       "message": "feat(pdv): implementar funcao caderninho com historico por nome, pagamento parcial, 80mm automatico e cancelamento seguro"
-    },
-    {
-      "hash": "b745109",
-      "date": "23/11/2026",
-      "message": "feat(crediario): filtro anual global nos kpis/filtros e lancamento rapido de anotacao como produto"
     }
   ]
 }

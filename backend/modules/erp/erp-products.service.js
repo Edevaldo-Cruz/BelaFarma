@@ -866,6 +866,7 @@ function obterMetricasEstoque() {
 }
 
 module.exports = {
+  enrichProduct,
   buscarProdutos,
   buscarProdutosPaginados,
   obterMetricasEstoque,
