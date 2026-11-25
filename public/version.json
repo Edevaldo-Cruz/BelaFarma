@@ -1,9 +1,14 @@
 {
   "version": "1.2.6",
-  "commitHash": "4cee7a1",
-  "commitMessage": "feat(crediario): sincronizacao completa de pagamentos Belinha -> Digifarma",
-  "buildTime": "25/11/2026, 13:23:25",
+  "commitHash": "078b2d9",
+  "commitMessage": "fix(crediario): regularizar venda 94471, bloquear overflow INT32 e unificar cadastros duplicados",
+  "buildTime": "25/11/2026, 14:09:21",
   "recentCommits": [
+    {
+      "hash": "078b2d9",
+      "date": "25/11/2026",
+      "message": "fix(crediario): regularizar venda 94471, bloquear overflow INT32 e unificar cadastros duplicados"
+    },
     {
       "hash": "4cee7a1",
       "date": "25/11/2026",
@@ -58,11 +63,6 @@
       "hash": "2f4f894",
       "date": "23/11/2026",
       "message": "feat(crediario): filtrar carteira padrao apenas para clientes com movimento no ano atual"
-    },
-    {
-      "hash": "268b5a0",
-      "date": "23/11/2026",
-      "message": "fix(crediario): desconsiderar vendas e pagamentos anteriores a 01/10/2025"
     }
   ]
 }

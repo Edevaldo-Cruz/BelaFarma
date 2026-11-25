@@ -341,7 +341,7 @@ const STOPWORDS_DESCRICAO = new Set([
 ]);
 
 // Perfumaria, cosméticos, higiene, correlatos e multivitamínicos comerciais — nunca auto-agrupar como medicamento equivalente
-const BLACKLIST_NAO_MEDICAMENTO_REGEX = /\b(ESMALTE|ESMAL|TINTURA|TINT|COLORACAO|DESCOLOR|SHAMPOO|CONDICIONADOR|SABONETE|DESODORANTE|DESOD|FRALDA|CHUPETA|CHUP|MAMADEIRA|ESCOVA|BATOM|GLOSS|RIMEL|HAVAIANAS|CHINELO|CORTADOR|PORTA\s+COMPRIMID\w*|COMPRESSA|GAZE|ATADURA|ESPARADRAPO|MICROPORE|BAND[\s\-]*AID|BANDAID|CURATIVO|PINCA|ALICATE|LIXA|TESOURA|LUVA|AP\s+BARBA|APARELHO\s+DE?\s*BARB\w*|BARBEAR|GILLETTE|PRESTOBARBA|HIDRATANTE|HIDRAT|PROTETOR\s+SOLAR|REPELENTE|TESTE\s+DE?\s*GRAVIDEZ|PRESERVATIVO|ABSORVENTE|LENCO\s+UMED\w*|TOALHA\s+UMED\w*|AGUA\s+MICELAR|MOUSSE\s+LIMPEZ\w*|COREGA|FIXADOR\s+DENT\w*|SERINGA|AGULHA|TERMOMETRO|MEDIDOR\s+GLICOSE|TIRAS\s+REAGENTES|LANCETA|ALGODAO|COTONETE|CREME\s+DENTAL|PASTA\s+DENTE|ENXAGUANTE|FIO\s+DENTAL|LAVITAN|CENTRUM|CALCIONUTRI|REJUVIT|POLPA|WHEY|CREATINA|CESTA\s+FARMACIA|CICATRISOFT)\b/i;
+const BLACKLIST_NAO_MEDICAMENTO_REGEX = /\b(ESMALTE|ESMAL|TINTURA|TINT|COLORACAO|DESCOLOR|SHAMPOO|CONDICIONADOR|SABONETE|DESODORANTE|DESOD|FRALDA|CHUPETA|CHUP|MAMADEIRA|MAMAD|BICO\s+(?:SILICONE|LATEX|ORTO|PVC)|ESCOVA|BATOM|GLOSS|RIMEL|HAVAIANAS|CHINELO|CORTADOR|PORTA\s+COMPRIMID\w*|COMPRESSA|GAZE|ATADURA|ESPARADRAPO|MICROPORE|BAND[\s\-]*AID|BANDAID|CURATIVO|PINCA|ALICATE|LIXA|TESOURA|LUVA|AP\s+BARBA|APARELHO\s+DE?\s*BARB\w*|BARBEAR|GILLETTE|PRESTOBARBA|HIDRATANTE|HIDRAT|PROTETOR\s+SOLAR|REPELENTE|TESTE\s+DE?\s*GRAVIDEZ|PRESERVATIVO|ABSORVENTE|LENCO\s+UMED\w*|TOALHA\s+UMED\w*|AGUA\s+MICELAR|AGUA\s+(?:C\/|S\/|MINERAL|PET|M\s)|MOUSSE\s+LIMPEZ\w*|COREGA|FIXADOR\s+DENT\w*|SERINGA|AGULHA|TERMOMETRO|MEDIDOR\s+GLICOSE|TIRAS\s+REAGENTES|LANCETA|ALGODAO|COTONETE|CREME\s+DENTAL|CR\.?\s*DENT\b|PASTA\s+DENTE|ENXAGUANTE|FIO\s+DENTAL|CR\.?\s*PENT\b|CREME\s+P\/?\s*PENT\w*|PENTEAR|ADOCANTE|ALCOOL\s+(?:GEL|70|FLOPS|ANTIS\w*|HIGIEN\w*)|OLEO\s+(?:CAPILAR|ARGAN|BABOSA|LAVANDA|AMENDOAS|RICINO|COCO|SEMENTE|CORPORAL|FARMAX)|DES\s+MOOD|DES\s+.*\bAER\b|LAVITAN|CENTRUM|CALCIONUTRI|REJUVIT|POLPA|WHEY|CREATINA|CESTA\s+FARMACIA|CICATRISOFT)\b/i;
 
 // Conjunto de DCBs conhecidas para reconhecer quando a descrição traz explicitamente o princípio ativo
 const DCBS_CONHECIDOS = new Set([
@@ -423,7 +423,7 @@ function limparTextoRuido(txt) {
 
   // Separa números colados de unidades e apenas laboratórios colados após forma (ex: 30CPRLEGRAND -> 30 CPR LEGRAND)
   norm = norm
-    .replace(/(\d)(CPR|COMPR|COMP|CPS|CAPS|CAP|DRG|ENV|SACHE|FLAC|AMP|MG|MCG|ML|UI|GR)\b/gi, '$1 $2')
+    .replace(/(\d)(CPR|COMPR|COMP|CPS|CAPS|CAP|DRG|ENVS|ENV|SACHES|SACHE|FLAC|AMP|DOSES?|ACION\w*|JATOS?|MG|MCG|ML|UI|GR)\b/gi, '$1 $2')
     .replace(/\b(CPR|COMPR|COMP|CP|CPS|CAPS|CAP|DRG)(LEGRAND|EMS|MEDLEY|EUROFARMA|EUROF|TEUTO|GERMED|CIMED|GLOBO|GEOLAB|PRATI|ACHE|SANDOZ|PHARLAB|VITAMEDIC|TORRENT|BIOSINT|BIOLAB|NEO|NOVA|MEDQ|BELFAR|RANBAXY|ZYDUS)\b/gi, '$1 $2')
     .replace(/\b(X)(\d+)/gi, 'X $2')
     .replace(/\b(C\/)(\d+)/gi, 'C/ $2')
@@ -527,7 +527,7 @@ function detectarFormaEModificador(normSemLab) {
     forma = 'PASTILHA';
   } else if (/\b(?:SUP|SUPOSITORIO)\b/.test(normSemLab)) {
     forma = 'SUPOSITORIO';
-  } else if (/\b(?:ENV|ENVELOPE|SACH|SACHE)\b/.test(normSemLab) && !/\b(?:CPR|COMPR|COMP)\b/.test(normSemLab)) {
+  } else if (/\b(?:ENV|ENVS|ENVELOPE|ENVELOPES|SACH|SACHE|SACHES|GRANULADO)\b/.test(normSemLab) && !/\b(?:CPR|COMPR|COMP)\b/.test(normSemLab)) {
     forma = 'SACHE_PO';
   } else if (/\b(?:CPS|CAPS|CAP|CAPSULA|CAPSULAS)\b/.test(normSemLab)) {
     forma = 'CÁPSULA';
@@ -535,7 +535,7 @@ function detectarFormaEModificador(normSemLab) {
     forma = 'COMPRIMIDO';
   } else if (/\b\d+\s*ML\b/.test(normSemLab) && !/\b\d+\s*(?:CPR|COMPR|COMP|CP|CAPS|CPS)\b/.test(normSemLab)) {
     forma = 'SOLUCAO_ORAL';
-  } else if (/\b\d+\s*(?:GR|G)\b/.test(normSemLab) && !/\b(?:EFERV|CPR|COMPR|COMP|CP|CAPS|CPS|ENV|SACHE|INJ)\b/.test(normSemLab)) {
+  } else if (/\b\d+\s*(?:GR|G)\b/.test(normSemLab) && !/\b(?:EFERV|CPR|COMPR|COMP|CP|CAPS|CPS|ENV|ENVS|ENVELOPE|SACHE|SACHES|INJ)\b/.test(normSemLab)) {
     // Ex: "NEOMICINA+BACITRACINA 10 GR" sem palavra POMADA explícita -> se é tópico/bisnaga, inferimos POMADA
     const valG = /\b(\d+(?:[.,]\d+)?)\s*(?:GR|G)\b/.exec(normSemLab);
     if (valG && parseFloat(valG[1].replace(',', '.')) >= 5) {
@@ -548,11 +548,11 @@ function detectarFormaEModificador(normSemLab) {
     : forma;
 
   // Modificadores críticos de farmacocinética / via que NUNCA podem se misturar com liberação normal.
-  // Atenção: "\bCR\b" só significa Controlled Release em formas sólidas orais (nunca em Creme / Creme Vaginal).
+  // Atenção: "\bCR\b" e "\bSL\b" só se aplicam a formas sólidas orais (nunca Creme/Mamadeira/Líquido).
   const mods = [];
   const temCrSolido = formaChave === 'SOLIDO_ORAL' && /\bCR\b/.test(normSemLab);
   if (temCrSolido || /\b(?:XR|SR|LP|LA|OD|AP|RETARD|PROLONG|PROLONGADA|PROLONGADO)\b/.test(normSemLab)) mods.push('XR');
-  if (/\b(?:SUBL|SUBLINGUAL|SL)\b/.test(normSemLab)) mods.push('SUBL');
+  if (formaChave === 'SOLIDO_ORAL' && /\b(?:SUBL|SUBLINGUAL|SL)\b/.test(normSemLab)) mods.push('SUBL');
   if (/\b(?:EFERV|EFERVESCENTE)\b/.test(normSemLab)) mods.push('EFERV');
   if (/\b(?:MAST|MASTIG|MASTIGAVEL)\b/.test(normSemLab)) mods.push('MAST');
   if (/\b(?:ODT|ORODISP|ORODISPERSIVEL|DISPERSIVEL|FLASH)\b/.test(normSemLab)) mods.push('ODT');
@@ -607,11 +607,12 @@ function extrairDosagemNormalizada(normSemLab, forma) {
     return `${n1}${u1}+${n2}${u2}`;
   }
 
-  // 5. Concentração com barra explícita: "2000 MCG/ML", "3,0 MG/ML", "20 MG/G", "0,5%"
-  const concMatch = /(\d+(?:[.,]\d+)?)\s*(MG\/ML|MCG\/ML|G\/ML|MG\/G|MCG\/G|%)\b/i.exec(normSemLab);
+  // 5. Concentração com barra explícita ou porcentagem: "2000 MCG/ML", "3,0 MG/ML", "20 MG/G", "0,5%"
+  const concMatch = /(\d+(?:[.,]\d+)?)\s*(?:(MG\/ML|MCG\/ML|G\/ML|MG\/G|MCG\/G)\b|(%)(?=\s|$|[^A-Z0-9]))/i.exec(normSemLab);
   if (concMatch) {
     const n = formatarNumero(parseFloat(concMatch[1].replace(',', '.')));
-    return `${n}${concMatch[2].toUpperCase()}`;
+    const un = (concMatch[2] || concMatch[3] || '').toUpperCase();
+    return `${n}${un}`;
   }
 
   // 6. Dosagem padrão (MG, MCG, UI, G).
@@ -657,6 +658,17 @@ function extrairEmbalagem(normSemLab, forma) {
   const isLiquido = forma === 'GOTAS' || forma === 'XAROPE' || forma === 'SUSPENSAO' || forma === 'SOLUCAO_ORAL' ||
     forma === 'OFTALMICO' || forma === 'NASAL' || forma === 'OTOLOGICO' || forma === 'SPRAY';
 
+  // Sprays/Nasais: diferencia contagem de doses/acionamentos (ex: 60 DOSES != 120 ACIONAMENTOS)
+  if (forma === 'SPRAY' || forma === 'NASAL') {
+    const dosesMatch = /\b(\d{2,3})\s*(?:DOSES?|ACION\w*|JATOS?)\b/i.exec(normSemLab);
+    if (dosesMatch) {
+      const qtdDoses = parseInt(dosesMatch[1], 10);
+      if (qtdDoses > 0) {
+        return { unidades: qtdDoses, unidadesChave: `${qtdDoses}D`, volumeTexto: `${qtdDoses}D` };
+      }
+    }
+  }
+
   // Líquidos: extrai volume em ML (ignorando /ML e /5ML de concentração)
   if (isLiquido) {
     const semConc = normSemLab
@@ -682,8 +694,8 @@ function extrairEmbalagem(normSemLab, forma) {
   // Sólidos, injetáveis, sachês, pastilhas, supositórios
   let unidades = 1;
   // Evita confundir "400+57" ou "10 MG X 20" — só multiplica quando nenhum dos lados é dosagem
-  const multMatch = /\b(\d{1,2})\s*(?:BL\s*)?[Xx]\s*(\d{1,3})\s*(?:CPS|CP|CPR|COMPR|COMP|CAPS|CAP|FLAC|AMP|ENV|SACH|SACHE|DRG|UNID|UN)?\b/i.exec(
-    normSemLab.replace(/\d+(?:[.,]\d+)?\s*(?:MG|MCG|G|ML|UI|%)(?:\/\d*\s*(?:ML|G))?/gi, ' ')
+  const multMatch = /\b(\d{1,2})\s*(?:BL\s*)?[Xx]\s*(\d{1,3})\s*(?:CPS|CP|CPR|COMPR|COMP|CAPS|CAP|FLAC|AMP|ENVS|ENV|ENVELOPES?|SACHES?|SACH|DRG|UNID|UN)?\b/i.exec(
+    normSemLab.replace(/\d+(?:[.,]\d+)?\s*(?:MG|MCG|G|GR|ML|UI|%)(?:\/\d*\s*(?:ML|G))?/gi, ' ')
   );
   if (multMatch) {
     const a = parseInt(multMatch[1], 10);
@@ -692,11 +704,11 @@ function extrairEmbalagem(normSemLab, forma) {
       unidades = a * b;
     }
   } else {
-    const semDose = normSemLab.replace(/\d+(?:[.,]\d+)?\s*(?:MG|MCG|UI|%)(?:\/\d*\s*(?:ML|G))?/gi, ' ');
+    const semDose = normSemLab.replace(/\d+(?:[.,]\d+)?\s*(?:MG|MCG|UI|%|GR|G)(?:\/\d*\s*(?:ML|G))?/gi, ' ');
     const unMatch =
-      /(?:C\/|CX\/|COM)\s*0*(\d{1,3})\s*(?:CPS|CP|CPR|COMPR|COMP|CAPS|CAP|FLAC|AMP|ENV|SACH|SACHE|TB|DRG|PAST|SUP|UNID|UN)?\b/i.exec(semDose) ||
-      /\bX\s*0*(\d{1,3})\s*(?:CPS|CP|CPR|COMPR|COMP|CAPS|CAP|COM|FLAC|AMP|ENV|SACH|SACHE|DRG|PAST|SUP|UNID|UN)\b/i.exec(semDose) ||
-      /\b0*(\d{1,3})\s*(?:CPS|CP|CPR|COMPR|COMP|CAPS|CAP|FLAC|AMP|ENV|SACH|SACHE|DRG|PAST|SUP)\b/i.exec(semDose);
+      /(?:C\/|CX\/|COM)\s*0*(\d{1,3})\s*(?:CPS|CP|CPR|COMPR|COMP|CAPS|CAP|FLAC|AMP|ENVS|ENV|ENVELOPES?|SACHES?|SACH|TB|DRG|PAST|SUP|UNID|UN)?\b/i.exec(semDose) ||
+      /\bX\s*0*(\d{1,3})\s*(?:CPS|CP|CPR|COMPR|COMP|CAPS|CAP|COM|FLAC|AMP|ENVS|ENV|ENVELOPES?|SACHES?|SACH|DRG|PAST|SUP|UNID|UN)\b/i.exec(semDose) ||
+      /\b0*(\d{1,3})\s*(?:CPS|CP|CPR|COMPR|COMP|CAPS|CAP|FLAC|AMP|ENVS|ENV|ENVELOPES?|SACHES?|SACH|DRG|PAST|SUP)\b/i.exec(semDose);
     if (unMatch) {
       unidades = parseInt(unMatch[1], 10) || 1;
     }
@@ -737,6 +749,13 @@ function normalizarPrincipioAtivo(rawTexto, contextoCompleto = '') {
       for (const comp of MAPA_MARCAS_REFERENCIA[primeira].split(/\s*\+\s*/)) {
         if (!componentesCanonicos.includes(comp)) componentesCanonicos.push(comp);
       }
+      continue;
+    }
+
+    const vitMatch = /\bVITAMINA\s+(A|B1|B2|B3|B5|B6|B9|B12|C|D2|D3|D|E|K2|K)\b/i.exec(parte);
+    if (vitMatch) {
+      const vitCod = vitMatch[1].toUpperCase() === 'D3' ? 'D' : vitMatch[1].toUpperCase();
+      componentesCanonicos.push(`VITAMINA ${vitCod}`);
       continue;
     }
 
@@ -842,6 +861,16 @@ function extrairPrincipioDaDescricao(normSemLab, contextoCompleto) {
   if (primeiraPalavra && MAPA_MARCAS_REFERENCIA[primeiraPalavra]) {
     return {
       principio: normalizarPrincipioAtivo(MAPA_MARCAS_REFERENCIA[primeiraPalavra], contextoCompleto),
+      confiancaAlta: true
+    };
+  }
+
+  // 1b. Preserva designação de vitaminas isoladas (ex: VITAMINA D, VITAMINA C, VITAMINA B12) antes do filtro de tokens curtos
+  const vitDescMatch = /^\s*VITAMINA\s+(A|B1|B2|B3|B5|B6|B9|B12|C|D2|D3|D|E|K2|K)\b/i.exec(textoLimpo);
+  if (vitDescMatch && !textoLimpo.includes('+')) {
+    const vitCod = vitDescMatch[1].toUpperCase() === 'D3' ? 'D' : vitDescMatch[1].toUpperCase();
+    return {
+      principio: `VITAMINA ${vitCod}`,
       confiancaAlta: true
     };
   }
@@ -997,11 +1026,20 @@ function extrairAtributosProduto(nome, opcoes = {}) {
     categoriaId === CATEGORIAS_DIGIFARMA.GENERICO;
 
   const principioValido = Boolean(principio && principio !== 'OUTROS' && principio.length >= 3);
+  const temEvidenciaFarmacoForte = Boolean(
+    (substanciaRaw && origemPrincipio === 'digifarma_substancia') ||
+    fromDesc.confiancaAlta
+  );
+  // Conservadorismo para categoria OUTROS (6) ou 0:
+  // Itens de higiene/bazar frequentemente caem em OUTROS no Digifarma; por isso, fora das categorias
+  // oficiais de medicamento (1=Ref, 2=Sim, 7=Gen), exigimos substância oficial do Digifarma ou DCB/marca conhecida.
   const isMedicamento = Boolean(
     !isPerfumaria &&
     !hitBlacklist &&
     principioValido &&
-    (isCategoriaMed || Boolean(substanciaRaw) || Boolean(dosagem) || temFormaFarma || fromDesc.confiancaAlta)
+    (isCategoriaMed
+      ? (Boolean(substanciaRaw) || Boolean(dosagem) || temFormaFarma || fromDesc.confiancaAlta)
+      : temEvidenciaFarmacoForte)
   );
 
   // Para compatibilidade de assinatura/chaves com consumidores legados e testes:
@@ -2305,8 +2343,200 @@ function removerGrupoEquivalente(grupoId, dbInstance) {
   return { success: true };
 }
 
+const CATEGORIAS_LABELS = {
+  1: 'REFERENCIA',
+  2: 'SIMILAR',
+  5: 'PERFUMARIAS',
+  6: 'OUTROS',
+  7: 'GENERICOS'
+};
+
+/**
+ * Sugere a categoria correta do Digifarma para produtos cadastrados em OUTROS (6) ou sem categoria (0).
+ */
+function sugerirCategoriaDigifarma(produto) {
+  const desc = String(produto.descricao || '').trim();
+  const apres = String(produto.apresentacao || '').trim();
+  const texto = limparTextoRuido(`${desc} ${apres}`.trim());
+  const subst = String(produto.substancia_nome || '').trim();
+
+  if (!texto) {
+    return { categoriaSugerida: null, motivoSugestao: 'Sem descrição suficiente' };
+  }
+
+  if (BLACKLIST_NAO_MEDICAMENTO_REGEX.test(texto)) {
+    return {
+      categoriaSugerida: CATEGORIAS_DIGIFARMA.PERFUMARIA,
+      motivoSugestao: 'Higiene / Perfumaria / Bazar identificado'
+    };
+  }
+
+  const attr = extrairAtributosProduto(desc, {
+    apresentacao: apres,
+    substanciaNome: subst,
+    categoriaId: 0,
+    ean: produto.ean
+  });
+
+  if (attr.isMedicamento) {
+    if (/\b(?:GEN|GENE|GENERI|GENERICO)\b|\[G\]|\(\s*G\b/.test(texto)) {
+      return {
+        categoriaSugerida: CATEGORIAS_DIGIFARMA.GENERICO,
+        motivoSugestao: `Genérico (${attr.principio})`
+      };
+    }
+    const primeira = normalizarTextoSimples(desc).split(/\s+/)[0];
+    if (primeira && MAPA_MARCAS_REFERENCIA[primeira]) {
+      return {
+        categoriaSugerida: CATEGORIAS_DIGIFARMA.REFERENCIA,
+        motivoSugestao: `Marca conhecida (${attr.principio})`
+      };
+    }
+    return {
+      categoriaSugerida: CATEGORIAS_DIGIFARMA.SIMILAR,
+      motivoSugestao: subst ? `Medicamento com substância (${attr.principio})` : `Princípio ativo identificado (${attr.principio})`
+    };
+  }
+
+  return { categoriaSugerida: null, motivoSugestao: 'Revisão manual' };
+}
+
+/**
+ * Lista produtos atualmente na categoria OUTROS (6) ou 0 no cache local para revisão e correção no Digifarma.
+ */
+function listarRevisaoCategoriasOutros(dbInstance, filtros = {}) {
+  const db = getDb(dbInstance);
+  if (!db) return { itens: [], total: 0, resumo: { totalOutros: 0, sugeridosPerfumaria: 0, sugeridosMedicamento: 0, apenasSaldoPositivo: false } };
+
+  const busca = String(filtros.busca || '').trim().toUpperCase();
+  const tipo = String(filtros.tipo || 'SUGERIDOS').toUpperCase(); // 'SUGERIDOS' | 'PERFUMARIA' | 'MEDICAMENTOS' | 'TODOS'
+  const apenasComSaldo = filtros.apenasComSaldo === true || filtros.apenasComSaldo === 'true';
+  const limite = Math.min(200, Math.max(10, Number(filtros.limite) || 80));
+
+  const whereParts = ['(categoria_id = 6 OR categoria_id = 0 OR categoria_id IS NULL)'];
+  const params = [];
+
+  if (apenasComSaldo) {
+    whereParts.push('saldo > 0');
+  }
+  if (busca) {
+    whereParts.push('(UPPER(descricao) LIKE ? OR UPPER(COALESCE(substancia_nome, \'\')) LIKE ? OR ean LIKE ?)');
+    params.push(`%${busca}%`, `%${busca}%`, `%${busca}%`);
+  }
+
+  const rows = db.prepare(`
+    SELECT produto_id, ean, descricao, apresentacao, categoria_id, substancia_nome, saldo
+    FROM compras_estoque_cache
+    WHERE ${whereParts.join(' AND ')}
+    ORDER BY CASE WHEN saldo > 0 THEN 0 ELSE 1 END, saldo DESC, descricao ASC
+    LIMIT 2500
+  `).all(...params);
+
+  let sugeridosPerfumaria = 0;
+  let sugeridosMedicamento = 0;
+  const filtrados = [];
+
+  for (const r of rows) {
+    const sug = sugerirCategoriaDigifarma(r);
+    if (sug.categoriaSugerida === CATEGORIAS_DIGIFARMA.PERFUMARIA) sugeridosPerfumaria++;
+    else if (sug.categoriaSugerida) sugeridosMedicamento++;
+
+    let inclui = true;
+    if (tipo === 'SUGERIDOS') inclui = sug.categoriaSugerida !== null;
+    else if (tipo === 'PERFUMARIA') inclui = sug.categoriaSugerida === CATEGORIAS_DIGIFARMA.PERFUMARIA;
+    else if (tipo === 'MEDICAMENTOS') inclui = sug.categoriaSugerida !== null && sug.categoriaSugerida !== CATEGORIAS_DIGIFARMA.PERFUMARIA;
+
+    if (inclui && filtrados.length < limite) {
+      filtrados.push({
+        produtoId: Number(r.produto_id),
+        ean: r.ean || '',
+        descricao: r.descricao || '',
+        apresentacao: r.apresentacao || '',
+        categoriaAtual: Number(r.categoria_id || 0),
+        categoriaAtualLabel: CATEGORIAS_LABELS[Number(r.categoria_id || 0)] || 'SEM CATEGORIA',
+        substanciaNome: r.substancia_nome || null,
+        saldo: Number(r.saldo || 0),
+        categoriaSugerida: sug.categoriaSugerida,
+        categoriaSugeridaLabel: sug.categoriaSugerida ? CATEGORIAS_LABELS[sug.categoriaSugerida] : null,
+        motivoSugestao: sug.motivoSugestao
+      });
+    }
+  }
+
+  return {
+    itens: filtrados,
+    totalExibidos: filtrados.length,
+    resumo: {
+      totalAnalisados: rows.length,
+      sugeridosPerfumaria,
+      sugeridosMedicamento,
+      apenasComSaldo
+    }
+  };
+}
+
+/**
+ * Atualiza CATEGORIA_ID diretamente no Digifarma (Firebird) e sincroniza o cache local + vínculos automáticos.
+ */
+async function atualizarCategoriasNoDigifarma(dbInstance, itens = []) {
+  const db = getDb(dbInstance);
+  if (!db) throw new Error('Banco de dados local indisponível.');
+  if (!Array.isArray(itens) || itens.length === 0) {
+    throw new Error('Nenhum produto selecionado para atualização.');
+  }
+
+  const categoriasValidas = new Set([
+    CATEGORIAS_DIGIFARMA.REFERENCIA,
+    CATEGORIAS_DIGIFARMA.SIMILAR,
+    CATEGORIAS_DIGIFARMA.PERFUMARIA,
+    CATEGORIAS_DIGIFARMA.OUTROS,
+    CATEGORIAS_DIGIFARMA.GENERICO
+  ]);
+
+  const { queryDigifarma } = require('./digifarma.service');
+
+  const stmtUpdCache = db.prepare('UPDATE compras_estoque_cache SET categoria_id = ? WHERE produto_id = ?');
+  const stmtDelAutoVinc = db.prepare('DELETE FROM compras_produtos_equivalentes WHERE produto_id = ? AND manual_override = 0');
+
+  let atualizados = 0;
+  const erros = [];
+
+  for (const item of itens) {
+    const pid = Number(item.produtoId || item.produto_id);
+    const novaCat = Number(item.novaCategoriaId || item.categoria_id);
+
+    if (!pid || !categoriasValidas.has(novaCat)) {
+      erros.push({ produtoId: pid || null, erro: `Dados inválidos (produtoId=${pid}, novaCategoriaId=${novaCat})` });
+      continue;
+    }
+
+    try {
+      await queryDigifarma(
+        'UPDATE PRODUTOS SET CATEGORIA_ID = ? WHERE PRODUTO_ID = ?',
+        [novaCat, pid],
+        10000
+      );
+      stmtUpdCache.run(novaCat, pid);
+      if (novaCat === CATEGORIAS_DIGIFARMA.PERFUMARIA) {
+        stmtDelAutoVinc.run(pid);
+      }
+      atualizados++;
+    } catch (err) {
+      erros.push({ produtoId: pid, erro: err.message });
+    }
+  }
+
+  return {
+    success: erros.length === 0 || atualizados > 0,
+    totalSolicitados: itens.length,
+    atualizados,
+    erros
+  };
+}
+
 module.exports = {
   CATEGORIAS_DIGIFARMA,
+  CATEGORIAS_LABELS,
   extrairAtributosProduto,
   obterChaveEquivalenciaProduto,
   podeCobrirFalta,
@@ -2323,5 +2553,8 @@ module.exports = {
   vincularProdutoAoGrupo,
   desvincularProdutoDoGrupo,
   removerGrupoEquivalente,
-  obterConsolidadoParaProdutos
+  obterConsolidadoParaProdutos,
+  sugerirCategoriaDigifarma,
+  listarRevisaoCategoriasOutros,
+  atualizarCategoriasNoDigifarma
 };

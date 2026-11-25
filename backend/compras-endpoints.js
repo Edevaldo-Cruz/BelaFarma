@@ -1371,6 +1371,42 @@ module.exports = (db) => {
     }
   });
 
+  router.get('/equivalentes/revisao-categorias', (req, res) => {
+    try {
+      const { busca, tipo, apenasComSaldo, limite } = req.query;
+      const resultado = comprasEquivalentesService.listarRevisaoCategoriasOutros(db, {
+        busca,
+        tipo,
+        apenasComSaldo,
+        limite
+      });
+      res.json({ success: true, data: resultado });
+    } catch (err) {
+      console.error('[Compras-Endpoints] Erro no GET /equivalentes/revisao-categorias:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/equivalentes/atualizar-categoria-digifarma', async (req, res) => {
+    try {
+      const { itens } = req.body || {};
+      if (!Array.isArray(itens) || itens.length === 0) {
+        return res.status(400).json({ success: false, error: 'Informe ao menos um produto em itens.' });
+      }
+      const resultado = await comprasEquivalentesService.atualizarCategoriasNoDigifarma(db, itens);
+      res.json({
+        success: resultado.success,
+        data: resultado,
+        message: resultado.erros.length === 0
+          ? `${resultado.atualizados} produto(s) atualizado(s) no Digifarma com sucesso!`
+          : `${resultado.atualizados} atualizado(s) no Digifarma, ${resultado.erros.length} com erro.`
+      });
+    } catch (err) {
+      console.error('[Compras-Endpoints] Erro no POST /equivalentes/atualizar-categoria-digifarma:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   router.get('/equivalentes/:id', (req, res) => {
     try {
       const { id } = req.params;
