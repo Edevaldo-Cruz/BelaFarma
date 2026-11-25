@@ -70,6 +70,67 @@ function normalizePhoneBr(phone) {
   return digits;
 }
 
+const MAX_FIREBIRD_INT32 = 2147483647;
+
+function parseSafeDigifarmaId(val) {
+  const s = String(val ?? '').trim();
+  if (!/^\d+$/.test(s)) return null;
+  const n = Number(s);
+  if (!Number.isSafeInteger(n) || n < 1 || n > MAX_FIREBIRD_INT32) return null;
+  return n;
+}
+
+function normalizePersonName(name) {
+  return String(name || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+const NAME_STOPWORDS = new Set(['DA', 'DE', 'DO', 'DOS', 'DAS', 'E']);
+
+function extractSignificantNameTokens(name) {
+  const cleanMain = String(name || '').replace(/\([^)]*\)/g, ' ');
+  return normalizePersonName(cleanMain)
+    .split(' ')
+    .filter(w => w.length >= 2 && !NAME_STOPWORDS.has(w));
+}
+
+function isGenericOrNoiseCustomerName(name) {
+  const raw = String(name || '').trim();
+  if (!raw || raw.includes('/')) return true;
+  const norm = normalizePersonName(raw);
+  if (!norm) return true;
+  if (
+    norm.startsWith('CONTATO WHATSAPP') ||
+    norm.startsWith('CLIENTE WHATSAPP') ||
+    norm.startsWith('CONSUMIDOR') ||
+    norm === 'BELA FARMA' ||
+    norm === 'BELA FARMA SUL' ||
+    norm.includes('TESTE CREDIARIO') ||
+    norm === 'CLIENTE TESTE CRED'
+  ) {
+    return true;
+  }
+  const hasRealWord = norm.split(' ').some(w => /[A-Z]{3,}/.test(w));
+  return !hasRealWord;
+}
+
+function isRealBrPhone(phone) {
+  let digits = sanitizeDigits(phone);
+  if (!digits) return '';
+  if ((digits.length === 12 || digits.length === 13) && digits.startsWith('55')) {
+    digits = digits.slice(2);
+  }
+  if (digits.length >= 8 && digits.length <= 11) {
+    return digits.slice(-8);
+  }
+  return '';
+}
+
 function toLocalDateYMD(input) {
   if (!input) return '';
   if (input instanceof Date) {
@@ -1331,15 +1392,31 @@ async function syncAllFromDigifarma(db, { notifyNewPurchases = false, queryDigif
           : null;
 
         // Tentar localizar em belafarma_cards por digifarma_cliente_id, customer_id, CPF ou nome exato
+        // sem sobrescrever um card ja vinculado a outro digifarma_cliente_id valido diferente
         let card = db.prepare('SELECT * FROM belafarma_cards WHERE digifarma_cliente_id = ?').get(dfId);
         if (!card) {
-          card = db.prepare('SELECT * FROM belafarma_cards WHERE customer_id = ?').get(String(dfId));
+          card = db.prepare(
+            'SELECT * FROM belafarma_cards WHERE customer_id = ? AND (digifarma_cliente_id IS NULL OR digifarma_cliente_id = ? OR digifarma_cliente_id <= 0 OR digifarma_cliente_id > 2147483647)'
+          ).get(String(dfId), dfId);
         }
         if (!card && cleanCpf.length >= 11) {
-          card = db.prepare("SELECT * FROM belafarma_cards WHERE REPLACE(REPLACE(REPLACE(COALESCE(cpf, ''), '.', ''), '-', ''), ' ', '') = ?").get(cleanCpf);
+          card = db.prepare(
+            "SELECT * FROM belafarma_cards WHERE REPLACE(REPLACE(REPLACE(COALESCE(cpf, ''), '.', ''), '-', ''), ' ', '') = ? AND (digifarma_cliente_id IS NULL OR digifarma_cliente_id = ? OR digifarma_cliente_id <= 0 OR digifarma_cliente_id > 2147483647)"
+          ).get(cleanCpf, dfId);
         }
         if (!card) {
-          card = db.prepare('SELECT * FROM belafarma_cards WHERE UPPER(TRIM(customer_name)) = ?').get(cleanName);
+          card = db.prepare(
+            'SELECT * FROM belafarma_cards WHERE UPPER(TRIM(customer_name)) = ? AND (digifarma_cliente_id IS NULL OR digifarma_cliente_id = ? OR digifarma_cliente_id <= 0 OR digifarma_cliente_id > 2147483647)'
+          ).get(cleanName, dfId);
+        }
+        if (!card) {
+          const normDfName = normalizePersonName(cleanName);
+          if (normDfName && !isGenericOrNoiseCustomerName(normDfName)) {
+            const unlinkedCandidates = db.prepare(
+              'SELECT * FROM belafarma_cards WHERE digifarma_cliente_id IS NULL OR digifarma_cliente_id <= 0 OR digifarma_cliente_id > 2147483647'
+            ).all();
+            card = unlinkedCandidates.find(uc => normalizePersonName(uc.customer_name) === normDfName) || null;
+          }
         }
 
         const shouldAutoCreate = hasOpenDebt || clientIdsSet.has(dfId) || Number(dc.CLI_LIMITE || 0) > 0;
@@ -1477,7 +1554,7 @@ async function syncAllFromDigifarma(db, { notifyNewPurchases = false, queryDigif
       const updateUsedStmt = db.prepare('UPDATE belafarma_cards SET used_limit = ?, local_credit_balance = ? WHERE id = ?');
 
       for (const c of allCards) {
-        const dfId = c.digifarma_cliente_id || (c.customer_id && /^\d+$/.test(String(c.customer_id)) ? Number(c.customer_id) : null);
+        const dfId = parseSafeDigifarmaId(c.digifarma_cliente_id) || parseSafeDigifarmaId(c.customer_id);
         const dfOpen = dfId ? (openSumByClienteId.get(dfId) || 0) : 0;
         const localRow = db.prepare(
           "SELECT COALESCE(SUM(amount - paid_amount), 0) as total FROM crediario_local_purchases WHERE card_id = ? AND status != 'paid'"
@@ -1499,6 +1576,21 @@ async function syncAllFromDigifarma(db, { notifyNewPurchases = false, queryDigif
 
     const duracaoMs = Date.now() - start;
     console.log(`[Crediário Unificado] ✅ Sync concluído em ${duracaoMs}ms (${insertedItemsCount} itens em aberto, ${insertedPaymentsCount} pagamentos; clientes com compra desde ${recentCutoffYMD} — histórico completo).`);
+
+    try {
+      const unifySummary = unifyDuplicateCustomersAndCards(db);
+      if (unifySummary.totalMergedCards > 0 || unifySummary.totalMergedCustomers > 0) {
+        console.log(`[Crediário Unificado] 🧹 Unificados automaticamente ${unifySummary.totalMergedCards} cartões e ${unifySummary.totalMergedCustomers} clientes duplicados.`);
+      }
+    } catch (uErr) {
+      console.warn('[Crediário Unificado] Aviso na unificação pós-sync:', uErr.message);
+    }
+
+    try {
+      await reconcilePendingLocalPurchasesToDigifarma(db, { queryDigifarmaFn });
+    } catch (recErr) {
+      console.warn('[Crediário Unificado] Aviso na reconciliação pós-sync:', recErr.message);
+    }
 
     // Notificações automáticas opcionais para compras novas do dia (se habilitado nas configurações)
     const config = getCrediarioConfig(db);
@@ -1594,14 +1686,15 @@ function findCard(db, idOrToken, { tokenOnly = false } = {}) {
     return db.prepare('SELECT * FROM belafarma_cards WHERE portal_token = ?').get(key) || null;
   }
   let card = null;
-  if (/^\d+$/.test(key)) {
+  if (parseSafeDigifarmaId(key)) {
     card = db.prepare('SELECT * FROM belafarma_cards WHERE id = ?').get(Number(key));
   }
   if (!card) {
     card = db.prepare('SELECT * FROM belafarma_cards WHERE portal_token = ?').get(key);
   }
   if (!card) {
-    card = db.prepare('SELECT * FROM belafarma_cards WHERE customer_id = ? OR digifarma_cliente_id = ?').get(key, Number(key) || -1);
+    const safeDf = parseSafeDigifarmaId(key);
+    card = db.prepare('SELECT * FROM belafarma_cards WHERE customer_id = ? OR digifarma_cliente_id = ?').get(key, safeDf || -1);
   }
   return card || null;
 }
@@ -1611,7 +1704,7 @@ function buildClientStatementByToken(db, token) {
 }
 
 function getDigifarmaDataForCard(db, card) {
-  const dfId = card.digifarma_cliente_id || (/^\d+$/.test(String(card.customer_id || '')) ? Number(card.customer_id) : null);
+  const dfId = parseSafeDigifarmaId(card.digifarma_cliente_id) || parseSafeDigifarmaId(card.customer_id);
   let dfItems = [];
   let dfPayments = [];
 
@@ -1771,7 +1864,7 @@ function listUnifiedClients(db, { q = '', filter = 'all', onlyRecentPurchases = 
   let kpiActiveOpenClients = 0;
 
   const computed = cards.map(card => {
-    const dfId = card.digifarma_cliente_id || (/^\d+$/.test(String(card.customer_id || '')) ? Number(card.customer_id) : null);
+    const dfId = parseSafeDigifarmaId(card.digifarma_cliente_id) || parseSafeDigifarmaId(card.customer_id);
     const dfItems = dfId ? (dfByCli.get(dfId) || []) : [];
     const localPurchases = localByCard.get(card.id) || [];
     const localPayments = localPayByCard.get(card.id) || [];
@@ -1967,7 +2060,7 @@ function listUnifiedTransactions(db, { periodDays = 60, q = '', onlyRecentClient
   const cardById = new Map();
   for (const c of cards) {
     cardById.set(c.id, c);
-    const dfId = c.digifarma_cliente_id || (/^\d+$/.test(String(c.customer_id || '')) ? Number(c.customer_id) : null);
+    const dfId = parseSafeDigifarmaId(c.digifarma_cliente_id) || parseSafeDigifarmaId(c.customer_id);
     if (dfId) cardByDfId.set(Number(dfId), c);
   }
 
@@ -2003,7 +2096,7 @@ function listUnifiedTransactions(db, { periodDays = 60, q = '', onlyRecentClient
       if (d && d >= recentCutoffYMD && lp.card_id) {
         eligibleCardIds.add(lp.card_id);
         const card = cardById.get(lp.card_id);
-        const dfId = card?.digifarma_cliente_id || (/^\d+$/.test(String(card?.customer_id || '')) ? Number(card.customer_id) : null);
+        const dfId = parseSafeDigifarmaId(card?.digifarma_cliente_id) || parseSafeDigifarmaId(card?.customer_id);
         if (dfId) eligibleDfIds.add(Number(dfId));
       }
     }
@@ -2412,6 +2505,47 @@ function buildThermalReceiptHtml(statementData, mode = 'simple') {
 // ============================================================================
 // Helpers de Cartão Unificado & Integração com FICHARIO (Digifarma Firebird)
 // ============================================================================
+function findUniqueByNameTokens(queryName, candidates, { getName = c => c.name, preferFn = () => false, allowSingleToken = true } = {}) {
+  const normQuery = normalizePersonName(queryName);
+  if (!normQuery) return null;
+
+  const exactMatches = candidates.filter(c => normalizePersonName(getName(c)) === normQuery);
+  if (exactMatches.length > 0) {
+    exactMatches.sort((a, b) => Number(preferFn(b)) - Number(preferFn(a)));
+    return exactMatches[0];
+  }
+
+  if (isGenericOrNoiseCustomerName(queryName)) return null;
+
+  const qTokens = extractSignificantNameTokens(queryName);
+  if (qTokens.length === 0) return null;
+
+  if (qTokens.length >= 2) {
+    const tokenMatches = candidates.filter(c => {
+      if (isGenericOrNoiseCustomerName(getName(c))) return false;
+      const cTokens = extractSignificantNameTokens(getName(c));
+      return cTokens.length > 0 && cTokens[0] === qTokens[0] && qTokens.every(t => cTokens.includes(t));
+    });
+    if (tokenMatches.length === 1) return tokenMatches[0];
+    if (tokenMatches.length > 1) {
+      const preferred = tokenMatches.filter(preferFn);
+      if (preferred.length === 1) return preferred[0];
+    }
+    return null;
+  }
+
+  if (allowSingleToken && qTokens.length === 1 && qTokens[0].length >= 4) {
+    const firstTokenMatches = candidates.filter(c => {
+      if (isGenericOrNoiseCustomerName(getName(c))) return false;
+      const cTokens = extractSignificantNameTokens(getName(c));
+      return cTokens.length > 0 && cTokens[0] === qTokens[0];
+    });
+    if (firstTokenMatches.length === 1) return firstTokenMatches[0];
+  }
+
+  return null;
+}
+
 function resolveOrCreateBelafarmaCard(db, {
   cardId = null,
   customerId = null,
@@ -2424,9 +2558,7 @@ function resolveOrCreateBelafarmaCard(db, {
   const cleanCpf = sanitizeDigits(customerCpf);
   const cleanPhone = sanitizeDigits(customerPhone);
   const cleanName = String(customerName || '').trim().toUpperCase();
-  const candidateDfId = digifarmaClienteId && Number(digifarmaClienteId) > 0
-    ? Number(digifarmaClienteId)
-    : (/^\d+$/.test(String(customerId || '')) && Number(customerId) > 0 ? Number(customerId) : null);
+  const candidateDfId = parseSafeDigifarmaId(digifarmaClienteId) || parseSafeDigifarmaId(customerId);
 
   let card = null;
   if (cardId) {
@@ -2444,15 +2576,25 @@ function resolveOrCreateBelafarmaCard(db, {
   if (!card && cleanName) {
     card = db.prepare('SELECT * FROM belafarma_cards WHERE UPPER(TRIM(customer_name)) = ?').get(cleanName);
   }
+  if (!card && cleanName && !isGenericOrNoiseCustomerName(cleanName)) {
+    const allCards = db.prepare('SELECT * FROM belafarma_cards ORDER BY CASE WHEN digifarma_cliente_id IS NOT NULL AND digifarma_cliente_id > 0 AND digifarma_cliente_id <= 2147483647 THEN 0 ELSE 1 END, id ASC').all();
+    card = findUniqueByNameTokens(cleanName, allCards, {
+      getName: c => c.customer_name,
+      preferFn: c => Boolean(parseSafeDigifarmaId(c.digifarma_cliente_id)),
+      allowSingleToken: true
+    });
+  }
 
   if (card) {
     const token = card.portal_token || generatePortalToken();
-    const nextDfId = card.digifarma_cliente_id || candidateDfId || null;
-    if (!card.portal_token || (nextDfId && !card.digifarma_cliente_id)) {
+    const safeCardDfId = parseSafeDigifarmaId(card.digifarma_cliente_id);
+    const nextDfId = safeCardDfId || candidateDfId || null;
+    const hasCorruptDfId = card.digifarma_cliente_id !== null && card.digifarma_cliente_id !== undefined && !safeCardDfId;
+    if (!card.portal_token || hasCorruptDfId || (nextDfId && !safeCardDfId)) {
       db.prepare(`
         UPDATE belafarma_cards
         SET portal_token = ?,
-            digifarma_cliente_id = COALESCE(digifarma_cliente_id, ?),
+            digifarma_cliente_id = ?,
             cpf = COALESCE(NULLIF(TRIM(cpf), ''), NULLIF(?, '')),
             phone = COALESCE(NULLIF(TRIM(phone), ''), ?),
             updated_at = datetime('now', 'localtime')
@@ -2530,17 +2672,16 @@ async function resolveDigifarmaClienteId(db, {
     localCard = db.prepare('SELECT * FROM belafarma_cards WHERE customer_id = ?').get(String(customerId)) || null;
   }
 
-  const candidateId = Number(
-    digifarmaClienteId ||
-    localCard?.digifarma_cliente_id ||
-    (/^\d+$/.test(String(customerId || '')) ? Number(customerId) : 0) ||
-    (/^\d+$/.test(String(localCard?.customer_id || '')) ? Number(localCard.customer_id) : 0)
-  );
+  const candidateId =
+    parseSafeDigifarmaId(digifarmaClienteId) ||
+    parseSafeDigifarmaId(localCard?.digifarma_cliente_id) ||
+    parseSafeDigifarmaId(customerId) ||
+    parseSafeDigifarmaId(localCard?.customer_id);
 
   let found = null;
 
-  // 1. Por CLIENTE_ID numérico direto
-  if (candidateId > 0 && Number.isInteger(candidateId)) {
+  // 1. Por CLIENTE_ID numérico direto (apenas INT32 válido 1..2147483647)
+  if (candidateId && candidateId >= 1 && candidateId <= MAX_FIREBIRD_INT32) {
     const rows = await queryDigifarmaFn(
       'SELECT FIRST 1 CLIENTE_ID, CLIENTE, CLI_DIA_PAGAMENTO FROM CLIENTES WHERE CLIENTE_ID = ?',
       [candidateId],
@@ -2562,7 +2703,7 @@ async function resolveDigifarmaClienteId(db, {
     }
   }
 
-  // 3. Por nome exato (uppercase trimmed)
+  // 3. Por nome exato (uppercase trimmed) ou match inteligente por primeiro nome/tokens
   const cleanName = String(customerName || localCard?.customer_name || '').trim().toUpperCase();
   if (!found && cleanName) {
     const rows = await queryDigifarmaFn(
@@ -2573,12 +2714,30 @@ async function resolveDigifarmaClienteId(db, {
     if (rows && rows.length > 0) found = rows[0];
   }
 
+  if (!found && cleanName && !isGenericOrNoiseCustomerName(cleanName)) {
+    const tokens = extractSignificantNameTokens(cleanName);
+    const firstToken = tokens[0];
+    if (firstToken && firstToken.length >= 3) {
+      const dfCandidates = await queryDigifarmaFn(
+        'SELECT FIRST 25 CLIENTE_ID, CLIENTE, CLI_CPF, CLI_DIA_PAGAMENTO FROM CLIENTES WHERE UPPER(CLIENTE) STARTING WITH ?',
+        [firstToken],
+        5000
+      );
+      if (Array.isArray(dfCandidates) && dfCandidates.length > 0) {
+        found = findUniqueByNameTokens(cleanName, dfCandidates, {
+          getName: c => c.CLIENTE,
+          allowSingleToken: tokens.length === 1 && firstToken.length >= 4
+        });
+      }
+    }
+  }
+
   if (!found || !found.CLIENTE_ID) {
     return null;
   }
 
   const resolvedId = Number(found.CLIENTE_ID);
-  if (localCard && !localCard.digifarma_cliente_id) {
+  if (localCard && !parseSafeDigifarmaId(localCard.digifarma_cliente_id)) {
     try {
       db.prepare("UPDATE belafarma_cards SET digifarma_cliente_id = ?, updated_at = datetime('now', 'localtime') WHERE id = ?")
         .run(resolvedId, localCard.id);
@@ -2981,7 +3140,7 @@ async function deleteLocalPurchase(db, { cardId, purchaseId, isAdmin = false, qu
   }
 
   // Fallback para anotação manual sincronizada no FICHARIO (df_<fichario_id>)
-  const dfId = card.digifarma_cliente_id || (/^\d+$/.test(String(card.customer_id || '')) ? Number(card.customer_id) : null);
+  const dfId = parseSafeDigifarmaId(card.digifarma_cliente_id) || parseSafeDigifarmaId(card.customer_id);
   const rawDfId = String(purchaseId).replace(/^df_/, '');
   if (!dfId || !/^\d+$/.test(rawDfId)) {
     throw new Error('Anotação/compra não encontrada.');
@@ -3453,9 +3612,9 @@ async function receiveCrediarioPayment(db, {
   }
 
   // 2. Sincronizar baixa com Digifarma (FICHARIO + CONTAS_RECEBIDAS + ARQUIVO_MORTO + CAIXA)
-  let dfId = card.digifarma_cliente_id
-    || (dfItems[0]?.cliente_id ? Number(dfItems[0].cliente_id) : null)
-    || (/^\d+$/.test(String(card.customer_id || '')) ? Number(card.customer_id) : null);
+  let dfId = parseSafeDigifarmaId(card.digifarma_cliente_id)
+    || parseSafeDigifarmaId(dfItems[0]?.cliente_id)
+    || parseSafeDigifarmaId(card.customer_id);
 
   let syncedDigifarmaCount = 0;
   let digifarmaSynced = false;
@@ -3642,6 +3801,632 @@ async function runUnifiedDailyNotifications(db) {
   return results;
 }
 
+// ============================================================================
+// Unificação Automática de Cadastros Duplicados & Reconciliação p/ Digifarma
+// ============================================================================
+function hasSqliteTable(db, tableName) {
+  try {
+    return Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name = ?").get(tableName));
+  } catch (_) {
+    return false;
+  }
+}
+
+function getActiveDigifarmaClientStats(db) {
+  const stats = new Map();
+  const ensure = (cid) => {
+    if (!stats.has(cid)) stats.set(cid, { itemsCount: 0, paymentsCount: 0 });
+    return stats.get(cid);
+  };
+  try {
+    const itemRows = db.prepare('SELECT cliente_id, COUNT(*) AS cnt FROM digifarma_crediario_cache WHERE cliente_id IS NOT NULL GROUP BY cliente_id').all();
+    for (const r of itemRows) {
+      const id = parseSafeDigifarmaId(r.cliente_id);
+      if (id) ensure(id).itemsCount = Number(r.cnt || 0);
+    }
+  } catch (_) {}
+  try {
+    const payRows = db.prepare('SELECT cliente_id, COUNT(*) AS cnt FROM digifarma_crediario_pagamentos_cache WHERE cliente_id IS NOT NULL GROUP BY cliente_id').all();
+    for (const r of payRows) {
+      const id = parseSafeDigifarmaId(r.cliente_id);
+      if (id) ensure(id).paymentsCount = Number(r.cnt || 0);
+    }
+  } catch (_) {}
+  return stats;
+}
+
+function canSafelyMergeRecords(dup, canon, activeStatsMap) {
+  if (!dup || !canon || String(dup.id) === String(canon.id)) return false;
+
+  const cpfDup = sanitizeDigits(dup.cpf);
+  const cpfCanon = sanitizeDigits(canon.cpf);
+  if (cpfDup.length >= 11 && cpfCanon.length >= 11 && cpfDup !== cpfCanon) {
+    return false;
+  }
+
+  const dfDup = parseSafeDigifarmaId(dup.dfId);
+  const dfCanon = parseSafeDigifarmaId(canon.dfId);
+  const sameCpf = cpfDup.length >= 11 && cpfDup === cpfCanon;
+  const sameDfId = Boolean(dfDup && dfCanon && dfDup === dfCanon);
+
+  if (!sameCpf && !sameDfId) {
+    if (isGenericOrNoiseCustomerName(dup.name) || isGenericOrNoiseCustomerName(canon.name)) {
+      return false;
+    }
+  }
+
+  const brPhoneDup = isRealBrPhone(dup.phone);
+  const brPhoneCanon = isRealBrPhone(canon.phone);
+  if (brPhoneDup && brPhoneCanon && brPhoneDup !== brPhoneCanon) {
+    return false;
+  }
+
+  if (dfDup && dfCanon && dfDup !== dfCanon) {
+    const stDup = activeStatsMap.get(dfDup);
+    const stCanon = activeStatsMap.get(dfCanon);
+    const dupHasDfActivity = Boolean(stDup && (stDup.itemsCount > 0 || stDup.paymentsCount > 0));
+    const canonHasDfActivity = Boolean(stCanon && (stCanon.itemsCount > 0 || stCanon.paymentsCount > 0));
+    if (dupHasDfActivity && canonHasDfActivity) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function findCanonicalMatch(dup, canonicals, activeStatsMap, { allowSingleTokenFromManual = false } = {}) {
+  const safePool = canonicals.filter(c => canSafelyMergeRecords(dup, c, activeStatsMap));
+  if (safePool.length === 0) return null;
+
+  const scoreCanon = (c) => {
+    const dfId = parseSafeDigifarmaId(c.dfId);
+    const st = dfId ? activeStatsMap.get(dfId) : null;
+    const activity = st ? (st.itemsCount * 10 + st.paymentsCount) : 0;
+    return (dfId ? 1000 : 0) + activity + (sanitizeDigits(c.cpf).length >= 11 ? 5 : 0);
+  };
+
+  // (a) Mesmo digifarma_cliente_id válido
+  const dfDup = parseSafeDigifarmaId(dup.dfId);
+  if (dfDup) {
+    const m = safePool.filter(c => parseSafeDigifarmaId(c.dfId) === dfDup);
+    if (m.length > 0) {
+      m.sort((a, b) => scoreCanon(b) - scoreCanon(a) || Number(a.id) - Number(b.id));
+      return { match: m[0], reason: 'SAME_DIGIFARMA_ID' };
+    }
+  }
+
+  // (b) Mesmo CPF (>= 11 dígitos)
+  const cpfDup = sanitizeDigits(dup.cpf);
+  if (cpfDup.length >= 11) {
+    const m = safePool.filter(c => sanitizeDigits(c.cpf) === cpfDup);
+    if (m.length > 0) {
+      m.sort((a, b) => scoreCanon(b) - scoreCanon(a));
+      return { match: m[0], reason: 'SAME_CPF' };
+    }
+  }
+
+  // (c) Nome normalizado exato
+  const normDup = normalizePersonName(dup.name);
+  if (normDup && !isGenericOrNoiseCustomerName(dup.name)) {
+    const exact = safePool.filter(c => normalizePersonName(c.name) === normDup);
+    if (exact.length > 0) {
+      exact.sort((a, b) => scoreCanon(b) - scoreCanon(a));
+      return { match: exact[0], reason: 'EXACT_NORMALIZED_NAME' };
+    }
+  }
+
+  if (isGenericOrNoiseCustomerName(dup.name)) return null;
+
+  const dupTokens = extractSignificantNameTokens(dup.name);
+  if (dupTokens.length === 0) return null;
+
+  // (d) >= 2 tokens significativos todos contidos no canônico e mesmo 1º nome
+  if (dupTokens.length >= 2) {
+    const tokenMatches = safePool.filter(c => {
+      const cTokens = extractSignificantNameTokens(c.name);
+      return cTokens.length > 0 && cTokens[0] === dupTokens[0] && dupTokens.every(t => cTokens.includes(t));
+    });
+    if (tokenMatches.length === 1) {
+      return { match: tokenMatches[0], reason: 'SUBSET_TOKENS' };
+    }
+    if (tokenMatches.length > 1) {
+      const activeOnly = tokenMatches.filter(c => {
+        const dfId = parseSafeDigifarmaId(c.dfId);
+        const st = dfId ? activeStatsMap.get(dfId) : null;
+        return Boolean(st && (st.itemsCount > 0 || st.paymentsCount > 0));
+      });
+      if (activeOnly.length === 1) {
+        return { match: activeOnly[0], reason: 'SUBSET_TOKENS_ACTIVE' };
+      }
+    }
+    return null;
+  }
+
+  // (e) Cadastro manual antigo / cartão sem LID WhatsApp com 1º nome único >= 4 letras
+  if (allowSingleTokenFromManual && dupTokens.length === 1 && dupTokens[0].length >= 4) {
+    const firstMatches = safePool.filter(c => {
+      const cTokens = extractSignificantNameTokens(c.name);
+      return cTokens.length > 0 && cTokens[0] === dupTokens[0];
+    });
+    if (firstMatches.length === 1) {
+      return { match: firstMatches[0], reason: 'UNIQUE_FIRST_TOKEN_MANUAL' };
+    }
+    if (firstMatches.length > 1) {
+      const novoCadastro = firstMatches.filter(c => normalizePersonName(c.name).includes('NOVO CADASTRO'));
+      if (novoCadastro.length === 1) {
+        return { match: novoCadastro[0], reason: 'FIRST_TOKEN_NOVO_CADASTRO' };
+      }
+    }
+  }
+
+  return null;
+}
+
+function unifyDuplicateCustomersAndCards(db, { dryRun = false } = {}) {
+  ensureCrediarioUnifiedSchema(db);
+  const activeStatsMap = getActiveDigifarmaClientStats(db);
+
+  const report = {
+    dryRun: Boolean(dryRun),
+    sanitizedCards: [],
+    mergedCards: [],
+    mergedCustomers: [],
+    totalMergedCards: 0,
+    totalMergedCustomers: 0
+  };
+
+  const applyAll = () => {
+    // 0. Sanitização inicial de IDs corrompidos (> MAX_FIREBIRD_INT32) e sequestrados
+    const cards0 = db.prepare('SELECT * FROM belafarma_cards ORDER BY id ASC').all();
+    for (const c of cards0) {
+      const safeDf = parseSafeDigifarmaId(c.digifarma_cliente_id);
+      const hasCorruptDf = c.digifarma_cliente_id !== null && c.digifarma_cliente_id !== undefined && !safeDf;
+      const safeCustDf = parseSafeDigifarmaId(c.customer_id);
+
+      let restoredDf = safeDf;
+      if (safeCustDf && safeDf && safeCustDf !== safeDf) {
+        const custStats = activeStatsMap.get(safeCustDf);
+        const dfStats = activeStatsMap.get(safeDf);
+        const custActive = Boolean(custStats && (custStats.itemsCount > 0 || custStats.paymentsCount > 0));
+        const dfActive = Boolean(dfStats && (dfStats.itemsCount > 0 || dfStats.paymentsCount > 0));
+        if (custActive && !dfActive) {
+          restoredDf = safeCustDf;
+        }
+      }
+
+      if (hasCorruptDf || (restoredDf && restoredDf !== safeDf)) {
+        report.sanitizedCards.push({
+          cardId: c.id,
+          name: c.customer_name,
+          previousDfId: c.digifarma_cliente_id,
+          newDfId: hasCorruptDf ? (safeCustDf || null) : restoredDf
+        });
+        if (!dryRun) {
+          db.prepare("UPDATE belafarma_cards SET digifarma_cliente_id = ?, updated_at = datetime('now', 'localtime') WHERE id = ?")
+            .run(hasCorruptDf ? (safeCustDf || null) : restoredDf, c.id);
+        }
+      }
+    }
+
+    // 1. FASE A — Unificar belafarma_cards duplicados
+    const allCards = db.prepare('SELECT * FROM belafarma_cards ORDER BY id ASC').all().map(c => ({
+      ...c,
+      name: c.customer_name,
+      dfId: parseSafeDigifarmaId(c.digifarma_cliente_id) || parseSafeDigifarmaId(c.customer_id)
+    }));
+
+    const scoreCardCanon = (c) => {
+      const st = c.dfId ? activeStatsMap.get(c.dfId) : null;
+      const dfAct = st ? (st.itemsCount * 20 + st.paymentsCount * 5) : 0;
+      return (c.dfId ? 1000 : 0) + dfAct + (parseSafeDigifarmaId(c.digifarma_cliente_id) ? 100 : 0) + (sanitizeDigits(c.cpf).length >= 11 ? 10 : 0);
+    };
+
+    const sortedCards = [...allCards].sort((a, b) => scoreCardCanon(b) - scoreCardCanon(a) || a.id - b.id);
+    const canonicalCards = [];
+    const cardMerges = [];
+
+    for (const cand of sortedCards) {
+      if (canonicalCards.length === 0) {
+        canonicalCards.push(cand);
+        continue;
+      }
+      const isManualOrUnlinked = !cand.dfId && sanitizeDigits(cand.phone).length < 14;
+      const res = findCanonicalMatch(cand, canonicalCards, activeStatsMap, {
+        allowSingleTokenFromManual: isManualOrUnlinked || !cand.dfId
+      });
+      if (res && res.match) {
+        cardMerges.push({ dup: cand, canon: res.match, reason: res.reason });
+      } else {
+        canonicalCards.push(cand);
+      }
+    }
+
+    for (const { dup, canon, reason } of cardMerges) {
+      report.mergedCards.push({
+        fromCardId: dup.id,
+        fromName: dup.customer_name,
+        fromCustomerId: dup.customer_id,
+        toCardId: canon.id,
+        toName: canon.customer_name,
+        toDigifarmaClienteId: canon.dfId || null,
+        reason
+      });
+
+      if (!dryRun) {
+        db.prepare('UPDATE crediario_local_purchases SET card_id = ? WHERE card_id = ?').run(canon.id, dup.id);
+        db.prepare('UPDATE card_payments SET card_id = ? WHERE card_id = ?').run(canon.id, dup.id);
+        db.prepare('UPDATE card_invoices SET card_id = ?, customer_id = COALESCE(?, customer_id) WHERE card_id = ?')
+          .run(canon.id, canon.customer_id || null, dup.id);
+        db.prepare('UPDATE card_invoice_items SET card_id = ? WHERE card_id = ?').run(canon.id, dup.id);
+        db.prepare('UPDATE crediario_message_log SET card_id = ? WHERE card_id = ?').run(canon.id, dup.id);
+        if (hasSqliteTable(db, 'card_legal_signatures')) {
+          try {
+            db.prepare('UPDATE card_legal_signatures SET card_id = ?, customer_id = COALESCE(?, customer_id) WHERE card_id = ?')
+              .run(canon.id, canon.customer_id || null, dup.id);
+          } catch (_) {}
+        }
+
+        const mergedBuyers = Array.from(new Set([
+          ...parseAuthorizedBuyers(canon.authorized_buyers),
+          ...parseAuthorizedBuyers(dup.authorized_buyers)
+        ]));
+        const nextLimit = Math.max(Number(canon.credit_limit || 0), Number(dup.credit_limit || 0), 300);
+        const nextLocalCredit = round2(Number(canon.local_credit_balance || 0) + Number(dup.local_credit_balance || 0));
+        const dupRealPhone = isRealBrPhone(dup.phone) ? sanitizeDigits(dup.phone) : '';
+        const canonPhoneToSave = isRealBrPhone(canon.phone) ? canon.phone : dupRealPhone;
+
+        db.prepare(`
+          UPDATE belafarma_cards
+          SET cpf = COALESCE(NULLIF(TRIM(cpf), ''), NULLIF(?, '')),
+              phone = COALESCE(NULLIF(TRIM(phone), ''), ?),
+              phone_fixed = COALESCE(NULLIF(TRIM(phone_fixed), ''), ?),
+              nickname = COALESCE(NULLIF(TRIM(nickname), ''), ?),
+              address = COALESCE(NULLIF(TRIM(address), ''), ?),
+              notes = COALESCE(NULLIF(TRIM(notes), ''), ?),
+              authorized_buyers = ?,
+              credit_limit = ?,
+              local_credit_balance = ?,
+              updated_at = datetime('now', 'localtime')
+          WHERE id = ?
+        `).run(
+          sanitizeDigits(dup.cpf) || null,
+          canonPhoneToSave || '',
+          sanitizeDigits(dup.phone_fixed) || '',
+          String(dup.nickname || '').trim(),
+          String(dup.address || '').trim(),
+          String(dup.notes || '').trim(),
+          JSON.stringify(mergedBuyers),
+          nextLimit,
+          nextLocalCredit,
+          canon.id
+        );
+
+        db.prepare('DELETE FROM belafarma_cards WHERE id = ?').run(dup.id);
+
+        const refreshed = db.prepare('SELECT * FROM belafarma_cards WHERE id = ?').get(canon.id);
+        if (refreshed) {
+          const cfg = getCrediarioConfig(db);
+          const { dfItems, localPurchases } = getDigifarmaDataForCard(db, refreshed);
+          const finNow = calculateAccountFinancials(refreshed, dfItems, localPurchases, cfg);
+          db.prepare('UPDATE belafarma_cards SET used_limit = ? WHERE id = ?').run(finNow.principalBalance, refreshed.id);
+        }
+      }
+    }
+
+    // 2. FASE B — Unificar customers duplicados (inclui cadastros manuais antigos e contatos WA repetidos)
+    if (hasSqliteTable(db, 'customers')) {
+      const currentCards = db.prepare('SELECT id, customer_id, digifarma_cliente_id FROM belafarma_cards').all();
+      const cardDfByCustId = new Map();
+      for (const cc of currentCards) {
+        const sDf = parseSafeDigifarmaId(cc.digifarma_cliente_id);
+        if (cc.customer_id && sDf) cardDfByCustId.set(String(cc.customer_id), sDf);
+      }
+
+      const rawCustomers = db.prepare('SELECT * FROM customers ORDER BY createdAt ASC, id ASC').all().map(c => {
+        const safeId = parseSafeDigifarmaId(c.id);
+        const safeCustDf = safeId || cardDfByCustId.get(String(c.id)) || parseSafeDigifarmaId(c.digifarma_id);
+        const isLidPhone = Boolean(c.whatsapp_lid) || (sanitizeDigits(c.phone).length >= 14 && !String(c.phone).startsWith('55'));
+        return {
+          ...c,
+          dfId: safeCustDf,
+          isLidPhone,
+          isCanonicalSource: Boolean(safeId || cardDfByCustId.has(String(c.id)))
+        };
+      });
+
+      const scoreCustomerCanon = (c) => {
+        const st = c.dfId ? activeStatsMap.get(c.dfId) : null;
+        const dfAct = st ? (st.itemsCount * 20 + st.paymentsCount * 5) : 0;
+        return (c.isCanonicalSource ? 2000 : 0) + (c.dfId ? 1000 : 0) + dfAct + (sanitizeDigits(c.cpf).length >= 11 ? 10 : 0) + (extractSignificantNameTokens(c.name).length >= 2 ? 5 : 0);
+      };
+
+      const sortedCustomers = [...rawCustomers].sort((a, b) => scoreCustomerCanon(b) - scoreCustomerCanon(a) || String(a.id).localeCompare(String(b.id)));
+      const canonicalCusts = [];
+      const custMerges = [];
+
+      for (const cand of sortedCustomers) {
+        if (canonicalCusts.length === 0) {
+          canonicalCusts.push(cand);
+          continue;
+        }
+        const isManualOrTimestamp =
+          !cand.isLidPhone &&
+          (String(cand.source || '').toLowerCase() === 'manual' ||
+            /^\d{10,}$/.test(String(cand.id)) ||
+            String(cand.id).startsWith('CUST-'));
+
+        const res = findCanonicalMatch(cand, canonicalCusts, activeStatsMap, {
+          allowSingleTokenFromManual: isManualOrTimestamp
+        });
+
+        if (res && res.match) {
+          // Proteção adicional: só mesclar dois IDs numéricos Digifarma se o duplicado estiver 100% vazio
+          if (parseSafeDigifarmaId(cand.id) && parseSafeDigifarmaId(res.match.id)) {
+            const stCand = activeStatsMap.get(Number(cand.id));
+            const candHasDf = Boolean(stCand && (stCand.itemsCount > 0 || stCand.paymentsCount > 0));
+            const candDebts = hasSqliteTable(db, 'customer_debts')
+              ? db.prepare('SELECT COUNT(*) as n FROM customer_debts WHERE customerId = ?').get(String(cand.id)).n
+              : 0;
+            const candSales = hasSqliteTable(db, 'sales')
+              ? db.prepare('SELECT COUNT(*) as n FROM sales WHERE customer_id = ?').get(String(cand.id)).n
+              : 0;
+            if (candHasDf || candDebts > 0 || candSales > 0) {
+              canonicalCusts.push(cand);
+              continue;
+            }
+          }
+          custMerges.push({ dup: cand, canon: res.match, reason: res.reason });
+        } else {
+          canonicalCusts.push(cand);
+        }
+      }
+
+      for (const { dup, canon, reason } of custMerges) {
+        report.mergedCustomers.push({
+          fromId: dup.id,
+          fromName: dup.name,
+          toId: canon.id,
+          toName: canon.name,
+          reason
+        });
+
+        if (!dryRun) {
+          if (hasSqliteTable(db, 'sales')) {
+            try {
+              db.prepare(`
+                UPDATE sales
+                SET customer_id = ?,
+                    customer_name = CASE
+                      WHEN customer_name IS NULL OR TRIM(customer_name) = '' OR UPPER(TRIM(customer_name)) = UPPER(TRIM(?))
+                      THEN ?
+                      ELSE customer_name
+                    END
+                WHERE customer_id = ?
+              `).run(String(canon.id), String(dup.name || ''), String(canon.name || ''), String(dup.id));
+            } catch (_) {}
+          }
+          const tableUpdates = [
+            ['customer_debts', 'customerId'],
+            ['belafarma_cards', 'customer_id'],
+            ['card_invoices', 'customer_id'],
+            ['card_legal_signatures', 'customer_id'],
+            ['pre_sales', 'customer_id'],
+            ['appointments', 'customerId'],
+            ['message_log', 'customerId'],
+            ['whatsapp_product_history', 'customer_id'],
+            ['customer_recipes', 'customer_id'],
+            ['customer_address_history', 'customer_id'],
+            ['nfc_loyalty_cashback', 'customer_id']
+          ];
+          for (const [tbl, col] of tableUpdates) {
+            if (!hasSqliteTable(db, tbl)) continue;
+            try {
+              db.prepare(`UPDATE "${tbl}" SET "${col}" = ? WHERE "${col}" = ?`).run(String(canon.id), String(dup.id));
+            } catch (_) {}
+          }
+
+          const dupBrPhone = isRealBrPhone(dup.phone) ? sanitizeDigits(dup.phone) : '';
+          const nextPhone = isRealBrPhone(canon.phone) ? canon.phone : (dupBrPhone || canon.phone || null);
+          const nextLimit = Math.max(Number(canon.creditLimit || 0), Number(dup.creditLimit || 0));
+
+          try {
+            db.prepare(`
+              UPDATE customers
+              SET cpf = COALESCE(NULLIF(TRIM(cpf), ''), NULLIF(?, '')),
+                  phone = COALESCE(NULLIF(TRIM(phone), ''), ?),
+                  email = COALESCE(NULLIF(TRIM(email), ''), ?),
+                  address = COALESCE(NULLIF(TRIM(address), ''), ?),
+                  notes = COALESCE(NULLIF(TRIM(notes), ''), ?),
+                  creditLimit = ?,
+                  updatedAt = datetime('now', 'localtime')
+              WHERE id = ?
+            `).run(
+              sanitizeDigits(dup.cpf) || null,
+              nextPhone,
+              dup.email || null,
+              dup.address || null,
+              dup.notes || null,
+              nextLimit,
+              String(canon.id)
+            );
+          } catch (_) {}
+
+          db.prepare('DELETE FROM customers WHERE id = ?').run(String(dup.id));
+        }
+      }
+    }
+  };
+
+  if (dryRun) {
+    applyAll();
+  } else {
+    db.transaction(applyAll)();
+  }
+
+  report.totalMergedCards = report.mergedCards.length;
+  report.totalMergedCustomers = report.mergedCustomers.length;
+  return report;
+}
+
+async function reconcilePendingLocalPurchasesToDigifarma(db, { queryDigifarmaFn = queryDigifarma } = {}) {
+  ensureCrediarioUnifiedSchema(db);
+  const pendingRows = db.prepare(`
+    SELECT * FROM crediario_local_purchases
+    WHERE status != 'paid' AND (amount - COALESCE(paid_amount, 0)) > 0.01
+    ORDER BY purchased_at ASC, id ASC
+  `).all();
+
+  const summary = {
+    checked: pendingRows.length,
+    syncedToDigifarma: 0,
+    alreadyInDigifarma: 0,
+    skipped: 0,
+    details: []
+  };
+
+  if (pendingRows.length === 0) return summary;
+
+  const hasSalesTbl = hasSqliteTable(db, 'sales');
+  const hasSaleItemsTbl = hasSqliteTable(db, 'sale_items');
+
+  for (const lp of pendingRows) {
+    try {
+      const card = findCard(db, lp.card_id);
+      if (!card) {
+        summary.skipped++;
+        continue;
+      }
+
+      const resolved = await resolveDigifarmaClienteId(db, {
+        card,
+        cardId: card.id,
+        customerId: card.customer_id,
+        digifarmaClienteId: card.digifarma_cliente_id,
+        customerName: card.customer_name,
+        customerCpf: card.cpf
+      }, queryDigifarmaFn);
+
+      if (!resolved || !resolved.clienteId) {
+        summary.skipped++;
+        continue;
+      }
+
+      const openAmt = round2(Number(lp.amount || 0) - Number(lp.paid_amount || 0));
+      let saleRow = null;
+      let saleItems = [];
+      if (hasSalesTbl && lp.sale_id) {
+        saleRow = db.prepare('SELECT id, digifarma_venda_id, sale_date, customer_name, total_value FROM sales WHERE id = ?').get(String(lp.sale_id));
+        if (saleRow && hasSaleItemsTbl) {
+          saleItems = db.prepare('SELECT * FROM sale_items WHERE sale_id = ?').all(String(saleRow.id));
+        }
+      }
+
+      const vendaNotaId = parseSafeDigifarmaId(saleRow?.digifarma_venda_id);
+      const purchaseYMD = toLocalDateYMD(saleRow?.sale_date || lp.purchased_at) || toLocalDateYMD(new Date());
+      const dueYMD = toLocalDateYMD(lp.due_date) || addDaysYMD(purchaseYMD, 30);
+
+      let existsInDigifarma = false;
+      if (vendaNotaId) {
+        const fRows = await queryDigifarmaFn('SELECT FIRST 1 FICHARIO_ID FROM FICHARIO WHERE VENDA_NOTA_ID = ?', [vendaNotaId], 5000);
+        const aRows = await queryDigifarmaFn('SELECT FIRST 1 ARQUIVO_MORTO_ID FROM ARQUIVO_MORTO WHERE ARQ_NOTA = ?', [vendaNotaId], 5000);
+        existsInDigifarma = Boolean((fRows && fRows.length > 0) || (aRows && aRows.length > 0));
+      } else {
+        const approxRows = await queryDigifarmaFn(`
+          SELECT FIRST 1 FICHARIO_ID
+          FROM FICHARIO
+          WHERE CLIENTE_ID = ?
+            AND CAST(FICHARIO_DATACOMPRA AS DATE) = DATE '${purchaseYMD}'
+            AND ABS((FICHARIO_QUANTIDADE * FICHARIO_VALOR) - COALESCE(FICHARIO_DESCONTO, 0) - ?) < 0.02
+        `, [resolved.clienteId, openAmt], 5000);
+        existsInDigifarma = Boolean(approxRows && approxRows.length > 0);
+      }
+
+      if (existsInDigifarma) {
+        db.transaction(() => {
+          db.prepare('DELETE FROM crediario_local_purchases WHERE id = ?').run(lp.id);
+          const refreshed = findCard(db, card.id);
+          if (refreshed) {
+            const cfg = getCrediarioConfig(db);
+            const { dfItems, localPurchases } = getDigifarmaDataForCard(db, refreshed);
+            const fin = calculateAccountFinancials(refreshed, dfItems, localPurchases, cfg);
+            db.prepare("UPDATE belafarma_cards SET used_limit = ?, updated_at = datetime('now', 'localtime') WHERE id = ?")
+              .run(fin.principalBalance, refreshed.id);
+          }
+        })();
+        summary.alreadyInDigifarma++;
+        summary.details.push({ id: lp.id, vendaNotaId, status: 'already_in_digifarma' });
+        continue;
+      }
+
+      let itemsToInsert = [];
+      if (saleItems.length > 0) {
+        itemsToInsert = saleItems.map((it, idx) => ({
+          itemVendaId: idx + 1,
+          produtoId: parseSafeDigifarmaId(it.product_code),
+          productName: it.product_name || `Item #${idx + 1}`,
+          quantity: Number(it.quantity) || 1,
+          unitPrice: Number(it.unit_price) || 0
+        }));
+      } else {
+        try {
+          const parsed = JSON.parse(lp.items_json || '[]');
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            itemsToInsert = parsed.map((it, idx) => ({
+              itemVendaId: vendaNotaId ? idx + 1 : null,
+              produtoId: parseSafeDigifarmaId(it.product_code),
+              productName: it.productName || it.description || lp.description,
+              quantity: Number(it.quantity) || 1,
+              unitPrice: Number(it.unitPrice ?? it.amount ?? openAmt)
+            }));
+          }
+        } catch (_) {}
+      }
+
+      if (itemsToInsert.length === 0) {
+        itemsToInsert = [{
+          itemVendaId: vendaNotaId ? 1 : null,
+          produtoId: null,
+          productName: lp.description || 'ANOTACAO CREDIARIO',
+          quantity: 1,
+          unitPrice: openAmt
+        }];
+      }
+
+      await insertItemsIntoDigifarmaFichario(db, {
+        clienteId: resolved.clienteId,
+        clienteNome: resolved.clienteNome || card.customer_name || '',
+        phone: card.phone || '',
+        vendaNotaId: vendaNotaId || null,
+        items: itemsToInsert,
+        totalCrediarioAmount: openAmt,
+        buyerName: lp.buyer_name || card.customer_name || '',
+        purchaseDateYMD: purchaseYMD,
+        dueDateYMD: dueYMD
+      }, queryDigifarmaFn);
+
+      db.transaction(() => {
+        db.prepare('DELETE FROM crediario_local_purchases WHERE id = ?').run(lp.id);
+        const refreshed = findCard(db, card.id);
+        if (refreshed) {
+          const cfg = getCrediarioConfig(db);
+          const { dfItems, localPurchases } = getDigifarmaDataForCard(db, refreshed);
+          const fin = calculateAccountFinancials(refreshed, dfItems, localPurchases, cfg);
+          db.prepare("UPDATE belafarma_cards SET used_limit = ?, updated_at = datetime('now', 'localtime') WHERE id = ?")
+            .run(fin.principalBalance, refreshed.id);
+        }
+      })();
+
+      summary.syncedToDigifarma++;
+      summary.details.push({ id: lp.id, vendaNotaId, clienteId: resolved.clienteId, amount: openAmt, status: 'synced' });
+    } catch (err) {
+      summary.skipped++;
+      summary.details.push({ id: lp.id, error: err.message, status: 'error' });
+    }
+  }
+
+  return summary;
+}
+
 module.exports = {
   CONFIG_KEY,
   CREDIARIO_ACTIVE_PURCHASE_MONTHS,
@@ -3652,6 +4437,8 @@ module.exports = {
   formatCurrency,
   sanitizeDigits,
   normalizePhoneBr,
+  parseSafeDigifarmaId,
+  normalizePersonName,
   toLocalDateYMD,
   formatDateBR,
   addDaysYMD,
@@ -3677,6 +4464,8 @@ module.exports = {
   insertItemsIntoDigifarmaFichario,
   mapPaymentMethodToDigifarmaRecebimento,
   syncCrediarioPaymentToDigifarma,
+  unifyDuplicateCustomersAndCards,
+  reconcilePendingLocalPurchasesToDigifarma,
   deleteLocalPurchase,
   receiveCrediarioPayment,
   runUnifiedDailyNotifications

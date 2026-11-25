@@ -9,6 +9,7 @@ const { recordSaleRecipes } = require('./controlled-medications.service');
 const {
   ensureCrediarioUnifiedSchema,
   resolveOrCreateBelafarmaCard,
+  parseSafeDigifarmaId,
   computeFixedDueDate,
   toLocalDateYMD,
   addDaysYMD
@@ -138,12 +139,19 @@ function registrarVenda(payload) {
   // 3. Execução Transacional Atômica (ACID no SQLite)
   const executeSaleTransaction = db.transaction(() => {
     // A. Garantir existência de cliente válido no banco
+    const findCustomerByExactName = (nameInput) => db.prepare(`
+      SELECT id FROM customers
+      WHERE UPPER(TRIM(name)) = UPPER(TRIM(?))
+      ORDER BY CASE WHEN CAST(id AS TEXT) GLOB '[0-9]*' AND LENGTH(CAST(id AS TEXT)) <= 7 THEN 0 ELSE 1 END, createdAt ASC
+      LIMIT 1
+    `).get(String(nameInput || '').trim());
+
     let validCustomerId = customer_id;
     if (validCustomerId) {
       const custExists = db.prepare('SELECT id FROM customers WHERE id = ?').get(validCustomerId);
       if (!custExists) {
         if (customer_name && String(customer_name).trim()) {
-          const byName = db.prepare('SELECT id FROM customers WHERE name = ?').get(String(customer_name).trim());
+          const byName = findCustomerByExactName(customer_name);
           if (byName) {
             validCustomerId = byName.id;
           } else {
@@ -157,7 +165,7 @@ function registrarVenda(payload) {
         }
       }
     } else if (customer_name && String(customer_name).trim()) {
-      const byName = db.prepare('SELECT id FROM customers WHERE name = ?').get(String(customer_name).trim());
+      const byName = findCustomerByExactName(customer_name);
       if (byName) {
         validCustomerId = byName.id;
       }
@@ -288,7 +296,7 @@ function registrarVenda(payload) {
         resolvedCrediarioCard = resolveOrCreateBelafarmaCard(db, {
           cardId: card_id,
           customerId: custId,
-          digifarmaClienteId: digifarma_cliente_id,
+          digifarmaClienteId: parseSafeDigifarmaId(digifarma_cliente_id),
           customerName: finalCustomerName,
           customerCpf: customer_cpf,
           customerPhone: customer_phone

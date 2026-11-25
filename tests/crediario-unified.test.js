@@ -1604,4 +1604,312 @@ describe('Crediário Unificado Bela Farma — PIX, Motor Financeiro, Extratos & 
       memDb.close();
     });
   });
+
+  describe('7. Unificação de Duplicatas, INT32 Overflow & Reconciliação de Vendas', () => {
+    it('DUP-01: parseSafeDigifarmaId bloqueia timestamp (>INT32) e resolveDigifarmaClienteId resolve nome abreviado RENI DANIEL -> 38', async () => {
+      assert.strictEqual(unified.parseSafeDigifarmaId('1769803264518'), null);
+      assert.strictEqual(unified.parseSafeDigifarmaId(1769803264518), null);
+      assert.strictEqual(unified.parseSafeDigifarmaId('2147483648'), null);
+      assert.strictEqual(unified.parseSafeDigifarmaId('0'), null);
+      assert.strictEqual(unified.parseSafeDigifarmaId('38'), 38);
+
+      const memDb = new Database(':memory:');
+      unified.ensureCrediarioUnifiedSchema(memDb);
+
+      const executedQueries = [];
+      const queryMock = async (sql, params = []) => {
+        executedQueries.push({ sql: String(sql), params });
+        const u = String(sql || '').toUpperCase();
+        if (u.includes('WHERE CLIENTE_ID = ?')) {
+          throw new Error('Nunca deveria consultar CLIENTE_ID com timestamp > INT32');
+        }
+        if (u.includes('WHERE UPPER(TRIM(CLIENTE)) = ?')) {
+          return [];
+        }
+        if (u.includes('WHERE UPPER(CLIENTE) STARTING WITH ?')) {
+          assert.strictEqual(params[0], 'RENI');
+          return [{ CLIENTE_ID: 38, CLIENTE: 'RENI DANIEL DA SILVA', CLI_CPF: '77388992634', CLI_DIA_PAGAMENTO: 20 }];
+        }
+        return [];
+      };
+
+      const resolved = await unified.resolveDigifarmaClienteId(memDb, {
+        customerId: '1769803264518',
+        digifarmaClienteId: 1769803264518,
+        customerName: 'RENI DANIEL'
+      }, queryMock);
+
+      assert.ok(resolved);
+      assert.strictEqual(resolved.clienteId, 38);
+      assert.strictEqual(resolved.clienteNome, 'RENI DANIEL DA SILVA');
+      assert.ok(!executedQueries.some(q => q.sql.toUpperCase().includes('WHERE CLIENTE_ID = ?')));
+
+      memDb.close();
+    });
+
+    it('DUP-02: unifyDuplicateCustomersAndCards unifica cadastros duplicados preservando homônimos distintos e LIDs soltos', () => {
+      const memDb = new Database(':memory:');
+      unified.ensureCrediarioUnifiedSchema(memDb);
+      memDb.exec(`
+        ALTER TABLE customers ADD COLUMN source TEXT DEFAULT 'Manual';
+        ALTER TABLE customers ADD COLUMN whatsapp_lid TEXT;
+        ALTER TABLE customers ADD COLUMN digifarma_id INTEGER;
+        CREATE TABLE sales (
+          id TEXT PRIMARY KEY,
+          sale_date TEXT,
+          total_value REAL,
+          customer_id TEXT,
+          customer_name TEXT,
+          digifarma_venda_id INTEGER
+        );
+        CREATE TABLE customer_debts (
+          id TEXT PRIMARY KEY,
+          customerId TEXT NOT NULL,
+          purchaseDate TEXT,
+          totalValue REAL,
+          status TEXT DEFAULT 'PENDENTE'
+        );
+      `);
+
+      const todayYMD = unified.toLocalDateYMD(new Date());
+
+      // Canônicos do Digifarma
+      memDb.prepare(`
+        INSERT INTO customers (id, name, cpf, phone, creditLimit, dueDay, source, createdAt, updatedAt) VALUES
+        ('38', 'RENI DANIEL DA SILVA', '77388992634', '', 300, 20, 'Digifarma', '2026-01-01', '2026-01-01'),
+        ('48', 'EVA  MARIA DA SILVA', NULL, '32169090', 300, 20, 'Digifarma', '2026-01-01', '2026-01-01'),
+        ('34', 'SIMONE MARIA FERREIRA VIEIRA', NULL, '999955054', 300, 20, 'Digifarma', '2026-01-01', '2026-01-01'),
+        ('45', 'ADRIANA MAE', NULL, '', 300, 20, 'Digifarma', '2026-01-01', '2026-01-01'),
+        ('117', 'ROSANGELA', NULL, '', 300, 20, 'Digifarma', '2026-01-01', '2026-01-01'),
+        ('132', 'ROSANGELA LIVIA', '79106498787', '', 300, 20, 'Digifarma', '2026-01-01', '2026-01-01'),
+        ('301', 'JOAO SILVA', '11111111111', '', 300, 20, 'Digifarma', '2026-01-01', '2026-01-01'),
+        ('302', 'JOAO SILVA', '22222222222', '', 300, 20, 'Digifarma', '2026-01-01', '2026-01-01'),
+        -- Duplicados que DEVEM unificar:
+        ('1769803264518', 'RENI DANIEL', NULL, NULL, 150, 20, 'Manual', '2026-01-30', '2026-01-30'),
+        ('1769798949962', 'EVA MARIA DA SILVA', NULL, NULL, 150, 20, 'Manual', '2026-01-30', '2026-01-30'),
+        ('1770835725036', 'simone', NULL, NULL, 150, 20, 'Manual', '2026-02-11', '2026-02-11'),
+        ('cust_wa_simone', 'simone vieira', NULL, '194068365738155', 0, NULL, 'WhatsApp', '2026-05-01', '2026-05-01'),
+        -- Protegidos contra falso positivo (NÃO devem unificar):
+        ('cust_wa_adriana', 'Adriana', NULL, '87273802600552', 0, NULL, 'WhatsApp', '2026-05-01', '2026-05-01'),
+        ('cust_wa_1', 'Contato WhatsApp', NULL, '262285163528278', 0, NULL, 'WhatsApp', '2026-05-01', '2026-05-01'),
+        ('cust_wa_2', 'Contato WhatsApp', NULL, '124756066046167', 0, NULL, 'WhatsApp', '2026-05-01', '2026-05-01')
+      `).run();
+
+      memDb.prepare(`
+        INSERT INTO belafarma_cards (
+          id, customer_id, digifarma_cliente_id, portal_token, customer_name, cpf, phone,
+          card_number, credit_limit, used_limit, due_day, status
+        ) VALUES
+        (1, '38', 38, 'tok_dup_38', 'RENI DANIEL DA SILVA', '77388992634', '', '5489 0000 0000 0038', 300, 44.18, 20, 'active'),
+        (2, '1769803264518', 1769803264518, 'tok_dup_reni_old', 'RENI DANIEL', NULL, '', '5489 0000 0000 0999', 150, 49.90, 20, 'active'),
+        (3, '117', 117, 'tok_dup_117', 'ROSANGELA', NULL, '', '5489 0000 0000 0117', 300, 91.68, 20, 'active'),
+        (4, '132', 132, 'tok_dup_132', 'ROSANGELA LIVIA', '79106498787', '', '5489 0000 0000 0132', 300, 112.43, 20, 'active')
+      `).run();
+
+      // Itens separados no Digifarma para 117 e 132 (por isso não devem fundir)
+      memDb.prepare(`
+        INSERT INTO digifarma_crediario_cache (id, cliente_id, cliente_nome, valor, data_compra, data_vencimento)
+        VALUES
+          ('df_117_1', 117, 'ROSANGELA', 91.68, ?, ?),
+          ('df_132_1', 132, 'ROSANGELA LIVIA', 112.43, ?, ?)
+      `).run(todayYMD, todayYMD, todayYMD, todayYMD);
+
+      // Compra local + venda na conta duplicada da RENI DANIEL
+      memDb.prepare(`
+        INSERT INTO sales (id, sale_date, total_value, customer_id, customer_name, digifarma_venda_id)
+        VALUES ('VND-94471', ?, 49.90, '1769803264518', 'RENI DANIEL', 94471)
+      `).run(todayYMD);
+      memDb.prepare(`
+        INSERT INTO customer_debts (id, customerId, purchaseDate, totalValue, status)
+        VALUES ('DEBT-VND-94471', '1769803264518', ?, 49.90, 'PENDENTE')
+      `).run(todayYMD);
+      memDb.prepare(`
+        INSERT INTO crediario_local_purchases (id, card_id, sale_id, buyer_name, description, amount, status, purchased_at, due_date)
+        VALUES ('lp_94471', 2, 'VND-94471', 'RENI DANIEL', 'FRALDA ISABABY', 49.90, 'open', ?, ?)
+      `).run(todayYMD, todayYMD);
+
+      const rep = unified.unifyDuplicateCustomersAndCards(memDb);
+
+      // Cartão duplicado 2 da Reni deve ter sido unificado no 1 (ID 38)
+      assert.strictEqual(rep.totalMergedCards, 1);
+      assert.strictEqual(memDb.prepare('SELECT COUNT(*) AS n FROM belafarma_cards').get().n, 3);
+      assert.strictEqual(memDb.prepare('SELECT card_id FROM crediario_local_purchases WHERE id = ?').get('lp_94471').card_id, 1);
+
+      // ROSANGELA 117 e ROSANGELA LIVIA 132 devem continuar separadas
+      assert.ok(memDb.prepare('SELECT id FROM belafarma_cards WHERE digifarma_cliente_id = 117').get());
+      assert.ok(memDb.prepare('SELECT id FROM belafarma_cards WHERE digifarma_cliente_id = 132').get());
+
+      // customers duplicados unificados, protegendo Contato WhatsApp, Adriana LID e CPFs diferentes
+      const mergedFromIds = new Set(rep.mergedCustomers.map(m => m.fromId));
+      assert.ok(mergedFromIds.has('1769803264518'));
+      assert.ok(mergedFromIds.has('1769798949962'));
+      assert.ok(mergedFromIds.has('1770835725036'));
+      assert.ok(mergedFromIds.has('cust_wa_simone'));
+
+      assert.ok(!mergedFromIds.has('cust_wa_adriana'), 'LID solto Adriana não deve ser unificado em ADRIANA MAE');
+      assert.ok(!mergedFromIds.has('cust_wa_1') && !mergedFromIds.has('cust_wa_2'), 'Contato WhatsApp nunca deve fundir');
+      assert.ok(!mergedFromIds.has('302') && !mergedFromIds.has('301'), 'CPFs diferentes nunca devem fundir');
+
+      // Venda e dívida da Reni foram migradas para customer_id = '38'
+      const migratedSale = memDb.prepare('SELECT customer_id, customer_name FROM sales WHERE id = ?').get('VND-94471');
+      assert.strictEqual(migratedSale.customer_id, '38');
+      assert.strictEqual(migratedSale.customer_name, 'RENI DANIEL DA SILVA');
+      assert.strictEqual(memDb.prepare('SELECT customerId FROM customer_debts WHERE id = ?').get('DEBT-VND-94471').customerId, '38');
+
+      memDb.close();
+    });
+
+    it('DUP-03: reconcilePendingLocalPurchasesToDigifarma grava venda pendente #94471 no FICHARIO e evita duplicação quando já existir no Digifarma', async () => {
+      const memDb = new Database(':memory:');
+      unified.ensureCrediarioUnifiedSchema(memDb);
+      memDb.exec(`
+        CREATE TABLE sales (
+          id TEXT PRIMARY KEY,
+          sale_date TEXT,
+          total_value REAL,
+          customer_id TEXT,
+          customer_name TEXT,
+          digifarma_venda_id INTEGER
+        );
+        CREATE TABLE sale_items (
+          id TEXT PRIMARY KEY,
+          sale_id TEXT,
+          product_code TEXT,
+          product_name TEXT,
+          quantity REAL,
+          unit_price REAL
+        );
+      `);
+
+      const todayYMD = unified.toLocalDateYMD(new Date());
+      memDb.prepare(`
+        INSERT INTO belafarma_cards (
+          id, customer_id, digifarma_cliente_id, portal_token, customer_name, cpf, phone,
+          card_number, credit_limit, used_limit, due_day, status
+        ) VALUES (1, '38', 38, 'tok_rec_94471', 'RENI DANIEL DA SILVA', '77388992634', '', '5489 0000 0000 0038', 300, 49.90, 20, 'active')
+      `).run();
+
+      memDb.prepare(`
+        INSERT INTO sales (id, sale_date, total_value, customer_id, customer_name, digifarma_venda_id)
+        VALUES ('VND-94471', ?, 49.90, '38', 'RENI DANIEL DA SILVA', 94471)
+      `).run(todayYMD);
+      memDb.prepare(`
+        INSERT INTO sale_items (id, sale_id, product_code, product_name, quantity, unit_price)
+        VALUES ('VND-94471-1', 'VND-94471', '189394', 'ISABABY FRALDA XXG', 1, 49.90)
+      `).run();
+      memDb.prepare(`
+        INSERT INTO crediario_local_purchases (id, card_id, sale_id, buyer_name, description, items_json, amount, status, purchased_at, due_date)
+        VALUES ('lp_94471', 1, 'VND-94471', 'RENI DANIEL', 'ISABABY FRALDA XXG', '[]', 49.90, 'open', ?, '2026-12-25')
+      `).run(todayYMD);
+
+      const mockFbFichario = [];
+      let seqF = 8370;
+      const queryMock = async (sql, params = []) => {
+        const u = String(sql || '').toUpperCase().trim();
+        if (u.includes('FROM CLIENTES WHERE CLIENTE_ID = ?')) {
+          return [{ CLIENTE_ID: 38, CLIENTE: 'RENI DANIEL DA SILVA', CLI_DIA_PAGAMENTO: 20 }];
+        }
+        if (u.includes('FROM FICHARIO WHERE VENDA_NOTA_ID = ?')) {
+          return mockFbFichario.filter(r => r.VENDA_NOTA_ID === Number(params[0]));
+        }
+        if (u.includes('FROM ARQUIVO_MORTO WHERE ARQ_NOTA = ?')) {
+          return [];
+        }
+        if (u.includes('GEN_ID(GEN_FICHARIO, 1)')) {
+          return [{ NEW_ID: seqF++ }];
+        }
+        if (u.startsWith('INSERT INTO FICHARIO')) {
+          mockFbFichario.push({
+            FICHARIO_ID: params[0],
+            ITEM_VENDA_ID: params[1],
+            CLIENTE_ID: params[2],
+            FICHARIO_QUANTIDADE: params[3],
+            FICHARIO_VALOR: params[4],
+            VENDA_NOTA_ID: params[8],
+            PRODUTO_ID: params[9]
+          });
+          return [];
+        }
+        return [];
+      };
+
+      const rec1 = await unified.reconcilePendingLocalPurchasesToDigifarma(memDb, { queryDigifarmaFn: queryMock });
+      assert.strictEqual(rec1.syncedToDigifarma, 1);
+      assert.strictEqual(mockFbFichario.length, 1);
+      assert.strictEqual(mockFbFichario[0].CLIENTE_ID, 38);
+      assert.strictEqual(mockFbFichario[0].VENDA_NOTA_ID, 94471);
+      assert.strictEqual(mockFbFichario[0].FICHARIO_VALOR, 49.9);
+      assert.strictEqual(memDb.prepare('SELECT COUNT(*) AS n FROM crediario_local_purchases').get().n, 0);
+      assert.strictEqual(unified.buildClientStatement(memDb, 1).financials.principalBalance, 49.9);
+
+      // Re-inserir pendência igual quando 94471 já existe no Firebird -> NÃO deve duplicar no FICHARIO
+      memDb.prepare(`
+        INSERT INTO crediario_local_purchases (id, card_id, sale_id, buyer_name, description, items_json, amount, status, purchased_at, due_date)
+        VALUES ('lp_94471_dup', 1, 'VND-94471', 'RENI DANIEL', 'ISABABY FRALDA XXG', '[]', 49.90, 'open', ?, '2026-12-25')
+      `).run(todayYMD);
+
+      const rec2 = await unified.reconcilePendingLocalPurchasesToDigifarma(memDb, { queryDigifarmaFn: queryMock });
+      assert.strictEqual(rec2.alreadyInDigifarma, 1);
+      assert.strictEqual(rec2.syncedToDigifarma, 0);
+      assert.strictEqual(mockFbFichario.length, 1, 'Não pode duplicar venda 94471 já gravada no FICHARIO');
+      assert.strictEqual(memDb.prepare('SELECT COUNT(*) AS n FROM crediario_local_purchases').get().n, 0);
+
+      memDb.close();
+    });
+
+    it('DUP-04: syncAllFromDigifarma não sequestra digifarma_cliente_id ativo (NAYANE 44) para homônimo vazio (119)', async () => {
+      const memDb = new Database(':memory:');
+      unified.ensureCrediarioUnifiedSchema(memDb);
+      const todayYMD = unified.toLocalDateYMD(new Date());
+
+      memDb.prepare(`
+        INSERT INTO belafarma_cards (
+          id, customer_id, digifarma_cliente_id, portal_token, customer_name, phone,
+          card_number, credit_limit, used_limit, due_day, status
+        ) VALUES (1, '44', 44, 'tok_nay_44', 'NAYANE', '', '5489 0000 0000 0044', 300, 99.9, 20, 'active')
+      `).run();
+
+      const queryMock = async (sql) => {
+        const u = String(sql || '').toUpperCase();
+        if (u.includes('FROM FICHARIO f')) {
+          return [{
+            FICHARIO_ID: 8100,
+            CLIENTE_ID: 44,
+            VENDA_NOTA_ID: 91000,
+            PRODUTO_ID: 1001,
+            FICHARIO_QUANTIDADE: 1,
+            FICHARIO_VALOR: 99.9,
+            FICHARIO_DESCONTO: 0,
+            FICHARIO_FRETE: 0,
+            FICHARIO_DATACOMPRA: todayYMD,
+            FICHARIO_VENCIMENTO: todayYMD,
+            FICHARIO_COMPRADOR: 'NAYANE',
+            PRODUTO: 'PRODUTO TESTE',
+            APRESENTACAO: 'CX',
+            CLIENTE: 'NAYANE',
+            CLI_CELULAR: '',
+            CLI_TELEFONE: ''
+          }];
+        }
+        if (u.includes('FROM CONTAS_RECEBIDAS')) {
+          return [];
+        }
+        if (u.includes('FROM CLIENTES')) {
+          return [
+            { CLIENTE_ID: 44, CLIENTE: 'NAYANE', CLI_LIMIT: 300, CLI_LIMITE: 300, CLI_DIA_PAGAMENTO: 20 },
+            { CLIENTE_ID: 119, CLIENTE: 'NAYANE', CLI_LIMIT: 300, CLI_LIMITE: 300, CLI_DIA_PAGAMENTO: 20 }
+          ];
+        }
+        return [];
+      };
+
+      const res = await unified.syncAllFromDigifarma(memDb, { queryDigifarmaFn: queryMock });
+      assert.strictEqual(res.success, true);
+
+      const card44 = memDb.prepare('SELECT id, digifarma_cliente_id FROM belafarma_cards WHERE id = 1').get();
+      assert.strictEqual(card44.digifarma_cliente_id, 44, 'Cartão 44 ativo jamais deve ser sobrescrito para 119');
+
+      memDb.close();
+    });
+  });
 });

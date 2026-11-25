@@ -717,7 +717,10 @@ function createUnifiedCrediarioEndpoints(db, options = {}) {
   router.post('/sync', async (req, res) => {
     try {
       const notify = Boolean(req.body?.notifyNewPurchases);
-      const result = await unified.syncAllFromDigifarma(db, { notifyNewPurchases: notify });
+      const result = await unified.syncAllFromDigifarma(db, {
+        notifyNewPurchases: notify,
+        queryDigifarmaFn: options.queryDigifarmaFn
+      });
       res.json(result);
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
@@ -727,6 +730,27 @@ function createUnifiedCrediarioEndpoints(db, options = {}) {
   // ============================================================================
   // ROTAS EXCLUSIVAS DO ADMINISTRADOR
   // ============================================================================
+
+  router.post('/maintenance/unify-duplicates', requireAdminMw, async (req, res) => {
+    try {
+      const dryRun = Boolean(req.body?.dryRun);
+      const shouldReconcile = !dryRun && req.body?.reconcileDigifarma !== false;
+      const report = unified.unifyDuplicateCustomersAndCards(db, { dryRun });
+      let reconciliation = null;
+      if (shouldReconcile) {
+        try {
+          reconciliation = await unified.reconcilePendingLocalPurchasesToDigifarma(db, {
+            queryDigifarmaFn: options.queryDigifarmaFn
+          });
+        } catch (recErr) {
+          reconciliation = { error: recErr.message };
+        }
+      }
+      res.json({ success: true, report, reconciliation });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
 
   router.get('/settings', requireAdminMw, (req, res) => {
     try {

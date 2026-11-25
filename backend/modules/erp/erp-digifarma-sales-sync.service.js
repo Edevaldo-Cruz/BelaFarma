@@ -270,7 +270,7 @@ async function sincronizarVendaDigifarma(saleData, fiscalInfo = null, deps = {})
         const resolvedCli = await crediarioUnified.resolveDigifarmaClienteId(localDb, {
           cardId: saleData.card_id,
           customerId: saleData.customer_id,
-          digifarmaClienteId: saleData.digifarma_cliente_id,
+          digifarmaClienteId: crediarioUnified.parseSafeDigifarmaId(saleData.digifarma_cliente_id),
           customerName: saleData.customer_name,
           customerCpf: saleData.customer_cpf
         }, queryFn);

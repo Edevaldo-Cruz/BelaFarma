@@ -4664,8 +4664,35 @@ const createCardEndpoints = require('./crediario-card-endpoints.js');
 app.use('/api/cards', createCardEndpoints(db));
 // Central Unificada do Crediário v2 (Sincronização Digifarma + Ficha 360 + Extratos + PIX + Portal)
 const createUnifiedCrediarioEndpoints = require('./crediario-unified-endpoints.js');
+const unifiedCrediarioService = require('./services/crediario-unified.service.js');
 app.use('/api/crediario-v2', createUnifiedCrediarioEndpoints(db));
 console.log('💎 Central Unificada do Crediário v2 inicializada em /api/crediario-v2.');
+
+try {
+  const unifyReport = unifiedCrediarioService.unifyDuplicateCustomersAndCards(db);
+  if (unifyReport.totalMergedCards > 0 || unifyReport.totalMergedCustomers > 0 || unifyReport.sanitizedCards.length > 0) {
+    console.log(
+      `🧹 [Crediário Unificado] Boot higienizado: ${unifyReport.sanitizedCards.length} ID(s) saneado(s), ${unifyReport.totalMergedCards} cartão(ões) e ${unifyReport.totalMergedCustomers} cliente(s) unificados.`
+    );
+  }
+} catch (errUnifyBoot) {
+  console.warn('[Crediário Unificado] Aviso ao unificar duplicatas no boot:', errUnifyBoot.message);
+}
+
+setTimeout(() => {
+  unifiedCrediarioService
+    .reconcilePendingLocalPurchasesToDigifarma(db)
+    .then((rec) => {
+      if (rec && (rec.syncedToDigifarma > 0 || rec.alreadyInDigifarma > 0)) {
+        console.log(
+          `🔄 [Crediário Unificado] Reconciliação no boot: ${rec.syncedToDigifarma} enviada(s) ao Digifarma, ${rec.alreadyInDigifarma} já confirmada(s).`
+        );
+      }
+    })
+    .catch((errRec) => {
+      console.warn('[Crediário Unificado] Aviso na reconciliação pós-boot:', errRec.message);
+    });
+}, 5000);
 console.log('💳 Módulo Cartão BelaFarma (Private Label) & Fidelidade NFC inicializado em /api/cards.');
 
 // Régua Automática e Cron Diário do Crediário 2.0 (Fechamento D-10, Vencimento, D+1, D+3 e D+5)

@@ -1386,6 +1386,33 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
 
         const cleanDigits = (v: any) => String(v || '').replace(/\D/g, '');
         const cleanUpper = (v: any) => String(v || '').trim().toUpperCase();
+        const parseSafeDfId = (v: any): number | null => {
+          const s = String(v ?? '').trim();
+          if (!/^\d+$/.test(s)) return null;
+          const n = Number(s);
+          return Number.isSafeInteger(n) && n >= 1 && n <= 2147483647 ? n : null;
+        };
+        const normalizeNameKey = (v: any) =>
+          String(v || '')
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .toUpperCase()
+            .replace(/[^A-Z0-9\s]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+        const isNoiseContact = (name: string) => {
+          const norm = normalizeNameKey(name);
+          if (!norm) return true;
+          if (
+            norm.startsWith('CONTATO WHATSAPP') ||
+            norm.startsWith('CLIENTE WHATSAPP') ||
+            norm === 'BELA FARMA SUL' ||
+            norm === 'BELA FARMA'
+          ) {
+            return true;
+          }
+          return !norm.split(' ').some(w => /[A-Z]{3,}/.test(w));
+        };
 
         const cardByCustId = new Map<string, any>();
         const cardByDfId = new Map<number, any>();
@@ -1393,21 +1420,23 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
         const cardByName = new Map<string, any>();
         for (const card of cardRows) {
           if (card.customer_id) cardByCustId.set(String(card.customer_id), card);
-          if (card.digifarma_cliente_id) cardByDfId.set(Number(card.digifarma_cliente_id), card);
+          const safeDf = parseSafeDfId(card.digifarma_cliente_id);
+          if (safeDf) cardByDfId.set(safeDf, card);
           const cpfD = cleanDigits(card.cpf);
           if (cpfD.length >= 11) cardByCpf.set(cpfD, card);
-          const nm = cleanUpper(card.customer_name);
+          const nm = normalizeNameKey(card.customer_name);
           if (nm) cardByName.set(nm, card);
         }
 
-        const merged: CustomerOption[] = [];
+        const rawMerged: CustomerOption[] = [];
         const matchedCardIds = new Set<number>();
 
         if (Array.isArray(custRows)) {
           for (const c of custRows) {
+            if (isNoiseContact(c.name)) continue;
             const cpfD = cleanDigits(c.cpf || c.document);
-            const nm = cleanUpper(c.name);
-            const numericCustId = /^\d+$/.test(String(c.id || '')) ? Number(c.id) : null;
+            const nm = normalizeNameKey(c.name);
+            const numericCustId = parseSafeDfId(c.id);
             const matchedCard =
               cardByCustId.get(String(c.id)) ||
               (numericCustId ? cardByDfId.get(numericCustId) : undefined) ||
@@ -1416,13 +1445,14 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
 
             if (matchedCard?.id) matchedCardIds.add(matchedCard.id);
 
-            merged.push({
-              id: String(c.id),
-              name: c.name,
+            const resolvedDfId = parseSafeDfId(matchedCard?.digifarma_cliente_id) ?? numericCustId;
+            rawMerged.push({
+              id: matchedCard?.customer_id ? String(matchedCard.customer_id) : String(c.id),
+              name: matchedCard?.customer_name || c.name,
               phone: c.phone || matchedCard?.phone || '',
               cpf: c.cpf || c.document || matchedCard?.cpf || '',
               card_id: matchedCard?.id,
-              digifarma_cliente_id: matchedCard?.digifarma_cliente_id ?? numericCustId,
+              digifarma_cliente_id: resolvedDfId,
               authorized_buyers: Array.isArray(matchedCard?.authorized_buyers) ? matchedCard.authorized_buyers : []
             });
           }
@@ -1430,17 +1460,33 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
 
         for (const card of cardRows) {
           if (matchedCardIds.has(card.id)) continue;
-          merged.push({
-            id: String(card.customer_id || card.digifarma_cliente_id || `card_${card.id}`),
+          const safeDf = parseSafeDfId(card.digifarma_cliente_id);
+          rawMerged.push({
+            id: String(card.customer_id || safeDf || `card_${card.id}`),
             name: card.customer_name,
             phone: card.phone || '',
             cpf: card.cpf || '',
             card_id: card.id,
-            digifarma_cliente_id: card.digifarma_cliente_id ?? null,
+            digifarma_cliente_id: safeDf,
             authorized_buyers: Array.isArray(card.authorized_buyers) ? card.authorized_buyers : []
           });
         }
 
+        const dedupByName = new Map<string, CustomerOption>();
+        const scoreOpt = (o: CustomerOption) =>
+          (o.digifarma_cliente_id ? 100 : 0) +
+          (o.card_id ? 50 : 0) +
+          (cleanDigits(o.cpf).length >= 11 ? 10 : 0) +
+          (parseSafeDfId(o.id) ? 5 : 0);
+        for (const opt of rawMerged) {
+          const key = normalizeNameKey(opt.name) || cleanUpper(opt.id);
+          const existing = dedupByName.get(key);
+          if (!existing || scoreOpt(opt) > scoreOpt(existing)) {
+            dedupByName.set(key, opt);
+          }
+        }
+
+        const merged = Array.from(dedupByName.values());
         merged.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
         setCustomersList(merged);
       } catch (e) {}
