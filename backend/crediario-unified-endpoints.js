@@ -731,6 +731,15 @@ function createUnifiedCrediarioEndpoints(db, options = {}) {
   // ROTAS EXCLUSIVAS DO ADMINISTRADOR
   // ============================================================================
 
+  router.get('/maintenance/duplicates', requireAdminMw, (req, res) => {
+    try {
+      const data = unified.listDuplicateCandidates(db);
+      res.json({ success: true, ...data });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   router.post('/maintenance/unify-duplicates', requireAdminMw, async (req, res) => {
     try {
       const dryRun = Boolean(req.body?.dryRun);
@@ -746,9 +755,70 @@ function createUnifiedCrediarioEndpoints(db, options = {}) {
           reconciliation = { error: recErr.message };
         }
       }
-      res.json({ success: true, report, reconciliation });
+      const afterState = unified.listDuplicateCandidates(db);
+      res.json({
+        success: true,
+        report,
+        reconciliation,
+        remaining: afterState.totalAttentionCount,
+        duplicatesState: afterState
+      });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/maintenance/merge-manual', requireAdminMw, async (req, res) => {
+    try {
+      const {
+        entityType = 'card',
+        sourceId,
+        targetId,
+        alsoMergeDigifarma = false,
+        forceDifferentCpf = false
+      } = req.body || {};
+
+      if (!sourceId || !targetId) {
+        return res.status(400).json({
+          success: false,
+          error: 'Informe o cadastro duplicado (origem) e o cadastro oficial (destino).'
+        });
+      }
+      if (String(sourceId) === String(targetId)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Os dois cadastros selecionados devem ser diferentes.'
+        });
+      }
+
+      let result;
+      if (entityType === 'customer') {
+        result = await unified.mergeCustomersManual(db, {
+          sourceCustomerId: String(sourceId),
+          targetCustomerId: String(targetId),
+          alsoMergeDigifarma: Boolean(alsoMergeDigifarma),
+          forceDifferentCpf: Boolean(forceDifferentCpf),
+          queryDigifarmaFn: options.queryDigifarmaFn
+        });
+      } else {
+        result = await unified.mergeCardsManual(db, {
+          sourceCardId: Number(sourceId),
+          targetCardId: Number(targetId),
+          alsoMergeDigifarma: Boolean(alsoMergeDigifarma),
+          forceDifferentCpf: Boolean(forceDifferentCpf),
+          queryDigifarmaFn: options.queryDigifarmaFn
+        });
+      }
+
+      const afterState = unified.listDuplicateCandidates(db);
+      res.json({
+        success: true,
+        ...result,
+        remaining: afterState.totalAttentionCount
+      });
+    } catch (err) {
+      const status = err.message && err.message.includes('CPFs diferentes') ? 409 : 400;
+      res.status(status).json({ success: false, error: err.message });
     }
   });
 

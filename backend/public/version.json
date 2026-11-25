@@ -1,9 +1,14 @@
 {
   "version": "1.2.6",
-  "commitHash": "078b2d9",
-  "commitMessage": "fix(crediario): regularizar venda 94471, bloquear overflow INT32 e unificar cadastros duplicados",
-  "buildTime": "25/11/2026, 14:09:21",
+  "commitHash": "97d26c4",
+  "commitMessage": "feat(equivalentes): refinar motor farmaceutico, trava OUTROS (6) e edicao de categoria no Digifarma",
+  "buildTime": "25/11/2026, 14:36:50",
   "recentCommits": [
+    {
+      "hash": "97d26c4",
+      "date": "25/11/2026",
+      "message": "feat(equivalentes): refinar motor farmaceutico, trava OUTROS (6) e edicao de categoria no Digifarma"
+    },
     {
       "hash": "078b2d9",
       "date": "25/11/2026",
@@ -58,11 +63,6 @@
       "hash": "b745109",
       "date": "23/11/2026",
       "message": "feat(crediario): filtro anual global nos kpis/filtros e lancamento rapido de anotacao como produto"
-    },
-    {
-      "hash": "2f4f894",
-      "date": "23/11/2026",
-      "message": "feat(crediario): filtrar carteira padrao apenas para clientes com movimento no ano atual"
     }
   ]
 }

@@ -1911,5 +1911,264 @@ describe('Crediário Unificado Bela Farma — PIX, Motor Financeiro, Extratos & 
 
       memDb.close();
     });
+
+    it('DUP-05: unifica DONA RENI (cust_ minúsculo / WhatsApp) e RENI DANIEL com telefone BR distinto preservando telefone secundário e protegendo LID', () => {
+      const memDb = new Database(':memory:');
+      unified.ensureCrediarioUnifiedSchema(memDb);
+      memDb.exec(`
+        ALTER TABLE customers ADD COLUMN source TEXT DEFAULT 'Manual';
+        ALTER TABLE customers ADD COLUMN whatsapp_lid TEXT;
+        ALTER TABLE customers ADD COLUMN digifarma_id INTEGER;
+        CREATE TABLE sales (id TEXT PRIMARY KEY, sale_date TEXT, total_value REAL, customer_id TEXT, customer_name TEXT, digifarma_venda_id INTEGER);
+        CREATE TABLE customer_debts (id TEXT PRIMARY KEY, customerId TEXT NOT NULL, purchaseDate TEXT, totalValue REAL, status TEXT DEFAULT 'PENDENTE');
+      `);
+
+      memDb.prepare(`
+        INSERT INTO customers (id, name, cpf, phone, creditLimit, dueDay, source, createdAt, updatedAt) VALUES
+        ('38', 'RENI DANIEL DA SILVA', '77388992634', '32988881111', 300, 20, 'Digifarma', '2026-01-01', '2026-01-01'),
+        ('cust_wa_dona_reni', 'DONA RENI', NULL, NULL, 0, NULL, 'WhatsApp', '2026-05-01', '2026-05-01'),
+        ('cust_pdv_reni', 'RENI DANIEL', NULL, '32999992222', 150, 20, 'PDV', '2026-06-01', '2026-06-01'),
+        ('45', 'ADRIANA MAE', NULL, '', 300, 20, 'Digifarma', '2026-01-01', '2026-01-01'),
+        ('cust_wa_adriana', 'Adriana', NULL, '87273802600552', 0, NULL, 'WhatsApp', '2026-05-01', '2026-05-01')
+      `).run();
+
+      memDb.prepare(`
+        INSERT INTO belafarma_cards (
+          id, customer_id, digifarma_cliente_id, portal_token, customer_name, cpf, phone,
+          card_number, credit_limit, used_limit, due_day, status
+        ) VALUES
+        (1, '38', 38, 'tok_reni_38', 'RENI DANIEL DA SILVA', '77388992634', '32988881111', '5489 0000 0000 0038', 300, 50, 20, 'active'),
+        (2, 'cust_pdv_reni', NULL, 'tok_reni_pdv', 'RENI DANIEL', NULL, '32999992222', '5489 0000 0000 0901', 150, 49.9, 20, 'active'),
+        (3, 'cust_wa_dona_reni', NULL, 'tok_dona_reni', 'DONA RENI', NULL, '', '5489 0000 0000 0902', 150, 0, 20, 'active')
+      `).run();
+
+      const rep = unified.unifyDuplicateCustomersAndCards(memDb);
+
+      assert.strictEqual(rep.totalMergedCards, 2);
+      assert.strictEqual(memDb.prepare('SELECT COUNT(*) AS n FROM belafarma_cards').get().n, 1);
+
+      const canonCard = memDb.prepare('SELECT phone, phone_fixed, notes FROM belafarma_cards WHERE id = 1').get();
+      assert.strictEqual(canonCard.phone, '32988881111');
+      assert.strictEqual(canonCard.phone_fixed, '32999992222', 'Telefone secundário da filial/filha deve ser preservado em phone_fixed');
+
+      const mergedFromIds = new Set(rep.mergedCustomers.map(m => m.fromId));
+      assert.ok(mergedFromIds.has('cust_wa_dona_reni'));
+      assert.ok(mergedFromIds.has('cust_pdv_reni'));
+      assert.ok(!mergedFromIds.has('cust_wa_adriana'), 'LID solto Adriana segue protegido');
+
+      // Relatório deve ficar salvo em system_settings
+      const diag = unified.listDuplicateCandidates(memDb);
+      assert.ok(diag.lastUnifyReport);
+      assert.strictEqual(diag.lastUnifyReport.totalMergedCards, 2);
+
+      memDb.close();
+    });
+
+    it('DUP-06: reconcilePendingLocalPurchasesToDigifarma pula venda PDV sem digifarma_venda_id e respeita carência de 120s (evita duplicação #8376/#8377)', async () => {
+      const memDb = new Database(':memory:');
+      unified.ensureCrediarioUnifiedSchema(memDb);
+      memDb.exec(`
+        CREATE TABLE sales (
+          id TEXT PRIMARY KEY,
+          sale_date TEXT,
+          total_value REAL,
+          customer_id TEXT,
+          customer_name TEXT,
+          digifarma_venda_id INTEGER
+        );
+      `);
+
+      memDb.prepare(`
+        INSERT INTO belafarma_cards (
+          id, customer_id, digifarma_cliente_id, portal_token, customer_name, cpf, phone,
+          card_number, credit_limit, used_limit, due_day, status
+        ) VALUES (1, '38', 38, 'tok_38_rec', 'RENI DANIEL DA SILVA', '77388992634', '', '5489 0000 0000 0038', 300, 27.80, 20, 'active')
+      `).run();
+
+      // Venda PDV recente ainda sem digifarma_venda_id preenchido (race condition da NFC-e)
+      memDb.prepare(`
+        INSERT INTO sales (id, sale_date, total_value, customer_id, customer_name, digifarma_venda_id)
+        VALUES ('VND-94475', '2026-11-25', 27.80, '38', 'RENI DANIEL DA SILVA', NULL)
+      `).run();
+      memDb.prepare(`
+        INSERT INTO crediario_local_purchases (id, card_id, sale_id, buyer_name, description, amount, status, purchased_at, due_date)
+        VALUES ('lp_pdv_wait', 1, 'VND-94475', 'RENI DANIEL DA SILVA', '2x PRODUTO', 27.80, 'open', '2020-01-01', '2026-12-25')
+      `).run();
+
+      // Anotação manual criada agora mesmo (com horário < 120s)
+      const nowIsoLocal = (() => {
+        const d = new Date();
+        const pad = n => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+      })();
+      memDb.prepare(`
+        INSERT INTO crediario_local_purchases (id, card_id, sale_id, buyer_name, description, amount, status, purchased_at, due_date)
+        VALUES ('lp_manual_recent', 1, NULL, 'RENI', 'ANOTACAO RECENTE', 15.00, 'open', ?, '2026-12-25')
+      `).run(nowIsoLocal);
+
+      let insertCount = 0;
+      const queryMock = async (sql) => {
+        const u = String(sql || '').toUpperCase().trim();
+        if (u.includes('FROM CLIENTES WHERE CLIENTE_ID = ?')) {
+          return [{ CLIENTE_ID: 38, CLIENTE: 'RENI DANIEL DA SILVA', CLI_DIA_PAGAMENTO: 20 }];
+        }
+        if (u.startsWith('INSERT INTO FICHARIO')) {
+          insertCount++;
+        }
+        return [];
+      };
+
+      const rec = await unified.reconcilePendingLocalPurchasesToDigifarma(memDb, { queryDigifarmaFn: queryMock, minAgeSeconds: 120 });
+      assert.strictEqual(insertCount, 0, 'Nunca pode inserir venda PDV sem VENDA_NOTA_ID nem anotação dentro da carência');
+      assert.strictEqual(rec.syncedToDigifarma, 0);
+      assert.strictEqual(rec.skipped, 2);
+      assert.ok(rec.details.some(d => d.id === 'lp_pdv_wait' && d.status === 'waiting_pdv_digifarma_sync'));
+      assert.ok(rec.details.some(d => d.id === 'lp_manual_recent' && d.status === 'too_recent_cooldown'));
+
+      memDb.close();
+    });
+
+    it('DUP-07: listDuplicateCandidates detecta ROSANI #37/#65 (ambos no Digifarma) e mergeCardsManual unifica Belinha + mock Firebird', async () => {
+      const memDb = new Database(':memory:');
+      unified.ensureCrediarioUnifiedSchema(memDb);
+      memDb.exec(`
+        ALTER TABLE customers ADD COLUMN source TEXT DEFAULT 'Manual';
+        ALTER TABLE customers ADD COLUMN whatsapp_lid TEXT;
+        ALTER TABLE customers ADD COLUMN digifarma_id INTEGER;
+        CREATE TABLE customer_debts (id TEXT PRIMARY KEY, customerId TEXT NOT NULL, purchaseDate TEXT, totalValue REAL, status TEXT DEFAULT 'PENDENTE');
+      `);
+
+      const todayYMD = unified.toLocalDateYMD(new Date());
+      memDb.prepare(`
+        INSERT INTO customers (id, name, cpf, phone, creditLimit, dueDay, source) VALUES
+        ('37', 'ROSANI MARIA BARCELOS (TIA DA LIVIA)', NULL, '988899200', 300, 20, 'Digifarma'),
+        ('65', 'ROSANI NOVO CADASTRO', NULL, '', 300, 20, 'Digifarma')
+      `).run();
+
+      memDb.prepare(`
+        INSERT INTO belafarma_cards (
+          id, customer_id, digifarma_cliente_id, portal_token, customer_name, cpf, phone,
+          card_number, credit_limit, used_limit, due_day, status
+        ) VALUES
+        (10, '37', 37, 'tok_ros_37', 'ROSANI MARIA BARCELOS (TIA DA LIVIA)', NULL, '988899200', '5489 0000 0000 0037', 300, 35.99, 20, 'active'),
+        (11, '65', 65, 'tok_ros_65', 'ROSANI NOVO CADASTRO', NULL, '', '5489 0000 0000 0065', 300, 35.98, 20, 'active')
+      `).run();
+
+      memDb.prepare(`
+        INSERT INTO digifarma_crediario_cache (id, cliente_id, cliente_nome, valor, data_compra, data_vencimento)
+        VALUES
+          ('df_37_1', 37, 'ROSANI MARIA BARCELOS', 35.99, ?, ?),
+          ('df_65_1', 65, 'ROSANI NOVO CADASTRO', 35.98, ?, ?)
+      `).run(todayYMD, todayYMD, todayYMD, todayYMD);
+
+      const diag = unified.listDuplicateCandidates(memDb);
+      assert.strictEqual(diag.suggestedCardPairs.length, 1);
+      const pair = diag.suggestedCardPairs[0];
+      assert.strictEqual(pair.bothInDigifarma, true);
+
+      const fbQueries = [];
+      const mockFb = async (sql, params = []) => {
+        fbQueries.push({ sql: String(sql).trim(), params });
+        return [];
+      };
+
+      const mergeRes = await unified.mergeCardsManual(memDb, {
+        sourceCardId: 11,
+        targetCardId: 10,
+        alsoMergeDigifarma: true,
+        queryDigifarmaFn: mockFb
+      });
+
+      assert.strictEqual(mergeRes.digifarmaMerged, true);
+      assert.ok(fbQueries.some(q => q.sql.startsWith('UPDATE FICHARIO SET CLIENTE_ID = ?') && q.params[0] === 37 && q.params[1] === 65));
+      assert.ok(fbQueries.some(q => q.sql.startsWith('UPDATE CONTAS_RECEBIDAS SET CLIENTE_ID = ?') && q.params[0] === 37 && q.params[1] === 65));
+      assert.ok(fbQueries.some(q => q.sql.startsWith('UPDATE ARQUIVO_MORTO SET CLIENTE_ID = ?') && q.params[0] === 37 && q.params[1] === 65));
+      assert.ok(fbQueries.some(q => q.sql.startsWith('UPDATE CAB_VENDAS SET CLIENTE_ID = ?') && q.params[0] === 37 && q.params[1] === 65));
+      assert.ok(fbQueries.some(q => q.sql.includes("CLI_BLOQUEADO = 'S', CLI_INATIVO = 'S'") && q.params[1] === 65));
+
+      assert.strictEqual(memDb.prepare('SELECT COUNT(*) AS n FROM belafarma_cards').get().n, 1);
+      assert.strictEqual(memDb.prepare('SELECT COUNT(*) AS n FROM customers').get().n, 1);
+      assert.strictEqual(memDb.prepare('SELECT COUNT(*) AS n FROM digifarma_crediario_cache WHERE cliente_id = 37').get().n, 2);
+      assert.strictEqual(unified.listDuplicateCandidates(memDb).totalAttentionCount, 0);
+
+      memDb.close();
+    });
+
+    it('DUP-08: endpoints GET /maintenance/duplicates e POST /maintenance/merge-manual exigem Admin (403 Operador, 200 Admin)', async () => {
+      const memDb = new Database(':memory:');
+      unified.ensureCrediarioUnifiedSchema(memDb);
+      const todayYMD = unified.toLocalDateYMD(new Date());
+
+      memDb.prepare(`
+        INSERT INTO customers (id, name, phone, creditLimit, dueDay) VALUES
+        ('c1', 'DONA MARIA', '32988880001', 300, 20),
+        ('c2', 'MARIA APARECIDA', '32977770002', 300, 20)
+      `).run();
+      memDb.prepare(`
+        INSERT INTO belafarma_cards (
+          id, customer_id, digifarma_cliente_id, portal_token, customer_name, phone,
+          card_number, credit_limit, used_limit, due_day, status
+        ) VALUES
+        (1, 'c1', NULL, 'tok_c1', 'DONA MARIA', '32988880001', '5489 0000 0000 0001', 300, 10, 20, 'active'),
+        (2, 'c2', NULL, 'tok_c2', 'MARIA APARECIDA', '32977770002', '5489 0000 0000 0002', 300, 0, 20, 'active')
+      `).run();
+      memDb.prepare(`
+        INSERT INTO crediario_local_purchases (id, card_id, buyer_name, description, amount, status, purchased_at, due_date)
+        VALUES ('lp_m1', 1, 'DONA MARIA', 'DIPIRONA', 10, 'open', ?, ?)
+      `).run(todayYMD, todayYMD);
+
+      const app = express();
+      app.use(express.json());
+      app.use('/api', security.apiAuthMiddleware);
+      app.use('/api/crediario-v2', createUnifiedCrediarioEndpoints(memDb, { queryDigifarmaFn: async () => [] }));
+
+      const opToken = security.signToken({ id: 'op-dup', name: 'Operador', role: 'Operador' });
+      const admToken = security.signToken({ id: 'adm-dup', name: 'Admin', role: 'Administrador' });
+
+      let srv;
+      let url;
+      await new Promise(resolve => {
+        srv = app.listen(0, '127.0.0.1', () => {
+          url = `http://127.0.0.1:${srv.address().port}`;
+          resolve();
+        });
+      });
+
+      try {
+        const resOpGet = await fetch(`${url}/api/crediario-v2/maintenance/duplicates`, {
+          headers: { Authorization: `Bearer ${opToken}` }
+        });
+        assert.strictEqual(resOpGet.status, 403);
+
+        const resOpPost = await fetch(`${url}/api/crediario-v2/maintenance/merge-manual`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${opToken}` },
+          body: JSON.stringify({ entityType: 'card', sourceId: 1, targetId: 2 })
+        });
+        assert.strictEqual(resOpPost.status, 403);
+
+        const resAdmGet = await fetch(`${url}/api/crediario-v2/maintenance/duplicates`, {
+          headers: { Authorization: `Bearer ${admToken}` }
+        });
+        assert.strictEqual(resAdmGet.status, 200);
+        const dupBody = await resAdmGet.json();
+        assert.strictEqual(dupBody.success, true);
+        assert.ok(dupBody.suggestedCardPairs.length >= 1);
+
+        const resAdmPost = await fetch(`${url}/api/crediario-v2/maintenance/merge-manual`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${admToken}` },
+          body: JSON.stringify({ entityType: 'card', sourceId: 1, targetId: 2 })
+        });
+        assert.strictEqual(resAdmPost.status, 200);
+        const mergeBody = await resAdmPost.json();
+        assert.strictEqual(mergeBody.success, true);
+        assert.strictEqual(memDb.prepare('SELECT COUNT(*) AS n FROM belafarma_cards').get().n, 1);
+        assert.strictEqual(memDb.prepare('SELECT card_id FROM crediario_local_purchases WHERE id = ?').get('lp_m1').card_id, 2);
+      } finally {
+        await new Promise(resolve => srv.close(resolve));
+        memDb.close();
+      }
+    });
   });
 });

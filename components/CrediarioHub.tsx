@@ -5,6 +5,7 @@ import {
   CreditCard,
   DollarSign,
   FileText,
+  GitMerge,
   Link2,
   Lock,
   MessageSquare,
@@ -23,6 +24,7 @@ import {
 import { User, UserRole } from '../types';
 import { useToast } from './ToastContext';
 import { CrediarioCustomerProfileModal } from './CrediarioCustomerProfileModal';
+import { UnifyDuplicatesModal } from './UnifyDuplicatesModal';
 
 export interface CrediarioHubProps {
   user: User;
@@ -312,6 +314,8 @@ export const CrediarioHub: React.FC<CrediarioHubProps> = ({
   const [clientFilter, setClientFilter] = useState(initialFilter || 'all');
   const [onlyRecentPurchases, setOnlyRecentPurchases] = useState(true);
   const [syncingDigifarma, setSyncingDigifarma] = useState(false);
+  const [isUnifyModalOpen, setIsUnifyModalOpen] = useState(false);
+  const [duplicatesBadgeCount, setDuplicatesBadgeCount] = useState(0);
 
   // Aba 2: Lançamentos & Compras
   const [txPeriodDays, setTxPeriodDays] = useState<number>(60);
@@ -452,6 +456,21 @@ export const CrediarioHub: React.FC<CrediarioHubProps> = ({
     return () => clearTimeout(timer);
   }, [fetchClients]);
 
+  const fetchDuplicatesCount = useCallback(async () => {
+    if (!isAdmin) return;
+    try {
+      const res = await fetch('/api/crediario-v2/maintenance/duplicates');
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setDuplicatesBadgeCount(Number(data.totalAttentionCount || 0));
+      }
+    } catch {}
+  }, [isAdmin]);
+
+  useEffect(() => {
+    fetchDuplicatesCount();
+  }, [fetchDuplicatesCount]);
+
   useEffect(() => {
     if (activeTab === 'lancamentos') {
       const timer = setTimeout(() => {
@@ -545,6 +564,7 @@ export const CrediarioHub: React.FC<CrediarioHubProps> = ({
       }
       setIsAnnotationOpen(false);
       await fetchClients();
+      await fetchDuplicatesCount();
       if (activeTab === 'lancamentos') await fetchTransactions();
       if (openAfter) {
         handleOpenProfile(targetCardId, 'none');
@@ -579,6 +599,7 @@ export const CrediarioHub: React.FC<CrediarioHubProps> = ({
         );
       }
       await fetchClients();
+      await fetchDuplicatesCount();
       if (activeTab === 'lancamentos') await fetchTransactions();
     } catch {
       addToast('Falha ao conectar para sincronização com Digifarma.', 'error');
@@ -781,6 +802,22 @@ export const CrediarioHub: React.FC<CrediarioHubProps> = ({
             <RefreshCw className={`w-4 h-4 ${syncingDigifarma ? 'animate-spin' : ''}`} />
             <span>{syncingDigifarma ? 'Sincronizando...' : 'Sincronizar Digifarma'}</span>
           </button>
+
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={() => setIsUnifyModalOpen(true)}
+              className="px-4 py-2.5 rounded-xl border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-900/50 text-amber-900 dark:text-amber-200 text-sm font-bold flex items-center gap-2 transition-colors"
+            >
+              <GitMerge className="w-4 h-4" />
+              <span>Unificar Duplicados</span>
+              {duplicatesBadgeCount > 0 && (
+                <span className="px-2 py-0.5 rounded-full text-xs font-black bg-red-600 text-white">
+                  {duplicatesBadgeCount}
+                </span>
+              )}
+            </button>
+          )}
 
           <button
             type="button"
@@ -2154,6 +2191,19 @@ export const CrediarioHub: React.FC<CrediarioHubProps> = ({
           if (activeTab === 'lancamentos') fetchTransactions();
         }}
       />
+
+      {isAdmin && (
+        <UnifyDuplicatesModal
+          isOpen={isUnifyModalOpen}
+          onClose={() => setIsUnifyModalOpen(false)}
+          initialEntityType="card"
+          onMerged={() => {
+            fetchClients();
+            fetchDuplicatesCount();
+            if (activeTab === 'lancamentos') fetchTransactions();
+          }}
+        />
+      )}
     </div>
   );
 };

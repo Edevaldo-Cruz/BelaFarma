@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Users, Plus, CreditCard, Search, Edit2, Trash2, Phone, Mail, MapPin, X, Eye, AlertCircle, FileText, UploadCloud, Stethoscope, Loader2 } from 'lucide-react';
-import { Customer, CustomerDebt, User } from '../types';
+import { Users, Plus, CreditCard, Search, Edit2, Trash2, Phone, Mail, MapPin, X, Eye, AlertCircle, FileText, UploadCloud, Stethoscope, Loader2, GitMerge } from 'lucide-react';
+import { Customer, CustomerDebt, User, UserRole } from '../types';
 import { useToast } from './ToastContext';
 import { CrediarioCustomerProfileModal } from './CrediarioCustomerProfileModal';
+import { UnifyDuplicatesModal } from './UnifyDuplicatesModal';
 
 interface CustomersPageProps {
   user: User;
@@ -19,6 +20,8 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({ user, onLog }) => 
   const [crediarioTargetCustomerId, setCrediarioTargetCustomerId] = useState<string | null>(null);
   const [customerDebts, setCustomerDebts] = useState<CustomerDebt[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isUnifyModalOpen, setIsUnifyModalOpen] = useState(false);
+  const isAdmin = user?.role === UserRole.ADM || user?.role === 'Administrador';
   const { addToast } = useToast();
   
   // Recipes state
@@ -300,13 +303,25 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({ user, onLog }) => 
             Gerencie o cadastro de clientes.
           </p>
         </div>
-        <button
-          onClick={() => openModal()}
-          className="flex items-center gap-2 px-6 py-3 bg-red-600 text-white rounded-2xl font-black text-sm uppercase hover:bg-red-700 transition-all shadow-lg"
-        >
-          <Plus className="w-5 h-5" />
-          Novo Cliente
-        </button>
+        <div className="flex flex-wrap items-center gap-3">
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={() => setIsUnifyModalOpen(true)}
+              className="flex items-center gap-2 px-5 py-3 bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-800 rounded-2xl font-black text-sm uppercase hover:bg-amber-100 dark:hover:bg-amber-900/50 transition-all shadow-sm"
+            >
+              <GitMerge className="w-5 h-5" />
+              Unificar Duplicados
+            </button>
+          )}
+          <button
+            onClick={() => openModal()}
+            className="flex items-center gap-2 px-6 py-3 bg-red-600 text-white rounded-2xl font-black text-sm uppercase hover:bg-red-700 transition-all shadow-lg"
+          >
+            <Plus className="w-5 h-5" />
+            Novo Cliente
+          </button>
+        </div>
       </header>
 
       {/* Search */}
@@ -760,6 +775,14 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({ user, onLog }) => 
             </div>
           </div>
         </div>
+      )}
+      {isAdmin && (
+        <UnifyDuplicatesModal
+          isOpen={isUnifyModalOpen}
+          onClose={() => setIsUnifyModalOpen(false)}
+          initialEntityType="customer"
+          onMerged={() => fetchCustomers()}
+        />
       )}
     </div>
   );
