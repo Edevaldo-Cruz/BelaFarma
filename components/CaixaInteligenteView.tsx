@@ -69,6 +69,31 @@ export const CaixaInteligenteView: React.FC<CaixaInteligenteViewProps> = ({
     const salvo = localStorage.getItem('belafarma_saldo_cofre_atual');
     return salvo ? parseFloat(salvo) : 1603.99;
   });
+  const [editandoSaldoCofre, setEditandoSaldoCofre] = useState<boolean>(false);
+  const [tempSaldoCofre, setTempSaldoCofre] = useState<string>(saldoCofre.toFixed(2));
+
+  // Saldo Mercado Pago (Conta Livre + Cofrinhos rendendo no CDI)
+  const [saldoMpConta, setSaldoMpConta] = useState<number>(() => {
+    const salvo = localStorage.getItem('belafarma_saldo_mp_conta');
+    return salvo ? parseFloat(salvo) : 0;
+  });
+  const [saldoMpCofrinhos, setSaldoMpCofrinhos] = useState<number>(() => {
+    const salvo = localStorage.getItem('belafarma_saldo_mp_cofrinhos');
+    return salvo ? parseFloat(salvo) : 0;
+  });
+  const [editandoMp, setEditandoMp] = useState<boolean>(false);
+  const [tempMpConta, setTempMpConta] = useState<string>(saldoMpConta.toFixed(2));
+  const [tempMpCofrinhos, setTempMpCofrinhos] = useState<string>(saldoMpCofrinhos.toFixed(2));
+
+  const saldoMercadoPagoTotal = useMemo(
+    () => Math.round((saldoMpConta + saldoMpCofrinhos) * 100) / 100,
+    [saldoMpConta, saldoMpCofrinhos]
+  );
+
+  const patrimonioLiquidoTotal = useMemo(
+    () => Math.round((saldoBanco + saldoMercadoPagoTotal + saldoCofre) * 100) / 100,
+    [saldoBanco, saldoMercadoPagoTotal, saldoCofre]
+  );
 
   // Colchão de segurança operacional (mínimo desejado na conta para contingência)
   const [colchaoSeguranca, setColchaoSeguranca] = useState<number>(() => {
@@ -364,16 +389,24 @@ export const CaixaInteligenteView: React.FC<CaixaInteligenteViewProps> = ({
   // 3. Sobra Livre Real (Disponível com total segurança para transferir para Caixinha de Reserva ou Pró-Labore)
   const sobraDisponivel = saldoBanco - valorEssencialRecomendado;
 
-  // Simulador de Rendimento (100% CDI ~ 11% a 13% a.a. => ~0,9% ao mês)
+  // Simulador de Rendimento (100% CDI ~ 11% a 13% a.a. => ~0,92% ao mês líquido)
+  const baseRendimentoAtual = Math.max(0, saldoMercadoPagoTotal);
+  const baseRendimentoComSobra = baseRendimentoAtual + Math.max(0, sobraDisponivel);
+
   const rendimentoEstimadoMes = useMemo(() => {
-    if (sobraDisponivel <= 0) return 0;
-    return (sobraDisponivel * 0.0092); // ~0,92% ao mês líquido
-  }, [sobraDisponivel]);
+    if (baseRendimentoComSobra <= 0) return 0;
+    return baseRendimentoComSobra * 0.0092; // ~0,92% ao mês líquido
+  }, [baseRendimentoComSobra]);
+
+  const rendimentoAtualMpMes = useMemo(() => {
+    if (baseRendimentoAtual <= 0) return 0;
+    return baseRendimentoAtual * 0.0092;
+  }, [baseRendimentoAtual]);
 
   const rendimentoEstimadoAno = useMemo(() => {
-    if (sobraDisponivel <= 0) return 0;
-    return (sobraDisponivel * 0.115); // ~11,5% ao ano
-  }, [sobraDisponivel]);
+    if (baseRendimentoComSobra <= 0) return 0;
+    return baseRendimentoComSobra * 0.115; // ~11,5% ao ano
+  }, [baseRendimentoComSobra]);
 
   // ─── Salvar no localStorage ───────────────────────────────────────
   const salvarSaldoBanco = () => {
@@ -385,6 +418,34 @@ export const CaixaInteligenteView: React.FC<CaixaInteligenteViewProps> = ({
       addToast('Saldo bancário atualizado com sucesso!', 'success');
       onLog?.('Atualização Saldo Banco', `Novo saldo: R$ ${num.toFixed(2)}`);
     }
+  };
+
+  const salvarSaldoCofre = () => {
+    const num = parseFloat(tempSaldoCofre.replace(',', '.'));
+    if (!isNaN(num)) {
+      setSaldoCofre(num);
+      localStorage.setItem('belafarma_saldo_cofre_atual', num.toString());
+      setEditandoSaldoCofre(false);
+      addToast('Saldo do cofre físico atualizado!', 'success');
+      onLog?.('Atualização Saldo Cofre', `Novo saldo cofre: R$ ${num.toFixed(2)}`);
+    }
+  };
+
+  const salvarMercadoPago = () => {
+    const conta = parseFloat(tempMpConta.replace(',', '.'));
+    const cofrinhos = parseFloat(tempMpCofrinhos.replace(',', '.'));
+    const contaVal = !isNaN(conta) && conta >= 0 ? conta : 0;
+    const cofrinhosVal = !isNaN(cofrinhos) && cofrinhos >= 0 ? cofrinhos : 0;
+    setSaldoMpConta(contaVal);
+    setSaldoMpCofrinhos(cofrinhosVal);
+    localStorage.setItem('belafarma_saldo_mp_conta', contaVal.toString());
+    localStorage.setItem('belafarma_saldo_mp_cofrinhos', cofrinhosVal.toString());
+    setEditandoMp(false);
+    addToast('Saldo do Mercado Pago (Conta + Cofrinhos) atualizado!', 'success');
+    onLog?.(
+      'Atualização Mercado Pago',
+      `Conta: R$ ${contaVal.toFixed(2)} | Cofrinhos: R$ ${cofrinhosVal.toFixed(2)} | Total: R$ ${(contaVal + cofrinhosVal).toFixed(2)}`
+    );
   };
 
   const salvarTerceiros = () => {
@@ -426,12 +487,12 @@ export const CaixaInteligenteView: React.FC<CaixaInteligenteViewProps> = ({
               e indica quanto você pode transferir para uma conta que rende 100% do CDI (ou amortizar dinheiro de terceiros).
             </p>
 
-            {/* Toggle de Inclusão de Provisões no Cálculo */}
+            {/* Toggle de Inclusão de Provisões no Cálculo + Resumo Patrimônio Total */}
             <div className="flex flex-wrap items-center gap-3 pt-2">
               <button
                 type="button"
                 onClick={toggleConsiderarProvisoes}
-                className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 border shadow-sm ${
+                className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 border shadow-sm cursor-pointer ${
                   considerarProvisoes 
                     ? 'bg-emerald-500/20 text-emerald-300 border-emerald-400/40 hover:bg-emerald-500/30' 
                     : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-slate-200'
@@ -441,6 +502,16 @@ export const CaixaInteligenteView: React.FC<CaixaInteligenteViewProps> = ({
                 <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
                 <span>Provisões das Caixinhas: {considerarProvisoes ? 'CONSIDERADAS NO CÁLCULO' : 'IGNORADAS'}</span>
               </button>
+
+              <div
+                className="px-3 py-1.5 rounded-xl text-xs font-bold bg-sky-500/15 border border-sky-400/30 text-sky-200 flex items-center gap-1.5"
+                title="Soma total: Conta Banco + Mercado Pago (Conta + Cofrinhos) + Dinheiro Físico no Cofre"
+              >
+                <DollarSign className="w-3.5 h-3.5 text-sky-300" />
+                <span>
+                  Disponível Total: <strong className="font-mono text-white">R$ {patrimonioLiquidoTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                </span>
+              </div>
             </div>
 
             {considerarProvisoes && (
@@ -495,19 +566,22 @@ export const CaixaInteligenteView: React.FC<CaixaInteligenteViewProps> = ({
         </div>
       </div>
 
-      {/* ─── CARDS DE PILARES FINANCEIROS ───────────────────────────────── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-        {/* Saldo na Conta Corrente */}
+      {/* ─── CARDS DE PILARES FINANCEIROS (6 CARDS EM GRADE 3x2) ─────────── */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {/* 1. Saldo na Conta Corrente */}
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm relative group">
           <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-2">
             <span className="text-xs font-bold uppercase tracking-wider flex items-center gap-1.5">
               <Landmark className="w-4 h-4 text-blue-500" />
-              Saldo na Conta
+              Saldo na Conta (Banco)
             </span>
             <button
               type="button"
-              onClick={() => setEditandoSaldoBanco(!editandoSaldoBanco)}
-              className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline font-semibold"
+              onClick={() => {
+                setTempSaldoBanco(saldoBanco.toFixed(2));
+                setEditandoSaldoBanco(!editandoSaldoBanco);
+              }}
+              className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline font-semibold cursor-pointer"
             >
               {editandoSaldoBanco ? 'Fechar' : 'Ajustar'}
             </button>
@@ -517,6 +591,7 @@ export const CaixaInteligenteView: React.FC<CaixaInteligenteViewProps> = ({
             <div className="space-y-2 mt-1">
               <input
                 type="text"
+                inputMode="decimal"
                 value={tempSaldoBanco}
                 onChange={(e) => setTempSaldoBanco(e.target.value)}
                 className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm font-mono font-bold focus:outline-none focus:border-blue-500"
@@ -525,7 +600,7 @@ export const CaixaInteligenteView: React.FC<CaixaInteligenteViewProps> = ({
               <button
                 type="button"
                 onClick={salvarSaldoBanco}
-                className="w-full py-1 rounded-lg bg-blue-600 text-white text-xs font-bold hover:bg-blue-500 transition-colors"
+                className="w-full py-1.5 rounded-lg bg-blue-600 text-white text-xs font-bold hover:bg-blue-500 transition-colors cursor-pointer"
               >
                 Salvar Saldo
               </button>
@@ -536,13 +611,89 @@ export const CaixaInteligenteView: React.FC<CaixaInteligenteViewProps> = ({
                 R$ {saldoBanco.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
               <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-                Saldo de partida na conta da farmácia
+                Saldo operacional de partida para boletos do dia
               </p>
             </>
           )}
         </div>
 
-        {/* Colchão de Segurança Essencial */}
+        {/* 2. Mercado Pago (Conta + Cofrinhos CDI) */}
+        <div className="bg-white dark:bg-slate-900 border-2 border-sky-200 dark:border-sky-800/70 rounded-2xl p-4 shadow-sm relative group">
+          <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-2">
+            <span className="text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 text-sky-700 dark:text-sky-300">
+              <PiggyBank className="w-4 h-4 text-sky-500" />
+              Mercado Pago + Cofrinhos
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setTempMpConta(saldoMpConta.toFixed(2));
+                setTempMpCofrinhos(saldoMpCofrinhos.toFixed(2));
+                setEditandoMp(!editandoMp);
+              }}
+              className="text-[11px] text-sky-600 dark:text-sky-400 hover:underline font-semibold cursor-pointer"
+            >
+              {editandoMp ? 'Fechar' : 'Ajustar'}
+            </button>
+          </div>
+
+          {editandoMp ? (
+            <div className="space-y-2 mt-1">
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-slate-500 dark:text-slate-400 mb-0.5">
+                    Conta MP (Livre)
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={tempMpConta}
+                    onChange={(e) => setTempMpConta(e.target.value)}
+                    className="w-full px-2 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-mono font-bold focus:outline-none focus:border-sky-500"
+                    placeholder="0,00"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-slate-500 dark:text-slate-400 mb-0.5">
+                    Cofrinhos (CDI)
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={tempMpCofrinhos}
+                    onChange={(e) => setTempMpCofrinhos(e.target.value)}
+                    className="w-full px-2 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-mono font-bold focus:outline-none focus:border-sky-500"
+                    placeholder="0,00"
+                  />
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={salvarMercadoPago}
+                className="w-full py-1.5 rounded-lg bg-sky-600 text-white text-xs font-bold hover:bg-sky-500 transition-colors cursor-pointer"
+              >
+                Salvar Mercado Pago
+              </button>
+            </div>
+          ) : (
+            <>
+              <div className="text-2xl font-black font-mono text-sky-600 dark:text-sky-400">
+                R$ {saldoMercadoPagoTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-slate-600 dark:text-slate-300 mt-1 font-medium">
+                <span>
+                  Conta: <strong className="font-mono">R$ {saldoMpConta.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                </span>
+                <span className="text-slate-400">•</span>
+                <span className="text-sky-700 dark:text-sky-300">
+                  Cofrinhos: <strong className="font-mono">R$ {saldoMpCofrinhos.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                </span>
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* 3. Colchão de Segurança Essencial */}
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
           <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-2">
             <span className="text-xs font-bold uppercase tracking-wider flex items-center gap-1.5">
@@ -561,7 +712,7 @@ export const CaixaInteligenteView: React.FC<CaixaInteligenteViewProps> = ({
           </p>
         </div>
 
-        {/* Caixinhas de Provisão (Pró-Labore & Reserva) */}
+        {/* 4. Caixinhas de Provisão (Pró-Labore & Reserva) */}
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
           <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-2">
             <span className="text-xs font-bold uppercase tracking-wider flex items-center gap-1.5">
@@ -582,23 +733,55 @@ export const CaixaInteligenteView: React.FC<CaixaInteligenteViewProps> = ({
           </p>
         </div>
 
-        {/* Dinheiro Físico (Cofre + Gaveta) */}
+        {/* 5. Dinheiro Físico (Cofre + Gaveta) */}
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
           <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-2">
             <span className="text-xs font-bold uppercase tracking-wider flex items-center gap-1.5">
               <Banknote className="w-4 h-4 text-amber-500" />
               Dinheiro Físico (Cofre)
             </span>
+            <button
+              type="button"
+              onClick={() => {
+                setTempSaldoCofre(saldoCofre.toFixed(2));
+                setEditandoSaldoCofre(!editandoSaldoCofre);
+              }}
+              className="text-[11px] text-amber-600 dark:text-amber-400 hover:underline font-semibold cursor-pointer"
+            >
+              {editandoSaldoCofre ? 'Fechar' : 'Ajustar'}
+            </button>
           </div>
-          <div className="text-2xl font-black font-mono text-amber-600 dark:text-amber-400">
-            R$ {saldoCofre.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          </div>
-          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-            Disponível para aportes no banco quando faltar
-          </p>
+          {editandoSaldoCofre ? (
+            <div className="space-y-2 mt-1">
+              <input
+                type="text"
+                inputMode="decimal"
+                value={tempSaldoCofre}
+                onChange={(e) => setTempSaldoCofre(e.target.value)}
+                className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm font-mono font-bold focus:outline-none focus:border-amber-500"
+                placeholder="0,00"
+              />
+              <button
+                type="button"
+                onClick={salvarSaldoCofre}
+                className="w-full py-1.5 rounded-lg bg-amber-600 text-white text-xs font-bold hover:bg-amber-500 transition-colors cursor-pointer"
+              >
+                Salvar Cofre
+              </button>
+            </div>
+          ) : (
+            <>
+              <div className="text-2xl font-black font-mono text-amber-600 dark:text-amber-400">
+                R$ {saldoCofre.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                Disponível para aportes no banco quando faltar
+              </p>
+            </>
+          )}
         </div>
 
-        {/* Entrada Digital Prevista / Dia */}
+        {/* 6. Entrada Digital Prevista / Dia */}
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
           <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-2">
             <span className="text-xs font-bold uppercase tracking-wider flex items-center gap-1.5">
@@ -647,13 +830,15 @@ export const CaixaInteligenteView: React.FC<CaixaInteligenteViewProps> = ({
 
           <div className="p-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60">
             <span className="text-xs font-bold uppercase text-emerald-700 dark:text-emerald-400">
-              Rendimento em 30 Dias (Sobra Atual)
+              Rendimento em 30 Dias (Mercado Pago + Sobra)
             </span>
             <div className="text-2xl font-black font-mono text-emerald-600 dark:text-emerald-300 mt-1">
               + R$ {rendimentoEstimadoMes.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
             <p className="text-[11px] text-emerald-700 dark:text-emerald-400 mt-1">
-              Líquido caindo todo dia na conta sem travar o dinheiro.
+              {saldoMercadoPagoTotal > 0
+                ? `Já rendendo ~R$ ${rendimentoAtualMpMes.toFixed(2)}/mês no Mercado Pago (Conta + Cofrinhos).`
+                : 'Líquido caindo todo dia no Mercado Pago / Cofrinhos sem travar o dinheiro.'}
             </p>
           </div>
 
@@ -742,7 +927,7 @@ export const CaixaInteligenteView: React.FC<CaixaInteligenteViewProps> = ({
                 Fazer o Pix da Sobra
               </div>
               <p className="text-xs text-slate-600 dark:text-slate-300 mt-2 leading-relaxed">
-                Se a <strong>Sobra Livre</strong> for maior que R$ 200, faça um Pix para a conta que rende (ou amortize terceiros). Nunca deixe dinheiro à toa.
+                Se a <strong>Sobra Livre</strong> for maior que R$ 200, faça um Pix para o <strong>Mercado Pago / Cofrinhos</strong> (ou amortize terceiros). Nunca deixe dinheiro à toa.
               </p>
             </div>
             <div className="mt-3 text-[11px] font-bold text-indigo-500">
@@ -782,13 +967,13 @@ export const CaixaInteligenteView: React.FC<CaixaInteligenteViewProps> = ({
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="border-b border-slate-200 dark:border-slate-800 text-[11px] font-black uppercase tracking-wider text-slate-400">
-                <th className="py-2.5 px-3">Data</th>
-                <th className="py-2.5 px-3">Dia</th>
-                <th className="py-2.5 px-3">Contas a Pagar</th>
-                <th className="py-2.5 px-3 text-right">Saídas (R$)</th>
-                <th className="py-2.5 px-3 text-right">Entradas Previstas (R$)</th>
-                <th className="py-2.5 px-3 text-right">Saldo Final Projetado</th>
-                <th className="py-2.5 px-3 text-center">Status</th>
+                <th className="py-2.5 px-3 whitespace-nowrap">Data</th>
+                <th className="py-2.5 px-3 whitespace-nowrap">Dia</th>
+                <th className="py-2.5 px-3 whitespace-nowrap">Contas a Pagar</th>
+                <th className="py-2.5 px-3 text-right whitespace-nowrap">Saídas (R$)</th>
+                <th className="py-2.5 px-3 text-right whitespace-nowrap">Entradas Previstas (R$)</th>
+                <th className="py-2.5 px-3 text-right whitespace-nowrap">Saldo Final Projetado</th>
+                <th className="py-2.5 px-3 text-center whitespace-nowrap">Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 text-xs">
