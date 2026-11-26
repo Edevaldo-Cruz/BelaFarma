@@ -790,12 +790,13 @@ router.delete('/promotions/tiered/:id', async (req, res) => {
 // ==========================================
 router.get('/sales', (req, res) => {
   try {
-    const { dataInicio, dataFim, status, paymentMethod, limit, offset } = req.query;
+    const { dataInicio, dataFim, status, paymentMethod, deliveryType, limit, offset } = req.query;
     const vendas = listarVendas({
       dataInicio,
       dataFim,
       status,
       paymentMethod,
+      deliveryType: deliveryType || 'TODOS',
       limit: parseInt(limit, 10) || 150,
       offset: parseInt(offset, 10) || 0
     });

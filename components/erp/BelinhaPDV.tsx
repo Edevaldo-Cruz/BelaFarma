@@ -53,6 +53,8 @@ import {
   Calendar,
   Filter,
   Eye,
+  Truck,
+  Store,
   ThumbsDown,
   Pill
 } from 'lucide-react';
@@ -414,6 +416,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
 
   // Forma de Pagamento e Dados Financeiros
   const [selectedMethod, setSelectedMethod] = useState<'DINHEIRO' | 'CARTAO_DEBITO' | 'CARTAO_CREDITO' | 'PIX' | 'CREDIARIO'>('DINHEIRO');
+  const [isDeliverySale, setIsDeliverySale] = useState<boolean>(false);
   const [cashReceived, setCashReceived] = useState<string>('');
   const [cardBrand, setCardBrand] = useState('MASTERCARD');
   const [installments, setInstallments] = useState<number>(1);
@@ -530,6 +533,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
   const [salesEndDate, setSalesEndDate] = useState<string>(getTodayDateStr);
   const [salesStatusFilter, setSalesStatusFilter] = useState<string>('TODOS');
   const [salesPaymentFilter, setSalesPaymentFilter] = useState<string>('TODOS');
+  const [salesDeliveryFilter, setSalesDeliveryFilter] = useState<'TODOS' | 'ENTREGA' | 'LOCAL'>('TODOS');
   const [salesSearchQuery, setSalesSearchQuery] = useState<string>('');
   const [salesPeriodPreset, setSalesPeriodPreset] = useState<'HOJE' | 'ONTEM' | '7DIAS' | 'MES' | 'CUSTOM'>('HOJE');
 
@@ -2607,6 +2611,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
         user_name: seller.name,
         seller_id: seller.id,
         seller_name: seller.name,
+        is_delivery: isDeliverySale,
         controlled_recipes: controlledRecipesData || undefined,
         emit_nfce: emitNfce,
         force_contingency: isOfflineMode,
@@ -2644,6 +2649,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
         setDiscountPercent(0);
         setCashReceived('');
         setSelectedMethod('DINHEIRO');
+        setIsDeliverySale(false);
         setInstallments(1);
         setSelectedCustomer(null);
         setControlledRecipesData(null);
@@ -2709,7 +2715,8 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
     customStart?: string,
     customEnd?: string,
     customStatus?: string,
-    customPayment?: string
+    customPayment?: string,
+    customDelivery?: 'TODOS' | 'ENTREGA' | 'LOCAL'
   ) => {
     setIsLoadingRecent(true);
     try {
@@ -2717,12 +2724,14 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
       const end = customEnd !== undefined ? customEnd : salesEndDate;
       const status = customStatus !== undefined ? customStatus : salesStatusFilter;
       const payment = customPayment !== undefined ? customPayment : salesPaymentFilter;
+      const delivery = customDelivery !== undefined ? customDelivery : salesDeliveryFilter;
 
       const params = new URLSearchParams();
       if (start) params.append('dataInicio', start);
       if (end) params.append('dataFim', end);
       if (status && status !== 'TODOS') params.append('status', status);
       if (payment && payment !== 'TODOS') params.append('paymentMethod', payment);
+      if (delivery && delivery !== 'TODOS') params.append('deliveryType', delivery);
       params.append('limit', '300');
 
       const res = await fetch(`/api/erp/sales?${params.toString()}`);
@@ -2791,20 +2800,99 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
     const totalVendas = filteredSalesList.length;
     const concluidas = filteredSalesList.filter((s: any) => s.status !== 'CANCELADA');
     const canceladas = filteredSalesList.filter((s: any) => s.status === 'CANCELADA');
+    const entregas = concluidas.filter((s: any) => Boolean(s.is_delivery));
 
     const totalFaturado = concluidas.reduce((acc: number, s: any) => acc + (Number(s.total_value) || 0), 0);
     const totalCancelado = canceladas.reduce((acc: number, s: any) => acc + (Number(s.total_value) || 0), 0);
+    const totalEntregas = entregas.reduce((acc: number, s: any) => acc + (Number(s.total_value) || 0), 0);
     const ticketMedio = concluidas.length > 0 ? totalFaturado / concluidas.length : 0;
 
     return {
       totalVendas,
       concluidasCount: concluidas.length,
       canceladasCount: canceladas.length,
+      deliveriesCount: entregas.length,
+      deliveriesTotal: totalEntregas,
       totalFaturado,
       totalCancelado,
       ticketMedio
     };
   }, [filteredSalesList]);
+
+  const handlePrintDeliveryReport = () => {
+    const entregas = filteredSalesList.filter((s: any) => Boolean(s.is_delivery) && s.status !== 'CANCELADA');
+    if (entregas.length === 0) {
+      addToast('Nenhuma entrega encontrada no período selecionado para gerar relatório.', 'warning');
+      return;
+    }
+    const totalVal = entregas.reduce((acc: number, s: any) => acc + (Number(s.total_value) || 0), 0);
+    const formatDateBR = (ymd: string) => (ymd ? ymd.split('-').reverse().join('/') : '--/--/----');
+    const rowsHtml = entregas
+      .map(
+        (s: any, idx: number) => `
+        <tr>
+          <td>${idx + 1}</td>
+          <td>#${s.id}</td>
+          <td>${formatDateBR(s.sale_date)} ${s.sale_time || ''}</td>
+          <td>${s.customer_name || 'Cliente Balcão'}</td>
+          <td>${s.seller_name || s.user_name || '-'}</td>
+          <td>${s.payment_methods || 'DINHEIRO'}</td>
+          <td style="text-align:right;font-weight:700;">R$ ${(Number(s.total_value) || 0).toFixed(2)}</td>
+        </tr>`
+      )
+      .join('');
+
+    const win = window.open('', '_blank', 'width=900,height=700');
+    if (!win) {
+      addToast('Permita pop-ups para imprimir o Relatório de Entregas.', 'warning');
+      return;
+    }
+    win.document.write(`<!DOCTYPE html>
+      <html lang="pt-BR">
+      <head>
+        <meta charset="utf-8" />
+        <title>Relatório de Entregas — BelaFarma</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 20px; color: #0f172a; }
+          h1 { margin: 0 0 4px; font-size: 20px; }
+          .meta { font-size: 12px; color: #475569; margin-bottom: 16px; }
+          .summary { display: flex; gap: 16px; margin-bottom: 16px; }
+          .box { border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px 14px; background: #f8fafc; }
+          .box small { display: block; font-size: 10px; text-transform: uppercase; color: #64748b; font-weight: 700; }
+          .box strong { font-size: 18px; }
+          table { width: 100%; border-collapse: collapse; font-size: 12px; }
+          th, td { border-bottom: 1px solid #e2e8f0; padding: 8px 6px; text-align: left; }
+          th { background: #f1f5f9; font-size: 11px; text-transform: uppercase; }
+          @media print { button { display: none; } }
+        </style>
+      </head>
+      <body>
+        <h1>Relatório de Entregas — Drogaria BelaFarma</h1>
+        <div class="meta">Período: ${formatDateBR(salesStartDate)} até ${formatDateBR(salesEndDate)} • Emitido em ${new Date().toLocaleString('pt-BR')}</div>
+        <div class="summary">
+          <div class="box"><small>Total de Entregas</small><strong>${entregas.length}</strong></div>
+          <div class="box"><small>Valor Total em Entregas</small><strong>R$ ${totalVal.toFixed(2)}</strong></div>
+          <div class="box"><small>Ticket Médio Entrega</small><strong>R$ ${(totalVal / entregas.length).toFixed(2)}</strong></div>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Cupom</th>
+              <th>Data / Hora</th>
+              <th>Cliente</th>
+              <th>Vendedor</th>
+              <th>Pagamento</th>
+              <th style="text-align:right;">Valor (R$)</th>
+            </tr>
+          </thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+        <script>window.onload = () => { window.print(); };</script>
+      </body>
+      </html>`);
+    win.document.close();
+  };
 
   const handleOpenRecentSales = () => {
     setIsRecentSalesOpen(true);
@@ -4330,6 +4418,41 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
                     </span>
                     <ChevronRight className="w-3.5 h-3.5 text-emerald-700" />
                   </div>
+                </button>
+              </div>
+            </div>
+
+            {/* TIPO DE VENDA: VENDA LOCAL (PADRÃO SEMPRE ATIVO) x ENTREGA */}
+            <div className="space-y-1.5 pt-2 border-t border-slate-200">
+              <label className="text-[11px] font-black text-[#0b2545] uppercase tracking-wider block">
+                Tipo de Atendimento
+              </label>
+              <div className="grid grid-cols-2 gap-1.5 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setIsDeliverySale(false)}
+                  className={`flex items-center justify-center gap-1.5 p-2 rounded-lg border-2 font-black transition-all cursor-pointer ${
+                    !isDeliverySale
+                      ? 'bg-emerald-600 border-emerald-700 text-white shadow-sm ring-2 ring-emerald-500/25'
+                      : 'bg-slate-50 border-slate-300 text-slate-600 hover:bg-slate-100'
+                  }`}
+                  title="Venda realizada presencialmente no balcão (padrão)"
+                >
+                  <Store className="w-4 h-4 shrink-0" />
+                  <span>Venda Local</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsDeliverySale(true)}
+                  className={`flex items-center justify-center gap-1.5 p-2 rounded-lg border-2 font-black transition-all cursor-pointer ${
+                    isDeliverySale
+                      ? 'bg-orange-600 border-orange-700 text-white shadow-sm ring-2 ring-orange-500/25'
+                      : 'bg-slate-50 border-slate-300 text-slate-600 hover:bg-slate-100'
+                  }`}
+                  title="Marcar esta venda como Entrega (entra no Relatório de Entregas)"
+                >
+                  <Truck className="w-4 h-4 shrink-0" />
+                  <span>Entrega</span>
                 </button>
               </div>
             </div>
@@ -5937,6 +6060,21 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
                       <option value="CREDIARIO">Crediário / Convênio</option>
                     </select>
 
+                    {/* Tipo de Atendimento (Todos / Entregas / Venda Local) */}
+                    <select
+                      value={salesDeliveryFilter}
+                      onChange={(e) => {
+                        const val = e.target.value as 'TODOS' | 'ENTREGA' | 'LOCAL';
+                        setSalesDeliveryFilter(val);
+                        fetchRecentSales(salesStartDate, salesEndDate, salesStatusFilter, salesPaymentFilter, val);
+                      }}
+                      className="px-2.5 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-200 font-medium focus:outline-none focus:border-orange-500 cursor-pointer"
+                    >
+                      <option value="TODOS">Local + Entregas</option>
+                      <option value="ENTREGA">Somente Entregas</option>
+                      <option value="LOCAL">Somente Venda Local</option>
+                    </select>
+
                     {/* Busca Rápida */}
                     <div className="flex-1 min-w-[200px] relative">
                       <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -5969,11 +6107,22 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
                       <RefreshCw className={`w-3.5 h-3.5 ${isLoadingRecent ? 'animate-spin' : ''}`} />
                       <span>Filtrar</span>
                     </button>
+
+                    {/* Botão Relatório de Entregas */}
+                    <button
+                      type="button"
+                      onClick={handlePrintDeliveryReport}
+                      className="px-3 py-1.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-black text-xs flex items-center gap-1.5 shadow-sm transition cursor-pointer"
+                      title="Imprimir Relatório de Entregas do período selecionado"
+                    >
+                      <Truck className="w-3.5 h-3.5" />
+                      <span>Relatório de Entregas ({salesSummary.deliveriesCount})</span>
+                    </button>
                   </div>
                 </div>
 
                 {/* 2. Resumo Totalizador do Período */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
                   <div className="p-2.5 rounded-xl bg-slate-950/60 border border-slate-800/80 flex flex-col">
                     <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Total Faturado</span>
                     <span className="text-base sm:text-lg font-mono font-black text-emerald-400">
@@ -5992,6 +6141,18 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
                     <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Ticket Médio</span>
                     <span className="text-base sm:text-lg font-mono font-bold text-blue-400">
                       R$ {salesSummary.ticketMedio.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+
+                  <div className="p-2.5 rounded-xl bg-slate-950/60 border border-orange-800/60 flex flex-col">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-orange-300 flex items-center gap-1">
+                      <Truck className="w-3 h-3" /> Entregas
+                    </span>
+                    <span className="text-base sm:text-lg font-mono font-bold text-orange-400">
+                      {salesSummary.deliveriesCount}{' '}
+                      <span className="text-xs font-normal text-orange-300/80">
+                        (R$ {salesSummary.deliveriesTotal.toFixed(2)})
+                      </span>
                     </span>
                   </div>
 
@@ -6065,6 +6226,12 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
                                   {s.origin === 'DIGIFARMA' && (
                                     <span className="px-1 py-0.2 rounded text-[9px] font-bold bg-sky-950 text-sky-400 border border-sky-800">
                                       DIGI
+                                    </span>
+                                  )}
+                                  {s.is_delivery && (
+                                    <span className="px-1.5 py-0.2 rounded text-[9px] font-black bg-orange-950 text-orange-300 border border-orange-600/60 inline-flex items-center gap-0.5">
+                                      <Truck className="w-2.5 h-2.5" />
+                                      ENTREGA
                                     </span>
                                   )}
                                 </div>

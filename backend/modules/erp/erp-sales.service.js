@@ -154,7 +154,7 @@ function obterVendasDigifarmaCache({ dataInicio, dataFim, status, paymentMethod 
  * Lista vendas com filtros rápidos por data, status e forma de pagamento
  * Unifica vendas do PDV Belinha e do Digifarma
  */
-function listarVendas({ dataInicio, dataFim, status, paymentMethod, limit = 100, offset = 0 } = {}) {
+function listarVendas({ dataInicio, dataFim, status, paymentMethod, deliveryType = 'TODOS', limit = 100, offset = 0 } = {}) {
   let where = '1=1';
   const params = [];
 
@@ -169,6 +169,13 @@ function listarVendas({ dataInicio, dataFim, status, paymentMethod, limit = 100,
   if (status && status !== 'TODOS') {
     where += ' AND s.status = ?';
     params.push(status);
+  }
+
+  const normalizedDelivery = String(deliveryType || 'TODOS').toUpperCase();
+  if (normalizedDelivery === 'ENTREGA') {
+    where += ' AND COALESCE(s.is_delivery, 0) = 1';
+  } else if (normalizedDelivery === 'LOCAL') {
+    where += ' AND COALESCE(s.is_delivery, 0) = 0';
   }
 
   if (paymentMethod && paymentMethod !== 'TODOS') {
@@ -211,13 +218,19 @@ function listarVendas({ dataInicio, dataFim, status, paymentMethod, limit = 100,
     }
     return {
       ...r,
+      is_delivery: Number(r.is_delivery || 0) === 1,
       origin: 'BELINHA',
       payments: paymentsParsed
     };
   });
 
-  // 2. Vendas do Digifarma (Cache SQLite)
-  const digiSales = obterVendasDigifarmaCache({ dataInicio, dataFim, status, paymentMethod });
+  // 2. Vendas do Digifarma (Cache SQLite) — quando o filtro for estritamente ENTREGA, retorna apenas entregas marcadas
+  const digiSales = normalizedDelivery === 'ENTREGA'
+    ? []
+    : obterVendasDigifarmaCache({ dataInicio, dataFim, status, paymentMethod }).map(d => ({
+        ...d,
+        is_delivery: false
+      }));
 
   // 3. Unificar e ordenar por data e horário decrescentes
   const combined = [...belinhaSales, ...digiSales];

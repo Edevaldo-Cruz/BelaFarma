@@ -1,9 +1,14 @@
 {
   "version": "1.2.6",
-  "commitHash": "c82f148",
-  "commitMessage": "feat(pdv): resetar forma de pagamento para Dinheiro apos venda e destacar troco em verde",
-  "buildTime": "26/11/2026, 17:10:21",
+  "commitHash": "b70d8fd",
+  "commitMessage": "feat(about): adicionar pagina Sobre o Projeto com contato do desenvolvedor, descricao do GitHub e ultimas 20 atualizacoes",
+  "buildTime": "26/11/2026, 17:27:47",
   "recentCommits": [
+    {
+      "hash": "b70d8fd",
+      "date": "26/11/2026",
+      "message": "feat(about): adicionar pagina Sobre o Projeto com contato do desenvolvedor, descricao do GitHub e ultimas 20 atualizacoes"
+    },
     {
       "hash": "c82f148",
       "date": "26/11/2026",
@@ -98,11 +103,6 @@
       "hash": "cc933fd",
       "date": "25/11/2026",
       "message": "fix(crediario): gravar lancamentos do pdv e central no belinha e no fichario do digifarma"
-    },
-    {
-      "hash": "8751025",
-      "date": "24/11/2026",
-      "message": "feat(crediario): considerar clientes com compra nos ultimos 2 meses com historico completo"
     }
   ]
 }
