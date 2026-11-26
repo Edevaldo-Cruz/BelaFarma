@@ -2643,6 +2643,8 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
         setDiscount(0);
         setDiscountPercent(0);
         setCashReceived('');
+        setSelectedMethod('DINHEIRO');
+        setInstallments(1);
         setSelectedCustomer(null);
         setControlledRecipesData(null);
         setCustomerCpf('');
@@ -4395,9 +4397,11 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
                     />
                   </div>
                   {cashChange > 0 && (
-                    <div className="flex justify-between items-center pt-1.5 text-xs border-t border-slate-200">
-                      <span className="font-bold text-slate-600">TROCO A DEVOLVER:</span>
-                      <span className="font-mono font-black text-sm text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded border border-emerald-300">
+                    <div className="flex justify-between items-center mt-2 px-3 py-2 rounded-xl bg-emerald-100 border-2 border-emerald-500 shadow-xs">
+                      <span className="font-black text-xs uppercase tracking-wide text-emerald-900">
+                        TROCO A DEVOLVER:
+                      </span>
+                      <span className="font-mono font-black text-xl text-emerald-700">
                         R$ {cashChange.toFixed(2)}
                       </span>
                     </div>
@@ -5420,9 +5424,11 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
                   <span className="font-bold">{completedSale.payment.method}</span>
                 </div>
                 {completedSale.change > 0 && (
-                  <div className="flex justify-between text-emerald-700 font-bold">
-                    <span>Troco Devolvido:</span>
-                    <span>R$ {completedSale.change.toFixed(2)}</span>
+                  <div className="flex justify-between items-center mt-1.5 px-3 py-2 rounded-xl bg-emerald-100 border-2 border-emerald-500 text-emerald-900">
+                    <span className="font-black text-xs uppercase tracking-wide">Troco a Devolver:</span>
+                    <span className="font-mono font-black text-xl text-emerald-700">
+                      R$ {completedSale.change.toFixed(2)}
+                    </span>
                   </div>
                 )}
 

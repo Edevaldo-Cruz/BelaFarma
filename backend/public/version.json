@@ -1,9 +1,14 @@
 {
   "version": "1.2.6",
-  "commitHash": "1c78b21",
-  "commitMessage": "feat(finance): unifica Conta Corrente e Conciliacao, suporta multi-banco, pagina de Alertas de Divergencia e sincroniza Saldo Conta Principal",
-  "buildTime": "26/11/2026, 12:35:30",
+  "commitHash": "a0b1aa0",
+  "commitMessage": "fix(pdv): corrigir SQLite 500 na posologia com seed automatico, criar guia Assistente de Pedido e integrar Suprimento no Fechamento de Caixa",
+  "buildTime": "26/11/2026, 16:59:48",
   "recentCommits": [
+    {
+      "hash": "a0b1aa0",
+      "date": "26/11/2026",
+      "message": "fix(pdv): corrigir SQLite 500 na posologia com seed automatico, criar guia Assistente de Pedido e integrar Suprimento no Fechamento de Caixa"
+    },
     {
       "hash": "1c78b21",
       "date": "26/11/2026",
@@ -58,11 +63,6 @@
       "hash": "5b849b2",
       "date": "25/11/2026",
       "message": "fix(crediario): eliminar race condition no FICHARIO (#8376), ampliar motor de unificacao e criar modal visual Belinha+Digifarma"
-    },
-    {
-      "hash": "97d26c4",
-      "date": "25/11/2026",
-      "message": "feat(equivalentes): refinar motor farmaceutico, trava OUTROS (6) e edicao de categoria no Digifarma"
     }
   ]
 }
