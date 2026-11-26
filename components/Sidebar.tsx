@@ -313,7 +313,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'backups', label: 'Backups', icon: Database },
     { id: 'quotations', label: 'Cotações', icon: MessageSquare },
     { id: 'card-machines', label: 'Maquininhas & Cartões', icon: CreditCard },
-    { id: 'bank-conciliation', label: 'Conciliação Bancária (Itaú)', icon: Building2 },
+    { id: 'bank-conciliation', label: 'Conciliação Bancária', icon: Building2 },
     { id: 'ifood-control', label: 'Controle iFood', icon: ShoppingCart },
     { id: 'consignados', label: 'Consignados', icon: Package },
     { id: 'invoices', label: 'Notas Fiscais', icon: FileText },

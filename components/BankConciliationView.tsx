@@ -17,7 +17,9 @@ import {
   Settings,
   KeyRound,
   X,
-  Save
+  Save,
+  ShieldAlert,
+  Bot
 } from 'lucide-react';
 import { User } from '../types';
 
@@ -36,6 +38,46 @@ interface ResumoConciliacao {
   qtdIFood: number;
   qtdPix: number;
   totalPix: number;
+}
+
+interface PendenciasSistema {
+  today: string;
+  cardDueCount: number;
+  cardDueGross: number;
+  cardFutureCount: number;
+  cardFutureGross: number;
+  ifoodDueCount: number;
+  ifoodDueNet: number;
+  ifoodFutureCount: number;
+  ifoodFutureNet: number;
+}
+
+interface AlertaAuditoria {
+  nivel: string;
+  titulo: string;
+  detalhe: string;
+}
+
+interface UltimaExecucao {
+  id: string;
+  runDate: string;
+  status: 'OK' | 'ALERTA' | 'ERRO';
+  saldoTotal: number | null;
+  extratoConciliados: number;
+  cardsBaixados: number;
+  ifoodBaixados: number;
+  alertas: AlertaAuditoria[];
+  whatsappSent: boolean;
+  createdAt: string;
+}
+
+interface ItemStatus {
+  id: string;
+  status: string;
+  executionStatus: string;
+  lastUpdatedAt: string | null;
+  nextAutoSyncAt: string | null;
+  consentExpiresAt: string | null;
 }
 
 interface ItemExtrato {
@@ -65,6 +107,10 @@ export const BankConciliationView: React.FC<BankConciliationViewProps> = ({ user
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [needsConfig, setNeedsConfig] = useState<boolean>(false);
+  const [pendenciasSistema, setPendenciasSistema] = useState<PendenciasSistema | null>(null);
+  const [isConfirmZerarOpen, setIsConfirmZerarOpen] = useState<boolean>(false);
+  const [itemStatus, setItemStatus] = useState<ItemStatus | null>(null);
+  const [ultimaExecucao, setUltimaExecucao] = useState<UltimaExecucao | null>(null);
 
   // Modal de configuração Open Finance (Pluggy)
   const [isConfigOpen, setIsConfigOpen] = useState<boolean>(false);
@@ -142,6 +188,16 @@ export const BankConciliationView: React.FC<BankConciliationViewProps> = ({ user
         throw new Error(msg);
       }
 
+      if (data.pendenciasSistema) {
+        setPendenciasSistema(data.pendenciasSistema);
+      }
+      if (data.ultimaExecucao !== undefined) {
+        setUltimaExecucao(data.ultimaExecucao);
+      }
+      if (data.itemStatus !== undefined) {
+        setItemStatus(data.itemStatus);
+      }
+
       if (data.needsConfig) {
         setNeedsConfig(true);
         setSaldo(null);
@@ -160,7 +216,7 @@ export const BankConciliationView: React.FC<BankConciliationViewProps> = ({ user
       }
     } catch (err: any) {
       console.error(err);
-      const msg = err?.message || 'Erro ao sincronizar com Itaú / Open Finance';
+      const msg = err?.message || 'Erro ao sincronizar com o Open Finance';
       setErrorMessage(msg);
       showToast(msg);
     } finally {
@@ -184,7 +240,7 @@ export const BankConciliationView: React.FC<BankConciliationViewProps> = ({ user
           channel,
           targetType: channel === 'MAQUININHA' ? 'card_machine_receivable' : 'ifood_sale',
           targetId: item.sugestao ? item.sugestao.id : null,
-          notes: item.sugestao ? `Conciliado com ${item.sugestao.id}` : `Confirmado via Extrato Itaú`
+          notes: item.sugestao ? `Conciliado com ${item.sugestao.id}` : `Confirmado via Extrato Bancário`
         }],
         userName: user.name || 'Administrador'
       };
@@ -209,21 +265,69 @@ export const BankConciliationView: React.FC<BankConciliationViewProps> = ({ user
   const handleAutoConciliarTudo = async () => {
     try {
       setActionLoading(true);
-      const res = await fetch('/api/bank-conciliation/auto-conciliar-tudo', {
+      const endpoint = needsConfig
+        ? '/api/bank-conciliation/zerar-pendencias'
+        : '/api/bank-conciliation/auto-conciliar-tudo';
+
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userName: user.name || 'Robô Open Finance' })
       });
 
-      if (!res.ok) throw new Error('Falha na conciliação automática');
-      const data = await res.json();
-      showToast(`🎉 Sucesso: ${data.count} entradas de Maquininha e iFood foram conciliadas!`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Falha na conciliação automática');
+
+      setIsConfirmZerarOpen(false);
+      const sis = data.sistema || data;
+      const msg = data.message || `Pendências zeradas: ${sis.totalCardsBaixados || 0} maquininhas e ${sis.totalIFoodBaixados || 0} iFood conciliados!`;
+      showToast(msg);
       await carregarPainel();
     } catch (err: any) {
       console.error(err);
-      showToast('Erro na conciliação automática');
+      showToast(err?.message || 'Erro na conciliação automática');
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  const handleRodarAuditoria = async () => {
+    try {
+      setActionLoading(true);
+      const res = await fetch('/api/bank-conciliation/executar-rotina-diaria', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enviarWhatsapp: false })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Falha ao executar auditoria');
+      const qtdAlertas = Array.isArray(data.alertas) ? data.alertas.length : 0;
+      showToast(
+        qtdAlertas > 0
+          ? `Auditoria concluída: ${qtdAlertas} alerta(s) encontrado(s).`
+          : 'Auditoria diária concluída: tudo certo (0 alertas).'
+      );
+      await carregarPainel();
+    } catch (err: any) {
+      console.error(err);
+      showToast(err?.message || 'Erro ao rodar auditoria');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const formatDateTimeBR = (iso?: string | null) => {
+    if (!iso) return '-';
+    try {
+      return new Date(iso).toLocaleString('pt-BR', {
+        timeZone: 'America/Sao_Paulo',
+        day: '2-digit',
+        month: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch {
+      return '-';
     }
   };
 
@@ -266,7 +370,7 @@ export const BankConciliationView: React.FC<BankConciliationViewProps> = ({ user
             <div className="flex items-center gap-2 mb-2">
               <span className="px-2.5 py-1 bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-semibold rounded-full flex items-center gap-1.5">
                 <Building2 className="w-3.5 h-3.5 text-amber-400" />
-                Itaú Empresas • Open Finance
+                Open Finance • Contas Bancárias
               </span>
               <span className="text-xs text-slate-400">
                 Conta: {saldo?.contas?.[0]?.numero || (needsConfig ? 'Não configurada' : 'Conectada')}
@@ -291,6 +395,16 @@ export const BankConciliationView: React.FC<BankConciliationViewProps> = ({ user
             </button>
 
             <button
+              onClick={handleRodarAuditoria}
+              disabled={loading || actionLoading || needsConfig}
+              className="p-2.5 bg-slate-800/80 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl transition flex items-center gap-2 text-sm font-medium disabled:opacity-50"
+              title="Executar Auditoria Diária Agora"
+            >
+              <Bot className="w-4 h-4 text-emerald-400" />
+              <span className="hidden sm:inline">Rodar Auditoria</span>
+            </button>
+
+            <button
               onClick={carregarPainel}
               disabled={loading || actionLoading}
               className="p-2.5 bg-slate-800/80 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl transition flex items-center gap-2 text-sm font-medium disabled:opacity-50"
@@ -302,7 +416,14 @@ export const BankConciliationView: React.FC<BankConciliationViewProps> = ({ user
 
             <button
               onClick={handleAutoConciliarTudo}
-              disabled={loading || actionLoading || ((resumo?.totalMaquininhaPendente || 0) === 0 && (resumo?.totalIFoodPendente || 0) === 0)}
+              disabled={
+                loading ||
+                actionLoading ||
+                ((resumo?.totalMaquininhaPendente || 0) === 0 &&
+                  (resumo?.totalIFoodPendente || 0) === 0 &&
+                  (pendenciasSistema?.cardDueCount || 0) === 0 &&
+                  (pendenciasSistema?.ifoodDueCount || 0) === 0)
+              }
               className="px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl shadow-lg shadow-emerald-900/30 font-semibold text-sm flex items-center gap-2 transition disabled:opacity-50"
             >
               <Sparkles className="w-4 h-4" />
@@ -315,7 +436,7 @@ export const BankConciliationView: React.FC<BankConciliationViewProps> = ({ user
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-6">
           <div className="bg-slate-800/60 border border-slate-700/60 rounded-xl p-4">
             <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
-              <span>Saldo Itaú em Conta</span>
+              <span>Saldo Consolidado em Conta</span>
               <Building2 className="w-4 h-4 text-amber-400" />
             </div>
             <div className="text-2xl font-bold text-white">
@@ -413,6 +534,104 @@ export const BankConciliationView: React.FC<BankConciliationViewProps> = ({ user
         </div>
       )}
 
+      {/* Barra da Rotina Diária Automática */}
+      {!needsConfig && (
+        <div className="rounded-2xl px-4 py-3 border bg-slate-900/5 dark:bg-slate-900 border-slate-200 dark:border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-2 text-xs text-slate-600 dark:text-slate-300">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="inline-flex items-center gap-1.5 font-semibold text-slate-800 dark:text-slate-100">
+              <Bot className="w-4 h-4 text-indigo-500" />
+              Robô diário ativo (todo dia às 11h30)
+            </span>
+            {ultimaExecucao ? (
+              <span className={`px-2 py-0.5 rounded-full font-semibold ${
+                ultimaExecucao.status === 'OK'
+                  ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                  : ultimaExecucao.status === 'ALERTA'
+                    ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                    : 'bg-rose-500/10 text-rose-600 dark:text-rose-400'
+              }`}>
+                Última auditoria ({formatDateTimeBR(ultimaExecucao.createdAt)}): {ultimaExecucao.status}
+              </span>
+            ) : (
+              <span className="text-slate-400">Aguardando primeira execução automática</span>
+            )}
+          </div>
+          {itemStatus && (
+            <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-500 dark:text-slate-400">
+              <span>Última sincronização banco: <strong>{formatDateTimeBR(itemStatus.lastUpdatedAt)}</strong></span>
+              <span>•</span>
+              <span>Próxima automática: <strong>{formatDateTimeBR(itemStatus.nextAutoSyncAt)}</strong></span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Alertas da Auditoria Diária (somente quando houver anomalias) */}
+      {ultimaExecucao && ultimaExecucao.alertas && ultimaExecucao.alertas.length > 0 && (
+        <div className="rounded-2xl p-4 border bg-rose-500/10 border-rose-500/30 text-rose-900 dark:text-rose-200 space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 font-bold text-sm">
+              <ShieldAlert className="w-5 h-5 text-rose-500 shrink-0" />
+              <span>Alertas identificados na última auditoria ({ultimaExecucao.alertas.length})</span>
+            </div>
+            {ultimaExecucao.whatsappSent && (
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-rose-500/20 font-medium">
+                Enviado no WhatsApp do Admin
+              </span>
+            )}
+          </div>
+          <ul className="space-y-1 text-xs">
+            {ultimaExecucao.alertas.map((a, idx) => (
+              <li key={idx} className="flex items-start gap-2">
+                <span className="font-bold">[{a.nivel}]</span>
+                <span><strong>{a.titulo}:</strong> {a.detalhe}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Banner de Pendências Vencidas de Maquininha & iFood no Sistema */}
+      {pendenciasSistema && (
+        (pendenciasSistema.cardDueCount > 0 || pendenciasSistema.ifoodDueCount > 0) ? (
+          <div className="rounded-2xl p-4 border bg-amber-500/10 border-amber-500/30 text-amber-900 dark:text-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 mt-0.5 shrink-0 text-amber-500" />
+              <div className="text-sm">
+                <p className="font-semibold">
+                  Pendências vencidas em aberto gerando alertas no sistema
+                </p>
+                <p className="text-xs opacity-90 mt-0.5">
+                  Maquininhas: <strong>{pendenciasSistema.cardDueCount}</strong> item(ns) (R$ {pendenciasSistema.cardDueGross.toLocaleString('pt-BR', { minimumFractionDigits: 2 })})
+                  {' • '}
+                  iFood: <strong>{pendenciasSistema.ifoodDueCount}</strong> venda(s) (R$ {pendenciasSistema.ifoodDueNet.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}).
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => setIsConfirmZerarOpen(true)}
+              disabled={actionLoading}
+              className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-semibold transition flex items-center gap-1.5 shrink-0 disabled:opacity-50"
+            >
+              <CheckCircle2 className="w-4 h-4" />
+              <span>Conciliar e Zerar Pendências</span>
+            </button>
+          </div>
+        ) : (
+          <div className="rounded-2xl px-4 py-3 border bg-emerald-500/10 border-emerald-500/30 text-emerald-800 dark:text-emerald-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+            <div className="flex items-center gap-2 font-semibold">
+              <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+              <span>0 pendências vencidas de Maquininha e iFood (alertas zerados)</span>
+            </div>
+            {(pendenciasSistema.ifoodFutureCount > 0 || pendenciasSistema.cardFutureCount > 0) && (
+              <span className="opacity-85">
+                Agendados futuros: {pendenciasSistema.cardFutureCount} maquininha(s) • {pendenciasSistema.ifoodFutureCount} iFood (R$ {pendenciasSistema.ifoodFutureNet.toLocaleString('pt-BR', { minimumFractionDigits: 2 })})
+              </span>
+            )}
+          </div>
+        )
+      )}
+
       {/* Navegação por Abas */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-3">
         <div className="flex items-center gap-2">
@@ -484,7 +703,7 @@ export const BankConciliationView: React.FC<BankConciliationViewProps> = ({ user
           <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
             <h3 className="font-bold text-slate-800 dark:text-slate-200 text-sm flex items-center gap-2">
               <CreditCard className="w-4 h-4 text-indigo-500" />
-              Repasses da Adquirente (Rede) creditados no Itaú
+              Repasses de Maquininhas creditados no extrato
             </h3>
             <span className="text-xs text-slate-500">
               {maquininhaFiltrada.length} entradas encontradas
@@ -571,7 +790,7 @@ export const BankConciliationView: React.FC<BankConciliationViewProps> = ({ user
           <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
             <h3 className="font-bold text-slate-800 dark:text-slate-200 text-sm flex items-center gap-2">
               <ShoppingBag className="w-4 h-4 text-red-500" />
-              Repasses Semanais do iFood Creditados no Itaú
+              Repasses Semanais do iFood creditados no extrato
             </h3>
             <span className="text-xs text-slate-500">
               {ifoodFiltrado.length} repasses encontrados
@@ -815,6 +1034,52 @@ export const BankConciliationView: React.FC<BankConciliationViewProps> = ({ user
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Confirmação para Conciliar e Zerar Pendências */}
+      {isConfirmZerarOpen && pendenciasSistema && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3 mb-4">
+              <h2 className="font-bold text-slate-900 dark:text-white text-base flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-amber-500" />
+                Conciliar e Zerar Pendências
+              </h2>
+              <button
+                onClick={() => setIsConfirmZerarOpen(false)}
+                className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+              Esta ação conciliará as entradas do extrato bancário e dará baixa em todas as pendências vencidas até hoje ({pendenciasSistema.today.split('-').reverse().join('/')}):
+            </p>
+            <ul className="mt-3 space-y-1.5 text-xs bg-slate-50 dark:bg-slate-800/60 p-3 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200">
+              <li>• <strong>Maquininhas:</strong> {pendenciasSistema.cardDueCount} recebível(eis) pendente(s) (R$ {pendenciasSistema.cardDueGross.toLocaleString('pt-BR', { minimumFractionDigits: 2 })})</li>
+              <li>• <strong>iFood:</strong> {pendenciasSistema.ifoodDueCount} venda(s) vencida(s) (R$ {pendenciasSistema.ifoodDueNet.toLocaleString('pt-BR', { minimumFractionDigits: 2 })})</li>
+              <li className="text-slate-500 dark:text-slate-400 pt-1">Recebíveis com vencimento futuro não serão alterados.</li>
+            </ul>
+            <div className="flex items-center justify-end gap-2 mt-5 pt-3 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setIsConfirmZerarOpen(false)}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleAutoConciliarTudo}
+                disabled={actionLoading}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition disabled:opacity-50"
+              >
+                <Check className="w-4 h-4" />
+                <span>{actionLoading ? 'Conciliando...' : 'Confirmar e Zerar'}</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

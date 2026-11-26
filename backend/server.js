@@ -4585,6 +4585,8 @@ try {
   require('./modules/bank-conciliation.init.js');
   const bankConciliationEndpoints = require('./modules/bank-conciliation.endpoints.js');
   app.use('/api/bank-conciliation', security.requireAdmin, bankConciliationEndpoints(db));
+  const { initBankConciliationCron } = require('./services/bank-conciliation-cron.service');
+  initBankConciliationCron(db);
   console.log('🏦 Módulo de Conciliação Bancária & Open Finance inicializado com sucesso.');
 } catch (bErr) {
   console.error('❌ Erro ao inicializar Conciliação Bancária:', bErr.message);

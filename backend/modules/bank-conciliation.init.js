@@ -19,7 +19,23 @@ function initBankConciliationTables() {
       created_at TEXT NOT NULL
     )
   `).run();
-  console.log('✅ [BankConciliation] Tabela bank_conciliations pronta!');
+
+  db.prepare(`
+    CREATE TABLE IF NOT EXISTS bank_conciliation_runs (
+      id TEXT PRIMARY KEY,
+      run_date TEXT NOT NULL,
+      status TEXT NOT NULL,
+      saldo_total REAL,
+      extrato_conciliados INTEGER DEFAULT 0,
+      cards_baixados INTEGER DEFAULT 0,
+      ifood_baixados INTEGER DEFAULT 0,
+      alertas_json TEXT,
+      whatsapp_sent INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL
+    )
+  `).run();
+
+  console.log('✅ [BankConciliation] Tabelas bank_conciliations e bank_conciliation_runs prontas!');
 }
 
 initBankConciliationTables();

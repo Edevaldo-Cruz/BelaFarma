@@ -1,9 +1,14 @@
 {
   "version": "1.2.6",
-  "commitHash": "261ad2c",
-  "commitMessage": "fix(ui): registra rota e categoria da tela de conciliacao bancaria no menu",
-  "buildTime": "26/11/2026, 10:23:30",
+  "commitHash": "f9e93f9",
+  "commitMessage": "fix(bank-conciliation): corrige leitura de credenciais Pluggy e adiciona configuracao pela tela",
+  "buildTime": "26/11/2026, 10:50:25",
   "recentCommits": [
+    {
+      "hash": "f9e93f9",
+      "date": "26/11/2026",
+      "message": "fix(bank-conciliation): corrige leitura de credenciais Pluggy e adiciona configuracao pela tela"
+    },
     {
       "hash": "261ad2c",
       "date": "26/11/2026",
@@ -58,11 +63,6 @@
       "hash": "4cee7a1",
       "date": "25/11/2026",
       "message": "feat(crediario): sincronizacao completa de pagamentos Belinha -> Digifarma"
-    },
-    {
-      "hash": "371545e",
-      "date": "25/11/2026",
-      "message": "feat(marketing): plano de crescimento social, aba Isa, pagina /bio e artes com Brasil Card"
     }
   ]
 }

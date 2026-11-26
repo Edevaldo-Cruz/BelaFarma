@@ -181,6 +181,38 @@ class OpenFinanceService {
   }
 
   /**
+   * Obtém o status da conexão (Item) no Open Finance
+   */
+  async getItemStatus(itemId = null) {
+    const cfg = this.getConfig();
+    const targetItem = itemId || cfg.defaultItemId;
+    if (!targetItem) {
+      return null;
+    }
+
+    const apiKey = await this.getApiKey(cfg);
+    const resp = await fetchFn(`${this.baseUrl}/items/${encodeURIComponent(targetItem)}`, {
+      headers: { 'X-API-KEY': apiKey }
+    });
+
+    if (!resp.ok) {
+      const err = await resp.text();
+      throw new Error(`Erro ao consultar status do Item Pluggy HTTP ${resp.status}: ${err}`);
+    }
+
+    const item = await resp.json();
+    return {
+      id: item.id,
+      status: item.status,
+      executionStatus: item.executionStatus,
+      lastUpdatedAt: item.lastUpdatedAt,
+      nextAutoSyncAt: item.nextAutoSyncAt,
+      consentExpiresAt: item.consentExpiresAt,
+      error: item.error || null
+    };
+  }
+
+  /**
    * Lista as contas conectadas (ou dados de saldo da conta principal)
    */
   async getContas(itemId = null) {

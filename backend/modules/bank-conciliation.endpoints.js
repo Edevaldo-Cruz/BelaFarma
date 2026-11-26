@@ -7,6 +7,7 @@
 const express = require('express');
 const conciliador = require('../services/conciliacao-extrato.service');
 const openFinance = require('../services/open-finance.service');
+const { executarRotinaDiaria, getUltimaExecucao } = require('../services/bank-conciliation-cron.service');
 
 module.exports = function (db) {
   const router = express.Router();
@@ -14,22 +15,32 @@ module.exports = function (db) {
   // 1. Resumo e Painel de Conciliação
   router.get('/painel', async (req, res) => {
     try {
+      const pendenciasSistema = conciliador.obterPendenciasSistema();
+      const execucaoInfo = getUltimaExecucao();
+
       if (!openFinance.isConfigured()) {
         return res.json({
           success: false,
           needsConfig: true,
+          pendenciasSistema,
+          ultimaExecucao: execucaoInfo.ultima,
+          historicoExecucoes: execucaoInfo.historico,
           message: 'Credenciais do Open Finance (Pluggy) ainda não configuradas neste servidor.'
         });
       }
 
-      const [painel, saldo] = await Promise.all([
+      const [painel, saldo, itemStatus] = await Promise.all([
         conciliador.obterPainelConciliacao(),
-        openFinance.getSaldo()
+        openFinance.getSaldo(),
+        openFinance.getItemStatus().catch(() => null)
       ]);
 
       res.json({
         success: true,
         saldo,
+        itemStatus,
+        ultimaExecucao: execucaoInfo.ultima,
+        historicoExecucoes: execucaoInfo.historico,
         ...painel
       });
     } catch (err) {
@@ -38,7 +49,25 @@ module.exports = function (db) {
     }
   });
 
-  // 2. Ler configuração atual (sem expor clientSecret em texto puro)
+  // 2. Executar rotina diária sob demanda (conciliação + auditoria de anomalias)
+  router.post('/executar-rotina-diaria', async (req, res) => {
+    try {
+      if (!openFinance.isConfigured()) {
+        return res.status(400).json({ error: 'Credenciais do Open Finance (Pluggy) ainda não configuradas.' });
+      }
+      const enviarWhatsapp = Boolean(req.body?.enviarWhatsapp);
+      const resultado = await executarRotinaDiaria({
+        origem: 'MANUAL',
+        enviarWhatsapp
+      });
+      res.json(resultado);
+    } catch (err) {
+      console.error('[BankConciliation] Erro em /executar-rotina-diaria:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 3. Ler configuração atual (sem expor clientSecret em texto puro)
   router.get('/config', (req, res) => {
     try {
       const cfg = openFinance.getConfig();
@@ -55,7 +84,7 @@ module.exports = function (db) {
     }
   });
 
-  // 3. Salvar e validar credenciais no banco do sistema
+  // 4. Salvar e validar credenciais no banco do sistema
   router.post('/config', async (req, res) => {
     try {
       const { clientId, clientSecret, defaultItemId, defaultAccountId } = req.body || {};
@@ -89,7 +118,7 @@ module.exports = function (db) {
     }
   });
 
-  // 4. Conciliar Itens Selecionados
+  // 5. Conciliar Itens Selecionados
   router.post('/conciliar', async (req, res) => {
     try {
       const { items } = req.body;
@@ -105,7 +134,7 @@ module.exports = function (db) {
     }
   });
 
-  // 5. Conciliação Automática em Massa (Tudo o que for Maquininha e iFood)
+  // 6. Conciliação Automática em Massa (Extrato + Pendências vencidas de Maquininha e iFood)
   router.post('/auto-conciliar-tudo', async (req, res) => {
     try {
       if (!openFinance.isConfigured()) {
@@ -120,7 +149,33 @@ module.exports = function (db) {
     }
   });
 
-  // 6. Saldo rápido do Itaú
+  // 7. Conciliar e zerar pendências vencidas de Maquininha e iFood no sistema
+  router.post('/zerar-pendencias', async (req, res) => {
+    try {
+      const userName = req.user?.name || req.body?.userName || 'Administrador';
+      let transacoesExtrato = [];
+      if (openFinance.isConfigured()) {
+        try {
+          transacoesExtrato = await openFinance.getTransacoes();
+        } catch (err) {
+          console.warn('[BankConciliation] Open Finance indisponível ao zerar pendências, prosseguindo com baixa local:', err.message);
+        }
+      }
+      const resultado = conciliador.conciliarPendenciasSistema({
+        userName,
+        transacoesExtrato
+      });
+      res.json({
+        success: true,
+        ...resultado
+      });
+    } catch (err) {
+      console.error('[BankConciliation] Erro em /zerar-pendencias:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 8. Saldo rápido das contas conectadas
   router.get('/saldo', async (req, res) => {
     try {
       if (!openFinance.isConfigured()) {
