@@ -565,6 +565,18 @@ class OpenFinanceService {
       };
     }
 
+    // Buscar status do item principal para expor data real de sincronização com o banco
+    let lastBankSyncAt = null;
+    try {
+      const principalItemId = contaPrincipal?.itemId || null;
+      const statusInfo = await this.getItemStatus(principalItemId);
+      lastBankSyncAt = statusInfo?.lastUpdatedAt || null;
+    } catch (e) {}
+
+    if (!lastBankSyncAt && contas.length > 0) {
+      lastBankSyncAt = contas[0].updatedAt || null;
+    }
+
     return {
       configured: true,
       saldoPrincipal: Number(saldoPrincipal.toFixed(2)),
@@ -572,7 +584,91 @@ class OpenFinanceService {
       saldoTotal: Number(saldoTotal.toFixed(2)),
       contaPrincipal,
       contas: detalhe,
+      lastBankSyncAt,
       atualizadoEm: new Date().toISOString()
+    };
+  }
+
+  /**
+   * Tenta disparar atualização real dos itens conectados na Pluggy (PATCH /items/:id)
+   * e retorna o saldo + timestamp real mais recentes.
+   */
+  async sincronizarContas({ waitMs = 12000 } = {}) {
+    const cfg = this.getConfig();
+    const apiKey = await this.getApiKey(cfg);
+    const targets = cfg.itemIds.length > 0 ? cfg.itemIds : [];
+
+    const results = [];
+    let triggered = false;
+    let completed = false;
+    let meuPluggyRestricted = false;
+    let firstReason = '';
+
+    for (const itemId of targets) {
+      try {
+        const patchRes = await fetchFn(`${this.baseUrl}/items/${encodeURIComponent(itemId)}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-API-KEY': apiKey
+          },
+          body: JSON.stringify({})
+        });
+
+        if (patchRes.ok) {
+          triggered = true;
+          let currentStatus = 'UPDATING';
+          const startedAt = Date.now();
+          while (Date.now() - startedAt < waitMs) {
+            await new Promise(r => setTimeout(r, 1500));
+            const st = await this.getItemStatus(itemId).catch(() => null);
+            if (st && st.status !== 'UPDATING') {
+              currentStatus = st.status;
+              completed = st.status === 'UPDATED';
+              break;
+            }
+          }
+          results.push({ itemId, triggered: true, status: currentStatus });
+        } else {
+          const errText = await patchRes.text();
+          let errJson = {};
+          try { errJson = JSON.parse(errText); } catch (e) {}
+          const codeDesc = errJson.codeDescription || '';
+          if (codeDesc === 'MEU_PLUGGY_ITEM_UPDATE_NOT_ALLOWED' || errText.includes('MeuPluggy item cant be updated')) {
+            meuPluggyRestricted = true;
+            firstReason = 'O MeuPluggy gratuito atualiza o banco 1x ao dia automaticamente. Para puxar na hora, clique em Atualizar dentro de meu.pluggy.ai e depois clique aqui novamente.';
+          } else if (patchRes.status === 429) {
+            firstReason = 'Limite de atualização por hora do Open Finance atingido. Tente novamente mais tarde.';
+          } else {
+            firstReason = errJson.message || `Pluggy HTTP ${patchRes.status}`;
+          }
+          results.push({ itemId, triggered: false, status: patchRes.status, reason: firstReason });
+        }
+      } catch (err) {
+        firstReason = err.message;
+        results.push({ itemId, triggered: false, reason: err.message });
+      }
+    }
+
+    const [saldo, itemStatus] = await Promise.all([
+      this.getSaldo(),
+      this.getItemStatus().catch(() => null)
+    ]);
+
+    const message = triggered
+      ? (completed
+          ? 'Saldo e extrato atualizados diretamente do banco!'
+          : 'Sincronização iniciada com o banco. Aguarde alguns segundos e clique em Atualizar.')
+      : (firstReason || 'Retornando último saldo sincronizado pelo Open Finance.');
+
+    return {
+      triggered,
+      completed,
+      meuPluggyRestricted,
+      results,
+      message,
+      itemStatus,
+      saldo
     };
   }
 

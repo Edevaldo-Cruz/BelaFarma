@@ -1,9 +1,14 @@
 {
   "version": "1.2.6",
-  "commitHash": "b70d8fd",
-  "commitMessage": "feat(about): adicionar pagina Sobre o Projeto com contato do desenvolvedor, descricao do GitHub e ultimas 20 atualizacoes",
-  "buildTime": "26/11/2026, 17:27:47",
+  "commitHash": "c127e78",
+  "commitMessage": "feat(pdv): adicionar toggle Venda Local / Entrega e Relatorio de Entregas",
+  "buildTime": "26/11/2026, 19:53:58",
   "recentCommits": [
+    {
+      "hash": "c127e78",
+      "date": "26/11/2026",
+      "message": "feat(pdv): adicionar toggle Venda Local / Entrega e Relatorio de Entregas"
+    },
     {
       "hash": "b70d8fd",
       "date": "26/11/2026",
@@ -98,11 +103,6 @@
       "hash": "6b12220",
       "date": "25/11/2026",
       "message": "feat(equipe): adicionar modulo Escala e Equipe com simulador CLT/CRF-MG e impressao"
-    },
-    {
-      "hash": "cc933fd",
-      "date": "25/11/2026",
-      "message": "fix(crediario): gravar lancamentos do pdv e central no belinha e no fichario do digifarma"
     }
   ]
 }

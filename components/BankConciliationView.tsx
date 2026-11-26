@@ -137,6 +137,7 @@ export const BankConciliationView: React.FC<BankConciliationViewProps> = ({ user
   const [isConfirmZerarOpen, setIsConfirmZerarOpen] = useState<boolean>(false);
   const [itemStatus, setItemStatus] = useState<ItemStatus | null>(null);
   const [ultimaExecucao, setUltimaExecucao] = useState<UltimaExecucao | null>(null);
+  const [meuPluggyNotice, setMeuPluggyNotice] = useState<string | null>(null);
 
   // Modal de configuração Open Finance (Pluggy)
   const [isConfigOpen, setIsConfigOpen] = useState<boolean>(false);
@@ -249,6 +250,32 @@ export const BankConciliationView: React.FC<BankConciliationViewProps> = ({ user
       setErrorMessage(msg);
       showToast(msg);
     } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSincronizarEAtualizar = async () => {
+    try {
+      setLoading(true);
+      setMeuPluggyNotice(null);
+      if (!needsConfig) {
+        const syncRes = await fetch('/api/bank-conciliation/sincronizar', {
+          method: 'POST'
+        });
+        const syncData = await syncRes.json().catch(() => ({}));
+        if (syncRes.ok) {
+          if (syncData.meuPluggyRestricted && syncData.message) {
+            setMeuPluggyNotice(syncData.message);
+          }
+          if (syncData.message) {
+            showToast(syncData.message);
+          }
+        }
+      }
+      await carregarPainel();
+    } catch (err: any) {
+      console.error(err);
+      showToast(err?.message || 'Erro ao atualizar contas bancárias');
       setLoading(false);
     }
   };
@@ -507,10 +534,10 @@ export const BankConciliationView: React.FC<BankConciliationViewProps> = ({ user
             </button>
 
             <button
-              onClick={() => carregarPainel()}
+              onClick={handleSincronizarEAtualizar}
               disabled={loading || actionLoading}
               className="p-2.5 bg-slate-800/80 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl transition flex items-center gap-2 text-xs font-semibold disabled:opacity-50"
-              title="Atualizar Extrato Agora"
+              title="Sincronizar e Atualizar Extrato Agora"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
               <span className="hidden sm:inline">Atualizar</span>
@@ -716,6 +743,27 @@ export const BankConciliationView: React.FC<BankConciliationViewProps> = ({ user
       )}
 
       {/* Alerta de Erro ou Configuração Pendente */}
+      {meuPluggyNotice && (
+        <div className="rounded-2xl p-4 border bg-sky-500/10 border-sky-500/30 text-sky-900 dark:text-sky-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 mt-0.5 shrink-0 text-sky-500" />
+            <div className="text-xs">
+              <p className="font-semibold">Atualização sob demanda via MeuPluggy</p>
+              <p className="opacity-90 mt-0.5">{meuPluggyNotice}</p>
+            </div>
+          </div>
+          <a
+            href="https://meu.pluggy.ai/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="px-3.5 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-semibold inline-flex items-center gap-1.5 shrink-0"
+          >
+            <ExternalLink className="w-3.5 h-3.5" />
+            <span>Abrir meu.pluggy.ai</span>
+          </a>
+        </div>
+      )}
+
       {(errorMessage || needsConfig) && (
         <div className={`rounded-2xl p-4 border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
           needsConfig

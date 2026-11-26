@@ -53,7 +53,7 @@ module.exports = function (db) {
     }
   });
 
-  // 2. Saldo consolidado e da Conta Principal (retorna 200 mesmo quando não configurado)
+  // 2. Saldo consolidado e da Conta Principal (suporta ?forceSync=true para tentar atualizar na Pluggy)
   router.get('/saldo', async (req, res) => {
     try {
       if (!openFinance.isConfigured()) {
@@ -66,10 +66,39 @@ module.exports = function (db) {
           contas: []
         });
       }
+      if (req.query.forceSync === 'true') {
+        const syncRes = await openFinance.sincronizarContas();
+        return res.json({
+          ...syncRes.saldo,
+          syncInfo: {
+            triggered: syncRes.triggered,
+            completed: syncRes.completed,
+            meuPluggyRestricted: syncRes.meuPluggyRestricted,
+            message: syncRes.message
+          }
+        });
+      }
       const saldo = await openFinance.getSaldo();
       res.json(saldo);
     } catch (err) {
       console.error('[BankConciliation] Erro em /saldo:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 2b. Forçar sincronização das contas conectadas na Pluggy
+  router.post('/sincronizar', async (req, res) => {
+    try {
+      if (!openFinance.isConfigured()) {
+        return res.status(400).json({ error: 'Credenciais do Open Finance (Pluggy) ainda não configuradas.' });
+      }
+      const syncRes = await openFinance.sincronizarContas();
+      res.json({
+        success: true,
+        ...syncRes
+      });
+    } catch (err) {
+      console.error('[BankConciliation] Erro em /sincronizar:', err);
       res.status(500).json({ error: err.message });
     }
   });

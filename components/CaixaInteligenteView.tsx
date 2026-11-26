@@ -166,10 +166,22 @@ export const CaixaInteligenteView: React.FC<CaixaInteligenteViewProps> = ({
       setSyncingSaldoBanco(true);
       const token = localStorage.getItem('belinha_auth_token');
       const headers: HeadersInit = token ? { 'Authorization': `Bearer ${token}` } : {};
-      const res = await fetch('/api/bank-conciliation/saldo', { headers });
-      if (!res.ok) return;
-      const data = await res.json();
-      if (data && data.configured && typeof data.saldoPrincipal === 'number') {
+      const url = showFeedback ? '/api/bank-conciliation/saldo?forceSync=true' : '/api/bank-conciliation/saldo';
+      const res = await fetch(url, { headers });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (showFeedback) {
+          addToast(data.error || `Erro ao sincronizar saldo do banco (HTTP ${res.status}).`, 'error');
+        }
+        return;
+      }
+      if (!data.configured) {
+        if (showFeedback) {
+          addToast('Open Finance não configurado neste servidor. Configure em Conta Corrente & Conciliação.', 'warning');
+        }
+        return;
+      }
+      if (typeof data.saldoPrincipal === 'number') {
         const val = Math.round(data.saldoPrincipal * 100) / 100;
         setSaldoBanco(val);
         setTempSaldoBanco(val.toFixed(2));
@@ -179,15 +191,22 @@ export const CaixaInteligenteView: React.FC<CaixaInteligenteViewProps> = ({
             nome: data.contaPrincipal.nome,
             customLabel: data.contaPrincipal.customLabel,
             numero: data.contaPrincipal.numero,
-            atualizadoEm: data.atualizadoEm
+            atualizadoEm: data.lastBankSyncAt || data.atualizadoEm
           });
         }
         if (showFeedback) {
-          addToast('Saldo sincronizado com a Conta Principal!', 'success');
+          if (data.syncInfo?.triggered === false && data.syncInfo?.message) {
+            addToast(`Saldo: R$ ${val.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} — ${data.syncInfo.message}`, 'info');
+          } else {
+            addToast(`Saldo atualizado da Conta Principal: R$ ${val.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, 'success');
+          }
         }
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Erro ao sincronizar saldo da Conta Principal:', err);
+      if (showFeedback) {
+        addToast(err?.message || 'Erro de conexão ao sincronizar saldo bancário.', 'error');
+      }
     } finally {
       setSyncingSaldoBanco(false);
     }
@@ -662,7 +681,7 @@ export const CaixaInteligenteView: React.FC<CaixaInteligenteViewProps> = ({
               </div>
               <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
                 {contaPrincipalInfo
-                  ? `Sincronizado automaticamente • ${contaPrincipalInfo.customLabel || contaPrincipalInfo.nome}${contaPrincipalInfo.numero ? ` (${contaPrincipalInfo.numero})` : ''}`
+                  ? `Sincronizado • ${contaPrincipalInfo.customLabel || contaPrincipalInfo.nome}${contaPrincipalInfo.numero ? ` (${contaPrincipalInfo.numero})` : ''}${contaPrincipalInfo.atualizadoEm ? ` • Banco em ${new Date(contaPrincipalInfo.atualizadoEm).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}` : ''}`
                   : 'Saldo operacional de partida para boletos do dia'}
               </p>
             </>
