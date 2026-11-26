@@ -2,7 +2,7 @@
  * backend/services/conciliacao-extrato.service.js
  *
  * Motor de conciliação bancária entre o Extrato Bancário (Open Finance)
- * e os recebíveis de Maquininha (Rede/POS) e iFood da BelaFarma.
+ * e os recebíveis de Maquininha (Rede/POS), iFood, Pix e alertas de divergência.
  */
 
 const db = require('../database');
@@ -34,12 +34,187 @@ function normalizeModality(str) {
   return 'CREDITO';
 }
 
+const VALID_ALERT_CATEGORIES = ['CREDITO', 'DEBITO', 'IFOOD', 'PIX', 'BANCO'];
+
 class ConciliacaoExtratoService {
   /**
    * Obtém a lista de conciliações já salvas
    */
   getConciliacoesSalvas() {
     return db.prepare('SELECT * FROM bank_conciliations').all();
+  }
+
+  /**
+   * Registra ou atualiza um alerta de divergência (sem reabrir alertas já marcados como RESOLVED)
+   */
+  registrarAlertaDivergencia({
+    fingerprint,
+    category,
+    severity = 'ATENCAO',
+    title,
+    description,
+    expectedValue = null,
+    actualValue = null,
+    differenceValue = null,
+    referenceDate = null,
+    accountId = null
+  }) {
+    const cleanCategory = VALID_ALERT_CATEGORIES.includes(String(category || '').toUpperCase())
+      ? String(category).toUpperCase()
+      : 'BANCO';
+    const cleanSeverity = String(severity || 'ATENCAO').toUpperCase() === 'CRITICO' ? 'CRITICO' : 'ATENCAO';
+    const now = new Date().toISOString();
+
+    const existing = db.prepare('SELECT * FROM bank_divergence_alerts WHERE fingerprint = ?').get(fingerprint);
+    if (existing) {
+      if (existing.status === 'RESOLVED') {
+        return { action: 'KEPT_RESOLVED', id: existing.id };
+      }
+
+      db.prepare(`
+        UPDATE bank_divergence_alerts
+        SET category = ?,
+            severity = ?,
+            title = ?,
+            description = ?,
+            expected_value = ?,
+            actual_value = ?,
+            difference_value = ?,
+            reference_date = ?,
+            account_id = ?,
+            updated_at = ?
+        WHERE id = ?
+      `).run(
+        cleanCategory,
+        cleanSeverity,
+        title,
+        description,
+        expectedValue,
+        actualValue,
+        differenceValue,
+        referenceDate,
+        accountId,
+        now,
+        existing.id
+      );
+
+      return { action: 'UPDATED_OPEN', id: existing.id };
+    }
+
+    const id = `div_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    db.prepare(`
+      INSERT INTO bank_divergence_alerts (
+        id, fingerprint, category, severity, title, description,
+        expected_value, actual_value, difference_value, reference_date,
+        account_id, status, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?)
+    `).run(
+      id,
+      fingerprint,
+      cleanCategory,
+      cleanSeverity,
+      title,
+      description,
+      expectedValue,
+      actualValue,
+      differenceValue,
+      referenceDate,
+      accountId,
+      now,
+      now
+    );
+
+    return { action: 'CREATED', id };
+  }
+
+  /**
+   * Lista alertas de divergência e contadores por guia
+   */
+  listarAlertasDivergencia({ category = '', status = '' } = {}) {
+    const allRows = db.prepare(`
+      SELECT * FROM bank_divergence_alerts
+      ORDER BY CASE WHEN status = 'OPEN' THEN 0 ELSE 1 END ASC,
+               COALESCE(reference_date, substr(created_at, 1, 10)) DESC,
+               created_at DESC
+    `).all();
+
+    const counts = {
+      ALL: { open: 0, resolved: 0 },
+      CREDITO: { open: 0, resolved: 0 },
+      DEBITO: { open: 0, resolved: 0 },
+      IFOOD: { open: 0, resolved: 0 },
+      PIX: { open: 0, resolved: 0 },
+      BANCO: { open: 0, resolved: 0 }
+    };
+
+    for (const r of allRows) {
+      const cat = VALID_ALERT_CATEGORIES.includes(r.category) ? r.category : 'BANCO';
+      if (r.status === 'RESOLVED') {
+        counts.ALL.resolved++;
+        counts[cat].resolved++;
+      } else {
+        counts.ALL.open++;
+        counts[cat].open++;
+      }
+    }
+
+    const cleanCat = String(category || '').toUpperCase();
+    const cleanStatus = String(status || '').toUpperCase();
+
+    const filtered = allRows.filter(r => {
+      if (cleanCat && cleanCat !== 'ALL' && r.category !== cleanCat) return false;
+      if (cleanStatus && cleanStatus !== 'ALL' && r.status !== cleanStatus) return false;
+      return true;
+    });
+
+    return {
+      alerts: filtered,
+      counts
+    };
+  }
+
+  /**
+   * Marca um alerta de divergência como resolvido com observação
+   */
+  resolverAlertaDivergencia(id, { resolutionNote = '', resolvedBy = 'Administrador' } = {}) {
+    const existing = db.prepare('SELECT * FROM bank_divergence_alerts WHERE id = ?').get(id);
+    if (!existing) {
+      throw new Error('Alerta de divergência não encontrado.');
+    }
+
+    const now = new Date().toISOString();
+    db.prepare(`
+      UPDATE bank_divergence_alerts
+      SET status = 'RESOLVED',
+          resolution_note = ?,
+          resolved_by = ?,
+          resolved_at = ?,
+          updated_at = ?
+      WHERE id = ?
+    `).run(String(resolutionNote || '').trim(), resolvedBy, now, now, id);
+
+    return db.prepare('SELECT * FROM bank_divergence_alerts WHERE id = ?').get(id);
+  }
+
+  /**
+   * Reabre um alerta de divergência já resolvido
+   */
+  reabrirAlertaDivergencia(id) {
+    const existing = db.prepare('SELECT * FROM bank_divergence_alerts WHERE id = ?').get(id);
+    if (!existing) {
+      throw new Error('Alerta de divergência não encontrado.');
+    }
+
+    const now = new Date().toISOString();
+    db.prepare(`
+      UPDATE bank_divergence_alerts
+      SET status = 'OPEN',
+          resolved_at = NULL,
+          updated_at = ?
+      WHERE id = ?
+    `).run(now, id);
+
+    return db.prepare('SELECT * FROM bank_divergence_alerts WHERE id = ?').get(id);
   }
 
   /**
@@ -96,13 +271,11 @@ class ConciliacaoExtratoService {
     const concMap = new Map();
     concSalvas.forEach(c => concMap.set(c.transaction_id, c));
 
-    // Buscar recebíveis em aberto ou do período
     const cardReceivables = db.prepare(`
       SELECT * FROM card_machine_receivables
       ORDER BY expected_payment_date DESC
     `).all();
 
-    // Buscar vendas do iFood
     const ifoodSales = db.prepare(`
       SELECT * FROM ifood_sales
       ORDER BY sale_date DESC
@@ -120,18 +293,15 @@ class ConciliacaoExtratoService {
 
     for (const t of transacoes) {
       const valor = Number(t.amount || 0);
-      if (valor <= 0) continue; // Somente entradas financeiras
+      if (valor <= 0) continue;
 
       const desc = (t.description || '').toUpperCase();
       const descRaw = (t.descriptionRaw || '').toUpperCase();
       const dateStr = t.date ? t.date.substring(0, 10) : '';
       const concExistente = concMap.get(t.id);
 
-      // 1. Identificar se é Maquininha (REDE, CIELO, STONE, etc.)
       const isRede = desc.includes('REDE ') || descRaw.includes('REDE ') || desc.includes('CIELO') || desc.includes('STONE');
-      // 2. Identificar se é iFood
       const isIFood = desc.includes('IFOOD') || descRaw.includes('IFOOD');
-      // 3. Identificar se é Pix
       const isPix = desc.includes('PIX') || desc.includes('QRS');
 
       if (isRede) {
@@ -167,6 +337,7 @@ class ConciliacaoExtratoService {
           data: dateStr,
           valor,
           descricao: t.description,
+          accountName: t._accountName || null,
           bandeira,
           modalidade,
           status: conciliado ? 'CONCILIADO' : (sugestaoMatch ? 'SUGESTAO' : 'NOVO_EXTRATO'),
@@ -196,6 +367,7 @@ class ConciliacaoExtratoService {
           data: dateStr,
           valor,
           descricao: t.description,
+          accountName: t._accountName || null,
           tipoRepasse,
           status: conciliado ? 'CONCILIADO' : (sugestaoMatch ? 'SUGESTAO' : 'NOVO_EXTRATO'),
           conciliacao: concExistente || null,
@@ -207,6 +379,7 @@ class ConciliacaoExtratoService {
           data: dateStr,
           valor,
           descricao: t.description,
+          accountName: t._accountName || null,
           pagador: t.paymentData?.payer?.documentNumber?.value || 'Balcão/Cliente',
           status: concExistente ? 'CONCILIADO' : 'NOVO_EXTRATO'
         });
@@ -216,10 +389,17 @@ class ConciliacaoExtratoService {
           data: dateStr,
           valor,
           descricao: t.description,
+          accountName: t._accountName || null,
           status: concExistente ? 'CONCILIADO' : 'NOVO_EXTRATO'
         });
       }
     }
+
+    let divergenciasAbertasCount = 0;
+    try {
+      const row = db.prepare(`SELECT COUNT(*) as qtd FROM bank_divergence_alerts WHERE status = 'OPEN'`).get();
+      divergenciasAbertasCount = Number(row?.qtd || 0);
+    } catch (e) {}
 
     return {
       resumo: {
@@ -237,6 +417,7 @@ class ConciliacaoExtratoService {
         totalPix: itensPix.reduce((acc, p) => acc + p.valor, 0)
       },
       pendenciasSistema: this.obterPendenciasSistema(),
+      divergenciasAbertasCount,
       maquininha: itensMaquininha,
       ifood: itensIFood,
       pix: itensPix.slice(0, 50),
@@ -308,11 +489,6 @@ class ConciliacaoExtratoService {
 
   /**
    * Concilia e baixa os recebíveis vencidos de Maquininha e iFood no banco de dados
-   * usando os depósitos do extrato (quando disponíveis).
-   * - Se `somenteComMatchExtrato === true` (uso da rotina diária automática):
-   *   só dá baixa quando há depósito real correspondente no extrato e devolve anomalias de taxa.
-   * - Se `somenteComMatchExtrato === false` (zeramento manual / limpeza completa):
-   *   dá baixa em todos os recebíveis vencidos até hoje.
    */
   conciliarPendenciasSistema({ userName = 'Robô Open Finance', transacoesExtrato = [], somenteComMatchExtrato = false } = {}) {
     const today = getTodaySP();
@@ -334,7 +510,6 @@ class ConciliacaoExtratoService {
 
     const allTx = Array.isArray(transacoesExtrato) ? transacoesExtrato : [];
 
-    // Prepara candidatos de depósito de maquininha vindos do extrato
     const cardDeposits = allTx
       .filter(t => {
         const valor = Number(t.amount || 0);
@@ -354,7 +529,6 @@ class ConciliacaoExtratoService {
         };
       });
 
-    // Depósitos recentes do iFood nos últimos 7 dias (para validação na rotina diária)
     const seteDiasAtras = addDaysYMD(today, -7);
     const ifoodDepositsRecentes = allTx
       .filter(t => {
@@ -410,7 +584,6 @@ class ConciliacaoExtratoService {
     `);
 
     db.transaction(() => {
-      // 1. Agrupar recebíveis de maquininha por data esperada | bandeira | modalidade
       const groups = new Map();
       for (const item of pendingCards) {
         const dueDate = item.expected_payment_date || item.sale_date || '';
@@ -442,6 +615,7 @@ class ConciliacaoExtratoService {
           const totalGross = items.reduce((sum, it) => sum + (Number(it.gross_value) || 0), 0);
           const totalFee = Math.max(0, totalGross - netTotal);
           const overallFeePercent = totalGross > 0 ? (totalFee / totalGross) * 100 : 0;
+          const limiteTaxa = modality === 'DEBITO' ? 3.5 : 7.0;
 
           if (netTotal > totalGross + 0.05) {
             anomaliasTaxas.push({
@@ -453,7 +627,7 @@ class ConciliacaoExtratoService {
               netTotal: Number(netTotal.toFixed(2)),
               taxaPercent: Number(overallFeePercent.toFixed(2))
             });
-          } else if (overallFeePercent > 7) {
+          } else if (overallFeePercent > limiteTaxa) {
             anomaliasTaxas.push({
               tipo: 'TAXA_ACIMA_PADRAO',
               dueDate,
@@ -510,7 +684,6 @@ class ConciliacaoExtratoService {
         }
       }
 
-      // 2. Baixar vendas vencidas do iFood até hoje (ou até a maior data de repasse recente no modo automático)
       const maxIFoodDepositDate = ifoodDepositsRecentes.length > 0 ? ifoodDepositsRecentes[0].date : '';
       for (const sale of pendingIFood) {
         if (somenteComMatchExtrato) {

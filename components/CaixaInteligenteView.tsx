@@ -63,6 +63,8 @@ export const CaixaInteligenteView: React.FC<CaixaInteligenteViewProps> = ({
   });
   const [editandoSaldoBanco, setEditandoSaldoBanco] = useState<boolean>(false);
   const [tempSaldoBanco, setTempSaldoBanco] = useState<string>(saldoBanco.toFixed(2));
+  const [contaPrincipalInfo, setContaPrincipalInfo] = useState<{ nome: string; customLabel?: string | null; numero?: string; atualizadoEm?: string } | null>(null);
+  const [syncingSaldoBanco, setSyncingSaldoBanco] = useState<boolean>(false);
 
   // Saldo físico (Cofre + Gaveta)
   const [saldoCofre, setSaldoCofre] = useState<number>(() => {
@@ -156,6 +158,43 @@ export const CaixaInteligenteView: React.FC<CaixaInteligenteViewProps> = ({
       }
     };
     fetchProvisionsData();
+  }, []);
+
+  // Sincroniza automaticamente o Saldo na Conta (Banco) usando APENAS a Conta Principal
+  const syncSaldoContaPrincipal = async (showFeedback = false) => {
+    try {
+      setSyncingSaldoBanco(true);
+      const token = localStorage.getItem('belinha_auth_token');
+      const headers: HeadersInit = token ? { 'Authorization': `Bearer ${token}` } : {};
+      const res = await fetch('/api/bank-conciliation/saldo', { headers });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data && data.configured && typeof data.saldoPrincipal === 'number') {
+        const val = Math.round(data.saldoPrincipal * 100) / 100;
+        setSaldoBanco(val);
+        setTempSaldoBanco(val.toFixed(2));
+        localStorage.setItem('belafarma_saldo_banco_atual', val.toString());
+        if (data.contaPrincipal) {
+          setContaPrincipalInfo({
+            nome: data.contaPrincipal.nome,
+            customLabel: data.contaPrincipal.customLabel,
+            numero: data.contaPrincipal.numero,
+            atualizadoEm: data.atualizadoEm
+          });
+        }
+        if (showFeedback) {
+          addToast('Saldo sincronizado com a Conta Principal!', 'success');
+        }
+      }
+    } catch (err) {
+      console.error('Erro ao sincronizar saldo da Conta Principal:', err);
+    } finally {
+      setSyncingSaldoBanco(false);
+    }
+  };
+
+  useEffect(() => {
+    syncSaldoContaPrincipal(false);
   }, []);
 
   const toggleConsiderarProvisoes = () => {
@@ -575,16 +614,27 @@ export const CaixaInteligenteView: React.FC<CaixaInteligenteViewProps> = ({
               <Landmark className="w-4 h-4 text-blue-500" />
               Saldo na Conta (Banco)
             </span>
-            <button
-              type="button"
-              onClick={() => {
-                setTempSaldoBanco(saldoBanco.toFixed(2));
-                setEditandoSaldoBanco(!editandoSaldoBanco);
-              }}
-              className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline font-semibold cursor-pointer"
-            >
-              {editandoSaldoBanco ? 'Fechar' : 'Ajustar'}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => syncSaldoContaPrincipal(true)}
+                disabled={syncingSaldoBanco}
+                title="Sincronizar com Conta Principal (Open Finance)"
+                className="text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors cursor-pointer disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${syncingSaldoBanco ? 'animate-spin' : ''}`} />
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setTempSaldoBanco(saldoBanco.toFixed(2));
+                  setEditandoSaldoBanco(!editandoSaldoBanco);
+                }}
+                className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline font-semibold cursor-pointer"
+              >
+                {editandoSaldoBanco ? 'Fechar' : 'Ajustar'}
+              </button>
+            </div>
           </div>
 
           {editandoSaldoBanco ? (
@@ -611,7 +661,9 @@ export const CaixaInteligenteView: React.FC<CaixaInteligenteViewProps> = ({
                 R$ {saldoBanco.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
               <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-                Saldo operacional de partida para boletos do dia
+                {contaPrincipalInfo
+                  ? `Sincronizado automaticamente • ${contaPrincipalInfo.customLabel || contaPrincipalInfo.nome}${contaPrincipalInfo.numero ? ` (${contaPrincipalInfo.numero})` : ''}`
+                  : 'Saldo operacional de partida para boletos do dia'}
               </p>
             </>
           )}

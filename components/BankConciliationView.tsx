@@ -1,30 +1,36 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Building2, 
-  CreditCard, 
-  ShoppingBag, 
-  QrCode, 
-  CheckCircle2, 
-  AlertCircle, 
-  RefreshCw, 
-  ArrowUpRight, 
-  Check, 
-  Clock, 
+import {
+  Building2,
+  CreditCard,
+  ShoppingBag,
+  QrCode,
+  CheckCircle2,
+  AlertCircle,
+  RefreshCw,
+  Check,
+  Clock,
   Sparkles,
   Search,
-  Filter,
-  DollarSign,
   Settings,
   KeyRound,
   X,
   Save,
   ShieldAlert,
-  Bot
+  Bot,
+  Plus,
+  ExternalLink,
+  Copy,
+  PiggyBank,
+  Star,
+  BookOpen,
+  ArrowRight
 } from 'lucide-react';
-import { User } from '../types';
+import { User, View } from '../types';
+import { CheckingAccount } from './CheckingAccount';
 
 interface BankConciliationViewProps {
   user: User;
+  onNavigate?: (view: View) => void;
 }
 
 interface ResumoConciliacao {
@@ -52,10 +58,27 @@ interface PendenciasSistema {
   ifoodFutureNet: number;
 }
 
-interface AlertaAuditoria {
-  nivel: string;
-  titulo: string;
-  detalhe: string;
+interface ContaConectada {
+  id: string;
+  itemId?: string | null;
+  nome: string;
+  customLabel?: string | null;
+  tipo: string;
+  subtipo: string;
+  numero: string;
+  saldo: number;
+  moeda: string;
+  role: 'PRINCIPAL' | 'INVESTIMENTO' | 'SECUNDARIO';
+}
+
+interface SaldoData {
+  configured?: boolean;
+  saldoPrincipal: number;
+  saldoInvestimento: number;
+  saldoTotal: number;
+  contaPrincipal?: ContaConectada | null;
+  contas: ContaConectada[];
+  atualizadoEm?: string;
 }
 
 interface UltimaExecucao {
@@ -66,7 +89,7 @@ interface UltimaExecucao {
   extratoConciliados: number;
   cardsBaixados: number;
   ifoodBaixados: number;
-  alertas: AlertaAuditoria[];
+  alertas: any[];
   whatsappSent: boolean;
   createdAt: string;
 }
@@ -85,6 +108,7 @@ interface ItemExtrato {
   data: string;
   valor: number;
   descricao: string;
+  accountName?: string | null;
   bandeira?: string;
   modalidade?: string;
   tipoRepasse?: string;
@@ -93,21 +117,23 @@ interface ItemExtrato {
   sugestao?: any;
 }
 
-export const BankConciliationView: React.FC<BankConciliationViewProps> = ({ user }) => {
-  const [activeTab, setActiveTab] = useState<'maquininha' | 'ifood' | 'pix'>('maquininha');
+export const BankConciliationView: React.FC<BankConciliationViewProps> = ({ user, onNavigate }) => {
+  const [activeTab, setActiveTab] = useState<'maquininha' | 'ifood' | 'pix' | 'conta-corrente'>('maquininha');
   const [loading, setLoading] = useState<boolean>(true);
   const [actionLoading, setActionLoading] = useState<boolean>(false);
-  const [saldo, setSaldo] = useState<any>(null);
+  const [saldo, setSaldo] = useState<SaldoData | null>(null);
   const [resumo, setResumo] = useState<ResumoConciliacao | null>(null);
   const [maquininhaItens, setMaquininhaItens] = useState<ItemExtrato[]>([]);
   const [ifoodItens, setIfoodItens] = useState<ItemExtrato[]>([]);
   const [pixItens, setPixItens] = useState<any[]>([]);
+  const [selectedAccountId, setSelectedAccountId] = useState<string>('');
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'PENDING' | 'CONCILIATED'>('ALL');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [needsConfig, setNeedsConfig] = useState<boolean>(false);
   const [pendenciasSistema, setPendenciasSistema] = useState<PendenciasSistema | null>(null);
+  const [divergenciasAbertasCount, setDivergenciasAbertasCount] = useState<number>(0);
   const [isConfirmZerarOpen, setIsConfirmZerarOpen] = useState<boolean>(false);
   const [itemStatus, setItemStatus] = useState<ItemStatus | null>(null);
   const [ultimaExecucao, setUltimaExecucao] = useState<UltimaExecucao | null>(null);
@@ -121,6 +147,14 @@ export const BankConciliationView: React.FC<BankConciliationViewProps> = ({ user
   const [cfgHasSecret, setCfgHasSecret] = useState<boolean>(false);
   const [cfgItemId, setCfgItemId] = useState<string>('');
   const [cfgAccountId, setCfgAccountId] = useState<string>('');
+
+  // Modal de Conectar Novo Banco (Mercado Pago / Outros)
+  const [isAddBankOpen, setIsAddBankOpen] = useState<boolean>(false);
+  const [newBankStep, setNewBankStep] = useState<'idle' | 'link_ready'>('idle');
+  const [newBankLoading, setNewBankLoading] = useState<boolean>(false);
+  const [newBankItemId, setNewBankItemId] = useState<string>('');
+  const [newBankAuthUrl, setNewBankAuthUrl] = useState<string>('');
+  const [newBankError, setNewBankError] = useState<string | null>(null);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -140,9 +174,7 @@ export const BankConciliationView: React.FC<BankConciliationViewProps> = ({ user
         setCfgItemId(data.defaultItemId || '');
         setCfgAccountId(data.defaultAccountId || '');
       }
-    } catch (e) {
-      // Mantém valores atuais em caso de falha de leitura
-    }
+    } catch {}
   };
 
   const handleSaveConfig = async (e: React.FormEvent) => {
@@ -176,11 +208,13 @@ export const BankConciliationView: React.FC<BankConciliationViewProps> = ({ user
     }
   };
 
-  const carregarPainel = async () => {
+  const carregarPainel = async (overrideAccountId?: string) => {
     try {
       setLoading(true);
       setErrorMessage(null);
-      const res = await fetch('/api/bank-conciliation/painel');
+      const accFilter = overrideAccountId !== undefined ? overrideAccountId : selectedAccountId;
+      const qs = accFilter ? `?accountId=${encodeURIComponent(accFilter)}` : '';
+      const res = await fetch(`/api/bank-conciliation/painel${qs}`);
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
@@ -188,15 +222,10 @@ export const BankConciliationView: React.FC<BankConciliationViewProps> = ({ user
         throw new Error(msg);
       }
 
-      if (data.pendenciasSistema) {
-        setPendenciasSistema(data.pendenciasSistema);
-      }
-      if (data.ultimaExecucao !== undefined) {
-        setUltimaExecucao(data.ultimaExecucao);
-      }
-      if (data.itemStatus !== undefined) {
-        setItemStatus(data.itemStatus);
-      }
+      if (data.pendenciasSistema) setPendenciasSistema(data.pendenciasSistema);
+      if (data.divergenciasAbertasCount !== undefined) setDivergenciasAbertasCount(Number(data.divergenciasAbertasCount || 0));
+      if (data.ultimaExecucao !== undefined) setUltimaExecucao(data.ultimaExecucao);
+      if (data.itemStatus !== undefined) setItemStatus(data.itemStatus);
 
       if (data.needsConfig) {
         setNeedsConfig(true);
@@ -228,6 +257,86 @@ export const BankConciliationView: React.FC<BankConciliationViewProps> = ({ user
     carregarPainel();
   }, []);
 
+  const handleChangeAccountRole = async (conta: ContaConectada, role: 'PRINCIPAL' | 'INVESTIMENTO' | 'SECUNDARIO') => {
+    try {
+      setActionLoading(true);
+      const res = await fetch(`/api/bank-conciliation/accounts/${encodeURIComponent(conta.id)}/role`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          role,
+          itemId: conta.itemId || '',
+          bankName: conta.nome,
+          accountNumber: conta.numero,
+          customLabel: conta.customLabel || null
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || 'Falha ao atualizar papel da conta');
+      }
+      showToast(
+        role === 'PRINCIPAL'
+          ? `${conta.customLabel || conta.nome} definida como Conta Principal!`
+          : role === 'INVESTIMENTO'
+            ? `${conta.customLabel || conta.nome} marcada como Banco Investimento.`
+            : `${conta.customLabel || conta.nome} marcada como Conta Secundária.`
+      );
+      await carregarPainel();
+    } catch (err: any) {
+      showToast(err?.message || 'Erro ao definir papel da conta');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleGerarLinkNovoBanco = async () => {
+    setNewBankError(null);
+    try {
+      setNewBankLoading(true);
+      const res = await fetch('/api/bank-conciliation/gerar-link-conexao', {
+        method: 'POST'
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || 'Erro ao gerar link de autorização');
+      }
+      setNewBankItemId(data.itemId);
+      setNewBankAuthUrl(data.authUrl);
+      setNewBankStep('link_ready');
+    } catch (err: any) {
+      setNewBankError(err?.message || 'Não foi possível gerar o link.');
+    } finally {
+      setNewBankLoading(false);
+    }
+  };
+
+  const handleConfirmarNovoBanco = async () => {
+    setNewBankError(null);
+    try {
+      setNewBankLoading(true);
+      const res = await fetch('/api/bank-conciliation/confirmar-conexao', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itemId: newBankItemId })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || data.error || 'Autorização ainda não finalizada.');
+      }
+      setIsAddBankOpen(false);
+      setNewBankStep('idle');
+      setNewBankItemId('');
+      setNewBankAuthUrl('');
+      showToast('Nova conta bancária sincronizada com sucesso!');
+      await carregarPainel();
+    } catch (err: any) {
+      setNewBankError(err?.message || 'Erro ao confirmar conexão.');
+    } finally {
+      setNewBankLoading(false);
+    }
+  };
+
   const handleConciliarItem = async (item: ItemExtrato, channel: 'MAQUININHA' | 'IFOOD') => {
     try {
       setActionLoading(true);
@@ -240,7 +349,7 @@ export const BankConciliationView: React.FC<BankConciliationViewProps> = ({ user
           channel,
           targetType: channel === 'MAQUININHA' ? 'card_machine_receivable' : 'ifood_sale',
           targetId: item.sugestao ? item.sugestao.id : null,
-          notes: item.sugestao ? `Conciliado com ${item.sugestao.id}` : `Confirmado via Extrato Bancário`
+          notes: item.sugestao ? `Conciliado com ${item.sugestao.id}` : 'Confirmado via Extrato Bancário'
         }],
         userName: user.name || 'Administrador'
       };
@@ -304,7 +413,7 @@ export const BankConciliationView: React.FC<BankConciliationViewProps> = ({ user
       const qtdAlertas = Array.isArray(data.alertas) ? data.alertas.length : 0;
       showToast(
         qtdAlertas > 0
-          ? `Auditoria concluída: ${qtdAlertas} alerta(s) encontrado(s).`
+          ? `Auditoria concluída: ${qtdAlertas} divergência(s) registrada(s) na página de Alertas.`
           : 'Auditoria diária concluída: tudo certo (0 alertas).'
       );
       await carregarPainel();
@@ -331,7 +440,6 @@ export const BankConciliationView: React.FC<BankConciliationViewProps> = ({ user
     }
   };
 
-  // Filtragem dos itens exibidos
   const filtrarLista = (itens: ItemExtrato[]) => {
     return itens.filter(item => {
       const matchSearch = item.descricao.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -339,13 +447,8 @@ export const BankConciliationView: React.FC<BankConciliationViewProps> = ({ user
         item.valor.toFixed(2).includes(searchTerm);
 
       if (!matchSearch) return false;
-
-      if (statusFilter === 'PENDING') {
-        return item.status !== 'CONCILIADO';
-      }
-      if (statusFilter === 'CONCILIATED') {
-        return item.status === 'CONCILIADO';
-      }
+      if (statusFilter === 'PENDING') return item.status !== 'CONCILIADO';
+      if (statusFilter === 'CONCILIATED') return item.status === 'CONCILIADO';
       return true;
     });
   };
@@ -355,39 +458,38 @@ export const BankConciliationView: React.FC<BankConciliationViewProps> = ({ user
 
   return (
     <div className="space-y-6">
-      {/* Toast Notification */}
       {toastMessage && (
-        <div className="fixed bottom-5 right-5 z-50 bg-emerald-600 text-white px-5 py-3 rounded-xl shadow-2xl flex items-center gap-3 border border-emerald-400 animate-bounce">
-          <CheckCircle2 className="w-5 h-5" />
+        <div className="fixed bottom-5 right-5 z-50 bg-emerald-600 text-white px-5 py-3 rounded-xl shadow-2xl flex items-center gap-3 border border-emerald-400">
+          <CheckCircle2 className="w-5 h-5 shrink-0" />
           <span className="font-medium text-sm">{toastMessage}</span>
         </div>
       )}
 
-      {/* Top Banner: Saldo Real & Ações */}
+      {/* Top Banner */}
       <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 border border-indigo-800/40 rounded-2xl p-6 text-white shadow-xl relative overflow-hidden">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
           <div>
-            <div className="flex items-center gap-2 mb-2">
+            <div className="flex flex-wrap items-center gap-2 mb-2">
               <span className="px-2.5 py-1 bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-semibold rounded-full flex items-center gap-1.5">
                 <Building2 className="w-3.5 h-3.5 text-amber-400" />
                 Open Finance • Contas Bancárias
               </span>
-              <span className="text-xs text-slate-400">
-                Conta: {saldo?.contas?.[0]?.numero || (needsConfig ? 'Não configurada' : 'Conectada')}
+              <span className="text-xs text-slate-300">
+                Principal: <strong>{saldo?.contaPrincipal?.customLabel || saldo?.contaPrincipal?.nome || (needsConfig ? 'Não configurada' : '-')}</strong>
               </span>
             </div>
             <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight">
-              Conciliação Bancária Automática
+              Conta Corrente & Conciliação Bancária
             </h1>
             <p className="text-slate-400 text-sm mt-1">
-              Conferência contínua dos repasses de Maquininha (Rede), iFood e Pix direto do extrato bancário oficial.
+              Gestão unificada das contas conectadas, classificação Conta Principal vs. Investimento e conciliação de Maquininha, iFood e Pix.
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2.5">
             <button
               onClick={openConfigModal}
-              className="p-2.5 bg-slate-800/80 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl transition flex items-center gap-2 text-sm font-medium"
+              className="p-2.5 bg-slate-800/80 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl transition flex items-center gap-2 text-xs font-semibold"
               title="Configurar Open Finance (Pluggy)"
             >
               <Settings className="w-4 h-4" />
@@ -397,7 +499,7 @@ export const BankConciliationView: React.FC<BankConciliationViewProps> = ({ user
             <button
               onClick={handleRodarAuditoria}
               disabled={loading || actionLoading || needsConfig}
-              className="p-2.5 bg-slate-800/80 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl transition flex items-center gap-2 text-sm font-medium disabled:opacity-50"
+              className="p-2.5 bg-slate-800/80 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl transition flex items-center gap-2 text-xs font-semibold disabled:opacity-50"
               title="Executar Auditoria Diária Agora"
             >
               <Bot className="w-4 h-4 text-emerald-400" />
@@ -405,9 +507,9 @@ export const BankConciliationView: React.FC<BankConciliationViewProps> = ({ user
             </button>
 
             <button
-              onClick={carregarPainel}
+              onClick={() => carregarPainel()}
               disabled={loading || actionLoading}
-              className="p-2.5 bg-slate-800/80 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl transition flex items-center gap-2 text-sm font-medium disabled:opacity-50"
+              className="p-2.5 bg-slate-800/80 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl transition flex items-center gap-2 text-xs font-semibold disabled:opacity-50"
               title="Atualizar Extrato Agora"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
@@ -424,7 +526,7 @@ export const BankConciliationView: React.FC<BankConciliationViewProps> = ({ user
                   (pendenciasSistema?.cardDueCount || 0) === 0 &&
                   (pendenciasSistema?.ifoodDueCount || 0) === 0)
               }
-              className="px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl shadow-lg shadow-emerald-900/30 font-semibold text-sm flex items-center gap-2 transition disabled:opacity-50"
+              className="px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl shadow-lg shadow-emerald-900/30 font-semibold text-xs flex items-center gap-2 transition disabled:opacity-50"
             >
               <Sparkles className="w-4 h-4" />
               <span>Conciliar Todas as Entradas</span>
@@ -436,20 +538,27 @@ export const BankConciliationView: React.FC<BankConciliationViewProps> = ({ user
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-6">
           <div className="bg-slate-800/60 border border-slate-700/60 rounded-xl p-4">
             <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
-              <span>Saldo Consolidado em Conta</span>
-              <Building2 className="w-4 h-4 text-amber-400" />
+              <span>Saldo Conta Principal</span>
+              <Star className="w-4 h-4 text-amber-400" />
             </div>
             <div className="text-2xl font-bold text-white">
-              {saldo ? `R$ ${Number(saldo.saldoTotal).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : 'R$ 0,00'}
+              {saldo ? `R$ ${Number(saldo.saldoPrincipal || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : 'R$ 0,00'}
             </div>
-            <div className="text-xs text-emerald-400 mt-1 flex items-center gap-1">
-              <CheckCircle2 className="w-3.5 h-3.5" /> Sincronizado via Open Finance
+            <div className="text-[11px] text-slate-300 mt-1 flex items-center justify-between">
+              <span className="text-emerald-400 flex items-center gap-1">
+                <CheckCircle2 className="w-3.5 h-3.5" /> Alimenta Caixa Inteligente
+              </span>
+              {saldo && saldo.saldoInvestimento > 0 && (
+                <span className="text-sky-300">
+                  Inv.: R$ {saldo.saldoInvestimento.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                </span>
+              )}
             </div>
           </div>
 
           <div className="bg-slate-800/60 border border-slate-700/60 rounded-xl p-4">
             <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
-              <span>Maquininha (Rede) no Extrato</span>
+              <span>Maquininhas no Extrato</span>
               <CreditCard className="w-4 h-4 text-cyan-400" />
             </div>
             <div className="text-2xl font-bold text-white">
@@ -494,6 +603,118 @@ export const BankConciliationView: React.FC<BankConciliationViewProps> = ({ user
         </div>
       </div>
 
+      {/* Painel de Contas Bancárias Conectadas (Multi-Banco + Papel Principal/Investimento) */}
+      {!needsConfig && (
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h2 className="font-bold text-slate-900 dark:text-white text-sm md:text-base flex items-center gap-2">
+                <Building2 className="w-4 h-4 text-indigo-500" />
+                Contas Bancárias Conectadas ({saldo?.contas?.length || 0})
+              </h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                <strong>Conta Principal:</strong> recebe Pix/maquininhas, paga contas e sincroniza o Saldo Conta Banco • <strong>Investimento:</strong> reserva por prazo definido.
+              </p>
+            </div>
+            <button
+              onClick={() => {
+                setNewBankError(null);
+                setNewBankStep('idle');
+                setIsAddBankOpen(true);
+              }}
+              className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold inline-flex items-center gap-1.5 transition shrink-0 shadow-sm"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Conectar Novo Banco (Mercado Pago / Outros)</span>
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+            {(saldo?.contas || []).map((c) => {
+              const isPrincipal = c.role === 'PRINCIPAL';
+              const isInvest = c.role === 'INVESTIMENTO';
+              return (
+                <div
+                  key={c.id}
+                  className={`rounded-xl border p-4 flex flex-col justify-between gap-3 transition ${
+                    isPrincipal
+                      ? 'border-amber-400/70 bg-amber-50/40 dark:bg-amber-950/20'
+                      : isInvest
+                        ? 'border-sky-400/70 bg-sky-50/40 dark:bg-sky-950/20'
+                        : 'border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-sm text-slate-900 dark:text-white">
+                          {c.customLabel || c.nome}
+                        </span>
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                          isPrincipal
+                            ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300'
+                            : isInvest
+                              ? 'bg-sky-500/20 text-sky-700 dark:text-sky-300'
+                              : 'bg-slate-500/15 text-slate-600 dark:text-slate-300'
+                        }`}>
+                          {isPrincipal ? 'Conta Principal' : isInvest ? 'Investimento' : 'Secundário'}
+                        </span>
+                      </div>
+                      <span className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
+                        Conta: {c.numero || c.id.slice(0, 8)}
+                      </span>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-base font-extrabold font-mono text-slate-900 dark:text-white">
+                        R$ {Number(c.saldo || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-slate-200/70 dark:border-slate-700/60">
+                    <button
+                      onClick={() => handleChangeAccountRole(c, 'PRINCIPAL')}
+                      disabled={isPrincipal || actionLoading}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold inline-flex items-center gap-1 transition ${
+                        isPrincipal
+                          ? 'bg-amber-500 text-white cursor-default'
+                          : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:border-amber-400'
+                      }`}
+                    >
+                      <Star className="w-3 h-3" />
+                      <span>Principal</span>
+                    </button>
+                    <button
+                      onClick={() => handleChangeAccountRole(c, 'INVESTIMENTO')}
+                      disabled={isInvest || actionLoading}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold inline-flex items-center gap-1 transition ${
+                        isInvest
+                          ? 'bg-sky-600 text-white cursor-default'
+                          : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:border-sky-400'
+                      }`}
+                    >
+                      <PiggyBank className="w-3 h-3" />
+                      <span>Investimento</span>
+                    </button>
+                    <button
+                      onClick={() => handleChangeAccountRole(c, 'SECUNDARIO')}
+                      disabled={c.role === 'SECUNDARIO' || actionLoading}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition ${
+                        c.role === 'SECUNDARIO'
+                          ? 'bg-slate-600 text-white cursor-default'
+                          : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-slate-400'
+                      }`}
+                    >
+                      Secundário
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Alerta de Erro ou Configuração Pendente */}
       {(errorMessage || needsConfig) && (
         <div className={`rounded-2xl p-4 border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
@@ -525,7 +746,7 @@ export const BankConciliationView: React.FC<BankConciliationViewProps> = ({ user
               <span>Configurar Open Finance</span>
             </button>
             <button
-              onClick={carregarPainel}
+              onClick={() => carregarPainel()}
               className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-semibold transition"
             >
               Tentar novamente
@@ -534,60 +755,61 @@ export const BankConciliationView: React.FC<BankConciliationViewProps> = ({ user
         </div>
       )}
 
-      {/* Barra da Rotina Diária Automática */}
+      {/* Barra da Rotina Diária + Atalho para Página de Alertas de Divergência */}
       {!needsConfig && (
-        <div className="rounded-2xl px-4 py-3 border bg-slate-900/5 dark:bg-slate-900 border-slate-200 dark:border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-2 text-xs text-slate-600 dark:text-slate-300">
-          <div className="flex flex-wrap items-center gap-3">
-            <span className="inline-flex items-center gap-1.5 font-semibold text-slate-800 dark:text-slate-100">
-              <Bot className="w-4 h-4 text-indigo-500" />
-              Robô diário ativo (todo dia às 11h30)
-            </span>
-            {ultimaExecucao ? (
-              <span className={`px-2 py-0.5 rounded-full font-semibold ${
-                ultimaExecucao.status === 'OK'
-                  ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                  : ultimaExecucao.status === 'ALERTA'
-                    ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                    : 'bg-rose-500/10 text-rose-600 dark:text-rose-400'
-              }`}>
-                Última auditoria ({formatDateTimeBR(ultimaExecucao.createdAt)}): {ultimaExecucao.status}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+          <div className="lg:col-span-2 rounded-2xl px-4 py-3 border bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-slate-600 dark:text-slate-300">
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="inline-flex items-center gap-1.5 font-semibold text-slate-800 dark:text-slate-100">
+                <Bot className="w-4 h-4 text-indigo-500" />
+                Robô diário ativo (11h30)
               </span>
-            ) : (
-              <span className="text-slate-400">Aguardando primeira execução automática</span>
+              {ultimaExecucao ? (
+                <span className={`px-2 py-0.5 rounded-full font-semibold ${
+                  ultimaExecucao.status === 'OK'
+                    ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                    : ultimaExecucao.status === 'ALERTA'
+                      ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                      : 'bg-rose-500/10 text-rose-600 dark:text-rose-400'
+                }`}>
+                  Última auditoria ({formatDateTimeBR(ultimaExecucao.createdAt)}): {ultimaExecucao.status}
+                </span>
+              ) : (
+                <span className="text-slate-400">Aguardando primeira execução automática</span>
+              )}
+            </div>
+            {itemStatus && (
+              <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+                <span>Sync: <strong>{formatDateTimeBR(itemStatus.lastUpdatedAt)}</strong></span>
+                <span>•</span>
+                <span>Próxima: <strong>{formatDateTimeBR(itemStatus.nextAutoSyncAt)}</strong></span>
+              </div>
             )}
           </div>
-          {itemStatus && (
-            <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-500 dark:text-slate-400">
-              <span>Última sincronização banco: <strong>{formatDateTimeBR(itemStatus.lastUpdatedAt)}</strong></span>
-              <span>•</span>
-              <span>Próxima automática: <strong>{formatDateTimeBR(itemStatus.nextAutoSyncAt)}</strong></span>
-            </div>
-          )}
-        </div>
-      )}
 
-      {/* Alertas da Auditoria Diária (somente quando houver anomalias) */}
-      {ultimaExecucao && ultimaExecucao.alertas && ultimaExecucao.alertas.length > 0 && (
-        <div className="rounded-2xl p-4 border bg-rose-500/10 border-rose-500/30 text-rose-900 dark:text-rose-200 space-y-2">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2 font-bold text-sm">
-              <ShieldAlert className="w-5 h-5 text-rose-500 shrink-0" />
-              <span>Alertas identificados na última auditoria ({ultimaExecucao.alertas.length})</span>
+          <button
+            onClick={() => onNavigate?.('bank-divergence-alerts')}
+            className={`rounded-2xl px-4 py-3 border flex items-center justify-between gap-3 text-left transition ${
+              divergenciasAbertasCount > 0
+                ? 'bg-rose-500/10 border-rose-500/30 text-rose-800 dark:text-rose-200 hover:bg-rose-500/15'
+                : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-800 dark:text-emerald-200 hover:bg-emerald-500/15'
+            }`}
+          >
+            <div className="flex items-center gap-2.5">
+              <ShieldAlert className={`w-5 h-5 shrink-0 ${divergenciasAbertasCount > 0 ? 'text-rose-500' : 'text-emerald-500'}`} />
+              <div>
+                <p className="text-xs font-bold">
+                  Alertas de Divergência
+                </p>
+                <p className="text-[11px] opacity-90">
+                  {divergenciasAbertasCount > 0
+                    ? `${divergenciasAbertasCount} alerta(s) pendente(s) por categoria`
+                    : 'Nenhuma divergência pendente'}
+                </p>
+              </div>
             </div>
-            {ultimaExecucao.whatsappSent && (
-              <span className="text-[11px] px-2 py-0.5 rounded-full bg-rose-500/20 font-medium">
-                Enviado no WhatsApp do Admin
-              </span>
-            )}
-          </div>
-          <ul className="space-y-1 text-xs">
-            {ultimaExecucao.alertas.map((a, idx) => (
-              <li key={idx} className="flex items-start gap-2">
-                <span className="font-bold">[{a.nivel}]</span>
-                <span><strong>{a.titulo}:</strong> {a.detalhe}</span>
-              </li>
-            ))}
-          </ul>
+            <ArrowRight className="w-4 h-4 shrink-0" />
+          </button>
         </div>
       )}
 
@@ -633,11 +855,11 @@ export const BankConciliationView: React.FC<BankConciliationViewProps> = ({ user
       )}
 
       {/* Navegação por Abas */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-3">
-        <div className="flex items-center gap-2">
+      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-3">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={() => setActiveTab('maquininha')}
-            className={`px-4 py-2 rounded-xl text-sm font-semibold transition flex items-center gap-2 ${
+            className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition flex items-center gap-2 ${
               activeTab === 'maquininha'
                 ? 'bg-indigo-600 text-white shadow-md'
                 : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
@@ -649,7 +871,7 @@ export const BankConciliationView: React.FC<BankConciliationViewProps> = ({ user
 
           <button
             onClick={() => setActiveTab('ifood')}
-            className={`px-4 py-2 rounded-xl text-sm font-semibold transition flex items-center gap-2 ${
+            className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition flex items-center gap-2 ${
               activeTab === 'ifood'
                 ? 'bg-red-600 text-white shadow-md'
                 : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
@@ -661,7 +883,7 @@ export const BankConciliationView: React.FC<BankConciliationViewProps> = ({ user
 
           <button
             onClick={() => setActiveTab('pix')}
-            className={`px-4 py-2 rounded-xl text-sm font-semibold transition flex items-center gap-2 ${
+            className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition flex items-center gap-2 ${
               activeTab === 'pix'
                 ? 'bg-emerald-600 text-white shadow-md'
                 : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
@@ -670,31 +892,65 @@ export const BankConciliationView: React.FC<BankConciliationViewProps> = ({ user
             <QrCode className="w-4 h-4" />
             <span>Pix Balcão ({resumo?.qtdPix || 0})</span>
           </button>
+
+          <button
+            onClick={() => setActiveTab('conta-corrente')}
+            className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition flex items-center gap-2 ${
+              activeTab === 'conta-corrente'
+                ? 'bg-slate-800 text-white shadow-md'
+                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+            }`}
+          >
+            <BookOpen className="w-4 h-4" />
+            <span>Conta Corrente (Livro Interno)</span>
+          </button>
         </div>
 
         {/* Barra de Filtro e Busca */}
-        <div className="flex items-center gap-2">
-          <div className="relative">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-            <input
-              type="text"
-              placeholder="Buscar por descrição, valor ou data..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-9 pr-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs sm:text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 w-56 sm:w-64"
-            />
-          </div>
+        {activeTab !== 'conta-corrente' && (
+          <div className="flex flex-wrap items-center gap-2">
+            {saldo && saldo.contas.length > 0 && (
+              <select
+                value={selectedAccountId}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setSelectedAccountId(val);
+                  carregarPainel(val);
+                }}
+                className="px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs sm:text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="">Conta Principal ({saldo.contaPrincipal?.customLabel || saldo.contaPrincipal?.nome || 'Padrão'})</option>
+                <option value="ALL">Todas as Contas</option>
+                {saldo.contas.map(c => (
+                  <option key={c.id} value={c.id}>
+                    {c.customLabel || c.nome} ({c.numero})
+                  </option>
+                ))}
+              </select>
+            )}
 
-          <select
-            value={statusFilter}
-            onChange={(e: any) => setStatusFilter(e.target.value)}
-            className="px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs sm:text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          >
-            <option value="ALL">Todos os status</option>
-            <option value="PENDING">Pendentes</option>
-            <option value="CONCILIATED">Conciliados</option>
-          </select>
-        </div>
+            <div className="relative">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+              <input
+                type="text"
+                placeholder="Buscar descrição, valor ou data..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-9 pr-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs sm:text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 w-48 sm:w-56"
+              />
+            </div>
+
+            <select
+              value={statusFilter}
+              onChange={(e: any) => setStatusFilter(e.target.value)}
+              className="px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs sm:text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            >
+              <option value="ALL">Todos os status</option>
+              <option value="PENDING">Pendentes</option>
+              <option value="CONCILIATED">Conciliados</option>
+            </select>
+          </div>
+        )}
       </div>
 
       {/* Conteúdo da Aba: MAQUININHAS */}
@@ -923,6 +1179,122 @@ export const BankConciliationView: React.FC<BankConciliationViewProps> = ({ user
                 )}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* Conteúdo da Aba: CONTA CORRENTE (LIVRO INTERNO UNIFICADO) */}
+      {activeTab === 'conta-corrente' && (
+        <div className="bg-slate-50 dark:bg-slate-950/40 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 sm:p-6">
+          <CheckingAccount user={user} embedded />
+        </div>
+      )}
+
+      {/* Modal: Conectar Novo Banco (Mercado Pago / Outros) */}
+      {isAddBankOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 rounded-xl">
+                  <Building2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="font-bold text-slate-900 dark:text-white text-base">
+                    Sincronizar Nova Conta (Mercado Pago / Outros)
+                  </h2>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Libera contas recém-adicionadas no Meu Pluggy para aparecerem aqui.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsAddBankOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {newBankError && (
+              <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-700 dark:text-rose-300 text-xs flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{newBankError}</span>
+              </div>
+            )}
+
+            {newBankStep === 'idle' ? (
+              <div className="space-y-4">
+                <div className="text-xs text-slate-600 dark:text-slate-300 space-y-2 bg-slate-50 dark:bg-slate-800/60 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
+                  <p><strong>Por que o Mercado Pago ainda não apareceu?</strong></p>
+                  <p>
+                    Quando você adiciona uma conta nova lá no <strong>meu.pluggy.ai</strong> depois da autorização inicial, é preciso gerar uma nova autorização OAuth marcando também essa nova conta.
+                  </p>
+                </div>
+                <div className="flex justify-end gap-2">
+                  <button
+                    onClick={() => setIsAddBankOpen(false)}
+                    className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={handleGerarLinkNovoBanco}
+                    disabled={newBankLoading}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold inline-flex items-center gap-2 disabled:opacity-50"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                    <span>{newBankLoading ? 'Gerando link...' : 'Gerar Link de Autorização'}</span>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="text-xs text-slate-600 dark:text-slate-300 space-y-2">
+                  <p><strong>1.</strong> Clique abaixo para abrir a autorização do Meu Pluggy e selecione o <strong>Mercado Pago</strong> (e as demais contas que desejar):</p>
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    <a
+                      href={newBankAuthUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold inline-flex items-center gap-1.5"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                      <span>Abrir Autorização Meu Pluggy</span>
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(newBankAuthUrl);
+                        showToast('Link copiado!');
+                      }}
+                      className="px-3 py-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-semibold inline-flex items-center gap-1.5"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>Copiar Link</span>
+                    </button>
+                  </div>
+                  <p className="pt-2"><strong>2.</strong> Após autorizar na tela do Meu Pluggy, clique em <strong>Confirmar Conexão</strong> abaixo:</p>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+                  <button
+                    onClick={() => setIsAddBankOpen(false)}
+                    className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl"
+                  >
+                    Fechar
+                  </button>
+                  <button
+                    onClick={handleConfirmarNovoBanco}
+                    disabled={newBankLoading}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold inline-flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    <Check className="w-4 h-4" />
+                    <span>{newBankLoading ? 'Verificando...' : 'Confirmar Conexão'}</span>
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -35,7 +35,41 @@ function initBankConciliationTables() {
     )
   `).run();
 
-  console.log('✅ [BankConciliation] Tabelas bank_conciliations e bank_conciliation_runs prontas!');
+  db.prepare(`
+    CREATE TABLE IF NOT EXISTS bank_accounts_config (
+      account_id TEXT PRIMARY KEY,
+      item_id TEXT,
+      bank_name TEXT,
+      account_number TEXT,
+      role TEXT NOT NULL DEFAULT 'SECUNDARIO',
+      custom_label TEXT,
+      updated_at TEXT NOT NULL
+    )
+  `).run();
+
+  db.prepare(`
+    CREATE TABLE IF NOT EXISTS bank_divergence_alerts (
+      id TEXT PRIMARY KEY,
+      fingerprint TEXT UNIQUE NOT NULL,
+      category TEXT NOT NULL,
+      severity TEXT NOT NULL DEFAULT 'ATENCAO',
+      title TEXT NOT NULL,
+      description TEXT NOT NULL,
+      expected_value REAL,
+      actual_value REAL,
+      difference_value REAL,
+      reference_date TEXT,
+      account_id TEXT,
+      status TEXT NOT NULL DEFAULT 'OPEN',
+      resolution_note TEXT,
+      resolved_by TEXT,
+      resolved_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+  `).run();
+
+  console.log('✅ [BankConciliation] Tabelas bank_conciliations, runs, accounts_config e divergence_alerts prontas!');
 }
 
 initBankConciliationTables();

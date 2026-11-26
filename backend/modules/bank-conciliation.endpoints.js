@@ -1,7 +1,8 @@
 /**
  * backend/modules/bank-conciliation.endpoints.js
  *
- * Rotas de API para o Painel de Conciliação Bancária
+ * Rotas de API para o Painel Unificado de Conta Corrente & Conciliação Bancária,
+ * gestão multi-banco (Conta Principal vs. Investimento) e Alertas de Divergência.
  */
 
 const express = require('express');
@@ -12,25 +13,28 @@ const { executarRotinaDiaria, getUltimaExecucao } = require('../services/bank-co
 module.exports = function (db) {
   const router = express.Router();
 
-  // 1. Resumo e Painel de Conciliação
+  // 1. Resumo e Painel de Conciliação (suporta ?accountId=ALL ou id específico)
   router.get('/painel', async (req, res) => {
     try {
       const pendenciasSistema = conciliador.obterPendenciasSistema();
       const execucaoInfo = getUltimaExecucao();
 
       if (!openFinance.isConfigured()) {
+        const divInfo = conciliador.listarAlertasDivergencia({});
         return res.json({
           success: false,
           needsConfig: true,
           pendenciasSistema,
+          divergenciasAbertasCount: divInfo.counts.ALL.open,
           ultimaExecucao: execucaoInfo.ultima,
           historicoExecucoes: execucaoInfo.historico,
           message: 'Credenciais do Open Finance (Pluggy) ainda não configuradas neste servidor.'
         });
       }
 
+      const accountId = req.query.accountId ? String(req.query.accountId) : undefined;
       const [painel, saldo, itemStatus] = await Promise.all([
-        conciliador.obterPainelConciliacao(),
+        conciliador.obterPainelConciliacao(accountId ? { accountId } : {}),
         openFinance.getSaldo(),
         openFinance.getItemStatus().catch(() => null)
       ]);
@@ -49,7 +53,127 @@ module.exports = function (db) {
     }
   });
 
-  // 2. Executar rotina diária sob demanda (conciliação + auditoria de anomalias)
+  // 2. Saldo consolidado e da Conta Principal (retorna 200 mesmo quando não configurado)
+  router.get('/saldo', async (req, res) => {
+    try {
+      if (!openFinance.isConfigured()) {
+        return res.json({
+          configured: false,
+          saldoPrincipal: null,
+          saldoInvestimento: 0,
+          saldoTotal: 0,
+          contaPrincipal: null,
+          contas: []
+        });
+      }
+      const saldo = await openFinance.getSaldo();
+      res.json(saldo);
+    } catch (err) {
+      console.error('[BankConciliation] Erro em /saldo:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 3. Contas conectadas e seus papéis (PRINCIPAL | INVESTIMENTO | SECUNDARIO)
+  router.get('/accounts', async (req, res) => {
+    try {
+      if (!openFinance.isConfigured()) {
+        return res.json({ configured: false, contas: [] });
+      }
+      const contas = await openFinance.getContas();
+      res.json({ configured: true, contas });
+    } catch (err) {
+      console.error('[BankConciliation] Erro em /accounts:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 4. Definir papel de uma conta (Conta Principal / Investimento / Secundário)
+  router.put('/accounts/:accountId/role', async (req, res) => {
+    try {
+      const { accountId } = req.params;
+      const { role, customLabel, bankName, accountNumber, itemId } = req.body || {};
+      const updated = openFinance.setAccountConfig({
+        accountId,
+        itemId,
+        bankName,
+        accountNumber,
+        role,
+        customLabel
+      });
+      const saldo = openFinance.isConfigured() ? await openFinance.getSaldo() : null;
+      res.json({ success: true, updated, saldo });
+    } catch (err) {
+      console.error('[BankConciliation] Erro em PUT /accounts/:accountId/role:', err);
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  // 5. Gerar link OAuth do MeuPluggy para conectar novo banco (ex: Mercado Pago)
+  router.post('/gerar-link-conexao', async (req, res) => {
+    try {
+      if (!openFinance.isConfigured()) {
+        return res.status(400).json({ error: 'Configure Client ID e Client Secret antes de conectar novas contas.' });
+      }
+      const linkInfo = await openFinance.gerarLinkConexaoMeuPluggy();
+      res.json({ success: true, ...linkInfo });
+    } catch (err) {
+      console.error('[BankConciliation] Erro em /gerar-link-conexao:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 6. Confirmar nova conexão MeuPluggy e registrar novas contas
+  router.post('/confirmar-conexao', async (req, res) => {
+    try {
+      const { itemId } = req.body || {};
+      const result = await openFinance.confirmarConexaoItem(itemId);
+      res.json(result);
+    } catch (err) {
+      console.error('[BankConciliation] Erro em /confirmar-conexao:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 7. Alertas de Divergência (listagem com filtros por categoria e status)
+  router.get('/divergencias', (req, res) => {
+    try {
+      const { category = '', status = '' } = req.query;
+      const result = conciliador.listarAlertasDivergencia({ category, status });
+      res.json({ success: true, ...result });
+    } catch (err) {
+      console.error('[BankConciliation] Erro em GET /divergencias:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 8. Marcar alerta de divergência como resolvido com observação
+  router.put('/divergencias/:id/resolver', (req, res) => {
+    try {
+      const { id } = req.params;
+      const resolutionNote = req.body?.resolutionNote || '';
+      const resolvedBy = req.user?.name || req.body?.userName || 'Administrador';
+      const alert = conciliador.resolverAlertaDivergencia(id, { resolutionNote, resolvedBy });
+      res.json({ success: true, alert });
+    } catch (err) {
+      console.error('[BankConciliation] Erro em PUT /divergencias/:id/resolver:', err);
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  // 9. Reabrir alerta de divergência
+  router.put('/divergencias/:id/reabrir', (req, res) => {
+    try {
+      const { id } = req.params;
+      const alert = conciliador.reabrirAlertaDivergencia(id);
+      res.json({ success: true, alert });
+    } catch (err) {
+      console.error('[BankConciliation] Erro em PUT /divergencias/:id/reabrir:', err);
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  // 10. Executar rotina diária sob demanda (conciliação + auditoria de anomalias)
   router.post('/executar-rotina-diaria', async (req, res) => {
     try {
       if (!openFinance.isConfigured()) {
@@ -67,7 +191,7 @@ module.exports = function (db) {
     }
   });
 
-  // 3. Ler configuração atual (sem expor clientSecret em texto puro)
+  // 11. Ler configuração atual (sem expor clientSecret em texto puro)
   router.get('/config', (req, res) => {
     try {
       const cfg = openFinance.getConfig();
@@ -84,7 +208,7 @@ module.exports = function (db) {
     }
   });
 
-  // 4. Salvar e validar credenciais no banco do sistema
+  // 12. Salvar e validar credenciais no banco do sistema
   router.post('/config', async (req, res) => {
     try {
       const { clientId, clientSecret, defaultItemId, defaultAccountId } = req.body || {};
@@ -118,7 +242,7 @@ module.exports = function (db) {
     }
   });
 
-  // 5. Conciliar Itens Selecionados
+  // 13. Conciliar Itens Selecionados
   router.post('/conciliar', async (req, res) => {
     try {
       const { items } = req.body;
@@ -134,7 +258,7 @@ module.exports = function (db) {
     }
   });
 
-  // 6. Conciliação Automática em Massa (Extrato + Pendências vencidas de Maquininha e iFood)
+  // 14. Conciliação Automática em Massa (Extrato + Pendências vencidas de Maquininha e iFood)
   router.post('/auto-conciliar-tudo', async (req, res) => {
     try {
       if (!openFinance.isConfigured()) {
@@ -149,7 +273,7 @@ module.exports = function (db) {
     }
   });
 
-  // 7. Conciliar e zerar pendências vencidas de Maquininha e iFood no sistema
+  // 15. Conciliar e zerar pendências vencidas de Maquininha e iFood no sistema
   router.post('/zerar-pendencias', async (req, res) => {
     try {
       const userName = req.user?.name || req.body?.userName || 'Administrador';
@@ -171,20 +295,6 @@ module.exports = function (db) {
       });
     } catch (err) {
       console.error('[BankConciliation] Erro em /zerar-pendencias:', err);
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  // 8. Saldo rápido das contas conectadas
-  router.get('/saldo', async (req, res) => {
-    try {
-      if (!openFinance.isConfigured()) {
-        return res.status(400).json({ error: 'Credenciais do Open Finance (Pluggy) ainda não configuradas.' });
-      }
-      const saldo = await openFinance.getSaldo();
-      res.json(saldo);
-    } catch (err) {
-      console.error('[BankConciliation] Erro em /saldo:', err);
       res.status(500).json({ error: err.message });
     }
   });

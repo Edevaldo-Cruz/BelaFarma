@@ -61,6 +61,7 @@ import { AnvisaAlerts } from "./components/AnvisaAlerts";
 import { NotesManager } from "./components/NotesManager";
 import { CardMachinesManager } from "./components/CardMachinesManager";
 import { BankConciliationView } from "./components/BankConciliationView";
+import { BankDivergenceAlertsView } from "./components/BankDivergenceAlertsView";
 import { CardMachineReconcileModal } from "./components/CardMachineReconcileModal";
 import { MuralModal } from "./components/MuralModal";
 import { CentralCompras } from "./components/CentralCompras";
@@ -1717,7 +1718,7 @@ const App: React.FC = () => {
                 <Logs logs={logs} />
               )}
               {currentView === "checking-account" && user.role === UserRole.ADM && (
-                <CheckingAccount user={user} />
+                <BankConciliationView user={user} onNavigate={handleNavigate} />
               )}
               {currentView === 'crediario-report' && (user.role === UserRole.ADM || user.role === UserRole.OPERADOR) && (
                 <CrediarioHub user={user} initialTab="clientes" initialFilter="all" />
@@ -1849,7 +1850,10 @@ const App: React.FC = () => {
                 <CardMachinesManager user={user} />
               )}
               {currentView === 'bank-conciliation' && user.role === UserRole.ADM && (
-                <BankConciliationView user={user} />
+                <BankConciliationView user={user} onNavigate={handleNavigate} />
+              )}
+              {currentView === 'bank-divergence-alerts' && user.role === UserRole.ADM && (
+                <BankDivergenceAlertsView user={user} onNavigate={handleNavigate} />
               )}
               {currentView === 'price-manager' && user.role === UserRole.ADM && (
                 <PriceManager user={user} />

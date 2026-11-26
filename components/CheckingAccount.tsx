@@ -13,9 +13,10 @@ interface Transaction {
 
 interface CheckingAccountProps {
   user: User;
+  embedded?: boolean;
 }
 
-export const CheckingAccount: React.FC<CheckingAccountProps> = ({ user }) => {
+export const CheckingAccount: React.FC<CheckingAccountProps> = ({ user, embedded = false }) => {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [balance, setBalance] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
@@ -59,10 +60,12 @@ export const CheckingAccount: React.FC<CheckingAccountProps> = ({ user }) => {
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
-      <header>
-        <h1 className="text-2xl font-bold text-slate-900 uppercase tracking-tighter">Conta Corrente</h1>
-        <p className="text-slate-500 font-medium">Movimentação da conta bancária.</p>
-      </header>
+      {!embedded && (
+        <header>
+          <h1 className="text-2xl font-bold text-slate-900 uppercase tracking-tighter">Conta Corrente</h1>
+          <p className="text-slate-500 font-medium">Movimentação da conta bancária.</p>
+        </header>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm col-span-1 md:col-span-1">

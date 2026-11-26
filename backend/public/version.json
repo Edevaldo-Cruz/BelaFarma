@@ -1,9 +1,14 @@
 {
   "version": "1.2.6",
-  "commitHash": "f9e93f9",
-  "commitMessage": "fix(bank-conciliation): corrige leitura de credenciais Pluggy e adiciona configuracao pela tela",
-  "buildTime": "26/11/2026, 10:50:25",
+  "commitHash": "726a01f",
+  "commitMessage": "feat(bank-conciliation): renomeia menu, zera pendencias vencidas e adiciona rotina diaria automatica com alertas WhatsApp",
+  "buildTime": "26/11/2026, 11:55:02",
   "recentCommits": [
+    {
+      "hash": "726a01f",
+      "date": "26/11/2026",
+      "message": "feat(bank-conciliation): renomeia menu, zera pendencias vencidas e adiciona rotina diaria automatica com alertas WhatsApp"
+    },
     {
       "hash": "f9e93f9",
       "date": "26/11/2026",
@@ -58,11 +63,6 @@
       "hash": "078b2d9",
       "date": "25/11/2026",
       "message": "fix(crediario): regularizar venda 94471, bloquear overflow INT32 e unificar cadastros duplicados"
-    },
-    {
-      "hash": "4cee7a1",
-      "date": "25/11/2026",
-      "message": "feat(crediario): sincronizacao completa de pagamentos Belinha -> Digifarma"
     }
   ]
 }

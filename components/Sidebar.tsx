@@ -293,7 +293,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'central-compras', label: 'Central de Compras', icon: ShoppingBag },
     { id: 'reposicao-tabela', label: 'Análise Reposição', icon: TableProperties },
     { id: 'customers', label: 'Clientes', icon: UsersIcon },
-    { id: 'checking-account', label: 'Conta Corrente', icon: Banknote },
     { id: 'medication-search', label: 'Consultar Méd.', icon: Search },
     { id: 'debtors-report', label: 'Devedores', icon: AlertTriangle },
     { id: 'crediario-report', label: 'Central do Crediário', icon: CreditCard },
@@ -313,7 +312,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'backups', label: 'Backups', icon: Database },
     { id: 'quotations', label: 'Cotações', icon: MessageSquare },
     { id: 'card-machines', label: 'Maquininhas & Cartões', icon: CreditCard },
-    { id: 'bank-conciliation', label: 'Conciliação Bancária', icon: Building2 },
+    { id: 'bank-conciliation', label: 'Conta Corrente & Conciliação', icon: Building2 },
+    { id: 'bank-divergence-alerts', label: 'Alertas de Divergência', icon: ShieldAlert },
     { id: 'ifood-control', label: 'Controle iFood', icon: ShoppingCart },
     { id: 'consignados', label: 'Consignados', icon: Package },
     { id: 'invoices', label: 'Notas Fiscais', icon: FileText },
@@ -420,7 +420,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     const auditItem = auditMap[item.id];
     if (auditItem && auditItem.status === 'UNINSTALLED') return false;
 
-    const adminOnly = ['fiscal-contabil', 'logs', 'belaped', 'central-compras', 'checking-account', 'cash-closing', 'financial', 'contas-a-pagar', 'users', 'safe', 'backups', 'consignados', 'invoices', 'ifood-control', 'messaging-center', 'belafarma-ia', 'ai-portal', 'radio-manager', 'whatsapp-crm', 'stock', 'financial-health', 'caixa-provisoes', 'sales-report', 'critical-stock', 'system-watcher', 'purchase-calendar', 'price-manager', 'levantamento-proffer', 'card-machines', 'bank-conciliation', 'liquidacao-caixa', 'erp-nfe', 'promocoes-whatsapp', 'suppliers']; 
+    const adminOnly = ['fiscal-contabil', 'logs', 'belaped', 'central-compras', 'checking-account', 'cash-closing', 'financial', 'contas-a-pagar', 'users', 'safe', 'backups', 'consignados', 'invoices', 'ifood-control', 'messaging-center', 'belafarma-ia', 'ai-portal', 'radio-manager', 'whatsapp-crm', 'stock', 'financial-health', 'caixa-provisoes', 'sales-report', 'critical-stock', 'system-watcher', 'purchase-calendar', 'price-manager', 'levantamento-proffer', 'card-machines', 'bank-conciliation', 'bank-divergence-alerts', 'liquidacao-caixa', 'erp-nfe', 'promocoes-whatsapp', 'suppliers']; 
 
     if (adminOnly.includes(item.id) && !isAdmin) return false;
     return true;
@@ -515,12 +515,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
         'caixa-provisoes',
         'crediario-report',
         'contas-a-pagar',
-        'checking-account',
         'debtors-report',
         'financial',
         'financial-health',
         'card-machines',
         'bank-conciliation',
+        'bank-divergence-alerts',
         'liquidacao-caixa',
         'fiscal-contabil',
         'invoices',
