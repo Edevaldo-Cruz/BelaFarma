@@ -1,9 +1,19 @@
 {
   "version": "1.2.6",
-  "commitHash": "9dcc1dc",
-  "commitMessage": "feat(caderninho): aplicar acrescimo de crediario automaticamente quando compra nao for paga no mesmo dia",
-  "buildTime": "26/11/2026, 07:55:00",
+  "commitHash": "eddd471",
+  "commitMessage": "fix(pdv): sincronizar e buscar COD_BARRAS_HOSPITALAR do Digifarma e priorizar produto com estoque/preco valido",
+  "buildTime": "26/11/2026, 08:26:09",
   "recentCommits": [
+    {
+      "hash": "eddd471",
+      "date": "26/11/2026",
+      "message": "fix(pdv): sincronizar e buscar COD_BARRAS_HOSPITALAR do Digifarma e priorizar produto com estoque/preco valido"
+    },
+    {
+      "hash": "5e64ce6",
+      "date": "26/11/2026",
+      "message": "fix(dashboard): corrigir duplicacao de boletos com pedidos e separar receita realizada vs projecao media"
+    },
     {
       "hash": "9dcc1dc",
       "date": "26/11/2026",
@@ -53,16 +63,6 @@
       "hash": "8751025",
       "date": "24/11/2026",
       "message": "feat(crediario): considerar clientes com compra nos ultimos 2 meses com historico completo"
-    },
-    {
-      "hash": "6c728d8",
-      "date": "24/11/2026",
-      "message": "feat(pdv): redefinir modal de receita retida com selecao de lotes e comprador estilo Digifarma"
-    },
-    {
-      "hash": "e5b3c2c",
-      "date": "24/11/2026",
-      "message": "feat(pdv): aplicar regra de preco diferenciado para crediario conforme Digifarma"
     }
   ]
 }

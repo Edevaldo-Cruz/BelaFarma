@@ -4580,6 +4580,16 @@ const cardMachinesEndpoints = require('./card-machines-endpoints.js');
 app.use('/api', cardMachinesEndpoints(db));
 console.log('💳 Módulo Controle de Maquininhas inicializado.');
 
+// Módulo de Conciliação Bancária & Open Finance
+try {
+  require('./modules/bank-conciliation.init.js');
+  const bankConciliationEndpoints = require('./modules/bank-conciliation.endpoints.js');
+  app.use('/api/bank-conciliation', bankConciliationEndpoints(db));
+  console.log('🏦 Módulo de Conciliação Bancária & Open Finance inicializado com sucesso.');
+} catch (bErr) {
+  console.error('❌ Erro ao inicializar Conciliação Bancária:', bErr.message);
+}
+
 const temperatureEndpoints = require('./temperature-endpoints.js');
 app.use('/api/temperature', temperatureEndpoints(db));
 const teamScheduleEndpoints = require('./team-schedule-endpoints.js');

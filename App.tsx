@@ -60,6 +60,7 @@ import { AgendaCalendar } from "./components/AgendaCalendar";
 import { AnvisaAlerts } from "./components/AnvisaAlerts";
 import { NotesManager } from "./components/NotesManager";
 import { CardMachinesManager } from "./components/CardMachinesManager";
+import { BankConciliationView } from "./components/BankConciliationView";
 import { CardMachineReconcileModal } from "./components/CardMachineReconcileModal";
 import { MuralModal } from "./components/MuralModal";
 import { CentralCompras } from "./components/CentralCompras";
