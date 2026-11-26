@@ -65,6 +65,7 @@ async function executarMigracaoErp({ forceCacheOnly = false, resetTables = false
           PRODUTO,
           APRESENTACAO,
           COD_BARRAS,
+          COD_BARRAS_HOSPITALAR,
           CATEGORIA_ID,
           PROD_SALDO,
           PROD_PRVENDA,
@@ -125,6 +126,7 @@ async function executarMigracaoErp({ forceCacheOnly = false, resetTables = false
         return {
           code: pidStr,
           barcode: (p.COD_BARRAS || '').trim(),
+          barcode_hospitalar: (p.COD_BARRAS_HOSPITALAR || '').trim(),
           name: (p.PRODUTO || '').trim(),
           presentation: (p.APRESENTACAO || '').trim(),
           category_id: p.CATEGORIA_ID ? parseInt(p.CATEGORIA_ID, 10) : null,
@@ -162,6 +164,7 @@ async function executarMigracaoErp({ forceCacheOnly = false, resetTables = false
       SELECT 
         produto_id as code,
         codigo_barras as barcode,
+        COALESCE(codigo_barras_hospitalar, '') as barcode_hospitalar,
         descricao as full_desc,
         categoria_id,
         preco_venda as sale_price,
@@ -185,6 +188,7 @@ async function executarMigracaoErp({ forceCacheOnly = false, resetTables = false
     produtosParaMigrar = cachedProducts.map(p => ({
       code: String(p.code || '').trim().replace(/\.0+$/, ''),
       barcode: (p.barcode || '').trim(),
+      barcode_hospitalar: (p.barcode_hospitalar || '').trim(),
       name: (p.full_desc || '').trim(),
       presentation: '',
       category_id: p.categoria_id,
@@ -214,14 +218,14 @@ async function executarMigracaoErp({ forceCacheOnly = false, resetTables = false
   // Gravação em lote com Transação SQLite (ultra-rápido, ~60.000 itens em < 1 segundo)
   const insertProductStmt = db.prepare(`
     INSERT INTO products (
-      code, barcode, name, presentation, category_id,
+      code, barcode, barcode_hospitalar, name, presentation, category_id,
       sale_price, promo_price, crediario_price, promo_vista, promo_convenio, cost_price, stock_qty, curve,
       tributacao_monofasica, cst_pis, cst_cofins, aliquota_st, imposto_aliq, ncm, cest,
       psicotropico, antimicrobiano,
       promo_start_date, promo_end_date, promo_permanent,
       is_active, updated_at
     ) VALUES (
-      @code, @barcode, @name, @presentation, @category_id,
+      @code, @barcode, @barcode_hospitalar, @name, @presentation, @category_id,
       @sale_price, @promo_price, @crediario_price, @promo_vista, @promo_convenio, @cost_price, @stock_qty, @curve,
       @tributacao_monofasica, @cst_pis, @cst_cofins, @aliquota_st, @imposto_aliq, @ncm, @cest,
       @psicotropico, @antimicrobiano,
@@ -230,6 +234,7 @@ async function executarMigracaoErp({ forceCacheOnly = false, resetTables = false
     )
     ON CONFLICT(code) DO UPDATE SET
       barcode = excluded.barcode,
+      barcode_hospitalar = excluded.barcode_hospitalar,
       name = excluded.name,
       presentation = excluded.presentation,
       category_id = excluded.category_id,

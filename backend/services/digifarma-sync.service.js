@@ -56,6 +56,7 @@ async function syncProdutos(db) {
         PRODUTO,
         APRESENTACAO,
         COD_BARRAS,
+        COD_BARRAS_HOSPITALAR,
         CATEGORIA_ID,
         PROD_SALDO AS ESTOQUE,
         PROD_PRVENDA,
@@ -131,12 +132,12 @@ async function syncProdutos(db) {
 
     const insertOrReplaceStmt = db.prepare(`
       INSERT OR REPLACE INTO digifarma_products_cache (
-        produto_id, descricao, codigo_barras, categoria_id, estoque_atual,
+        produto_id, descricao, codigo_barras, codigo_barras_hospitalar, categoria_id, estoque_atual,
         preco_venda, preco_custo, preco_promocao, preco_normal,
         preco_crediario, promocao_vista, promocao_convenio, curva, 
         tributacao_monofasica, cst_pis, cst_cofins, aliquota_st, imposto_aliq, ncm, cest,
         atualizado_em
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
     `);
 
     const insertMany = db.transaction((prods) => {
@@ -156,6 +157,7 @@ async function syncProdutos(db) {
           String(p.PRODUTO_ID).trim().replace(/\.0+$/, ''),
           (p.PRODUTO || '').trim() + (p.APRESENTACAO ? ` ${(p.APRESENTACAO).trim()}` : ''),
           (p.COD_BARRAS || '').trim(),
+          (p.COD_BARRAS_HOSPITALAR || '').trim(),
           p.CATEGORIA_ID ? parseInt(p.CATEGORIA_ID) : null,
           parseFloat(p.ESTOQUE || 0),
           effectivePrice,
@@ -194,6 +196,10 @@ async function syncProdutos(db) {
             END
             FROM digifarma_products_cache d WHERE d.produto_id = products.code
           ), products.barcode),
+          barcode_hospitalar = COALESCE((
+            SELECT TRIM(COALESCE(d.codigo_barras_hospitalar, ''))
+            FROM digifarma_products_cache d WHERE d.produto_id = products.code
+          ), products.barcode_hospitalar),
           sale_price = (SELECT d.preco_normal FROM digifarma_products_cache d WHERE d.produto_id = products.code),
           promo_price = (SELECT d.preco_promocao FROM digifarma_products_cache d WHERE d.produto_id = products.code),
           crediario_price = COALESCE((SELECT d.preco_crediario FROM digifarma_products_cache d WHERE d.produto_id = products.code), 0),
@@ -211,14 +217,14 @@ async function syncProdutos(db) {
 
       db.prepare(`
         INSERT OR IGNORE INTO products (
-          code, barcode, name, presentation, category_id,
+          code, barcode, barcode_hospitalar, name, presentation, category_id,
           sale_price, promo_price, crediario_price, promo_vista, promo_convenio,
           cost_price, stock_qty, curve,
           tributacao_monofasica, cst_pis, cst_cofins, aliquota_st, imposto_aliq, ncm, cest,
           is_active, updated_at
         )
         SELECT 
-          d.produto_id, d.codigo_barras, d.descricao, '', d.categoria_id,
+          d.produto_id, d.codigo_barras, COALESCE(d.codigo_barras_hospitalar, ''), d.descricao, '', d.categoria_id,
           d.preco_normal, d.preco_promocao, COALESCE(d.preco_crediario, 0), COALESCE(d.promocao_vista, 'N'), COALESCE(d.promocao_convenio, 'N'),
           d.preco_custo, d.estoque_atual, d.curva,
           d.tributacao_monofasica, d.cst_pis, d.cst_cofins, d.aliquota_st, d.imposto_aliq, d.ncm, d.cest,

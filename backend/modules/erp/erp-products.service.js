@@ -102,11 +102,15 @@ function findInProductsLocal(parsed) {
            COALESCE(c.vendas_10m, p.vendas_10m, 0) as vendas_10m
     FROM products p 
     LEFT JOIN compras_estoque_cache c ON (c.ean = p.barcode AND c.ean IS NOT NULL AND c.ean != '')
-    WHERE (p.barcode IN (${barcodePlaceholders}) OR p.code IN (${codePlaceholders}))
+    WHERE (p.barcode IN (${barcodePlaceholders}) OR p.barcode_hospitalar IN (${barcodePlaceholders}) OR p.code IN (${codePlaceholders}))
       AND p.is_active = 1
-    ORDER BY (p.code NOT LIKE '%.0') DESC
+    ORDER BY
+      (p.code NOT LIKE '%.0') DESC,
+      (p.stock_qty > 0) DESC,
+      ((CASE WHEN p.promo_price > 0 THEN p.promo_price ELSE p.sale_price END) > 0.5) DESC,
+      p.stock_qty DESC
     LIMIT 1
-  `).get(...parsed.candidates, ...codeCandidates);
+  `).get(...parsed.candidates, ...parsed.candidates, ...codeCandidates);
 
   if (!found && parsed.noLeadingZeros && parsed.noLeadingZeros.length >= 6) {
     found = db.prepare(`
@@ -115,13 +119,19 @@ function findInProductsLocal(parsed) {
              COALESCE(c.vendas_10m, p.vendas_10m, 0) as vendas_10m
       FROM products p 
       LEFT JOIN compras_estoque_cache c ON (c.ean = p.barcode AND c.ean IS NOT NULL AND c.ean != '')
-      WHERE LTRIM(TRIM(p.barcode), '0') = ?
-        AND p.barcode IS NOT NULL
-        AND TRIM(p.barcode) != ''
+      WHERE (
+          (p.barcode IS NOT NULL AND TRIM(p.barcode) != '' AND LTRIM(TRIM(p.barcode), '0') = ?)
+          OR
+          (p.barcode_hospitalar IS NOT NULL AND TRIM(p.barcode_hospitalar) != '' AND LTRIM(TRIM(p.barcode_hospitalar), '0') = ?)
+        )
         AND p.is_active = 1
-      ORDER BY (p.code NOT LIKE '%.0') DESC
+      ORDER BY
+        (p.code NOT LIKE '%.0') DESC,
+        (p.stock_qty > 0) DESC,
+        ((CASE WHEN p.promo_price > 0 THEN p.promo_price ELSE p.sale_price END) > 0.5) DESC,
+        p.stock_qty DESC
       LIMIT 1
-    `).get(parsed.noLeadingZeros);
+    `).get(parsed.noLeadingZeros, parsed.noLeadingZeros);
   }
 
   return found || null;
@@ -139,19 +149,25 @@ function findInDigifarmaCacheAndPromote(parsed) {
     let cached = db.prepare(`
       SELECT *
       FROM digifarma_products_cache
-      WHERE codigo_barras IN (${placeholders}) OR produto_id IN (${placeholders})
+      WHERE codigo_barras IN (${placeholders})
+         OR codigo_barras_hospitalar IN (${placeholders})
+         OR produto_id IN (${placeholders})
+      ORDER BY (estoque_atual > 0) DESC, (preco_venda > 0.5) DESC, estoque_atual DESC
       LIMIT 1
-    `).get(...parsed.candidates, ...parsed.candidates);
+    `).get(...parsed.candidates, ...parsed.candidates, ...parsed.candidates);
 
     if (!cached && parsed.noLeadingZeros && parsed.noLeadingZeros.length >= 6) {
       cached = db.prepare(`
         SELECT *
         FROM digifarma_products_cache
-        WHERE LTRIM(TRIM(codigo_barras), '0') = ?
-          AND codigo_barras IS NOT NULL
-          AND TRIM(codigo_barras) != ''
+        WHERE (
+            (codigo_barras IS NOT NULL AND TRIM(codigo_barras) != '' AND LTRIM(TRIM(codigo_barras), '0') = ?)
+            OR
+            (codigo_barras_hospitalar IS NOT NULL AND TRIM(codigo_barras_hospitalar) != '' AND LTRIM(TRIM(codigo_barras_hospitalar), '0') = ?)
+          )
+        ORDER BY (estoque_atual > 0) DESC, (preco_venda > 0.5) DESC, estoque_atual DESC
         LIMIT 1
-      `).get(parsed.noLeadingZeros);
+      `).get(parsed.noLeadingZeros, parsed.noLeadingZeros);
     }
 
     if (!cached) return null;
@@ -160,6 +176,7 @@ function findInDigifarmaCacheAndPromote(parsed) {
     if (!cleanCode) return null;
 
     const cleanBarcode = String(cached.codigo_barras || '').trim().replace(/\s+/g, '');
+    const cleanBarcodeHosp = String(cached.codigo_barras_hospitalar || '').trim().replace(/\s+/g, '');
     const salePrice = Number(cached.preco_normal) > 0 ? Number(cached.preco_normal) : Number(cached.preco_venda || 0);
     const promoPrice = Number(cached.preco_promocao || 0);
     const crediarioPrice = Number(cached.preco_crediario || 0);
@@ -170,18 +187,19 @@ function findInDigifarmaCacheAndPromote(parsed) {
 
     db.prepare(`
       INSERT INTO products (
-        code, barcode, name, presentation, category_id,
+        code, barcode, barcode_hospitalar, name, presentation, category_id,
         sale_price, promo_price, crediario_price, promo_vista, promo_convenio, cost_price, stock_qty, curve,
         tributacao_monofasica, cst_pis, cst_cofins, aliquota_st, imposto_aliq, ncm, cest,
         is_active, updated_at
       ) VALUES (
-        ?, ?, ?, '', ?,
+        ?, ?, ?, ?, '', ?,
         ?, ?, ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?, ?, ?, ?,
         1, datetime('now', 'localtime')
       )
       ON CONFLICT(code) DO UPDATE SET
         barcode = CASE WHEN excluded.barcode != '' THEN excluded.barcode ELSE products.barcode END,
+        barcode_hospitalar = CASE WHEN excluded.barcode_hospitalar != '' THEN excluded.barcode_hospitalar ELSE products.barcode_hospitalar END,
         sale_price = excluded.sale_price,
         promo_price = excluded.promo_price,
         crediario_price = excluded.crediario_price,
@@ -194,6 +212,7 @@ function findInDigifarmaCacheAndPromote(parsed) {
     `).run(
       cleanCode,
       cleanBarcode,
+      cleanBarcodeHosp,
       String(cached.descricao || '').trim() || `PRODUTO ${cleanCode}`,
       cached.categoria_id || null,
       salePrice,
@@ -238,6 +257,8 @@ async function syncSingleProductFromDigifarma(cleanQ) {
     for (const bc of barcodeCandidates) {
       barcodeCondParts.push('COD_BARRAS = ?');
       params.push(bc);
+      barcodeCondParts.push('COD_BARRAS_HOSPITALAR = ?');
+      params.push(bc);
     }
 
     const isNum = /^\d+$/.test(cleanNoSpaces);
@@ -255,13 +276,14 @@ async function syncSingleProductFromDigifarma(cleanQ) {
 
     const fbNew = await queryDigifarma(`
       SELECT FIRST 1
-        PRODUTO_ID, PRODUTO, APRESENTACAO, COD_BARRAS, CATEGORIA_ID,
+        PRODUTO_ID, PRODUTO, APRESENTACAO, COD_BARRAS, COD_BARRAS_HOSPITALAR, CATEGORIA_ID,
         PROD_SALDO, PROD_PRVENDA, PROD_PRCOMPRA, VALOR_ULT_COMPRA, PROD_CMV,
         PROD_PRPROMOCAO, PROD_PRCREDIARIO, PROMOCAO_VISTA, PROMOCAO_CONVENIO,
         TRIBUTACAO_MONOFASICA, CST_PIS, CST_COFINS,
         ALIQUOTA_ST, IMPOSTO_ALIQ, NCM, CEST, PSICOTROPICO, ANTIMICROBIANO
       FROM PRODUTOS
       WHERE ${whereCond} AND PROD_ATIVO = 'S'
+      ORDER BY (CASE WHEN PROD_SALDO > 0 THEN 1 ELSE 0 END) DESC, PROD_SALDO DESC
     `, params, 2500);
 
     if (fbNew && fbNew.length > 0) {
@@ -274,6 +296,7 @@ async function syncSingleProductFromDigifarma(cleanQ) {
       const newProd = {
         code: String(p.PRODUTO_ID).trim().replace(/\.0+$/, ''),
         barcode: (p.COD_BARRAS || '').trim(),
+        barcode_hospitalar: (p.COD_BARRAS_HOSPITALAR || '').trim(),
         name: (p.PRODUTO || '').trim(),
         presentation: (p.APRESENTACAO || '').trim(),
         category_id: p.CATEGORIA_ID ? parseInt(p.CATEGORIA_ID, 10) : null,
@@ -299,12 +322,12 @@ async function syncSingleProductFromDigifarma(cleanQ) {
 
       db.prepare(`
         INSERT OR REPLACE INTO products (
-          code, barcode, name, presentation, category_id,
+          code, barcode, barcode_hospitalar, name, presentation, category_id,
           sale_price, promo_price, crediario_price, promo_vista, promo_convenio, cost_price, stock_qty, curve,
           tributacao_monofasica, cst_pis, cst_cofins, aliquota_st, imposto_aliq, ncm, cest,
           psicotropico, antimicrobiano, is_active, updated_at
         ) VALUES (
-          @code, @barcode, @name, @presentation, @category_id,
+          @code, @barcode, @barcode_hospitalar, @name, @presentation, @category_id,
           @sale_price, @promo_price, @crediario_price, @promo_vista, @promo_convenio, @cost_price, @stock_qty, @curve,
           @tributacao_monofasica, @cst_pis, @cst_cofins, @aliquota_st, @imposto_aliq, @ncm, @cest,
           @psicotropico, @antimicrobiano, 1, datetime('now', 'localtime')
@@ -314,16 +337,17 @@ async function syncSingleProductFromDigifarma(cleanQ) {
       try {
         db.prepare(`
           INSERT OR REPLACE INTO digifarma_products_cache (
-            produto_id, descricao, codigo_barras, categoria_id, estoque_atual,
+            produto_id, descricao, codigo_barras, codigo_barras_hospitalar, categoria_id, estoque_atual,
             preco_venda, preco_custo, preco_promocao, preco_normal,
             preco_crediario, promocao_vista, promocao_convenio, curva,
             tributacao_monofasica, cst_pis, cst_cofins, aliquota_st, imposto_aliq, ncm, cest,
             atualizado_em
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
         `).run(
           newProd.code,
           newProd.name + (newProd.presentation ? ` ${newProd.presentation}` : ''),
           newProd.barcode,
+          newProd.barcode_hospitalar,
           newProd.category_id,
           newProd.stock_qty,
           newProd.promo_price > 0 ? newProd.promo_price : newProd.sale_price,
@@ -407,15 +431,15 @@ async function buscarProdutos({ query = '', limit = 30, onlyWithStock = false } 
   let params = [];
 
   if (words.length <= 1) {
-    whereClauses.push('(p.barcode LIKE ? OR p.barcode LIKE ? OR p.code LIKE ? OR p.name LIKE ?)');
+    whereClauses.push('(p.barcode LIKE ? OR p.barcode LIKE ? OR p.barcode_hospitalar LIKE ? OR p.code LIKE ? OR p.name LIKE ?)');
     const pStr = `%${cleanQ}%`;
     const pNoSpaces = `%${cleanNoSpaces}%`;
-    params.push(pStr, pNoSpaces, pStr, pStr);
+    params.push(pStr, pNoSpaces, pNoSpaces, pStr, pStr);
   } else {
     // Suporte inteligente a múltiplos termos (ex: "amox 500" ou "dipirona gotas")
     const wordClauses = words.map(() => 'p.name LIKE ?').join(' AND ');
-    whereClauses.push(`(p.barcode LIKE ? OR p.code LIKE ? OR (${wordClauses}))`);
-    params.push(`%${cleanQ}%`, `%${cleanQ}%`);
+    whereClauses.push(`(p.barcode LIKE ? OR p.barcode_hospitalar LIKE ? OR p.code LIKE ? OR (${wordClauses}))`);
+    params.push(`%${cleanQ}%`, `%${cleanNoSpaces}%`, `%${cleanQ}%`);
     words.forEach(w => params.push(`%${w}%`));
   }
 

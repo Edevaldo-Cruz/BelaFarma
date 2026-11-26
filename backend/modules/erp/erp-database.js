@@ -46,6 +46,7 @@ function initErpDatabase() {
     if (!pCols.includes('crediario_price')) db.prepare(`ALTER TABLE products ADD COLUMN crediario_price REAL DEFAULT 0`).run();
     if (!pCols.includes('promo_vista')) db.prepare(`ALTER TABLE products ADD COLUMN promo_vista TEXT DEFAULT 'N'`).run();
     if (!pCols.includes('promo_convenio')) db.prepare(`ALTER TABLE products ADD COLUMN promo_convenio TEXT DEFAULT 'N'`).run();
+    if (!pCols.includes('barcode_hospitalar')) db.prepare(`ALTER TABLE products ADD COLUMN barcode_hospitalar TEXT DEFAULT ''`).run();
   } catch (err) {
     console.warn('[Belinha ERP DB] Aviso ao verificar colunas products:', err.message);
   }
@@ -55,6 +56,7 @@ function initErpDatabase() {
       if (!cacheCols.includes('preco_crediario')) db.prepare(`ALTER TABLE digifarma_products_cache ADD COLUMN preco_crediario REAL DEFAULT 0`).run();
       if (!cacheCols.includes('promocao_vista')) db.prepare(`ALTER TABLE digifarma_products_cache ADD COLUMN promocao_vista TEXT DEFAULT 'N'`).run();
       if (!cacheCols.includes('promocao_convenio')) db.prepare(`ALTER TABLE digifarma_products_cache ADD COLUMN promocao_convenio TEXT DEFAULT 'N'`).run();
+      if (!cacheCols.includes('codigo_barras_hospitalar')) db.prepare(`ALTER TABLE digifarma_products_cache ADD COLUMN codigo_barras_hospitalar TEXT DEFAULT ''`).run();
     }
   } catch (err) {
     console.warn('[Belinha ERP DB] Aviso ao verificar colunas digifarma_products_cache:', err.message);
@@ -62,6 +64,7 @@ function initErpDatabase() {
 
   // Índices para buscas em milissegundos
   db.prepare(`CREATE INDEX IF NOT EXISTS idx_products_barcode ON products (barcode)`).run();
+  db.prepare(`CREATE INDEX IF NOT EXISTS idx_products_barcode_hosp ON products (barcode_hospitalar)`).run();
   db.prepare(`CREATE INDEX IF NOT EXISTS idx_products_name ON products (name)`).run();
   db.prepare(`CREATE INDEX IF NOT EXISTS idx_products_active ON products (is_active)`).run();
   db.prepare(`CREATE INDEX IF NOT EXISTS idx_products_vendas ON products (vendas_30d, vendas_10m)`).run();
