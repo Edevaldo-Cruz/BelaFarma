@@ -8,6 +8,7 @@ const ARCHIVE_DIR = path.join(ROOT_DIR, '_archived_features');
 const FEATURE_CATALOG = {
   'dashboard': { label: 'Dashboard', protected: true, componentName: 'Dashboard', files: ['components/Dashboard.tsx'] },
   'settings': { label: 'Configurações', protected: true, componentName: 'Settings', files: ['components/Settings.tsx'] },
+  'about': { label: 'Sobre o Projeto', protected: true, componentName: 'AboutProject', files: ['components/AboutProject.tsx'] },
   'promocoes-whatsapp': { label: 'Promoção WhatsApp', protected: true, componentName: 'BelaPedPortal', files: ['components/compras/BelaPedPortal.tsx'] },
   'belinha-pdv': { label: 'Belinha PDV', protected: true, componentName: 'PdvModule', files: ['components/erp/PdvModule.tsx'] },
   'erp-vendas': { label: 'Vendas do Caixa', protected: true, componentName: 'ErpVendas', files: ['components/erp/ErpVendas.tsx'] },

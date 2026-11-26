@@ -1,9 +1,14 @@
 {
   "version": "1.2.6",
-  "commitHash": "a0b1aa0",
-  "commitMessage": "fix(pdv): corrigir SQLite 500 na posologia com seed automatico, criar guia Assistente de Pedido e integrar Suprimento no Fechamento de Caixa",
-  "buildTime": "26/11/2026, 16:59:48",
+  "commitHash": "c82f148",
+  "commitMessage": "feat(pdv): resetar forma de pagamento para Dinheiro apos venda e destacar troco em verde",
+  "buildTime": "26/11/2026, 17:10:21",
   "recentCommits": [
+    {
+      "hash": "c82f148",
+      "date": "26/11/2026",
+      "message": "feat(pdv): resetar forma de pagamento para Dinheiro apos venda e destacar troco em verde"
+    },
     {
       "hash": "a0b1aa0",
       "date": "26/11/2026",
@@ -63,6 +68,41 @@
       "hash": "5b849b2",
       "date": "25/11/2026",
       "message": "fix(crediario): eliminar race condition no FICHARIO (#8376), ampliar motor de unificacao e criar modal visual Belinha+Digifarma"
+    },
+    {
+      "hash": "97d26c4",
+      "date": "25/11/2026",
+      "message": "feat(equivalentes): refinar motor farmaceutico, trava OUTROS (6) e edicao de categoria no Digifarma"
+    },
+    {
+      "hash": "078b2d9",
+      "date": "25/11/2026",
+      "message": "fix(crediario): regularizar venda 94471, bloquear overflow INT32 e unificar cadastros duplicados"
+    },
+    {
+      "hash": "4cee7a1",
+      "date": "25/11/2026",
+      "message": "feat(crediario): sincronizacao completa de pagamentos Belinha -> Digifarma"
+    },
+    {
+      "hash": "371545e",
+      "date": "25/11/2026",
+      "message": "feat(marketing): plano de crescimento social, aba Isa, pagina /bio e artes com Brasil Card"
+    },
+    {
+      "hash": "6b12220",
+      "date": "25/11/2026",
+      "message": "feat(equipe): adicionar modulo Escala e Equipe com simulador CLT/CRF-MG e impressao"
+    },
+    {
+      "hash": "cc933fd",
+      "date": "25/11/2026",
+      "message": "fix(crediario): gravar lancamentos do pdv e central no belinha e no fichario do digifarma"
+    },
+    {
+      "hash": "8751025",
+      "date": "24/11/2026",
+      "message": "feat(crediario): considerar clientes com compra nos ultimos 2 meses com historico completo"
     }
   ]
 }

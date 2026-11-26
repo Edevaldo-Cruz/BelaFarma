@@ -90,6 +90,7 @@ import { ControlledMedicationsPortal } from "./components/erp/ControlledMedicati
 import { FiscalAccountingView } from "./components/FiscalAccountingView";
 import { PromotionsManagerPage } from "./components/erp/PromotionsManagerPage";
 import { VariableAccountsPromptModal } from "./components/VariableAccountsPromptModal";
+import { AboutProject } from "./components/AboutProject";
 
 
 import {
@@ -1865,6 +1866,9 @@ const App: React.FC = () => {
                 <LiquidacaoCaixa user={user} />
               )}
               {currentView === "settings" && <Settings user={user} limits={monthlyLimits} onSaveLimit={handleSaveLimit} />}
+              {currentView === "about" && (
+                <AboutProject onOpenVersionModal={() => setIsVersionModalOpen(true)} />
+              )}
             </>
           )}
         </div>
@@ -1881,6 +1885,15 @@ const App: React.FC = () => {
           >
             <span>💬 (32) 98863-4755</span>
           </a>
+          <span>•</span>
+          <button
+            type="button"
+            onClick={() => handleNavigate('about')}
+            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-slate-200/70 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold transition-colors cursor-pointer"
+            title="Ver informações do projeto, contato e últimas 20 atualizações"
+          >
+            Sobre o Projeto
+          </button>
         </footer>
       </main>
 

@@ -1,11 +1,229 @@
 const express = require('express');
 const router = express.Router();
+const fs = require('fs');
+const path = require('path');
+const { execFileSync } = require('child_process');
 const fetch = require('node-fetch');
 const watcherService = require('./services/watcher.service.js');
 const incidentTracker = require('./services/incident-tracker.service.js');
 const security = require('./security.js');
 
+const ABOUT_CACHE_TTL_MS = 5 * 60 * 1000;
+let aboutCache = { data: null, expiresAt: 0 };
+
+function resolveGitHubRepo() {
+  const envRepo = String(process.env.GITHUB_REPO || '').trim();
+  if (envRepo && envRepo.includes('/')) {
+    const [owner, repo] = envRepo.split('/');
+    if (owner && repo) {
+      return { owner: owner.trim(), repo: repo.replace(/\.git$/i, '').trim() };
+    }
+  }
+
+  try {
+    const remoteUrl = execFileSync('git', ['remote', 'get-url', 'origin'], {
+      cwd: path.resolve(__dirname, '..'),
+      encoding: 'utf8',
+      timeout: 3000
+    }).trim();
+
+    const httpsMatch = remoteUrl.match(/github\.com[/:]([^/]+)\/([^/]+?)(?:\.git)?$/i);
+    if (httpsMatch) {
+      return { owner: httpsMatch[1], repo: httpsMatch[2] };
+    }
+  } catch (e) {
+    // Fallback para repositório padrão
+  }
+
+  return { owner: 'Edevaldo-Cruz', repo: 'BelaFarma' };
+}
+
+function readAppVersion() {
+  try {
+    const pkgPath = path.resolve(__dirname, '../package.json');
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+    if (pkg && pkg.version) return String(pkg.version);
+  } catch (e) {
+    // Fallback para versão padrão
+  }
+  return '1.2.6';
+}
+
+function splitCommitMessage(rawMessage) {
+  const normalized = String(rawMessage || '').replace(/\r\n/g, '\n').trim();
+  if (!normalized) {
+    return { title: 'Atualização do sistema', description: '' };
+  }
+  const [firstLine, ...rest] = normalized.split('\n');
+  const description = rest.join('\n').trim();
+  return {
+    title: firstLine.trim() || 'Atualização do sistema',
+    description
+  };
+}
+
+function readLocalGitCommits(owner, repo) {
+  try {
+    const raw = execFileSync(
+      'git',
+      ['log', '-n', '20', '--pretty=format:%H%x1f%h%x1f%aI%x1f%an%x1f%s%x1f%b%x1e'],
+      {
+        cwd: path.resolve(__dirname, '..'),
+        encoding: 'utf8',
+        timeout: 4000
+      }
+    );
+
+    return raw
+      .split('\x1e')
+      .map(entry => entry.trim())
+      .filter(Boolean)
+      .slice(0, 20)
+      .map(entry => {
+        const [sha = '', shortHash = '', date = '', authorName = '', subject = '', body = ''] = entry.split('\x1f');
+        const cleanSha = sha.trim();
+        const cleanShort = (shortHash || cleanSha.slice(0, 7)).trim();
+        const cleanTitle = subject.trim() || 'Atualização do sistema';
+        const cleanDesc = body.trim();
+        return {
+          sha: cleanSha,
+          shortHash: cleanShort,
+          title: cleanTitle,
+          description: cleanDesc,
+          fullMessage: cleanDesc ? `${cleanTitle}\n\n${cleanDesc}` : cleanTitle,
+          authorName: authorName.trim() || 'Edevaldo-Cruz',
+          authorLogin: owner,
+          authorAvatar: null,
+          date: date.trim() || null,
+          htmlUrl: cleanSha ? `https://github.com/${owner}/${repo}/commit/${cleanSha}` : `https://github.com/${owner}/${repo}/commits`
+        };
+      });
+  } catch (e) {
+    return [];
+  }
+}
+
 module.exports = (db) => {
+
+  // GET /api/system/about - Retorna metadados do projeto, contato do desenvolvedor, descrição do GitHub e últimos 20 commits
+  router.get('/about', async (req, res) => {
+    const forceRefresh = req.query.refresh === '1' || req.query.refresh === 'true';
+    const nowMs = Date.now();
+
+    if (!forceRefresh && aboutCache.data && nowMs < aboutCache.expiresAt) {
+      return res.json({ ...aboutCache.data, cached: true });
+    }
+
+    const { owner, repo } = resolveGitHubRepo();
+    const appVersion = readAppVersion();
+
+    const headers = {
+      'User-Agent': 'BelaFarma-System',
+      'Accept': 'application/vnd.github+json'
+    };
+    if (process.env.GITHUB_TOKEN) {
+      headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
+    }
+
+    let repoData = null;
+    let githubCommitsRaw = null;
+    let githubUser = null;
+
+    try {
+      const [repoResult, commitsResult, userResult] = await Promise.allSettled([
+        fetch(`https://api.github.com/repos/${owner}/${repo}`, { headers, timeout: 6000 }),
+        fetch(`https://api.github.com/repos/${owner}/${repo}/commits?per_page=20`, { headers, timeout: 6000 }),
+        fetch(`https://api.github.com/users/${owner}`, { headers, timeout: 6000 })
+      ]);
+
+      if (repoResult.status === 'fulfilled' && repoResult.value.ok) {
+        repoData = await repoResult.value.json();
+      }
+      if (commitsResult.status === 'fulfilled' && commitsResult.value.ok) {
+        const parsed = await commitsResult.value.json();
+        if (Array.isArray(parsed)) githubCommitsRaw = parsed;
+      }
+      if (userResult.status === 'fulfilled' && userResult.value.ok) {
+        githubUser = await userResult.value.json();
+      }
+    } catch (err) {
+      console.warn('[SYSTEM-ABOUT] Falha ao consultar GitHub API:', err.message);
+    }
+
+    let source = 'fallback';
+    let commits = [];
+
+    if (Array.isArray(githubCommitsRaw) && githubCommitsRaw.length > 0) {
+      source = 'github';
+      commits = githubCommitsRaw.slice(0, 20).map(item => {
+        const sha = item.sha || '';
+        const { title, description } = splitCommitMessage(item.commit?.message || '');
+        return {
+          sha,
+          shortHash: sha.slice(0, 7),
+          title,
+          description,
+          fullMessage: String(item.commit?.message || title).trim(),
+          authorName: item.commit?.author?.name || item.author?.login || owner,
+          authorLogin: item.author?.login || owner,
+          authorAvatar: item.author?.avatar_url || null,
+          date: item.commit?.author?.date || item.commit?.committer?.date || null,
+          htmlUrl: item.html_url || `https://github.com/${owner}/${repo}/commit/${sha}`
+        };
+      });
+    } else {
+      const localCommits = readLocalGitCommits(owner, repo);
+      if (localCommits.length > 0) {
+        source = 'git-local';
+        commits = localCommits;
+      }
+    }
+
+    const payload = {
+      success: true,
+      source,
+      fetchedAt: new Date().toISOString(),
+      appVersion,
+      developer: {
+        name: githubUser?.name || 'Edevaldo Cruz Antonio',
+        displayName: 'Edevaldo Cruz',
+        role: 'Desenvolvedor Full-Stack & Criador do BelaFarma',
+        avatarUrl: githubUser?.avatar_url || 'https://avatars.githubusercontent.com/u/77896103?v=4',
+        bio: githubUser?.bio || 'Responsável pela arquitetura, automações, integrações ERP/PDV, Inteligência Artificial e operação contínua do ecossistema BelaFarma (Belinha).',
+        location: githubUser?.location || 'Minas Gerais, Brasil',
+        whatsapp: '(32) 98863-4755',
+        whatsappUrl: 'https://wa.me/5532988634755?text=Ol%C3%A1%20Edevaldo%2C%20vi%20seu%20contato%20na%20p%C3%A1gina%20Sobre%20do%20BelaFarma!',
+        email: 'edevaldo_cruz@hotmail.com',
+        githubUsername: owner,
+        githubUrl: `https://github.com/${owner}`,
+        portfolioUrl: githubUser?.blog || 'https://ecrz-portifolio.netlify.app/',
+        publicRepos: typeof githubUser?.public_repos === 'number' ? githubUser.public_repos : null
+      },
+      repository: {
+        name: repoData?.name || repo,
+        fullName: repoData?.full_name || `${owner}/${repo}`,
+        htmlUrl: repoData?.html_url || `https://github.com/${owner}/${repo}`,
+        defaultBranch: repoData?.default_branch || 'main',
+        language: repoData?.language || 'TypeScript',
+        visibility: repoData?.visibility || (repoData?.private ? 'private' : 'public'),
+        stargazersCount: typeof repoData?.stargazers_count === 'number' ? repoData.stargazers_count : 0,
+        forksCount: typeof repoData?.forks_count === 'number' ? repoData.forks_count : 0,
+        topics: Array.isArray(repoData?.topics) ? repoData.topics : [],
+        pushedAt: repoData?.pushed_at || commits[0]?.date || null,
+        createdAt: repoData?.created_at || null,
+        githubDescription: repoData?.description ? String(repoData.description).trim() : null,
+        fallbackDescription: 'Sistema integrado de gestão farmacêutica (Belinha / BelaFarma) com PDV, integração Digifarma, cotações automatizadas BelaPed, controle financeiro, conciliação bancária, crediário, automações WhatsApp e consultoria por Inteligência Artificial.'
+      },
+      commits
+    };
+
+    aboutCache = {
+      data: payload,
+      expiresAt: Date.now() + ABOUT_CACHE_TTL_MS
+    };
+
+    res.json({ ...payload, cached: false });
+  });
 
   // GET /api/system/status - Retorna o relatório completo de saúde do ecossistema
   router.get('/status', async (req, res) => {

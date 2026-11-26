@@ -50,6 +50,7 @@ import {
   Scale,
   ThumbsDown,
   CalendarClock,
+  Info,
 } from 'lucide-react';
 import { View, User, UserRole, Task, Boleto, BoletoStatus } from '../types';
 import { NotificationPanel } from './NotificationPanel';
@@ -416,6 +417,7 @@ export const TopMenuBar: React.FC<TopMenuBarProps> = ({
         { id: 'team-schedule', label: 'Escala & Equipe', icon: CalendarClock },
         { id: 'backups', label: 'Backups', icon: Database, adminOnly: true },
         { id: 'settings', label: 'Configurações', icon: SettingsIcon },
+        { id: 'about', label: 'Sobre o Projeto', icon: Info },
       ],
     },
   ], []);

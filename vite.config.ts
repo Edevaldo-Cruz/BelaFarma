@@ -14,7 +14,7 @@ const buildTime = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Pa
 try {
   commitHash = execSync('git rev-parse --short HEAD').toString().trim();
   commitMessage = execSync('git log -1 --pretty=%s').toString().trim();
-  const gitLogRaw = execSync('git log -n 12 --pretty=format:"%h|%ad|%s" --date=format:"%d/%m/%Y"').toString().trim();
+  const gitLogRaw = execSync('git log -n 20 --pretty=format:"%h|%ad|%s" --date=format:"%d/%m/%Y"').toString().trim();
   recentCommits = gitLogRaw.split('\n').filter(Boolean).map(line => {
     const [h, d, ...m] = line.replace(/^"/, '').replace(/"$/, '').split('|');
     return { hash: h ? h.trim() : '', date: d ? d.trim() : '', message: m.join('|').trim() };

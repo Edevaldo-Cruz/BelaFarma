@@ -57,6 +57,7 @@ import {
   Scale,
   ThumbsDown,
   CalendarClock,
+  Info,
 } from 'lucide-react';
 import { View, User, UserRole, Task, Boleto, BoletoStatus } from '../types';
 import { NotificationPanel } from './NotificationPanel';
@@ -340,6 +341,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'levantamento-proffer', label: 'Levantamento Proffer', icon: Scale },
     { id: 'liquidacao-caixa', label: 'Liquidação & Caixa', icon: Flame },
     { id: 'settings', label: 'Configurações', icon: SettingsIcon },
+    { id: 'about', label: 'Sobre o Projeto', icon: Info },
   ];
 
 
@@ -550,7 +552,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         'users',
         'team-schedule',
         'backups',
-        'settings'
+        'settings',
+        'about'
       ]
     }
   ], []);
