@@ -64,6 +64,7 @@ import { PromotionsManagementModal } from './PromotionsManagementModal';
 import { CaderninhoModal } from './CaderninhoModal';
 import { RegisterRejectionModal, RejectedProductsListModal } from './RejectedProductsModal';
 import { ProductPosologyModal, PosologyProductRef } from './ProductPosologyModal';
+import { OrderAssistantTab, AssistantDraftItem } from './OrderAssistantTab';
 import { imprimirCupomVenda, imprimirDanfeNfce, imprimirComprovanteMovimentacaoCaixa, imprimirComprovanteOrcamento } from '../../utils/thermalPrinter';
 import { ControlledRecipeModal, ControlledProductItem, ControlledRecipeData } from './ControlledRecipeModal';
 import { useThermalPrintSpooler } from './useThermalPrintSpooler';
@@ -601,6 +602,9 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
   const [rejectTargetItem, setRejectTargetItem] = useState<{ item: CartItem; index: number } | null>(null);
   const [isRejectedListOpen, setIsRejectedListOpen] = useState<boolean>(false);
   const [rejectedPendingCount, setRejectedPendingCount] = useState<number>(0);
+
+  // Guia principal do terminal: PDV (Caixa) vs Assistente de Pedido & Orçamento
+  const [activePdvTab, setActivePdvTab] = useState<'PDV' | 'ASSISTENTE'>('PDV');
 
   // Guia Farmacêutico & Posologia (IA gradual + cache SQLite)
   const [isPosologyModalOpen, setIsPosologyModalOpen] = useState<boolean>(false);
@@ -2346,8 +2350,32 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
     } catch {}
 
     setIsPreSaleModalOpen(false);
-    addToast(`✅ Pré-venda #${preSale.id} importada com ${importedItems.length} itens!`, 'success');
+    setActivePdvTab('PDV');
+    addToast(`✅ Orçamento #${preSale.short_code || preSale.id} transformado em venda com ${importedItems.length} item(ns)!`, 'success');
     focusBarcodeInput();
+  };
+
+  const handleConvertAssistantDraftToSale = (items: AssistantDraftItem[], custName: string) => {
+    if (!items || items.length === 0) return;
+    for (const it of items) {
+      addItemToCart(it.rawProduct || {
+        code: it.code,
+        barcode: it.barcode,
+        name: it.name,
+        sale_price: it.sale_price,
+        promo_price: it.promo_price,
+        crediario_price: it.crediario_price,
+        promo_vista: it.promo_vista,
+        cost_price: it.unit_cost,
+        stock_qty: it.stock_qty
+      }, it.quantity);
+    }
+    if (custName) {
+      setCustomerNameInput(custName);
+    }
+    setActivePdvTab('PDV');
+    addToast(`✅ ${items.length} item(ns) enviados para o PDV / Caixa prontos para venda!`, 'success');
+    setTimeout(() => focusBarcodeInput(), 80);
   };
 
   const handleSaveAsPreSale = async () => {
@@ -3187,8 +3215,49 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
       {/* NÍVEL 2: BARRA DE ATALHOS RÁPIDOS DE VENDA & MENU DESKTOP "MAIS OPÇÕES" */}
       {/* ========================================================================= */}
       <nav className="bg-gradient-to-r from-[#0d2a4a] via-[#103660] to-[#0c2e26] border-b-2 border-emerald-500/60 px-3 sm:px-4 py-1.5 flex flex-wrap items-center justify-between gap-2 shadow-sm shrink-0 text-white">
-        {/* Lado Esquerdo: Ações Rápidas de Balcão / Caixa com visual tátil */}
+        {/* Lado Esquerdo: Guias do Terminal (PDV Principal + Assistente de Pedido) e Ações Rápidas */}
         <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+          {/* Seletor de Guias Principais */}
+          <div className="inline-flex items-center rounded-lg bg-black/35 p-0.5 border border-white/20 mr-1">
+            <button
+              type="button"
+              onClick={() => {
+                setActivePdvTab('PDV');
+                setTimeout(() => focusBarcodeInput(), 60);
+              }}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-black transition cursor-pointer ${
+                activePdvTab === 'PDV'
+                  ? 'bg-emerald-500 text-slate-950 shadow-sm'
+                  : 'text-slate-200 hover:bg-white/10'
+              }`}
+              title="Guia principal de vendas e caixa"
+            >
+              <ShoppingCart size={13} />
+              <span>PDV / Caixa</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                fetchPreSales();
+                setActivePdvTab('ASSISTENTE');
+              }}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-black transition cursor-pointer ${
+                activePdvTab === 'ASSISTENTE'
+                  ? 'bg-indigo-400 text-slate-950 shadow-sm'
+                  : 'text-slate-200 hover:bg-white/10'
+              }`}
+              title="Assistente de Pedido: montar orçamento com quantidades e transformar em venda"
+            >
+              <FileText size={13} />
+              <span>Assistente de Pedido</span>
+              {preSalesList.length > 0 && (
+                <span className="bg-indigo-700 text-white font-black px-1.5 py-0.2 rounded-full text-[10px]">
+                  {preSalesList.length}
+                </span>
+              )}
+            </button>
+          </div>
+
           {/* [F2] Buscar Produto */}
           <button
             onClick={() => {
@@ -3268,6 +3337,21 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
           >
             <Pill size={13} className="text-teal-300" />
             <span>Guia Farmacêutico</span>
+          </button>
+
+          {/* [F4] Suprimento / Sangria de Caixa (visível na barra superior) */}
+          <button
+            type="button"
+            onClick={() => {
+              setMovementType('SUPRIMENTO');
+              fetchRecentMovements();
+              setIsCashMovementModalOpen(true);
+            }}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/50 text-emerald-100 text-xs font-bold transition shadow-sm cursor-pointer"
+            title="Lançar Suprimento (colocar troco/dinheiro no caixa) ou Sangria (retirada) [F4]"
+          >
+            <kbd className="bg-emerald-400 text-slate-950 font-black px-1.5 py-0.5 rounded text-[10px] font-mono">F4</kbd>
+            <span>Suprimento / Sangria</span>
           </button>
 
           {/* [F8] Finalizar Venda */}
@@ -3540,7 +3624,20 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
         </div>
       )}
 
-      {/* 3. WORKSPACE CENTRAL EM TELA CHEIA: TEMA CLARO CLÍNICO (ESTILO DIGIFARMA / TRIER) */}
+      {/* 3. WORKSPACE CENTRAL EM TELA CHEIA: GUIA PRINCIPAL (PDV) OU GUIA ASSISTENTE DE PEDIDO */}
+      {activePdvTab === 'ASSISTENTE' ? (
+        <OrderAssistantTab
+          preSalesList={preSalesList}
+          isLoadingPreSales={isLoadingPreSales}
+          operatorName={currentSeller?.name || currentUser?.name || 'Caixa'}
+          sellerId={currentSeller?.id || null}
+          onRefreshPreSales={fetchPreSales}
+          onConvertDraftToSale={handleConvertAssistantDraftToSale}
+          onConvertPreSaleToSale={handleImportPreSale}
+          onCancelPreSale={handleCancelPreSale}
+          onOpenPosology={openPosologyModal}
+        />
+      ) : (
       <main className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-2.5 p-2.5 overflow-hidden bg-[#e8eef5] min-h-0">
         
         {/* COLUNA ESQUERDA: LEITOR EAN + VISOR DO ÚLTIMO ITEM BIPADO + TABELA CLÍNICA DO CUPOM (8 de 12 Colunas) */}
@@ -3584,6 +3681,16 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
                 <Search className="w-4 h-4" />
                 <span className="hidden sm:inline">Buscar Produto</span>
                 <kbd className="text-[10px] bg-black/25 px-1.5 py-0.5 rounded font-mono">F2</kbd>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => openPosologyModal(null)}
+                className="px-3 py-2.5 bg-teal-700 hover:bg-teal-600 text-white text-xs font-black rounded-lg border border-teal-800 flex items-center gap-1.5 shadow-sm shrink-0 cursor-pointer transition-all"
+                title="Pesquisar princípio ativo, posologia, interações e equivalentes no Guia Farmacêutico"
+              >
+                <Pill className="w-4 h-4 text-teal-200" />
+                <span className="hidden md:inline">Pesquisar Guia / Bula</span>
               </button>
             </form>
 
@@ -4513,6 +4620,7 @@ export const BelinhaPDV: React.FC<BelinhaPDVProps> = ({ currentUser, onNavigate,
         </section>
 
       </main>
+      )}
 
       {/* 4. BARRA FIXA DE COMANDOS E TECLAS DE FUNÇÃO NO RODAPÉ (ESTILO ERP / DIGIFARMA) */}
       <footer className="bg-[#0b2545] border-t-2 border-[#0f3460] px-3 py-1.5 flex items-center justify-between gap-2 text-xs text-white shrink-0 overflow-x-auto">

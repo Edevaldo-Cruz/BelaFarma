@@ -30,6 +30,7 @@ export interface CashReconciliationInput {
   cashSales: number;         // Vendas do dia recebidas em dinheiro no Digifarma
   creditReceipts: number;    // Recebimento de fiado/crediário antigo pago em dinheiro
   receivedExtra?: number;    // Entradas extras avulsas
+  suprimentos?: number;      // Suprimentos / reforços de troco colocados no caixa durante o dia
   nonRegistered?: number;    // Vendas sem cadastro em dinheiro
   expenses: number;          // Despesas operacionais pagas em dinheiro
   sangrias: number;          // Sangrias / retiradas intermediárias realizadas no dia
@@ -106,12 +107,13 @@ export function calculateCashReconciliation(input: CashReconciliationInput): Cas
   const cashSales = round2(input.cashSales || 0);
   const creditReceipts = round2(input.creditReceipts || 0);
   const receivedExtra = round2(input.receivedExtra || 0);
+  const suprimentos = round2(input.suprimentos || 0);
   const nonRegistered = round2(input.nonRegistered || 0);
   const expenses = round2(input.expenses || 0);
   const sangrias = round2(input.sangrias || 0);
   const countedInDrawer = round2(input.countedInDrawer || 0);
 
-  const totalInflows = round2(initialCash + cashSales + creditReceipts + receivedExtra + nonRegistered);
+  const totalInflows = round2(initialCash + cashSales + creditReceipts + receivedExtra + suprimentos + nonRegistered);
   const totalOutflows = round2(expenses + sangrias);
   const expectedInDrawer = round2(totalInflows - totalOutflows);
   const cashDifference = round2(countedInDrawer - expectedInDrawer);

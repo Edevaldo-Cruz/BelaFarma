@@ -398,6 +398,22 @@ function obterResumoCaixaDoDia(dataRef) {
     }
   }
 
+  // Movimentações de caixa do dia (Sangrias e Suprimentos / Reforços)
+  let totalSangriaDia = 0;
+  let totalSuprimentoDia = 0;
+  try {
+    const movRows = db.prepare(`
+      SELECT movement_type, COALESCE(SUM(amount), 0) as total
+      FROM cash_movements
+      WHERE DATE(created_at) = ?
+      GROUP BY movement_type
+    `).all(targetDate);
+    for (const mr of movRows) {
+      if (mr.movement_type === 'SANGRIA') totalSangriaDia = Math.round((Number(mr.total) || 0) * 100) / 100;
+      if (mr.movement_type === 'SUPRIMENTO') totalSuprimentoDia = Math.round((Number(mr.total) || 0) * 100) / 100;
+    }
+  } catch (_) {}
+
   return {
     data: targetDate,
     total_cupons: totalCupons,
@@ -410,6 +426,10 @@ function obterResumoCaixaDoDia(dataRef) {
       PIX: Math.round(pagamentosMap.PIX * 100) / 100,
       CREDIARIO: Math.round(pagamentosMap.CREDIARIO * 100) / 100,
       OUTROS: Math.round(pagamentosMap.OUTROS * 100) / 100
+    },
+    movimentacoes: {
+      total_sangria: totalSangriaDia,
+      total_suprimento: totalSuprimentoDia
     },
     cancelamentos: {
       total: canceladasCount,

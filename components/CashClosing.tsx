@@ -95,6 +95,7 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
   const [crediarioList, setCrediarioList] = useState<Array<{ id: string, client: string, val: number }>>([]);
   const [creditReceiptsList, setCreditReceiptsList] = useState<Array<{ id: string, date: string, customer: string, val: number, description?: string }>>([]);
   const [sangriaList, setSangriaList] = useState<Array<{ id: string, desc: string, val: number }>>([]);
+  const [suprimentoList, setSuprimentoList] = useState<Array<{ id: string, desc: string, val: number }>>([]);
 
   const firstInputRef = useRef<HTMLInputElement>(null);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -234,6 +235,31 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
     setCrediarioList(combinedCrediario);
     setCreditReceiptsList(combinedCreditReceipts);
     setSangriaList(combinedSangria);
+
+    // Busca Suprimentos (Reforço de Caixa) registrados hoje pelo PDV [F4] para somar no saldo esperado da gaveta
+    // e impedir que o reforço de troco apareça como "sobra de caixa" no fechamento.
+    const fetchSuprimentosDoDia = async () => {
+      try {
+        const res = await fetch('/api/erp/pos/cash-movements');
+        if (!res.ok) return;
+        const data = await res.json();
+        const rows = Array.isArray(data?.movements) ? data.movements : [];
+        const hojeYmd = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD local
+        const sups = rows
+          .filter((m: any) =>
+            String(m.movement_type || '').toUpperCase() === 'SUPRIMENTO' &&
+            String(m.created_at || '').slice(0, 10) === hojeYmd
+          )
+          .map((m: any) => ({
+            id: String(m.id),
+            desc: String(m.reason || 'Suprimento / Reforço de Caixa'),
+            val: Number(m.amount || 0)
+          }))
+          .filter((m: any) => m.val > 0);
+        setSuprimentoList(sups);
+      } catch (_) {}
+    };
+    fetchSuprimentosDoDia();
     
     // Sum up pixDireto for display
     if (combinedPixDireto.length > 0) {
@@ -360,6 +386,7 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
   const totalCrediario = useMemo(() => crediarioList.reduce((acc, curr) => acc + curr.val, 0), [crediarioList]);
   const totalCreditReceipts = useMemo(() => creditReceiptsList.reduce((acc, curr) => acc + curr.val, 0), [creditReceiptsList]);
   const totalSangria = useMemo(() => sangriaList.reduce((acc, curr) => acc + curr.val, 0), [sangriaList]);
+  const totalSuprimento = useMemo(() => suprimentoList.reduce((acc, curr) => acc + curr.val, 0), [suprimentoList]);
 
   const totalInDrawer = useMemo(() => {
     return Object.entries(currencyCount).reduce((acc: number, [key, count]) => {
@@ -388,6 +415,7 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
         cashSales: cashSalesCalculated,
         creditReceipts: totalCreditReceipts,
         receivedExtra,
+        suprimentos: totalSuprimento,
         nonRegistered: totalNonRegistered,
         expenses: totalExpenses,
         sangrias: totalSangria,
@@ -419,6 +447,7 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
     cashSalesCalculated,
     totalCreditReceipts,
     receivedExtra,
+    totalSuprimento,
     totalNonRegistered,
     totalExpenses,
     totalSangria,
@@ -1343,6 +1372,12 @@ export const CashClosing: React.FC<CashClosingProps> = ({ user, onFinish, onLog,
                               <div className="flex justify-between">
                                 <span>+ Entradas Extras:</span>
                                 <span className="font-bold">{formatCurrency(receivedExtra)}</span>
+                              </div>
+                            )}
+                            {totalSuprimento > 0 && (
+                              <div className="flex justify-between text-emerald-700 dark:text-emerald-400 font-medium">
+                                <span>+ Suprimentos / Reforço de Caixa (PDV):</span>
+                                <span className="font-bold">+{formatCurrency(totalSuprimento)}</span>
                               </div>
                             )}
                             {totalNonRegistered > 0 && (

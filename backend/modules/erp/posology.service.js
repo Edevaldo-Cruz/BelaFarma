@@ -72,7 +72,7 @@ function getPosologyByProduct(productCode, barcode = '') {
     if (byCode) return formatPosologyRow(byCode);
   }
   if (cleanBarcode) {
-    const byBarcode = db.prepare('SELECT * FROM product_posologies WHERE barcode = ? AND barcode != "" LIMIT 1').get(cleanBarcode);
+    const byBarcode = db.prepare("SELECT * FROM product_posologies WHERE barcode = ? AND barcode != '' LIMIT 1").get(cleanBarcode);
     if (byBarcode) return formatPosologyRow(byBarcode);
   }
   return null;
@@ -750,7 +750,62 @@ async function populateTopMedicationsPosology({ limit = 50, force = false, concu
   return results;
 }
 
+function ensurePosologySeedData() {
+  try {
+    const { POSOLOGY_SEED_ITEMS, POSOLOGY_QA_SEED_ITEMS } = require('./posology-seed-data');
+    if (Array.isArray(POSOLOGY_SEED_ITEMS) && POSOLOGY_SEED_ITEMS.length > 0) {
+      const ins = db.prepare(`
+        INSERT OR IGNORE INTO product_posologies (
+          product_code, barcode, product_name, is_medication,
+          active_ingredient, concentration, therapeutic_class, prescription_stripe,
+          indication, adult_dosage, pediatric_dosage, usage_instructions,
+          warnings, interactions, contraindications, side_effects, storage_care,
+          brand_synonyms, source, ai_model, reviewed_by_pharmacist, updated_by,
+          created_at, updated_at
+        ) VALUES (
+          @product_code, @barcode, @product_name, @is_medication,
+          @active_ingredient, @concentration, @therapeutic_class, @prescription_stripe,
+          @indication, @adult_dosage, @pediatric_dosage, @usage_instructions,
+          @warnings, @interactions, @contraindications, @side_effects, @storage_care,
+          @brand_synonyms, @source, @ai_model, @reviewed_by_pharmacist, @updated_by,
+          datetime('now', 'localtime'), datetime('now', 'localtime')
+        )
+      `);
+      let inserted = 0;
+      db.transaction(() => {
+        for (const item of POSOLOGY_SEED_ITEMS) {
+          inserted += ins.run(item).changes;
+        }
+      })();
+      if (inserted > 0) {
+        console.log(`[Guia Farmacêutico] 💊 Carga inicial automática: ${inserted} fichas clínicas adicionadas ao SQLite.`);
+      }
+    }
+
+    if (Array.isArray(POSOLOGY_QA_SEED_ITEMS) && POSOLOGY_QA_SEED_ITEMS.length > 0) {
+      const insQa = db.prepare(`
+        INSERT OR IGNORE INTO posology_qa_history (
+          question_key, question, answer_summary, clinical_details, warnings,
+          related_ingredients, ai_model, asked_by, created_at, updated_at
+        ) VALUES (
+          @question_key, @question, @answer_summary, @clinical_details, @warnings,
+          @related_ingredients, @ai_model, @asked_by,
+          datetime('now', 'localtime'), datetime('now', 'localtime')
+        )
+      `);
+      db.transaction(() => {
+        for (const qa of POSOLOGY_QA_SEED_ITEMS) {
+          insQa.run(qa);
+        }
+      })();
+    }
+  } catch (err) {
+    console.warn('[Guia Farmacêutico] Aviso ao aplicar carga inicial:', err.message);
+  }
+}
+
 function createPosologyRouter() {
+  ensurePosologySeedData();
   const router = express.Router();
 
   router.get('/stats', (req, res) => {
