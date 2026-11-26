@@ -31,6 +31,10 @@ export interface CaderninhoCartItem {
   quantity: number;
   discount: number;
   total_price: number;
+  sale_price?: number;
+  promo_price?: number;
+  crediario_price?: number;
+  promo_vista?: string;
   is_unregistered?: boolean;
 }
 
@@ -51,16 +55,23 @@ export interface CaderninhoModalProps {
 interface CaderninhoEntry {
   id: string;
   person_id: string;
+  original_total_amount?: number;
   total_amount: number;
   discount_value: number;
   paid_amount: number;
   remaining_amount: number;
+  crediario_rule_enabled?: boolean;
+  crediario_total_amount?: number;
+  crediario_surcharge?: number;
+  crediario_applied?: boolean;
   status: 'ABERTA' | 'PARCIAL' | 'PAGA' | 'CANCELADA' | string;
   items: Array<{
     code: string;
     name: string;
     quantity: number;
     unit_price: number;
+    cash_unit_price?: number;
+    crediario_unit_price?: number;
     total_price: number;
   }>;
   operator_name: string;
@@ -299,6 +310,30 @@ export const CaderninhoModal: React.FC<CaderninhoModalProps> = ({
     return Math.round(((matchedPersonForEntry?.openBalance || 0) + cartTotal) * 100) / 100;
   }, [matchedPersonForEntry, cartTotal]);
 
+  const cartCrediarioPreview = useMemo(() => {
+    let surcharge = 0;
+    for (const it of cart) {
+      const qty = Math.max(1, Number(it.quantity || 1));
+      const cashUnit = Math.max(0, Number(it.unit_price || 0));
+      const sale = Math.max(0, Number(it.sale_price || 0));
+      const promo = Math.max(0, Number(it.promo_price || 0));
+      const cred = Math.max(0, Number(it.crediario_price || 0));
+      const promoVista = String(it.promo_vista || '').toUpperCase() === 'S';
+
+      let credUnit = cashUnit;
+      if (cred > 0) credUnit = cred;
+      else if (promo > 0 && promoVista && sale > 0) credUnit = sale;
+
+      const diff = Math.max(0, credUnit - cashUnit);
+      surcharge += qty * diff;
+    }
+    const roundedSurcharge = Math.round(surcharge * 100) / 100;
+    return {
+      surcharge: roundedSurcharge,
+      crediarioTotal: Math.round((cartTotal + roundedSurcharge) * 100) / 100
+    };
+  }, [cart, cartTotal]);
+
   const handleSaveNewEntry = async (e: React.FormEvent) => {
     e.preventDefault();
     if (cart.length === 0) {
@@ -350,6 +385,9 @@ export const CaderninhoModal: React.FC<CaderninhoModalProps> = ({
             subtotal: it.total_price
           })),
           valor_anotacao: data.entry.total_amount,
+          valor_crediario: data.entry.crediario_total_amount,
+          acrescimo_crediario: data.entry.crediario_surcharge,
+          crediario_aplicado: Boolean(data.entry.crediario_applied),
           saldo_acumulado: data.newOpenBalance,
           desconto: data.entry.discount_value,
           teto_alerta: 100
@@ -570,6 +608,9 @@ export const CaderninhoModal: React.FC<CaderninhoModalProps> = ({
         subtotal: it.total_price
       })),
       valor_anotacao: entry.total_amount,
+      valor_crediario: entry.crediario_total_amount,
+      acrescimo_crediario: entry.crediario_surcharge,
+      crediario_aplicado: Boolean(entry.crediario_applied),
       saldo_acumulado: person.openBalance,
       desconto: entry.discount_value,
       teto_alerta: 100
@@ -624,7 +665,12 @@ export const CaderninhoModal: React.FC<CaderninhoModalProps> = ({
                   <span>Anotar Carrinho Atual no Caderninho ({cart.length} item(ns))</span>
                 </h3>
                 <p className="text-xs text-amber-100/80">
-                  Total desta anotação: <strong className="text-white text-sm">{formatCurrency(cartTotal)}</strong>
+                  Pagando hoje: <strong className="text-white text-sm">{formatCurrency(cartTotal)}</strong>
+                  {cartCrediarioPreview.surcharge > 0 && (
+                    <span className="ml-2 text-amber-300 font-bold">
+                      • Após hoje (Crediário): {formatCurrency(cartCrediarioPreview.crediarioTotal)} (+{formatCurrency(cartCrediarioPreview.surcharge)})
+                    </span>
+                  )}
                 </p>
               </div>
               <span className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-700 text-slate-200">
@@ -845,6 +891,11 @@ export const CaderninhoModal: React.FC<CaderninhoModalProps> = ({
                       />
                       <span className="truncate">
                         {formatDateTimeBR(ent.created_at)} — {ent.items.map(i => `${i.quantity}x ${i.name}`).join(', ')}
+                        {ent.crediario_applied && Number(ent.crediario_surcharge || 0) > 0 && (
+                          <span className="ml-1.5 text-[10px] font-black text-amber-300">
+                            (+Crediário {formatCurrency(ent.crediario_surcharge)})
+                          </span>
+                        )}
                       </span>
                     </span>
                     <strong className="tabular-nums shrink-0 text-emerald-300">
@@ -1144,6 +1195,18 @@ export const CaderninhoModal: React.FC<CaderninhoModalProps> = ({
                                   Já pago: {formatCurrency(ent.paid_amount)}
                                 </span>
                               )}
+                              {ent.crediario_applied && Number(ent.crediario_surcharge || 0) > 0 ? (
+                                <span
+                                  className="px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-400/40 text-amber-200 font-bold"
+                                  title={`Valor original à vista: ${formatCurrency(ent.original_total_amount)}`}
+                                >
+                                  +Crediário ({formatCurrency(ent.crediario_surcharge)})
+                                </span>
+                              ) : ent.is_today && ent.crediario_rule_enabled && Number(ent.crediario_surcharge || 0) > 0 ? (
+                                <span className="px-1.5 py-0.5 rounded bg-slate-800 text-amber-300/90 font-semibold">
+                                  Após hoje: {formatCurrency(ent.crediario_total_amount)}
+                                </span>
+                              ) : null}
                             </div>
 
                             <div className="flex items-center gap-1.5">

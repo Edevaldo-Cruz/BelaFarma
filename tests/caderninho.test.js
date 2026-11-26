@@ -163,6 +163,9 @@ describe('Caderninho do PDV — Anotação, Estoque, Pagamento Parcial, Históri
         barcode TEXT,
         name TEXT NOT NULL,
         sale_price REAL NOT NULL DEFAULT 0,
+        promo_price REAL NOT NULL DEFAULT 0,
+        crediario_price REAL NOT NULL DEFAULT 0,
+        promo_vista TEXT DEFAULT 'N',
         cost_price REAL DEFAULT 0,
         stock_qty REAL NOT NULL DEFAULT 0
       );
@@ -554,5 +557,150 @@ describe('Caderninho do PDV — Anotação, Estoque, Pagamento Parcial, Históri
       body: JSON.stringify({ personName: 'Teste', items: [{ name: 'X', quantity: 1, unit_price: 10 }] })
     });
     assert.strictEqual(anonEntry.status, 401);
+  });
+
+  it('CAD-07: Regra de crediário — pagamento no mesmo dia mantém valor à vista; após virar o dia cobra com acréscimo do crediário', async () => {
+    // Produto com preço de crediário explícito (à vista R$ 10,00 -> crediário R$ 12,50)
+    memDb
+      .prepare('INSERT INTO products (code, barcode, name, sale_price, promo_price, crediario_price, promo_vista, cost_price, stock_qty) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run('CRED-01', '7899001', 'LOSARTANA 50MG 30CP', 15.0, 10.0, 12.5, 'N', 5.0, 20);
+    // Produto com promoção exclusiva à vista (promo_vista = 'S': à vista R$ 20,00 -> crediário volta ao sale_price R$ 24,00)
+    memDb
+      .prepare('INSERT INTO products (code, barcode, name, sale_price, promo_price, crediario_price, promo_vista, cost_price, stock_qty) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run('CRED-02', '7899002', 'OMEGA 3 60CAPS', 24.0, 20.0, 0, 'S', 10.0, 15);
+
+    // 1) Compra paga NO MESMO DIA -> mantém valor à vista (2x R$ 10 = R$ 20,00)
+    const sameDayRes = await fetch(`${baseUrl}/api/erp/pos/caderninho/entries`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${opToken}` },
+      body: JSON.stringify({
+        personName: 'Carlos Mesmo Dia',
+        items: [{ code: 'CRED-01', barcode: '7899001', name: 'LOSARTANA 50MG 30CP', quantity: 2, unit_price: 10.0, unit_cost: 5.0 }]
+      })
+    });
+    assert.strictEqual(sameDayRes.status, 201);
+    const sameDayData = await sameDayRes.json();
+    assert.strictEqual(sameDayData.entry.total_amount, 20);
+    assert.strictEqual(sameDayData.entry.crediario_total_amount, 25);
+    assert.strictEqual(sameDayData.entry.crediario_surcharge, 5);
+    assert.strictEqual(sameDayData.entry.crediario_applied, false);
+
+    const payTodayRes = await fetch(`${baseUrl}/api/erp/pos/caderninho/pay`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${opToken}` },
+      body: JSON.stringify({ personId: sameDayData.person.id, mode: 'total', payment_method: 'DINHEIRO' })
+    });
+    assert.strictEqual(payTodayRes.status, 200);
+    const payToday = await payTodayRes.json();
+    assert.strictEqual(payToday.paidAmount, 20, 'Pagando no mesmo dia deve cobrar o valor à vista sem acréscimo');
+    assert.strictEqual(payToday.crediarioSurchargeApplied, 0);
+
+    // 2) Compra NÃO paga no mesmo dia (simula criada ontem) -> deve cobrar com acréscimo do crediário
+    // 2x CRED-01 (20 -> 25, +5) + 1x CRED-02 (20 -> 24, +4) => à vista R$ 40,00 | crediário R$ 49,00 (+R$ 9,00)
+    const nextDayRes = await fetch(`${baseUrl}/api/erp/pos/caderninho/entries`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${opToken}` },
+      body: JSON.stringify({
+        personName: 'Fernanda Outro Dia',
+        items: [
+          { code: 'CRED-01', barcode: '7899001', name: 'LOSARTANA 50MG 30CP', quantity: 2, unit_price: 10.0, unit_cost: 5.0 },
+          { code: 'CRED-02', barcode: '7899002', name: 'OMEGA 3 60CAPS', quantity: 1, unit_price: 20.0, unit_cost: 10.0 }
+        ]
+      })
+    });
+    assert.strictEqual(nextDayRes.status, 201);
+    const nextDayData = await nextDayRes.json();
+    assert.strictEqual(nextDayData.entry.total_amount, 40);
+    assert.strictEqual(nextDayData.entry.crediario_total_amount, 49);
+    assert.strictEqual(nextDayData.entry.crediario_surcharge, 9);
+
+    // Simula virada de dia (anotada ontem)
+    memDb
+      .prepare("UPDATE caderninho_entries SET created_at = datetime('now', 'localtime', '-1 day') WHERE id = ?")
+      .run(nextDayData.entry.id);
+
+    // Listagem já deve refletir automaticamente o saldo com crediário (R$ 49,00)
+    const listRes = await fetch(`${baseUrl}/api/erp/pos/caderninho/people?q=Fernanda&onlyOpen=1`, {
+      headers: { Authorization: `Bearer ${opToken}` }
+    });
+    const listJson = await listRes.json();
+    assert.strictEqual(listJson.people.length, 1);
+    assert.strictEqual(listJson.people[0].openBalance, 49);
+    assert.strictEqual(listJson.people[0].entries[0].crediario_applied, true);
+    assert.strictEqual(listJson.people[0].entries[0].original_total_amount, 40);
+    assert.strictEqual(listJson.people[0].entries[0].remaining_amount, 49);
+
+    // Pagamento no dia seguinte cobra R$ 49,00 e fecha a venda com itens no preço de crediário
+    const salesBefore = getSalesStats().total;
+    const payNextRes = await fetch(`${baseUrl}/api/erp/pos/caderninho/pay`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${opToken}` },
+      body: JSON.stringify({ personId: nextDayData.person.id, mode: 'total', payment_method: 'PIX' })
+    });
+    assert.strictEqual(payNextRes.status, 200);
+    const payNext = await payNextRes.json();
+    assert.strictEqual(payNext.paidAmount, 49);
+    assert.strictEqual(payNext.crediarioSurchargeApplied, 9);
+    assert.strictEqual(payNext.remainingBalance, 0);
+    assert.strictEqual(getSalesStats().total, salesBefore + 49);
+    assert.strictEqual(getProductStock('CRED-01'), 16); // 20 - 2 (Carlos) - 2 (Fernanda)
+    assert.strictEqual(getProductStock('CRED-02'), 14); // 15 - 1 (Fernanda)
+  });
+
+  it('CAD-08: Regra não retroage para anotações antigas (crediario_rule_enabled=0) e fecha corretamente com pagamento parcial + virada de dia', async () => {
+    // 1) Anotação antiga (anterior à nova regra: crediario_rule_enabled = 0)
+    const oldRes = await fetch(`${baseUrl}/api/erp/pos/caderninho/entries`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${opToken}` },
+      body: JSON.stringify({
+        personName: 'Seu Antonio Antigo',
+        items: [{ code: 'CRED-01', barcode: '7899001', name: 'LOSARTANA 50MG 30CP', quantity: 2, unit_price: 10.0, unit_cost: 5.0 }]
+      })
+    });
+    const oldData = await oldRes.json();
+    memDb
+      .prepare("UPDATE caderninho_entries SET crediario_rule_enabled = 0, created_at = datetime('now', 'localtime', '-2 days') WHERE id = ?")
+      .run(oldData.entry.id);
+
+    const oldListRes = await fetch(`${baseUrl}/api/erp/pos/caderninho/people?q=Antonio&onlyOpen=1`, {
+      headers: { Authorization: `Bearer ${opToken}` }
+    });
+    const oldList = await oldListRes.json();
+    assert.strictEqual(oldList.people[0].openBalance, 20, 'Anotações anteriores à regra não devem sofrer acréscimo retroativo');
+    assert.strictEqual(oldList.people[0].entries[0].crediario_applied, false);
+
+    // 2) Pagamento parcial hoje (R$ 10 de R$ 20, crediário R$ 25) + quitação amanhã (deve cobrar R$ 15 restantes)
+    const partRes = await fetch(`${baseUrl}/api/erp/pos/caderninho/entries`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${opToken}` },
+      body: JSON.stringify({
+        personName: 'Lucia Parcial Virada',
+        items: [{ code: 'CRED-01', barcode: '7899001', name: 'LOSARTANA 50MG 30CP', quantity: 2, unit_price: 10.0, unit_cost: 5.0 }]
+      })
+    });
+    const partData = await partRes.json();
+
+    const p1 = await fetch(`${baseUrl}/api/erp/pos/caderninho/pay`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${opToken}` },
+      body: JSON.stringify({ personId: partData.person.id, mode: 'partial', amount: 10, payment_method: 'DINHEIRO' })
+    });
+    assert.strictEqual(p1.status, 200);
+    assert.strictEqual((await p1.json()).remainingBalance, 10);
+
+    // Vira o dia sem quitar: total sobe para R$ 25,00; como já pagou R$ 10,00, resta R$ 15,00
+    memDb
+      .prepare("UPDATE caderninho_entries SET created_at = datetime('now', 'localtime', '-1 day') WHERE id = ?")
+      .run(partData.entry.id);
+
+    const p2 = await fetch(`${baseUrl}/api/erp/pos/caderninho/pay`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${opToken}` },
+      body: JSON.stringify({ personId: partData.person.id, mode: 'total', payment_method: 'PIX' })
+    });
+    assert.strictEqual(p2.status, 200);
+    const p2Json = await p2.json();
+    assert.strictEqual(p2Json.paidAmount, 15, 'Restante após pagamento parcial de R$ 10 sobre R$ 25 (crediário) deve ser R$ 15');
+    assert.strictEqual(p2Json.remainingBalance, 0);
   });
 });

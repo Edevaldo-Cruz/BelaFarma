@@ -117,6 +117,120 @@ function ensureCaderninhoSchema(database) {
     CREATE INDEX IF NOT EXISTS idx_cad_entries_status ON caderninho_entries (status);
     CREATE INDEX IF NOT EXISTS idx_cad_mov_person ON caderninho_movements (person_id, created_at DESC);
   `);
+
+  // Migração idempotente para regra de acréscimo de crediário após o mesmo dia
+  // Registros anteriores a hoje permanecem com crediario_rule_enabled = 0 (não retroage)
+  try {
+    const cols = db.prepare('PRAGMA table_info(caderninho_entries)').all().map(c => c.name);
+    if (!cols.includes('crediario_rule_enabled')) {
+      db.prepare('ALTER TABLE caderninho_entries ADD COLUMN crediario_rule_enabled INTEGER NOT NULL DEFAULT 0').run();
+    }
+    if (!cols.includes('crediario_total_amount')) {
+      db.prepare('ALTER TABLE caderninho_entries ADD COLUMN crediario_total_amount REAL NOT NULL DEFAULT 0').run();
+    }
+    if (!cols.includes('crediario_surcharge')) {
+      db.prepare('ALTER TABLE caderninho_entries ADD COLUMN crediario_surcharge REAL NOT NULL DEFAULT 0').run();
+    }
+    if (!cols.includes('crediario_applied')) {
+      db.prepare('ALTER TABLE caderninho_entries ADD COLUMN crediario_applied INTEGER NOT NULL DEFAULT 0').run();
+    }
+  } catch (err) {
+    console.warn('[Caderninho] Aviso ao verificar colunas de crediário:', err.message);
+  }
+}
+
+/**
+ * Resolve o preço unitário na tabela de crediário (mesma regra do Digifarma/PDV):
+ * 1) Se crediario_price > 0 -> usa crediario_price
+ * 2) Senão, se promo_price > 0 e promo_vista === 'S' -> volta para sale_price
+ * 3) Senão -> mantém o preço à vista (sem acréscimo)
+ */
+function resolveItemCrediarioUnitPrice(db, item, cashUnitPrice) {
+  let salePrice = Number(item.sale_price || 0);
+  let promoPrice = Number(item.promo_price || 0);
+  let credPrice = Number(item.crediario_price || 0);
+  let promoVista = String(item.promo_vista || '').toUpperCase() === 'S';
+
+  const hasExplicitPricing = credPrice > 0 || (promoPrice > 0 && promoVista && salePrice > 0);
+
+  if (!hasExplicitPricing && db) {
+    try {
+      const code = String(item.code || item.product_code || '').trim().replace(/\.0+$/, '');
+      const barcode = String(item.barcode || '').trim();
+      let prod = null;
+      if (code && !code.startsWith('CAD-') && !code.startsWith('AVULSO')) {
+        prod = db.prepare('SELECT * FROM products WHERE code = ? LIMIT 1').get(code);
+      }
+      if (!prod && barcode && !barcode.startsWith('*')) {
+        prod = db.prepare('SELECT * FROM products WHERE barcode = ? LIMIT 1').get(barcode);
+      }
+      if (prod) {
+        if (salePrice <= 0) salePrice = Number(prod.sale_price || 0);
+        if (promoPrice <= 0) promoPrice = Number(prod.promo_price || 0);
+        if (credPrice <= 0) credPrice = Number(prod.crediario_price || 0);
+        if (!promoVista) promoVista = String(prod.promo_vista || '').toUpperCase() === 'S';
+      }
+    } catch {
+      // Bancos minimalistas ou tabela products sem colunas opcionais: mantém preço à vista
+    }
+  }
+
+  let credUnit = cashUnitPrice;
+  if (credPrice > 0) {
+    credUnit = credPrice;
+  } else if (promoPrice > 0 && promoVista && salePrice > 0) {
+    credUnit = salePrice;
+  }
+
+  // Nunca reduz o valor anotado (apenas aplica acréscimo quando tabela crediário for maior)
+  return round2(Math.max(cashUnitPrice, credUnit));
+}
+
+function computeEffectiveEntryAmounts(entry, todayYMD) {
+  const createdYMD = String(entry.created_at || '').slice(0, 10);
+  const isOpen = entry.status === 'ABERTA' || entry.status === 'PARCIAL';
+  const ruleEnabled = Number(entry.crediario_rule_enabled || 0) === 1;
+  const baseTotal = round2(entry.total_amount);
+  const storedCredTotal = round2(entry.crediario_total_amount || 0);
+  const storedSurcharge = round2(entry.crediario_surcharge || 0);
+  const alreadyApplied = Number(entry.crediario_applied || 0) === 1;
+
+  // Regra: compras anotadas com a regra ativa que NÃO forem pagas no mesmo dia
+  // recebem automaticamente o acréscimo da tabela de crediário.
+  const isAfterSameDay = Boolean(createdYMD && todayYMD && createdYMD < todayYMD);
+  const hasSurcharge = storedSurcharge > 0.004 && storedCredTotal > 0;
+  const shouldApplyCrediario = Boolean(
+    ruleEnabled &&
+    hasSurcharge &&
+    ((isOpen && isAfterSameDay) || alreadyApplied)
+  );
+
+  // Se já foi gravado como applied no pagamento, baseTotal já é o valor atualizado;
+  // caso ainda esteja em aberto e virou o dia, o total efetivo sobe para storedCredTotal.
+  const effectiveTotal = shouldApplyCrediario
+    ? (alreadyApplied ? baseTotal : storedCredTotal)
+    : baseTotal;
+
+  const originalTotal = shouldApplyCrediario && alreadyApplied
+    ? Math.max(0, round2(effectiveTotal - storedSurcharge))
+    : baseTotal;
+
+  const paidAmount = round2(entry.paid_amount);
+  const effectiveRemaining = isOpen
+    ? Math.max(0, round2(effectiveTotal - paidAmount))
+    : 0;
+
+  return {
+    createdYMD,
+    isOpen,
+    ruleEnabled,
+    shouldApplyCrediario,
+    originalTotal,
+    effectiveTotal,
+    effectiveRemaining,
+    crediarioTotal: storedCredTotal > 0 ? storedCredTotal : baseTotal,
+    crediarioSurcharge: storedSurcharge
+  };
 }
 
 function findOrCreatePerson(database, rawName) {
@@ -147,20 +261,41 @@ function findOrCreatePerson(database, rawName) {
 }
 
 function enrichEntryRow(entry, todayYMD) {
-  const createdYMD = String(entry.created_at || '').slice(0, 10);
-  const daysOpen = createdYMD ? diffDaysYMD(todayYMD, createdYMD) : 0;
-  const isOpen = entry.status === 'ABERTA' || entry.status === 'PARCIAL';
+  const eff = computeEffectiveEntryAmounts(entry, todayYMD);
+  const daysOpen = eff.createdYMD ? diffDaysYMD(todayYMD, eff.createdYMD) : 0;
+  const rawItems = safeParseJson(entry.items_json, []);
+  const items = rawItems.map(it => {
+    const qty = Math.max(1, Number(it.quantity || 1));
+    const cashUnit = round2(it.cash_unit_price ?? it.unit_price ?? 0);
+    const credUnit = round2(it.crediario_unit_price ?? cashUnit);
+    const effectiveUnit = eff.shouldApplyCrediario && credUnit > cashUnit ? credUnit : cashUnit;
+    const itemDiscount = round2(it.discount || 0);
+    const effectiveLineTotal = Math.max(0, round2(qty * effectiveUnit - itemDiscount));
+    return {
+      ...it,
+      cash_unit_price: cashUnit,
+      crediario_unit_price: credUnit,
+      unit_price: effectiveUnit,
+      total_price: effectiveLineTotal
+    };
+  });
+
   return {
     ...entry,
-    total_amount: round2(entry.total_amount),
+    original_total_amount: eff.originalTotal,
+    total_amount: eff.effectiveTotal,
     discount_value: round2(entry.discount_value),
     paid_amount: round2(entry.paid_amount),
-    remaining_amount: round2(entry.remaining_amount),
-    items: safeParseJson(entry.items_json, []),
-    created_ymd: createdYMD,
+    remaining_amount: eff.effectiveRemaining,
+    crediario_rule_enabled: eff.ruleEnabled,
+    crediario_total_amount: eff.crediarioTotal,
+    crediario_surcharge: eff.crediarioSurcharge,
+    crediario_applied: eff.shouldApplyCrediario,
+    items,
+    created_ymd: eff.createdYMD,
     days_open: daysOpen,
-    is_today: createdYMD === todayYMD,
-    is_overdue: Boolean(isOpen && daysOpen > CADERNINHO_OVERDUE_DAYS)
+    is_today: eff.createdYMD === todayYMD,
+    is_overdue: Boolean(eff.isOpen && daysOpen > CADERNINHO_OVERDUE_DAYS)
   };
 }
 
@@ -170,7 +305,7 @@ function getCaderninhoSummary(database) {
   const todayYMD = getLocalDateStr();
 
   const openEntries = db
-    .prepare("SELECT id, person_id, remaining_amount, created_at FROM caderninho_entries WHERE status IN ('ABERTA', 'PARCIAL') AND remaining_amount > 0")
+    .prepare("SELECT * FROM caderninho_entries WHERE status IN ('ABERTA', 'PARCIAL') AND remaining_amount > 0")
     .all();
 
   const peopleSet = new Set();
@@ -179,9 +314,11 @@ function getCaderninhoSummary(database) {
   let totalOpenAmount = 0;
 
   for (const e of openEntries) {
+    const eff = computeEffectiveEntryAmounts(e, todayYMD);
+    if (eff.effectiveRemaining <= 0) continue;
     peopleSet.add(e.person_id);
-    totalOpenAmount = round2(totalOpenAmount + Number(e.remaining_amount || 0));
-    const daysOpen = diffDaysYMD(todayYMD, String(e.created_at || '').slice(0, 10));
+    totalOpenAmount = round2(totalOpenAmount + eff.effectiveRemaining);
+    const daysOpen = diffDaysYMD(todayYMD, eff.createdYMD);
     if (daysOpen > CADERNINHO_OVERDUE_DAYS) {
       overdueEntriesCount++;
       overduePeopleSet.add(e.person_id);
@@ -326,6 +463,7 @@ function createCaderninhoEntry(database, {
   const normalizedItems = [];
   let rawLinesTotal = 0;
   let perItemDiscounts = 0;
+  let totalCrediarioSurcharge = 0;
 
   for (const it of items) {
     const qty = Math.max(1, parseFloat(it.quantity) || 1);
@@ -335,8 +473,12 @@ function createCaderninhoEntry(database, {
     const itemDiscount = Math.max(0, round2(lineGross - explicitTotal));
     const unitCost = round2(it.unit_cost ?? 0);
 
+    const credUnitPrice = resolveItemCrediarioUnitPrice(db, it, unitPrice);
+    const lineSurcharge = Math.max(0, round2(qty * (credUnitPrice - unitPrice)));
+
     rawLinesTotal = round2(rawLinesTotal + lineGross);
     perItemDiscounts = round2(perItemDiscounts + itemDiscount);
+    totalCrediarioSurcharge = round2(totalCrediarioSurcharge + lineSurcharge);
 
     normalizedItems.push({
       code: String(it.code || it.product_code || it.barcode || `CAD-${normalizedItems.length + 1}`).trim(),
@@ -344,6 +486,8 @@ function createCaderninhoEntry(database, {
       name: String(it.name || it.product_name || 'PRODUTO').trim(),
       quantity: qty,
       unit_price: unitPrice,
+      cash_unit_price: unitPrice,
+      crediario_unit_price: credUnitPrice,
       unit_cost: unitCost,
       discount: itemDiscount,
       total_price: Math.max(0, round2(lineGross - itemDiscount)),
@@ -356,6 +500,7 @@ function createCaderninhoEntry(database, {
     ? Math.max(rawDiscount, perItemDiscounts)
     : round2(rawDiscount + perItemDiscounts);
   const totalAmount = Math.max(0, round2(rawLinesTotal - totalDiscount));
+  const crediarioTotalAmount = round2(totalAmount + totalCrediarioSurcharge);
 
   if (totalAmount <= 0) {
     throw new Error('O valor total da anotação deve ser maior que zero.');
@@ -366,21 +511,28 @@ function createCaderninhoEntry(database, {
   const movId = `CADM-${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
 
   let result = null;
+  const todayYMD = getLocalDateStr();
   db.transaction(() => {
     const person = findOrCreatePerson(db, personName);
 
-    const prevRow = db
-      .prepare("SELECT COALESCE(SUM(remaining_amount), 0) as total FROM caderninho_entries WHERE person_id = ? AND status IN ('ABERTA', 'PARCIAL')")
-      .get(person.id);
-    const previousBalance = round2(prevRow?.total || 0);
+    const prevOpenRows = db
+      .prepare("SELECT * FROM caderninho_entries WHERE person_id = ? AND status IN ('ABERTA', 'PARCIAL') AND remaining_amount > 0")
+      .all(person.id);
+    const previousBalance = round2(
+      prevOpenRows.reduce((acc, row) => acc + computeEffectiveEntryAmounts(row, todayYMD).effectiveRemaining, 0)
+    );
 
     db.prepare(`
       INSERT INTO caderninho_entries (
         id, person_id, total_amount, discount_value, paid_amount, remaining_amount,
-        status, items_json, operator_name, seller_id, seller_name, notes, created_at
+        status, items_json, operator_name, seller_id, seller_name, notes,
+        crediario_rule_enabled, crediario_total_amount, crediario_surcharge, crediario_applied,
+        created_at
       ) VALUES (
         ?, ?, ?, ?, 0, ?,
-        'ABERTA', ?, ?, ?, ?, ?, datetime('now', 'localtime')
+        'ABERTA', ?, ?, ?, ?, ?,
+        1, ?, ?, 0,
+        datetime('now', 'localtime')
       )
     `).run(
       entryId,
@@ -392,7 +544,9 @@ function createCaderninhoEntry(database, {
       opName,
       seller_id || null,
       seller_name || opName,
-      String(notes || '').trim()
+      String(notes || '').trim(),
+      crediarioTotalAmount,
+      totalCrediarioSurcharge
     );
 
     db.prepare(`
@@ -408,13 +562,18 @@ function createCaderninhoEntry(database, {
       totalAmount,
       opName,
       '',
-      JSON.stringify({ items: normalizedItems, discount_value: totalDiscount })
+      JSON.stringify({
+        items: normalizedItems,
+        discount_value: totalDiscount,
+        crediario_total_amount: crediarioTotalAmount,
+        crediario_surcharge: totalCrediarioSurcharge
+      })
     );
 
     const newOpenBalance = round2(previousBalance + totalAmount);
     const entry = enrichEntryRow(
       db.prepare('SELECT * FROM caderninho_entries WHERE id = ?').get(entryId),
-      getLocalDateStr()
+      todayYMD
     );
 
     result = {
@@ -451,9 +610,17 @@ function payCaderninho(database, {
   const person = db.prepare('SELECT * FROM caderninho_people WHERE id = ?').get(personId);
   if (!person) throw new Error('Pessoa não encontrada no Caderninho.');
 
-  const allOpen = db
+  const todayYMD = getLocalDateStr();
+  const allOpenRaw = db
     .prepare("SELECT * FROM caderninho_entries WHERE person_id = ? AND status IN ('ABERTA', 'PARCIAL') AND remaining_amount > 0 ORDER BY created_at ASC, id ASC")
     .all(person.id);
+
+  const allOpen = allOpenRaw
+    .map(raw => ({
+      ...raw,
+      _eff: computeEffectiveEntryAmounts(raw, todayYMD)
+    }))
+    .filter(e => e._eff.effectiveRemaining > 0);
 
   if (allOpen.length === 0) {
     throw new Error(`${person.name} não possui anotações em aberto no Caderninho.`);
@@ -470,7 +637,7 @@ function payCaderninho(database, {
     }
   }
 
-  const candidateTotal = round2(candidates.reduce((acc, e) => acc + Number(e.remaining_amount || 0), 0));
+  const candidateTotal = round2(candidates.reduce((acc, e) => acc + e._eff.effectiveRemaining, 0));
   let chargeAmount = candidateTotal;
 
   if (targetMode === 'partial') {
@@ -497,7 +664,7 @@ function payCaderninho(database, {
   } else {
     let budget = chargeAmount;
     for (const e of candidates) {
-      const rem = round2(e.remaining_amount);
+      const rem = e._eff.effectiveRemaining;
       if (budget >= rem - 0.009) {
         settledEntries.push(e);
         budget = round2(budget - rem);
@@ -514,17 +681,25 @@ function payCaderninho(database, {
 
   const saleItems = [];
   let totalDiscountForSale = 0;
+  let totalCrediarioSurchargeApplied = 0;
 
   for (const e of settledEntries) {
+    const applyCred = e._eff.shouldApplyCrediario;
+    if (applyCred) {
+      totalCrediarioSurchargeApplied = round2(totalCrediarioSurchargeApplied + e._eff.crediarioSurcharge);
+    }
     const parsedItems = safeParseJson(e.items_json, []);
     for (const it of parsedItems) {
+      const cashUnit = round2(it.cash_unit_price ?? it.unit_price ?? 0);
+      const credUnit = round2(it.crediario_unit_price ?? cashUnit);
+      const billedUnit = applyCred && credUnit > cashUnit ? credUnit : cashUnit;
       saleItems.push({
         code: it.code,
         barcode: it.barcode || '',
         product_name: it.name,
         name: it.name,
         quantity: Number(it.quantity || 1),
-        unit_price: round2(it.unit_price || 0),
+        unit_price: billedUnit,
         unit_cost: round2(it.unit_cost || 0),
         is_unregistered: it.is_unregistered ? 1 : 0
       });
@@ -575,31 +750,41 @@ function payCaderninho(database, {
       user_name: opName,
       seller_id: seller_id || opName,
       seller_name: seller_name || opName,
-      notes: `Recebimento Caderninho - ${person.name}`
+      notes: totalCrediarioSurchargeApplied > 0
+        ? `Recebimento Caderninho (c/ acréscimo crediário R$ ${totalCrediarioSurchargeApplied.toFixed(2)}) - ${person.name}`
+        : `Recebimento Caderninho - ${person.name}`
     });
 
     for (const e of settledEntries) {
+      const effTotal = e._eff.effectiveTotal;
+      const appliedFlag = e._eff.shouldApplyCrediario ? 1 : Number(e.crediario_applied || 0);
       db.prepare(`
         UPDATE caderninho_entries
-        SET paid_amount = total_amount,
+        SET total_amount = ?,
+            paid_amount = ?,
             remaining_amount = 0,
+            crediario_applied = ?,
             status = 'PAGA',
             sale_id = ?,
             paid_at = datetime('now', 'localtime')
         WHERE id = ?
-      `).run(saleResult.sale_id, e.id);
+      `).run(effTotal, effTotal, appliedFlag, saleResult.sale_id, e.id);
     }
 
     if (partialEntry && leftoverAmount > 0.009) {
+      const effTotal = partialEntry._eff.effectiveTotal;
+      const appliedFlag = partialEntry._eff.shouldApplyCrediario ? 1 : Number(partialEntry.crediario_applied || 0);
       const nextPaid = round2(Number(partialEntry.paid_amount || 0) + leftoverAmount);
-      const nextRem = Math.max(0, round2(Number(partialEntry.total_amount || 0) - nextPaid));
+      const nextRem = Math.max(0, round2(effTotal - nextPaid));
       db.prepare(`
         UPDATE caderninho_entries
-        SET paid_amount = ?,
+        SET total_amount = ?,
+            paid_amount = ?,
             remaining_amount = ?,
+            crediario_applied = ?,
             status = ?
         WHERE id = ?
-      `).run(nextPaid, nextRem, nextRem <= 0.009 ? 'PAGA' : 'PARCIAL', partialEntry.id);
+      `).run(effTotal, nextPaid, nextRem, appliedFlag, nextRem <= 0.009 ? 'PAGA' : 'PARCIAL', partialEntry.id);
     }
 
     db.prepare("UPDATE caderninho_people SET updated_at = datetime('now', 'localtime') WHERE id = ?").run(person.id);
@@ -627,13 +812,17 @@ function payCaderninho(database, {
       JSON.stringify({
         settledEntryIds: settledEntries.map(e => e.id),
         partialEntryId: partialEntry?.id || null,
-        partialApplied: leftoverAmount
+        partialApplied: leftoverAmount,
+        crediarioSurchargeApplied: totalCrediarioSurchargeApplied
       })
     );
 
-    const remRow = db
-      .prepare("SELECT COALESCE(SUM(remaining_amount), 0) as total FROM caderninho_entries WHERE person_id = ? AND status IN ('ABERTA', 'PARCIAL')")
-      .get(person.id);
+    const remRows = db
+      .prepare("SELECT * FROM caderninho_entries WHERE person_id = ? AND status IN ('ABERTA', 'PARCIAL') AND remaining_amount > 0")
+      .all(person.id);
+    const remainingBalance = round2(
+      remRows.reduce((acc, row) => acc + computeEffectiveEntryAmounts(row, todayYMD).effectiveRemaining, 0)
+    );
 
     return {
       success: true,
@@ -641,7 +830,8 @@ function payCaderninho(database, {
       person,
       paidAmount: chargeAmount,
       changeAmount,
-      remainingBalance: round2(remRow?.total || 0),
+      remainingBalance,
+      crediarioSurchargeApplied: totalCrediarioSurchargeApplied,
       settledEntryIds: settledEntries.map(e => e.id),
       partialEntryId: partialEntry?.id || null,
       hasRealProducts: settledEntries.length > 0,

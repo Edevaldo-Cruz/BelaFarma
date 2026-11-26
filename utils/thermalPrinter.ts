@@ -994,6 +994,9 @@ export interface ComprovanteCaderninhoData {
     subtotal: number;
   }>;
   valor_anotacao: number;
+  valor_crediario?: number;
+  acrescimo_crediario?: number;
+  crediario_aplicado?: boolean;
   saldo_acumulado: number;
   desconto?: number;
   teto_alerta?: number;
@@ -1097,13 +1100,25 @@ export function imprimirComprovanteCaderninho(data: ComprovanteCaderninhoData) {
       </div>
       ` : ''}
       <div class="row" style="font-weight: 900;">
-        <span>VALOR DESTA ANOTAÇÃO:</span>
+        <span>${data.crediario_aplicado ? 'VALOR ATUAL (CREDIÁRIO):' : 'VALOR PAGANDO HOJE:'}</span>
         <span>R$ ${Number(data.valor_anotacao).toFixed(2)}</span>
       </div>
+      ${!data.crediario_aplicado && Number(data.acrescimo_crediario || 0) > 0 && Number(data.valor_crediario || 0) > Number(data.valor_anotacao || 0) ? `
+      <div class="row" style="font-weight: 900;">
+        <span>APÓS HOJE (CREDIÁRIO):</span>
+        <span>R$ ${Number(data.valor_crediario).toFixed(2)}</span>
+      </div>
+      ` : ''}
       <div class="total-row">
         <span>SALDO NO CADERNINHO:</span>
         <span>R$ ${Number(data.saldo_acumulado).toFixed(2)}</span>
       </div>
+
+      ${!data.crediario_aplicado && Number(data.acrescimo_crediario || 0) > 0 ? `
+      <div class="warn-box">
+        REGRA: COMPRAS NÃO PAGAS NO MESMO DIA PASSAM AUTOMATICAMENTE PARA O VALOR DE CREDIÁRIO (+ R$ ${Number(data.acrescimo_crediario).toFixed(2)}).
+      </div>
+      ` : ''}
 
       ${aboveLimit ? `
       <div class="warn-box">
