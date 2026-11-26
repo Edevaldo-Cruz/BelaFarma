@@ -1,9 +1,14 @@
 {
   "version": "1.2.6",
-  "commitHash": "7b2f41c",
-  "commitMessage": "feat(financeiro): adicionar Mercado Pago (Conta + Cofrinhos CDI) no Caixa Inteligente",
-  "buildTime": "26/11/2026, 09:24:11",
+  "commitHash": "261ad2c",
+  "commitMessage": "fix(ui): registra rota e categoria da tela de conciliacao bancaria no menu",
+  "buildTime": "26/11/2026, 10:23:30",
   "recentCommits": [
+    {
+      "hash": "261ad2c",
+      "date": "26/11/2026",
+      "message": "fix(ui): registra rota e categoria da tela de conciliacao bancaria no menu"
+    },
     {
       "hash": "7b2f41c",
       "date": "26/11/2026",
@@ -58,11 +63,6 @@
       "hash": "371545e",
       "date": "25/11/2026",
       "message": "feat(marketing): plano de crescimento social, aba Isa, pagina /bio e artes com Brasil Card"
-    },
-    {
-      "hash": "6b12220",
-      "date": "25/11/2026",
-      "message": "feat(equipe): adicionar modulo Escala e Equipe com simulador CLT/CRF-MG e impressao"
     }
   ]
 }

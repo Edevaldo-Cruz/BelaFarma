@@ -13,7 +13,11 @@ import {
   Sparkles,
   Search,
   Filter,
-  DollarSign
+  DollarSign,
+  Settings,
+  KeyRound,
+  X,
+  Save
 } from 'lucide-react';
 import { User } from '../types';
 
@@ -59,21 +63,95 @@ export const BankConciliationView: React.FC<BankConciliationViewProps> = ({ user
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'PENDING' | 'CONCILIATED'>('ALL');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [needsConfig, setNeedsConfig] = useState<boolean>(false);
+
+  // Modal de configuração Open Finance (Pluggy)
+  const [isConfigOpen, setIsConfigOpen] = useState<boolean>(false);
+  const [configSaving, setConfigSaving] = useState<boolean>(false);
+  const [configError, setConfigError] = useState<string | null>(null);
+  const [cfgClientId, setCfgClientId] = useState<string>('');
+  const [cfgClientSecret, setCfgClientSecret] = useState<string>('');
+  const [cfgHasSecret, setCfgHasSecret] = useState<boolean>(false);
+  const [cfgItemId, setCfgItemId] = useState<string>('');
+  const [cfgAccountId, setCfgAccountId] = useState<string>('');
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 4000);
   };
 
+  const openConfigModal = async () => {
+    setConfigError(null);
+    setIsConfigOpen(true);
+    try {
+      const res = await fetch('/api/bank-conciliation/config');
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setCfgClientId(data.clientId || '');
+        setCfgHasSecret(Boolean(data.hasSecret));
+        setCfgClientSecret('');
+        setCfgItemId(data.defaultItemId || '');
+        setCfgAccountId(data.defaultAccountId || '');
+      }
+    } catch (e) {
+      // Mantém valores atuais em caso de falha de leitura
+    }
+  };
+
+  const handleSaveConfig = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setConfigError(null);
+    try {
+      setConfigSaving(true);
+      const res = await fetch('/api/bank-conciliation/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clientId: cfgClientId.trim(),
+          clientSecret: cfgClientSecret.trim(),
+          defaultItemId: cfgItemId.trim(),
+          defaultAccountId: cfgAccountId.trim()
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || data.message || 'Não foi possível validar e salvar as credenciais.');
+      }
+      setIsConfigOpen(false);
+      setNeedsConfig(false);
+      setErrorMessage(null);
+      showToast('Credenciais do Open Finance salvas e validadas com sucesso!');
+      await carregarPainel();
+    } catch (err: any) {
+      setConfigError(err.message || 'Erro ao salvar configuração.');
+    } finally {
+      setConfigSaving(false);
+    }
+  };
+
   const carregarPainel = async () => {
     try {
       setLoading(true);
+      setErrorMessage(null);
       const res = await fetch('/api/bank-conciliation/painel');
+      const data = await res.json().catch(() => ({}));
+
       if (!res.ok) {
-        throw new Error('Falha ao carregar dados do extrato bancário');
+        const msg = data.error || data.message || `Falha ao carregar dados do extrato bancário (HTTP ${res.status})`;
+        throw new Error(msg);
       }
-      const data = await res.json();
+
+      if (data.needsConfig) {
+        setNeedsConfig(true);
+        setSaldo(null);
+        setResumo(null);
+        openConfigModal();
+        return;
+      }
+
       if (data.success) {
+        setNeedsConfig(false);
         setSaldo(data.saldo);
         setResumo(data.resumo);
         setMaquininhaItens(data.maquininha || []);
@@ -82,7 +160,9 @@ export const BankConciliationView: React.FC<BankConciliationViewProps> = ({ user
       }
     } catch (err: any) {
       console.error(err);
-      showToast('Erro ao sincronizar com Itaú / Open Finance');
+      const msg = err?.message || 'Erro ao sincronizar com Itaú / Open Finance';
+      setErrorMessage(msg);
+      showToast(msg);
     } finally {
       setLoading(false);
     }
@@ -189,7 +269,7 @@ export const BankConciliationView: React.FC<BankConciliationViewProps> = ({ user
                 Itaú Empresas • Open Finance
               </span>
               <span className="text-xs text-slate-400">
-                Agência / Conta: 00099517-1
+                Conta: {saldo?.contas?.[0]?.numero || (needsConfig ? 'Não configurada' : 'Conectada')}
               </span>
             </div>
             <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight">
@@ -200,7 +280,16 @@ export const BankConciliationView: React.FC<BankConciliationViewProps> = ({ user
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              onClick={openConfigModal}
+              className="p-2.5 bg-slate-800/80 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl transition flex items-center gap-2 text-sm font-medium"
+              title="Configurar Open Finance (Pluggy)"
+            >
+              <Settings className="w-4 h-4" />
+              <span className="hidden sm:inline">Configurar</span>
+            </button>
+
             <button
               onClick={carregarPainel}
               disabled={loading || actionLoading}
@@ -283,6 +372,46 @@ export const BankConciliationView: React.FC<BankConciliationViewProps> = ({ user
           </div>
         </div>
       </div>
+
+      {/* Alerta de Erro ou Configuração Pendente */}
+      {(errorMessage || needsConfig) && (
+        <div className={`rounded-2xl p-4 border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+          needsConfig
+            ? 'bg-amber-500/10 border-amber-500/30 text-amber-800 dark:text-amber-200'
+            : 'bg-rose-500/10 border-rose-500/30 text-rose-800 dark:text-rose-200'
+        }`}>
+          <div className="flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 mt-0.5 shrink-0" />
+            <div className="text-sm">
+              <p className="font-semibold">
+                {needsConfig
+                  ? 'Conexão Open Finance (Pluggy) ainda não configurada neste servidor'
+                  : 'Erro ao sincronizar extrato bancário'}
+              </p>
+              <p className="opacity-90 text-xs mt-0.5">
+                {needsConfig
+                  ? 'Clique em "Configurar Open Finance" para informar o Client ID, Client Secret e Item ID da sua conta Pluggy.'
+                  : errorMessage}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={openConfigModal}
+              className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold transition flex items-center gap-1.5"
+            >
+              <KeyRound className="w-3.5 h-3.5" />
+              <span>Configurar Open Finance</span>
+            </button>
+            <button
+              onClick={carregarPainel}
+              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-semibold transition"
+            >
+              Tentar novamente
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Navegação por Abas */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-3">
@@ -575,6 +704,117 @@ export const BankConciliationView: React.FC<BankConciliationViewProps> = ({ user
                 )}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Configuração Open Finance (Pluggy) */}
+      {isConfigOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-4 mb-4">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 rounded-xl">
+                  <KeyRound className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="font-bold text-slate-900 dark:text-white text-base">
+                    Configurar Open Finance (Pluggy)
+                  </h2>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Credenciais gravadas com segurança no banco de dados do servidor.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsConfigOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {configError && (
+              <div className="mb-4 p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-700 dark:text-rose-300 text-xs flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{configError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleSaveConfig} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Client ID (Pluggy) *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={cfgClientId}
+                  onChange={(e) => setCfgClientId(e.target.value)}
+                  placeholder="ex: 30b8d898-a53f-4b16-ba8a-c93b583b0f0f"
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Client Secret (Pluggy) {cfgHasSecret ? '(opcional para manter a atual)' : '*'}
+                </label>
+                <input
+                  type="password"
+                  required={!cfgHasSecret}
+                  value={cfgClientSecret}
+                  onChange={(e) => setCfgClientSecret(e.target.value)}
+                  placeholder={cfgHasSecret ? '•••••••••••••••• (chave já cadastrada)' : 'ex: pluggy_sk_...'}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Item ID (Conexão Meu Pluggy) *
+                </label>
+                <input
+                  type="text"
+                  required={!cfgAccountId.trim()}
+                  value={cfgItemId}
+                  onChange={(e) => setCfgItemId(e.target.value)}
+                  placeholder="ex: 549a9b11-28fa-43a3-84bc-8b80c210af42"
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Account ID (Opcional — detectado automaticamente pelo Item ID)
+                </label>
+                <input
+                  type="text"
+                  value={cfgAccountId}
+                  onChange={(e) => setCfgAccountId(e.target.value)}
+                  placeholder="Deixe em branco para detectar automaticamente"
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setIsConfigOpen(false)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={configSaving}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition disabled:opacity-50"
+                >
+                  <Save className="w-4 h-4" />
+                  <span>{configSaving ? 'Validando...' : 'Validar e Salvar'}</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
