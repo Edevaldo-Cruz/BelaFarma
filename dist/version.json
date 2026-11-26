@@ -1,9 +1,14 @@
 {
   "version": "1.2.6",
-  "commitHash": "c127e78",
-  "commitMessage": "feat(pdv): adicionar toggle Venda Local / Entrega e Relatorio de Entregas",
-  "buildTime": "26/11/2026, 19:53:58",
+  "commitHash": "c4f6c49",
+  "commitMessage": "fix(bank-conciliation): adiciona sincronizacao real com feedback claro do MeuPluggy e horario do banco",
+  "buildTime": "26/11/2026, 20:02:37",
   "recentCommits": [
+    {
+      "hash": "c4f6c49",
+      "date": "26/11/2026",
+      "message": "fix(bank-conciliation): adiciona sincronizacao real com feedback claro do MeuPluggy e horario do banco"
+    },
     {
       "hash": "c127e78",
       "date": "26/11/2026",
@@ -98,11 +103,6 @@
       "hash": "371545e",
       "date": "25/11/2026",
       "message": "feat(marketing): plano de crescimento social, aba Isa, pagina /bio e artes com Brasil Card"
-    },
-    {
-      "hash": "6b12220",
-      "date": "25/11/2026",
-      "message": "feat(equipe): adicionar modulo Escala e Equipe com simulador CLT/CRF-MG e impressao"
     }
   ]
 }

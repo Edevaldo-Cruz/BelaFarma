@@ -9,7 +9,6 @@ import {
   ArrowUpRight, 
   ArrowDownRight, 
   DollarSign, 
-  RefreshCw, 
   Landmark, 
   Banknote, 
   Calendar, 
@@ -64,7 +63,6 @@ export const CaixaInteligenteView: React.FC<CaixaInteligenteViewProps> = ({
   const [editandoSaldoBanco, setEditandoSaldoBanco] = useState<boolean>(false);
   const [tempSaldoBanco, setTempSaldoBanco] = useState<string>(saldoBanco.toFixed(2));
   const [contaPrincipalInfo, setContaPrincipalInfo] = useState<{ nome: string; customLabel?: string | null; numero?: string; atualizadoEm?: string } | null>(null);
-  const [syncingSaldoBanco, setSyncingSaldoBanco] = useState<boolean>(false);
 
   // Saldo físico (Cofre + Gaveta)
   const [saldoCofre, setSaldoCofre] = useState<number>(() => {
@@ -161,24 +159,13 @@ export const CaixaInteligenteView: React.FC<CaixaInteligenteViewProps> = ({
   }, []);
 
   // Sincroniza automaticamente o Saldo na Conta (Banco) usando APENAS a Conta Principal
-  const syncSaldoContaPrincipal = async (showFeedback = false) => {
+  const syncSaldoContaPrincipal = async () => {
     try {
-      setSyncingSaldoBanco(true);
       const token = localStorage.getItem('belinha_auth_token');
       const headers: HeadersInit = token ? { 'Authorization': `Bearer ${token}` } : {};
-      const url = showFeedback ? '/api/bank-conciliation/saldo?forceSync=true' : '/api/bank-conciliation/saldo';
-      const res = await fetch(url, { headers });
+      const res = await fetch('/api/bank-conciliation/saldo', { headers });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        if (showFeedback) {
-          addToast(data.error || `Erro ao sincronizar saldo do banco (HTTP ${res.status}).`, 'error');
-        }
-        return;
-      }
-      if (!data.configured) {
-        if (showFeedback) {
-          addToast('Open Finance não configurado neste servidor. Configure em Conta Corrente & Conciliação.', 'warning');
-        }
+      if (!res.ok || !data.configured) {
         return;
       }
       if (typeof data.saldoPrincipal === 'number') {
@@ -194,26 +181,14 @@ export const CaixaInteligenteView: React.FC<CaixaInteligenteViewProps> = ({
             atualizadoEm: data.lastBankSyncAt || data.atualizadoEm
           });
         }
-        if (showFeedback) {
-          if (data.syncInfo?.triggered === false && data.syncInfo?.message) {
-            addToast(`Saldo: R$ ${val.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} — ${data.syncInfo.message}`, 'info');
-          } else {
-            addToast(`Saldo atualizado da Conta Principal: R$ ${val.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, 'success');
-          }
-        }
       }
     } catch (err: any) {
       console.error('Erro ao sincronizar saldo da Conta Principal:', err);
-      if (showFeedback) {
-        addToast(err?.message || 'Erro de conexão ao sincronizar saldo bancário.', 'error');
-      }
-    } finally {
-      setSyncingSaldoBanco(false);
     }
   };
 
   useEffect(() => {
-    syncSaldoContaPrincipal(false);
+    syncSaldoContaPrincipal();
   }, []);
 
   const toggleConsiderarProvisoes = () => {
@@ -633,27 +608,16 @@ export const CaixaInteligenteView: React.FC<CaixaInteligenteViewProps> = ({
               <Landmark className="w-4 h-4 text-blue-500" />
               Saldo na Conta (Banco)
             </span>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => syncSaldoContaPrincipal(true)}
-                disabled={syncingSaldoBanco}
-                title="Sincronizar com Conta Principal (Open Finance)"
-                className="text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors cursor-pointer disabled:opacity-50"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${syncingSaldoBanco ? 'animate-spin' : ''}`} />
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setTempSaldoBanco(saldoBanco.toFixed(2));
-                  setEditandoSaldoBanco(!editandoSaldoBanco);
-                }}
-                className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline font-semibold cursor-pointer"
-              >
-                {editandoSaldoBanco ? 'Fechar' : 'Ajustar'}
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setTempSaldoBanco(saldoBanco.toFixed(2));
+                setEditandoSaldoBanco(!editandoSaldoBanco);
+              }}
+              className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline font-semibold cursor-pointer"
+            >
+              {editandoSaldoBanco ? 'Fechar' : 'Ajustar'}
+            </button>
           </div>
 
           {editandoSaldoBanco ? (
@@ -683,6 +647,18 @@ export const CaixaInteligenteView: React.FC<CaixaInteligenteViewProps> = ({
                 {contaPrincipalInfo
                   ? `Sincronizado • ${contaPrincipalInfo.customLabel || contaPrincipalInfo.nome}${contaPrincipalInfo.numero ? ` (${contaPrincipalInfo.numero})` : ''}${contaPrincipalInfo.atualizadoEm ? ` • Banco em ${new Date(contaPrincipalInfo.atualizadoEm).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}` : ''}`
                   : 'Saldo operacional de partida para boletos do dia'}
+              </p>
+              <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5 flex items-center gap-1 flex-wrap">
+                <span>Atualização automática 1x/dia (MeuPluggy).</span>
+                <a
+                  href="https://meu.pluggy.ai/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-0.5 text-blue-600 dark:text-blue-400 hover:underline font-medium"
+                >
+                  <span>Atualizar antes em meu.pluggy.ai</span>
+                  <ExternalLink className="w-2.5 h-2.5" />
+                </a>
               </p>
             </>
           )}
