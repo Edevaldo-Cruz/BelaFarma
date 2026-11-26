@@ -67,11 +67,14 @@ export const ExpensesChart: React.FC<ExpensesChartProps> = ({ orders, boletos, c
 
         // Provisões sobre o fechamento do Belinha à vista (sem crediário):
         // Pró-labore (12%) + Impostos (4%) + Reserva (1%) = 17%
+        // Provisões sobre o fechamento do Belinha à vista (sem crediário):
+        // Calculado para fins informativos nas caixinhas, mas NÃO somado como despesa de boleto
+        // para não duplicar com os impostos já presentes nas Contas Fixas
         const cred = Number(closing.totalCrediario) || 0;
         const netSales = Math.max(0, (Number(closing.totalSales) || 0) - cred);
         const prov = netSales * 0.17;
         dataMap[key].provisions += prov;
-        dataMap[key].expenses += prov;
+        // Não soma no expenses para não gerar duplicidade
 
         // Despesas operacionais lançadas direto no caixa
         const expCaixa = Number(closing.expenses) || 0;
@@ -80,7 +83,9 @@ export const ExpensesChart: React.FC<ExpensesChartProps> = ({ orders, boletos, c
       }
     });
 
-    // Processar Despesas (Boletos)
+    // Processar Despesas Reais de Mercadorias / Boletos evitando duplicidades com Orders
+    const boletosKeysMap = new Set<string>();
+
     boletos.forEach(boleto => {
       const d = new Date(boleto.due_date + 'T00:00:00');
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -88,10 +93,12 @@ export const ExpensesChart: React.FC<ExpensesChartProps> = ({ orders, boletos, c
         const val = Number(boleto.value) || 0;
         dataMap[key].boletosOrders += val;
         dataMap[key].expenses += val;
+        const matchKey = `${key}_${(boleto.supplierName || '').toLowerCase().trim()}_${val.toFixed(2)}`;
+        boletosKeysMap.add(matchKey);
       }
     });
 
-    // Processar Despesas (Parcelas de Pedidos)
+    // Processar apenas parcelas de Pedidos que NÃO constem na tabela de boletos
     orders.forEach(order => {
       if (order.installments && order.installments.length > 0) {
         order.installments.forEach(inst => {
@@ -99,8 +106,11 @@ export const ExpensesChart: React.FC<ExpensesChartProps> = ({ orders, boletos, c
           const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
           if (dataMap.hasOwnProperty(key)) {
             const val = Number(inst.value) || 0;
-            dataMap[key].boletosOrders += val;
-            dataMap[key].expenses += val;
+            const matchKey = `${key}_${(order.distributor || '').toLowerCase().trim()}_${val.toFixed(2)}`;
+            if (!boletosKeysMap.has(matchKey)) {
+              dataMap[key].boletosOrders += val;
+              dataMap[key].expenses += val;
+            }
           }
         });
       }
@@ -119,21 +129,22 @@ export const ExpensesChart: React.FC<ExpensesChartProps> = ({ orders, boletos, c
 
     // Calcular média das receitas dos meses realizados
     const realizedRevenues = Object.values(dataMap)
-      .filter(m => !m.isFuture && m.revenue > 0)
+      .filter(m => !m.isFuture && !m.isCurrent && m.revenue > 0)
       .map(m => m.revenue);
     
+    const fallbackRevenues = Object.values(dataMap)
+      .filter(m => m.revenue > 0)
+      .map(m => m.revenue);
+
     const avgRevenue = realizedRevenues.length > 0
       ? realizedRevenues.reduce((a, b) => a + b, 0) / realizedRevenues.length
-      : 0;
+      : fallbackRevenues.length > 0
+        ? fallbackRevenues.reduce((a, b) => a + b, 0) / fallbackRevenues.length
+        : 35000;
 
-    // Para meses futuros, projetar também a estimativa de provisões (17% da receita média esperada)
-    Object.keys(dataMap).forEach(key => {
-      if (dataMap[key].isFuture) {
-        const projProv = avgRevenue * 0.17;
-        dataMap[key].provisions = projProv;
-        dataMap[key].expenses += projProv;
-      }
-    });
+    const today = now.getDate();
+    const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+    const remainingDays = Math.max(0, daysInMonth - today);
 
     return Object.entries(dataMap).map(([key, data]) => {
       const [year, month] = key.split('-');
@@ -145,20 +156,28 @@ export const ExpensesChart: React.FC<ExpensesChartProps> = ({ orders, boletos, c
           ? `${monthName} (Prev)` 
           : monthName;
 
+      // No mês atual, estimativa de receita projetada para fechar o mês
+      let projectedCurrentMonth = 0;
+      if (data.isCurrent) {
+        const dailyAvg = today > 0 ? (data.revenue / today) : (avgRevenue / 30);
+        projectedCurrentMonth = data.revenue + (dailyAvg * remainingDays);
+      }
+
       return {
         key,
         name: displayName,
         shortName: monthName,
         fullName: `${monthsOrder[monthIdx]}/${year}${data.isCurrent ? ' • Mês Atual' : data.isFuture ? ' • Previsão Futura' : ''}`,
         Receita: !data.isFuture ? data.revenue : 0,
-        ReceitaProjetada: data.isFuture ? avgRevenue : 0,
+        ReceitaProjetada: data.isFuture ? avgRevenue : (data.isCurrent ? projectedCurrentMonth : 0),
         Despesa: data.expenses,
         provisions: data.provisions,
         boletosOrders: data.boletosOrders,
         fixedAccountsVal: data.fixedAccountsVal,
         cashExpenses: data.cashExpenses,
         isFuture: data.isFuture,
-        isCurrent: data.isCurrent
+        isCurrent: data.isCurrent,
+        projectedCurrentMonth
       };
     });
   }, [orders, boletos, cashClosings, fixedAccounts]);
@@ -224,13 +243,19 @@ export const ExpensesChart: React.FC<ExpensesChartProps> = ({ orders, boletos, c
 
                     {d.Receita > 0 && (
                       <div className="flex justify-between items-center text-emerald-600 dark:text-emerald-400 font-bold">
-                        <span>Receita Realizada:</span>
+                        <span>Receita Realizada (até hoje):</span>
                         <span className="font-black">{fmt(d.Receita)}</span>
                       </div>
                     )}
-                    {d.ReceitaProjetada > 0 && (
-                      <div className="flex justify-between items-center text-amber-600 dark:text-amber-400 font-bold">
-                        <span>Receita Projetada (Média):</span>
+                    {d.isCurrent && d.projectedCurrentMonth > 0 && (
+                      <div className="flex justify-between items-center text-amber-500 dark:text-amber-400 font-bold bg-amber-500/10 p-1.5 rounded-lg border border-amber-500/20">
+                        <span>📈 Projeção Fechamento Mês:</span>
+                        <span className="font-black">{fmt(d.projectedCurrentMonth)}</span>
+                      </div>
+                    )}
+                    {d.isFuture && d.ReceitaProjetada > 0 && (
+                      <div className="flex justify-between items-center text-amber-500 dark:text-amber-400 font-bold">
+                        <span>Receita Projetada (Média Histórica):</span>
                         <span className="font-black">{fmt(d.ReceitaProjetada)}</span>
                       </div>
                     )}

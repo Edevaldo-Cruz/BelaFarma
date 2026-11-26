@@ -1,9 +1,14 @@
 {
   "version": "1.2.6",
-  "commitHash": "cfbb844",
-  "commitMessage": "feat(pdv): adicionar Guia Farmaceutico e posologia com IA gradual e equivalentes em estoque",
-  "buildTime": "26/11/2026, 07:49:20",
+  "commitHash": "9dcc1dc",
+  "commitMessage": "feat(caderninho): aplicar acrescimo de crediario automaticamente quando compra nao for paga no mesmo dia",
+  "buildTime": "26/11/2026, 07:55:00",
   "recentCommits": [
+    {
+      "hash": "9dcc1dc",
+      "date": "26/11/2026",
+      "message": "feat(caderninho): aplicar acrescimo de crediario automaticamente quando compra nao for paga no mesmo dia"
+    },
     {
       "hash": "cfbb844",
       "date": "25/11/2026",
@@ -58,11 +63,6 @@
       "hash": "e5b3c2c",
       "date": "24/11/2026",
       "message": "feat(pdv): aplicar regra de preco diferenciado para crediario conforme Digifarma"
-    },
-    {
-      "hash": "850df24",
-      "date": "23/11/2026",
-      "message": "fix(caderninho): estabilizar callbacks para evitar reset durante digitacao; feat(pdv): botao de produto recusado na linha e analise de preco de mercado"
     }
   ]
 }
