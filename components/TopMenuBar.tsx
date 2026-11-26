@@ -385,7 +385,7 @@ export const TopMenuBar: React.FC<TopMenuBarProps> = ({
         { id: 'financial', label: 'Gestão Financeira', icon: Landmark, adminOnly: true },
         { id: 'financial-health', label: 'Saúde Financeira', icon: HeartPulse, adminOnly: true },
         { id: 'card-machines', label: 'Maquininhas & Cartões', icon: CreditCard, adminOnly: true },
-  { id: 'bank-conciliation', label: 'Conciliação Itaú', icon: Building2, adminOnly: true },
+        { id: 'bank-conciliation', label: 'Conciliação Itaú', icon: Building2, adminOnly: true },
         { id: 'liquidacao-caixa', label: 'Liquidação & Caixa', icon: Flame, adminOnly: true },
         { id: 'fiscal-contabil', label: 'Fiscal & Simples', icon: Receipt, adminOnly: true },
         { id: 'invoices', label: 'Notas Fiscais', icon: FileText, adminOnly: true },

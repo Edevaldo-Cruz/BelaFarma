@@ -1,9 +1,14 @@
 {
   "version": "1.2.6",
-  "commitHash": "1a09b2d",
-  "commitMessage": "feat(finance): adiciona tela e motor de conciliacao bancaria automatica com Itau (Rede e iFood)",
-  "buildTime": "26/11/2026, 09:04:25",
+  "commitHash": "7b2f41c",
+  "commitMessage": "feat(financeiro): adicionar Mercado Pago (Conta + Cofrinhos CDI) no Caixa Inteligente",
+  "buildTime": "26/11/2026, 09:24:11",
   "recentCommits": [
+    {
+      "hash": "7b2f41c",
+      "date": "26/11/2026",
+      "message": "feat(financeiro): adicionar Mercado Pago (Conta + Cofrinhos CDI) no Caixa Inteligente"
+    },
     {
       "hash": "1a09b2d",
       "date": "26/11/2026",
@@ -58,11 +63,6 @@
       "hash": "6b12220",
       "date": "25/11/2026",
       "message": "feat(equipe): adicionar modulo Escala e Equipe com simulador CLT/CRF-MG e impressao"
-    },
-    {
-      "hash": "cc933fd",
-      "date": "25/11/2026",
-      "message": "fix(crediario): gravar lancamentos do pdv e central no belinha e no fichario do digifarma"
     }
   ]
 }

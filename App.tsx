@@ -1848,6 +1848,9 @@ const App: React.FC = () => {
               {currentView === 'card-machines' && user.role === UserRole.ADM && (
                 <CardMachinesManager user={user} />
               )}
+              {currentView === 'bank-conciliation' && user.role === UserRole.ADM && (
+                <BankConciliationView user={user} />
+              )}
               {currentView === 'price-manager' && user.role === UserRole.ADM && (
                 <PriceManager user={user} />
               )}
