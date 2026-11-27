@@ -291,6 +291,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'anvisa-alerts', label: 'Alertas ANVISA', icon: ShieldAlert },
     { id: 'logs', label: 'Auditoria', icon: History },
     { id: 'belaped', label: 'BelaPed Compras', icon: ShoppingBag },
+    { id: 'triagem-faltas', label: 'Triagem de Faltas & Cotação', icon: ClipboardCheck },
     { id: 'promocoes-whatsapp', label: 'Promoção WhatsApp', icon: MessageSquare },
     { id: 'central-compras', label: 'Central de Compras', icon: ShoppingBag },
     { id: 'reposicao-tabela', label: 'Análise Reposição', icon: TableProperties },
@@ -495,6 +496,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       itemIds: [
         'central-compras',
         'belaped',
+        'triagem-faltas',
         'compras-live',
         'reposicao-tabela',
         'purchase-calendar',

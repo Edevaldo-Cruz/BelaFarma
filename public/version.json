@@ -1,9 +1,14 @@
 {
   "version": "1.2.6",
-  "commitHash": "625fa6f",
-  "commitMessage": "feat(navigation): adicionar item direto Giro & Caixa Inteligente no menu lateral e superior",
-  "buildTime": "27/11/2026, 10:51:46",
+  "commitHash": "1ece136",
+  "commitMessage": "feat(pdv): adicionar seletor rapido de bairro/canal em Entregas e Painel Gerencial de Entregas",
+  "buildTime": "27/11/2026, 12:14:01",
   "recentCommits": [
+    {
+      "hash": "1ece136",
+      "date": "27/11/2026",
+      "message": "feat(pdv): adicionar seletor rapido de bairro/canal em Entregas e Painel Gerencial de Entregas"
+    },
     {
       "hash": "625fa6f",
       "date": "27/11/2026",
@@ -98,11 +103,6 @@
       "hash": "5b849b2",
       "date": "25/11/2026",
       "message": "fix(crediario): eliminar race condition no FICHARIO (#8376), ampliar motor de unificacao e criar modal visual Belinha+Digifarma"
-    },
-    {
-      "hash": "97d26c4",
-      "date": "25/11/2026",
-      "message": "feat(equivalentes): refinar motor farmaceutico, trava OUTROS (6) e edicao de categoria no Digifarma"
     }
   ]
 }

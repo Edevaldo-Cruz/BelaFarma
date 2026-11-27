@@ -1,0 +1,1991 @@
+{
+  "sessaoId": "2026-11-27-inicial",
+  "criadoEm": "2026-11-27T10:38:00-03:00",
+  "portaisResumo": {
+    "Distrimed": 47,
+    "Oriente": 26,
+    "MG Med": 12,
+    "Divimed": 12
+  },
+  "itens": [
+    {
+      "ean": "7896714226705",
+      "produto": "SILDENAFILA CITRATO 50 MG C/ 4 CPR",
+      "apresentacao": "50 MG C/ 4 CPR",
+      "tipo": "MEDICAMENTO",
+      "subtipo": "Genérico",
+      "c1": false,
+      "est": 0,
+      "v30": 46,
+      "v90": 85,
+      "giroMensal": 46,
+      "sug": 46,
+      "cmv": 1.67,
+      "ult": 1.67,
+      "refCost": 1.67,
+      "prVenda": 35.92,
+      "pedidoRecente": false,
+      "ofertas": [
+        {
+          "portal": "MG Med",
+          "precoSemSt": 1.39,
+          "preco": 1.39,
+          "lab": "NEOQUIMICA GEN",
+          "val": "30/06/2028"
+        },
+        {
+          "portal": "Oriente",
+          "precoSemSt": 1.75,
+          "preco": 1.82,
+          "lab": "NEO QUIMICA GENERICOS",
+          "val": "2028-06-01",
+          "linha": "MEDICAMENTOS",
+          "estPortal": 69853
+        },
+        {
+          "portal": "Divimed",
+          "precoSemSt": 1.89,
+          "preco": 1.89,
+          "lab": "GENÉRICO"
+        },
+        {
+          "portal": "Distrimed",
+          "precoSemSt": 1.98,
+          "preco": 1.98,
+          "lab": "NEO QUIMICA"
+        }
+      ]
+    },
+    {
+      "ean": "7891721027468",
+      "produto": "GLIFAGE XR 500 MG C/ 30 CPR",
+      "apresentacao": "500 MG C/ 30 CPR ACAO PROL",
+      "tipo": "MEDICAMENTO",
+      "subtipo": "Referência",
+      "c1": false,
+      "est": 0,
+      "v30": 20,
+      "v90": 58,
+      "giroMensal": 20,
+      "sug": 20,
+      "cmv": 8.68,
+      "ult": 8.68,
+      "refCost": 8.68,
+      "prVenda": 12.2,
+      "pedidoRecente": true,
+      "ofertas": [
+        {
+          "portal": "Distrimed",
+          "precoSemSt": 8.71,
+          "preco": 8.71,
+          "lab": "MERCK RX"
+        }
+      ]
+    },
+    {
+      "ean": "7898700413007",
+      "produto": "DIPIRONA MONOIDARATADA 1G 10CP",
+      "apresentacao": "",
+      "tipo": "MEDICAMENTO",
+      "subtipo": "Medicamento",
+      "c1": false,
+      "est": -16,
+      "v30": 17,
+      "v90": 17,
+      "giroMensal": 17,
+      "sug": 17,
+      "cmv": 0,
+      "ult": 13.63,
+      "refCost": 13.63,
+      "prVenda": 9.99,
+      "pedidoRecente": false,
+      "ofertas": [
+        {
+          "portal": "MG Med",
+          "precoSemSt": 3.39,
+          "preco": 3.39,
+          "lab": "VITAMEDIC",
+          "val": "15/10/2028"
+        },
+        {
+          "portal": "Oriente",
+          "precoSemSt": 3.99,
+          "preco": 4.15,
+          "lab": "VITAMEDIC",
+          "val": "2028-09-01",
+          "linha": "MEDICAMENTOS",
+          "estPortal": 53881
+        },
+        {
+          "portal": "Distrimed",
+          "precoSemSt": 4.15,
+          "preco": 4.15,
+          "lab": "VITAMEDIC"
+        },
+        {
+          "portal": "Divimed",
+          "precoSemSt": 4.79,
+          "preco": 4.79,
+          "lab": "VITAMEDIC"
+        }
+      ]
+    },
+    {
+      "ean": "7899095243866",
+      "produto": "QUETIAPINA FUMARATO 25 MG C/ 30 CPR (C1) GEOLAB",
+      "apresentacao": "25 MG C/ 30 CPR (C1)",
+      "tipo": "MEDICAMENTO",
+      "subtipo": "Genérico",
+      "c1": true,
+      "est": 0,
+      "v30": 12,
+      "v90": 24,
+      "giroMensal": 12,
+      "sug": 12,
+      "cmv": 4.15,
+      "ult": 4.15,
+      "refCost": 4.15,
+      "prVenda": 69.19,
+      "pedidoRecente": false,
+      "ofertas": [
+        {
+          "portal": "Divimed",
+          "precoSemSt": 5.71,
+          "preco": 5.71,
+          "lab": "GEOLAB"
+        },
+        {
+          "portal": "Oriente",
+          "precoSemSt": 6.97,
+          "preco": 7.25,
+          "lab": "GEOLAB",
+          "val": "2028-06-01",
+          "linha": "MEDICAMENTOS",
+          "estPortal": 38441
+        },
+        {
+          "portal": "Distrimed",
+          "precoSemSt": 7.25,
+          "preco": 7.25,
+          "lab": "GEOLAB"
+        }
+      ]
+    },
+    {
+      "ean": "7896112105619",
+      "produto": "NISTATINA SUSP ORAL 50 ML (TEUTO)",
+      "apresentacao": "SUSP ORAL 50 ML",
+      "tipo": "MEDICAMENTO",
+      "subtipo": "Genérico",
+      "c1": false,
+      "est": -9,
+      "v30": 12,
+      "v90": 12,
+      "giroMensal": 12,
+      "sug": 12,
+      "cmv": 5.82,
+      "ult": 5.82,
+      "refCost": 5.82,
+      "prVenda": 28.12,
+      "pedidoRecente": true,
+      "ofertas": [
+        {
+          "portal": "Oriente",
+          "precoSemSt": 6.13,
+          "preco": 6.41,
+          "lab": "TEUTO",
+          "val": "2027-10-01",
+          "linha": "MEDICAMENTOS",
+          "estPortal": 1381
+        },
+        {
+          "portal": "Distrimed",
+          "precoSemSt": 10.63,
+          "preco": 10.63,
+          "lab": "MULTILAB MARCAS"
+        }
+      ]
+    },
+    {
+      "ean": "7896714212104",
+      "produto": "PREDNISONA 20 MG C/ 10 CPR NEO QUIMIC",
+      "apresentacao": "20 MG C/ 10 CPR",
+      "tipo": "MEDICAMENTO",
+      "subtipo": "Genérico",
+      "c1": false,
+      "est": -5,
+      "v30": 11,
+      "v90": 31,
+      "giroMensal": 11,
+      "sug": 11,
+      "cmv": 3.16,
+      "ult": 3.16,
+      "refCost": 3.16,
+      "prVenda": 27.07,
+      "pedidoRecente": false,
+      "ofertas": [
+        {
+          "portal": "Oriente",
+          "precoSemSt": 3.99,
+          "preco": 4.17,
+          "lab": "NEO QUIMICA GENERICOS",
+          "val": "2029-06-01",
+          "linha": "MEDICAMENTOS",
+          "estPortal": 8369
+        },
+        {
+          "portal": "Divimed",
+          "precoSemSt": 4.19,
+          "preco": 4.19,
+          "lab": "GENÉRICO"
+        },
+        {
+          "portal": "Distrimed",
+          "precoSemSt": 4.58,
+          "preco": 4.58,
+          "lab": "NEO QUIMICA"
+        }
+      ]
+    },
+    {
+      "ean": "7897848500860",
+      "produto": "PROFIG DE 10ML CDA BOLDO",
+      "apresentacao": "",
+      "tipo": "MEDICAMENTO",
+      "subtipo": "Similar",
+      "c1": false,
+      "est": -11,
+      "v30": 10,
+      "v90": 48,
+      "giroMensal": 16,
+      "sug": 16,
+      "cmv": 0.45,
+      "ult": 0.45,
+      "refCost": 0.45,
+      "prVenda": 2.5,
+      "pedidoRecente": false,
+      "ofertas": [
+        {
+          "portal": "Divimed",
+          "precoSemSt": 26.85,
+          "preco": 26.85,
+          "lab": "GENÉRICO"
+        },
+        {
+          "portal": "Distrimed",
+          "precoSemSt": 38.99,
+          "preco": 38.99,
+          "lab": "NATIVITA"
+        }
+      ]
+    },
+    {
+      "ean": "7896094912991",
+      "produto": "ESTOMAZIL DESC 10 %",
+      "apresentacao": "",
+      "tipo": "MEDICAMENTO",
+      "subtipo": "Referência",
+      "c1": false,
+      "est": -16,
+      "v30": 10,
+      "v90": 15,
+      "giroMensal": 10,
+      "sug": 10,
+      "cmv": 0,
+      "ult": 0.05,
+      "refCost": 0.05,
+      "prVenda": 4,
+      "pedidoRecente": false,
+      "ofertas": []
+    },
+    {
+      "ean": "7894164000050",
+      "produto": "ABERALGINA 10ML SOL GTS",
+      "apresentacao": "DIPIRONA",
+      "tipo": "MEDICAMENTO",
+      "subtipo": "Similar",
+      "c1": false,
+      "est": 0,
+      "v30": 8,
+      "v90": 10,
+      "giroMensal": 8,
+      "sug": 8,
+      "cmv": 1.77,
+      "ult": 1.38,
+      "refCost": 1.38,
+      "prVenda": 9.21,
+      "pedidoRecente": false,
+      "ofertas": [
+        {
+          "portal": "Oriente",
+          "precoSemSt": 1.75,
+          "preco": 1.85,
+          "lab": "AIRELA",
+          "val": "2028-09-01",
+          "linha": "MEDICAMENTOS",
+          "estPortal": 11405
+        }
+      ]
+    },
+    {
+      "ean": "7896523206288",
+      "produto": "CIFLOGEX SPRAY MENTA 30ML",
+      "apresentacao": "MENTA",
+      "tipo": "MEDICAMENTO",
+      "subtipo": "Similar",
+      "c1": false,
+      "est": 0,
+      "v30": 6,
+      "v90": 6,
+      "giroMensal": 6,
+      "sug": 6,
+      "cmv": 9.6,
+      "ult": 9.11,
+      "refCost": 9.11,
+      "prVenda": 33.4,
+      "pedidoRecente": false,
+      "ofertas": []
+    },
+    {
+      "ean": "7898569760496",
+      "produto": "ROSUVASTATINA CALCICA 20 MG C/ 30 CPR",
+      "apresentacao": "20 MG C/ 30 CPR",
+      "tipo": "MEDICAMENTO",
+      "subtipo": "Genérico",
+      "c1": false,
+      "est": 0,
+      "v30": 6,
+      "v90": 6,
+      "giroMensal": 6,
+      "sug": 6,
+      "cmv": 6.53,
+      "ult": 6.53,
+      "refCost": 6.53,
+      "prVenda": 87.06,
+      "pedidoRecente": false,
+      "ofertas": [
+        {
+          "portal": "Distrimed",
+          "precoSemSt": 7.3,
+          "preco": 7.3,
+          "lab": "ALTHAIA"
+        }
+      ]
+    },
+    {
+      "ean": "7896094903289",
+      "produto": "EPOCLER ABACAXI 1X1 FLACONETE 10ML",
+      "apresentacao": "FLACONETE 10 ML ABACAXI",
+      "tipo": "MEDICAMENTO",
+      "subtipo": "Referência",
+      "c1": false,
+      "est": -2,
+      "v30": 5,
+      "v90": 41,
+      "giroMensal": 14,
+      "sug": 14,
+      "cmv": 85.16,
+      "ult": 232.74,
+      "refCost": 85.16,
+      "prVenda": 284.48,
+      "pedidoRecente": false,
+      "ofertas": [
+        {
+          "portal": "Distrimed",
+          "precoSemSt": 229.67,
+          "preco": 229.67,
+          "lab": "HYPERA CH"
+        }
+      ]
+    },
+    {
+      "ean": "7897917006170",
+      "produto": "PARACETAMOL 500MG C/20CPR (PARAMOL)",
+      "apresentacao": "",
+      "tipo": "MEDICAMENTO",
+      "subtipo": "Medicamento",
+      "c1": false,
+      "est": 0,
+      "v30": 5,
+      "v90": 12,
+      "giroMensal": 5,
+      "sug": 5,
+      "cmv": 3.12,
+      "ult": 3.18,
+      "refCost": 3.12,
+      "prVenda": 7.99,
+      "pedidoRecente": false,
+      "ofertas": [
+        {
+          "portal": "Divimed",
+          "precoSemSt": 2.8,
+          "preco": 2.8,
+          "lab": "GENÉRICO"
+        },
+        {
+          "portal": "MG Med",
+          "precoSemSt": 2.99,
+          "preco": 2.99,
+          "lab": "BELFAR",
+          "val": ""
+        },
+        {
+          "portal": "Distrimed",
+          "precoSemSt": 3.71,
+          "preco": 3.71,
+          "lab": "BELFAR"
+        }
+      ]
+    },
+    {
+      "ean": "7896472521807",
+      "produto": "ONDANSETRONA 8MG 10PR NVQ",
+      "apresentacao": "",
+      "tipo": "MEDICAMENTO",
+      "subtipo": "Medicamento",
+      "c1": false,
+      "est": 0,
+      "v30": 5,
+      "v90": 9,
+      "giroMensal": 5,
+      "sug": 5,
+      "cmv": 5.14,
+      "ult": 5.14,
+      "refCost": 5.14,
+      "prVenda": 22.89,
+      "pedidoRecente": false,
+      "ofertas": [
+        {
+          "portal": "MG Med",
+          "precoSemSt": 5.99,
+          "preco": 5.99,
+          "lab": "NOVA QUIMICA",
+          "val": "30/04/2028"
+        },
+        {
+          "portal": "Distrimed",
+          "precoSemSt": 6.36,
+          "preco": 6.36,
+          "lab": "NOVA QUIMICA"
+        }
+      ]
+    },
+    {
+      "ean": "7896112127437",
+      "produto": "DEXCLORF. +BETAMETA 120 ML TEU",
+      "apresentacao": "0,4+0,05MG/ML XPE C/ 120 ML+CM",
+      "tipo": "MEDICAMENTO",
+      "subtipo": "Genérico",
+      "c1": false,
+      "est": 0,
+      "v30": 4,
+      "v90": 10,
+      "giroMensal": 4,
+      "sug": 4,
+      "cmv": 5.05,
+      "ult": 5.05,
+      "refCost": 5.05,
+      "prVenda": 19.81,
+      "pedidoRecente": false,
+      "ofertas": [
+        {
+          "portal": "Oriente",
+          "precoSemSt": 4.13,
+          "preco": 4.29,
+          "lab": "TEUTO",
+          "val": "2028-03-01",
+          "linha": "MEDICAMENTOS",
+          "estPortal": 17340
+        },
+        {
+          "portal": "Divimed",
+          "precoSemSt": 4.8,
+          "preco": 4.8,
+          "lab": "TEUTO"
+        },
+        {
+          "portal": "MG Med",
+          "precoSemSt": 5.99,
+          "preco": 5.99,
+          "lab": "TEUTO GEN",
+          "val": "30/03/2028"
+        }
+      ]
+    },
+    {
+      "ean": "7896006299820",
+      "produto": "TROMETAMOL CETOROLACO 10 MG X10 COM SUBl",
+      "apresentacao": "",
+      "tipo": "MEDICAMENTO",
+      "subtipo": "Genérico",
+      "c1": false,
+      "est": 0,
+      "v30": 4,
+      "v90": 10,
+      "giroMensal": 4,
+      "sug": 4,
+      "cmv": 6.93,
+      "ult": 6.93,
+      "refCost": 6.93,
+      "prVenda": 34.42,
+      "pedidoRecente": false,
+      "ofertas": [
+        {
+          "portal": "Distrimed",
+          "precoSemSt": 14.51,
+          "preco": 14.51,
+          "lab": "GERMED"
+        }
+      ]
+    },
+    {
+      "ean": "7891317039189",
+      "produto": "NAPROXENO 550MG 10CPR REV",
+      "apresentacao": "550mg com rev ct bl al plas pvdc/pvc trans x 10",
+      "tipo": "MEDICAMENTO",
+      "subtipo": "Genérico",
+      "c1": false,
+      "est": 0,
+      "v30": 4,
+      "v90": 9,
+      "giroMensal": 4,
+      "sug": 4,
+      "cmv": 9.22,
+      "ult": 9.22,
+      "refCost": 9.22,
+      "prVenda": 18.03,
+      "pedidoRecente": false,
+      "ofertas": [
+        {
+          "portal": "Oriente",
+          "precoSemSt": 8.79,
+          "preco": 9.14,
+          "lab": "EUROFARMA",
+          "val": "2028-04-01",
+          "linha": "MEDICAMENTOS",
+          "estPortal": 8594
+        },
+        {
+          "portal": "Distrimed",
+          "precoSemSt": 9.53,
+          "preco": 9.53,
+          "lab": "EUROFARMA"
+        }
+      ]
+    },
+    {
+      "ean": "7896714290836",
+      "produto": "RIVAROXABANA 20MG 15 CPR REV (NEO QUIMICA)",
+      "apresentacao": "20mg cp rev bl x 15",
+      "tipo": "MEDICAMENTO",
+      "subtipo": "Medicamento",
+      "c1": false,
+      "est": 0,
+      "v30": 4,
+      "v90": 6,
+      "giroMensal": 4,
+      "sug": 4,
+      "cmv": 4.3,
+      "ult": 4.3,
+      "refCost": 4.3,
+      "prVenda": 105.98,
+      "pedidoRecente": false,
+      "ofertas": [
+        {
+          "portal": "Oriente",
+          "precoSemSt": 4.19,
+          "preco": 4.38,
+          "lab": "NEO QUIMICA GENERICOS",
+          "val": "2028-07-01",
+          "linha": "MEDICAMENTOS",
+          "estPortal": 323
+        },
+        {
+          "portal": "Divimed",
+          "precoSemSt": 4.59,
+          "preco": 4.59,
+          "lab": "GENÉRICO"
+        },
+        {
+          "portal": "Distrimed",
+          "precoSemSt": 4.89,
+          "preco": 4.89,
+          "lab": "NEO QUIMICA"
+        }
+      ]
+    },
+    {
+      "ean": "7898049796151",
+      "produto": "FLUCONAZOL 150 MG C/ 1 CPR VITAMEDIC",
+      "apresentacao": "",
+      "tipo": "MEDICAMENTO",
+      "subtipo": "Genérico",
+      "c1": false,
+      "est": 0,
+      "v30": 4,
+      "v90": 5,
+      "giroMensal": 4,
+      "sug": 4,
+      "cmv": 0.11,
+      "ult": 0.11,
+      "refCost": 0.11,
+      "prVenda": 10.89,
+      "pedidoRecente": false,
+      "ofertas": [
+        {
+          "portal": "Distrimed",
+          "precoSemSt": 0.92,
+          "preco": 0.92,
+          "lab": "MEDQUIMICA"
+        },
+        {
+          "portal": "Divimed",
+          "precoSemSt": 0.96,
+          "preco": 0.96,
+          "lab": "VITAMEDIC"
+        },
+        {
+          "portal": "MG Med",
+          "precoSemSt": 0.99,
+          "preco": 0.99,
+          "lab": "VITAMEDIC",
+          "val": "30/07/2027"
+        }
+      ]
+    },
+    {
+      "ean": "7898100242757",
+      "produto": "SALICETIL 100 MG INFANTIL C/ 10 CPR",
+      "apresentacao": "100 MG INFANTIL C/ 10 CPR. C/ 200 BRAST.",
+      "tipo": "MEDICAMENTO",
+      "subtipo": "Similar",
+      "c1": false,
+      "est": -2,
+      "v30": 3,
+      "v90": 7,
+      "giroMensal": 3,
+      "sug": 3,
+      "cmv": 0.8,
+      "ult": 0.81,
+      "refCost": 0.8,
+      "prVenda": 2.45,
+      "pedidoRecente": false,
+      "ofertas": []
+    },
+    {
+      "ean": "7897595609892",
+      "produto": "SINVASTATINA 40 MG C/ 30 CPR  SANDOZ",
+      "apresentacao": "40 MG C/ 30 CPR REV",
+      "tipo": "MEDICAMENTO",
+      "subtipo": "Genérico",
+      "c1": false,
+      "est": 0,
+      "v30": 3,
+      "v90": 6,
+      "giroMensal": 3,
+      "sug": 3,
+      "cmv": 4.57,
+      "ult": 4.57,
+      "refCost": 4.57,
+      "prVenda": 35.41,
+      "pedidoRecente": false,
+      "ofertas": [
+        {
+          "portal": "Oriente",
+          "precoSemSt": 4.29,
+          "preco": 4.49,
+          "lab": "SANDOZ",
+          "val": "2027-11-01",
+          "linha": "MEDICAMENTOS",
+          "estPortal": 72167
+        },
+        {
+          "portal": "Distrimed",
+          "precoSemSt": 5,
+          "preco": 5,
+          "lab": "SANDOZ"
+        },
+        {
+          "portal": "MG Med",
+          "precoSemSt": 5.99,
+          "preco": 5.99,
+          "lab": "SANDOZ",
+          "val": ""
+        }
+      ]
+    },
+    {
+      "ean": "7896523201870",
+      "produto": "ALERGOMINE (DEXCLOR.) 2MG",
+      "apresentacao": "C/20 DEXCLOR ALERGOMINE",
+      "tipo": "MEDICAMENTO",
+      "subtipo": "Similar",
+      "c1": false,
+      "est": 0,
+      "v30": 3,
+      "v90": 6,
+      "giroMensal": 3,
+      "sug": 3,
+      "cmv": 3.61,
+      "ult": 3.61,
+      "refCost": 3.61,
+      "prVenda": 20.56,
+      "pedidoRecente": false,
+      "ofertas": []
+    },
+    {
+      "ean": "7896181922377",
+      "produto": "DROPROPIZINA 3 MG XPE C/COPO 120 ML",
+      "apresentacao": "XPE C/COPO 120 ML",
+      "tipo": "MEDICAMENTO",
+      "subtipo": "Genérico",
+      "c1": false,
+      "est": 0,
+      "v30": 3,
+      "v90": 5,
+      "giroMensal": 3,
+      "sug": 3,
+      "cmv": 6.53,
+      "ult": 6.53,
+      "refCost": 6.53,
+      "prVenda": 17.9,
+      "pedidoRecente": false,
+      "ofertas": [
+        {
+          "portal": "Distrimed",
+          "precoSemSt": 6.53,
+          "preco": 6.53,
+          "lab": "BIOSINTETICA"
+        }
+      ]
+    },
+    {
+      "ean": "7895296261036",
+      "produto": "CARDBET 3,125 MG C/ 30 CPR",
+      "apresentacao": "3,125 MG CT C/ 30 CPR",
+      "tipo": "MEDICAMENTO",
+      "subtipo": "Similar",
+      "c1": false,
+      "est": 0,
+      "v30": 3,
+      "v90": 5,
+      "giroMensal": 3,
+      "sug": 3,
+      "cmv": 3.29,
+      "ult": 3.29,
+      "refCost": 3.29,
+      "prVenda": 10,
+      "pedidoRecente": false,
+      "ofertas": [
+        {
+          "portal": "Distrimed",
+          "precoSemSt": 4.24,
+          "preco": 4.24,
+          "lab": "MULTILAB MARCAS"
+        }
+      ]
+    },
+    {
+      "ean": "7897917000772",
+      "produto": "PARAMOL DC C/ 20CPR",
+      "apresentacao": "",
+      "tipo": "MEDICAMENTO",
+      "subtipo": "Medicamento",
+      "c1": false,
+      "est": 0,
+      "v30": 3,
+      "v90": 5,
+      "giroMensal": 3,
+      "sug": 3,
+      "cmv": 4.95,
+      "ult": 4.95,
+      "refCost": 4.95,
+      "prVenda": 16.99,
+      "pedidoRecente": false,
+      "ofertas": [
+        {
+          "portal": "Oriente",
+          "precoSemSt": 6.3,
+          "preco": 6.67,
+          "lab": "BELFAR",
+          "val": "2028-07-01",
+          "linha": "MEDICAMENTOS",
+          "estPortal": 234
+        }
+      ]
+    },
+    {
+      "ean": "7898303264327",
+      "produto": "FLUIMULIV 600MG (ACETILCISTEINA)",
+      "apresentacao": "",
+      "tipo": "MEDICAMENTO",
+      "subtipo": "Similar",
+      "c1": false,
+      "est": 0,
+      "v30": 3,
+      "v90": 5,
+      "giroMensal": 3,
+      "sug": 3,
+      "cmv": 9.12,
+      "ult": 9.12,
+      "refCost": 9.12,
+      "prVenda": 32,
+      "pedidoRecente": false,
+      "ofertas": []
+    },
+    {
+      "ean": "7896112173403",
+      "produto": "NAPROX 500 MG C/ 10 CPR",
+      "apresentacao": "500 MG C/ 10 CPR",
+      "tipo": "MEDICAMENTO",
+      "subtipo": "Similar",
+      "c1": false,
+      "est": 0,
+      "v30": 3,
+      "v90": 4,
+      "giroMensal": 3,
+      "sug": 3,
+      "cmv": 8.6,
+      "ult": 4.19,
+      "refCost": 4.19,
+      "prVenda": 14.9,
+      "pedidoRecente": false,
+      "ofertas": [
+        {
+          "portal": "Oriente",
+          "precoSemSt": 4.69,
+          "preco": 4.97,
+          "lab": "TEUTO",
+          "val": "2028-09-01",
+          "linha": "MEDICAMENTOS",
+          "estPortal": 2725
+        },
+        {
+          "portal": "Distrimed",
+          "precoSemSt": 4.99,
+          "preco": 4.99,
+          "lab": "TEUTO FARMA"
+        }
+      ]
+    },
+    {
+      "ean": "7896004715247",
+      "produto": "REPOFLOR 100MG C/ 12 CPS",
+      "apresentacao": "100MG C/ 12 CPS",
+      "tipo": "MEDICAMENTO",
+      "subtipo": "Similar",
+      "c1": false,
+      "est": 0,
+      "v30": 3,
+      "v90": 3,
+      "giroMensal": 3,
+      "sug": 3,
+      "cmv": 13.07,
+      "ult": 13.07,
+      "refCost": 13.07,
+      "prVenda": 63.64,
+      "pedidoRecente": false,
+      "ofertas": [
+        {
+          "portal": "MG Med",
+          "precoSemSt": 19.98,
+          "preco": 19.98,
+          "lab": "LEGRAND",
+          "val": "01/07/2027"
+        },
+        {
+          "portal": "Oriente",
+          "precoSemSt": 20.75,
+          "preco": 21.98,
+          "lab": "LEGRAND MARCAS",
+          "val": "2027-07-01",
+          "linha": "MEDICAMENTOS",
+          "estPortal": 8834
+        },
+        {
+          "portal": "Distrimed",
+          "precoSemSt": 22.68,
+          "preco": 22.68,
+          "lab": "LEGRAND"
+        }
+      ]
+    },
+    {
+      "ean": "7898100243945",
+      "produto": "TYFLEN 750 MG C/ 10 CPR",
+      "apresentacao": "",
+      "tipo": "MEDICAMENTO",
+      "subtipo": "Similar",
+      "c1": false,
+      "est": -3,
+      "v30": 3,
+      "v90": 3,
+      "giroMensal": 3,
+      "sug": 3,
+      "cmv": 0,
+      "ult": 0.05,
+      "refCost": 0.05,
+      "prVenda": 6,
+      "pedidoRecente": false,
+      "ofertas": []
+    },
+    {
+      "ean": "7894916996921",
+      "produto": "AMOX+CLAVPOT 500/125MG GEN 21 CPR REV-LEG",
+      "apresentacao": "500mg/125mg 3 bl x 7 com rev",
+      "tipo": "MEDICAMENTO",
+      "subtipo": "Genérico",
+      "c1": false,
+      "est": 0,
+      "v30": 3,
+      "v90": 3,
+      "giroMensal": 3,
+      "sug": 3,
+      "cmv": 31.24,
+      "ult": 31.24,
+      "refCost": 31.24,
+      "prVenda": 195.18,
+      "pedidoRecente": false,
+      "ofertas": [
+        {
+          "portal": "Distrimed",
+          "precoSemSt": 28.23,
+          "preco": 28.23,
+          "lab": "LEGRAND"
+        },
+        {
+          "portal": "Oriente",
+          "precoSemSt": 31.95,
+          "preco": 33.42,
+          "lab": "LEGRAND GENERICOS",
+          "val": "2028-07-01",
+          "linha": "MEDICAMENTOS",
+          "estPortal": 2691
+        }
+      ]
+    },
+    {
+      "ean": "7896004812168",
+      "produto": "EXPEC XPE 120 ML LEGRAND",
+      "apresentacao": "C/ 120 ML",
+      "tipo": "MEDICAMENTO",
+      "subtipo": "Similar",
+      "c1": false,
+      "est": 0,
+      "v30": 2,
+      "v90": 7,
+      "giroMensal": 3,
+      "sug": 3,
+      "cmv": 20.94,
+      "ult": 23.02,
+      "refCost": 20.94,
+      "prVenda": 51.79,
+      "pedidoRecente": false,
+      "ofertas": [
+        {
+          "portal": "MG Med",
+          "precoSemSt": 19.98,
+          "preco": 19.98,
+          "lab": "LEGRAND",
+          "val": "01/10/2027"
+        },
+        {
+          "portal": "Distrimed",
+          "precoSemSt": 23.84,
+          "preco": 23.84,
+          "lab": "LEGRAND"
+        },
+        {
+          "portal": "Oriente",
+          "precoSemSt": 23.32,
+          "preco": 24.71,
+          "lab": "LEGRAND MARCAS",
+          "val": "2027-10-01",
+          "linha": "MEDICAMENTOS",
+          "estPortal": 67285
+        }
+      ]
+    },
+    {
+      "ean": "7899551301284",
+      "produto": "EZETIMIBA 10 MG C/ 30 CPR ACT",
+      "apresentacao": "10 MG C/ 30 CPR ACT",
+      "tipo": "MEDICAMENTO",
+      "subtipo": "Genérico",
+      "c1": false,
+      "est": 0,
+      "v30": 2,
+      "v90": 7,
+      "giroMensal": 3,
+      "sug": 3,
+      "cmv": 11,
+      "ult": 11.07,
+      "refCost": 11,
+      "prVenda": 26.9,
+      "pedidoRecente": false,
+      "ofertas": [
+        {
+          "portal": "Oriente",
+          "precoSemSt": 10.49,
+          "preco": 10.97,
+          "lab": "BIOLAB GENERICOS",
+          "val": "2028-09-01",
+          "linha": "MEDICAMENTOS",
+          "estPortal": 14506
+        },
+        {
+          "portal": "Distrimed",
+          "precoSemSt": 11.19,
+          "preco": 11.19,
+          "lab": "BIOLAB"
+        }
+      ]
+    },
+    {
+      "ean": "7898569765514",
+      "produto": "PREDNISOLONA 40MG C/7 COMP ALTHAIA",
+      "apresentacao": "40 mg com ct bl al x al x 7",
+      "tipo": "MEDICAMENTO",
+      "subtipo": "Genérico",
+      "c1": false,
+      "est": 0,
+      "v30": 2,
+      "v90": 6,
+      "giroMensal": 2,
+      "sug": 2,
+      "cmv": 10.32,
+      "ult": 10.32,
+      "refCost": 10.32,
+      "prVenda": 21.99,
+      "pedidoRecente": false,
+      "ofertas": [
+        {
+          "portal": "Oriente",
+          "precoSemSt": 10.19,
+          "preco": 10.66,
+          "lab": "ALTHAIA",
+          "val": "2027-07-01",
+          "linha": "MEDICAMENTOS",
+          "estPortal": 48
+        },
+        {
+          "portal": "Distrimed",
+          "precoSemSt": 10.86,
+          "preco": 10.86,
+          "lab": "ALTHAIA"
+        }
+      ]
+    },
+    {
+      "ean": "7896658050145",
+      "produto": "BILASTINA 20MG CX 15 COMP",
+      "apresentacao": "",
+      "tipo": "MEDICAMENTO",
+      "subtipo": "Genérico",
+      "c1": false,
+      "est": 0,
+      "v30": 2,
+      "v90": 6,
+      "giroMensal": 2,
+      "sug": 2,
+      "cmv": 15.65,
+      "ult": 15.66,
+      "refCost": 15.65,
+      "prVenda": 45.26,
+      "pedidoRecente": false,
+      "ofertas": [
+        {
+          "portal": "Distrimed",
+          "precoSemSt": 15.19,
+          "preco": 15.19,
+          "lab": "BIOSINTETICA"
+        },
+        {
+          "portal": "Oriente",
+          "precoSemSt": 14.62,
+          "preco": 15.2,
+          "lab": "BIOSINTETICA",
+          "val": "2028-06-01",
+          "linha": "MEDICAMENTOS",
+          "estPortal": 2483
+        },
+        {
+          "portal": "MG Med",
+          "precoSemSt": 29.9,
+          "preco": 29.9,
+          "lab": "BIOSINTETICA",
+          "val": "30/11/2027"
+        }
+      ]
+    },
+    {
+      "ean": "7896004712147",
+      "produto": "DEXAMETASONA 4,0MG C/10 CPR GENE EMS",
+      "apresentacao": "4 MG C/ 10 CPR",
+      "tipo": "MEDICAMENTO",
+      "subtipo": "Genérico",
+      "c1": false,
+      "est": 0,
+      "v30": 2,
+      "v90": 5,
+      "giroMensal": 2,
+      "sug": 2,
+      "cmv": 4.98,
+      "ult": 4.98,
+      "refCost": 4.98,
+      "prVenda": 16.27,
+      "pedidoRecente": false,
+      "ofertas": [
+        {
+          "portal": "Distrimed",
+          "precoSemSt": 4.82,
+          "preco": 4.82,
+          "lab": "EMS"
+        },
+        {
+          "portal": "Oriente",
+          "precoSemSt": 4.62,
+          "preco": 4.83,
+          "lab": "EMS",
+          "val": "2028-07-01",
+          "linha": "MEDICAMENTOS",
+          "estPortal": 3894
+        }
+      ]
+    },
+    {
+      "ean": "7896004720838",
+      "produto": "REPOFLOR 200 MG C/ 6 CPS LEGRAND",
+      "apresentacao": "200 MG C/ 6 CPS",
+      "tipo": "MEDICAMENTO",
+      "subtipo": "Similar",
+      "c1": false,
+      "est": 0,
+      "v30": 2,
+      "v90": 4,
+      "giroMensal": 2,
+      "sug": 2,
+      "cmv": 21.73,
+      "ult": 21.73,
+      "refCost": 21.73,
+      "prVenda": 55.67,
+      "pedidoRecente": false,
+      "ofertas": [
+        {
+          "portal": "Distrimed",
+          "precoSemSt": 21.06,
+          "preco": 21.06,
+          "lab": "LEGRAND"
+        },
+        {
+          "portal": "Oriente",
+          "precoSemSt": 23.2,
+          "preco": 24.58,
+          "lab": "LEGRAND MARCAS",
+          "val": "2027-08-01",
+          "linha": "MEDICAMENTOS",
+          "estPortal": 16923
+        },
+        {
+          "portal": "MG Med",
+          "precoSemSt": 24.99,
+          "preco": 24.99,
+          "lab": "LEGRAND",
+          "val": "30/01/2028"
+        }
+      ]
+    },
+    {
+      "ean": "7891350034950",
+      "produto": "GEL FIX NY LOOKS 240G AZUL COND",
+      "apresentacao": "240G AZUL COND",
+      "tipo": "PERFUMARIA",
+      "subtipo": "Perfumaria",
+      "c1": false,
+      "est": 0,
+      "v30": 18,
+      "v90": 26,
+      "giroMensal": 18,
+      "sug": 18,
+      "cmv": 7.73,
+      "ult": 7.73,
+      "refCost": 7.73,
+      "prVenda": 14.99,
+      "pedidoRecente": false,
+      "ofertas": [
+        {
+          "portal": "Distrimed",
+          "precoSemSt": 10.19,
+          "preco": 10.19,
+          "lab": "COTY"
+        }
+      ]
+    },
+    {
+      "ean": "7896049528512",
+      "produto": "DESOD HERBISSIMO CR TRADICIONAL 55GR",
+      "apresentacao": "TRADICIONAL",
+      "tipo": "PERFUMARIA",
+      "subtipo": "Perfumaria",
+      "c1": false,
+      "est": -1,
+      "v30": 10,
+      "v90": 29,
+      "giroMensal": 10,
+      "sug": 10,
+      "cmv": 7.22,
+      "ult": 7.36,
+      "refCost": 7.22,
+      "prVenda": 9.99,
+      "pedidoRecente": false,
+      "ofertas": [
+        {
+          "portal": "Distrimed",
+          "precoSemSt": 7.05,
+          "preco": 7.05,
+          "lab": "DANA COSMETICOS"
+        }
+      ]
+    },
+    {
+      "ean": "7896046700249",
+      "produto": "DESCOLOR LISS 8 G CAMOMILA(E) - 30453",
+      "apresentacao": "CAMOMILA",
+      "tipo": "PERFUMARIA",
+      "subtipo": "Perfumaria",
+      "c1": false,
+      "est": 0,
+      "v30": 10,
+      "v90": 13,
+      "giroMensal": 10,
+      "sug": 10,
+      "cmv": 2.09,
+      "ult": 2.15,
+      "refCost": 2.09,
+      "prVenda": 4.99,
+      "pedidoRecente": false,
+      "ofertas": [
+        {
+          "portal": "MG Med",
+          "precoSemSt": 1.29,
+          "preco": 1.29,
+          "lab": "CLESS",
+          "val": "30/11/2027"
+        }
+      ]
+    },
+    {
+      "ean": "7500435251938",
+      "produto": "APARELHO VENUS SUAVE ORIGINAL CARTELA 1X12UN",
+      "apresentacao": "",
+      "tipo": "PERFUMARIA",
+      "subtipo": "Perfumaria",
+      "c1": false,
+      "est": 0,
+      "v30": 9,
+      "v90": 27,
+      "giroMensal": 9,
+      "sug": 9,
+      "cmv": 3.5,
+      "ult": 4.11,
+      "refCost": 3.5,
+      "prVenda": 7.99,
+      "pedidoRecente": false,
+      "ofertas": []
+    },
+    {
+      "ean": "7898079006701",
+      "produto": "PRESERV PRUDENCE 3 UND LUBRIF",
+      "apresentacao": "",
+      "tipo": "PERFUMARIA",
+      "subtipo": "Perfumaria",
+      "c1": false,
+      "est": -3,
+      "v30": 9,
+      "v90": 21,
+      "giroMensal": 9,
+      "sug": 9,
+      "cmv": 3.94,
+      "ult": 3.87,
+      "refCost": 3.87,
+      "prVenda": 8.99,
+      "pedidoRecente": false,
+      "ofertas": [
+        {
+          "portal": "Divimed",
+          "precoSemSt": 45.9,
+          "preco": 45.9,
+          "lab": "GENÉRICO"
+        },
+        {
+          "portal": "Distrimed",
+          "precoSemSt": 64.24,
+          "preco": 64.24,
+          "lab": "PRESERVATIVOS PRUDENCE"
+        }
+      ]
+    },
+    {
+      "ean": "7896110003740",
+      "produto": "ABS SYM GEL NOT C/ABA LGO 8 UND SV",
+      "apresentacao": "",
+      "tipo": "PERFUMARIA",
+      "subtipo": "Perfumaria",
+      "c1": false,
+      "est": -2,
+      "v30": 9,
+      "v90": 18,
+      "giroMensal": 9,
+      "sug": 9,
+      "cmv": 20.88,
+      "ult": 52.75,
+      "refCost": 20.88,
+      "prVenda": 7.99,
+      "pedidoRecente": false,
+      "ofertas": [
+        {
+          "portal": "Distrimed",
+          "precoSemSt": 4.89,
+          "preco": 4.89,
+          "lab": "SANTHER"
+        }
+      ]
+    },
+    {
+      "ean": "7896010175301",
+      "produto": "ISACARE PO DESCOLORANTE 20G ARGAN",
+      "apresentacao": "",
+      "tipo": "PERFUMARIA",
+      "subtipo": "Perfumaria",
+      "c1": false,
+      "est": -8,
+      "v30": 9,
+      "v90": 9,
+      "giroMensal": 9,
+      "sug": 9,
+      "cmv": 43.87,
+      "ult": 44.52,
+      "refCost": 43.87,
+      "prVenda": 5.6,
+      "pedidoRecente": false,
+      "ofertas": []
+    },
+    {
+      "ean": "7896902211537",
+      "produto": "AGUA OXIGENADA 10 VOL .FARMAX",
+      "apresentacao": "10 VOL SOL",
+      "tipo": "PERFUMARIA",
+      "subtipo": "Perfumaria",
+      "c1": false,
+      "est": -1,
+      "v30": 6,
+      "v90": 20,
+      "giroMensal": 7,
+      "sug": 7,
+      "cmv": 1.91,
+      "ult": 1.91,
+      "refCost": 1.91,
+      "prVenda": 4.5,
+      "pedidoRecente": false,
+      "ofertas": [
+        {
+          "portal": "Distrimed",
+          "precoSemSt": 7.77,
+          "preco": 7.77,
+          "lab": "FARMAX COSMETICOS"
+        },
+        {
+          "portal": "Oriente",
+          "precoSemSt": 7.77,
+          "preco": 8.23,
+          "lab": "FARMAX",
+          "val": "2029-07-01",
+          "linha": "NAO MEDICAMENTOS",
+          "estPortal": 1078
+        },
+        {
+          "portal": "Divimed",
+          "precoSemSt": 8.5,
+          "preco": 8.5,
+          "lab": "GENÉRICO"
+        }
+      ]
+    },
+    {
+      "ean": "7898947170633",
+      "produto": "LUVA DESCARTAVEL LATEX C/PO TAM M 100UN",
+      "apresentacao": "OU O PAR R$1,50",
+      "tipo": "PERFUMARIA",
+      "subtipo": "Perfumaria",
+      "c1": false,
+      "est": -6,
+      "v30": 6,
+      "v90": 6,
+      "giroMensal": 6,
+      "sug": 6,
+      "cmv": 0.26,
+      "ult": 0.26,
+      "refCost": 0.26,
+      "prVenda": 0.75,
+      "pedidoRecente": false,
+      "ofertas": []
+    },
+    {
+      "ean": "7899700803102",
+      "produto": "ISABABY FRALDA SUPER SEQUINHA MEGA XXG 6X36$",
+      "apresentacao": "",
+      "tipo": "PERFUMARIA",
+      "subtipo": "Perfumaria",
+      "c1": false,
+      "est": -2,
+      "v30": 6,
+      "v90": 6,
+      "giroMensal": 6,
+      "sug": 6,
+      "cmv": 41.05,
+      "ult": 41.05,
+      "refCost": 41.05,
+      "prVenda": 49.9,
+      "pedidoRecente": false,
+      "ofertas": []
+    },
+    {
+      "ean": "7891800649529",
+      "produto": "ALGODAO MULTIUSO ZZ TOPZ 25G (CREME)",
+      "apresentacao": "",
+      "tipo": "PERFUMARIA",
+      "subtipo": "Perfumaria",
+      "c1": false,
+      "est": 0,
+      "v30": 4,
+      "v90": 10,
+      "giroMensal": 4,
+      "sug": 4,
+      "cmv": 2.8,
+      "ult": 2.8,
+      "refCost": 2.8,
+      "prVenda": 4,
+      "pedidoRecente": false,
+      "ofertas": [
+        {
+          "portal": "Divimed",
+          "precoSemSt": 2.43,
+          "preco": 2.43,
+          "lab": "GENÉRICO"
+        }
+      ]
+    },
+    {
+      "ean": "7891522310394",
+      "produto": "FR CAPRICHO BABY JUMBINHO XXG C/ 12",
+      "apresentacao": "BABY JUMBINHO XXG C/ 12",
+      "tipo": "PERFUMARIA",
+      "subtipo": "Perfumaria",
+      "c1": false,
+      "est": 0,
+      "v30": 4,
+      "v90": 7,
+      "giroMensal": 4,
+      "sug": 4,
+      "cmv": 13.75,
+      "ult": 13.75,
+      "refCost": 13.75,
+      "prVenda": 19.25,
+      "pedidoRecente": false,
+      "ofertas": []
+    },
+    {
+      "ean": "7896111954485",
+      "produto": "ESMAL IMPALA 7,5 ML",
+      "apresentacao": "VERNIZ EXTRA BRILHO",
+      "tipo": "PERFUMARIA",
+      "subtipo": "Perfumaria",
+      "c1": false,
+      "est": -2,
+      "v30": 3,
+      "v90": 12,
+      "giroMensal": 4,
+      "sug": 4,
+      "cmv": 5.27,
+      "ult": 5.7,
+      "refCost": 5.27,
+      "prVenda": 8.99,
+      "pedidoRecente": false,
+      "ofertas": [
+        {
+          "portal": "Oriente",
+          "precoSemSt": 25.34,
+          "preco": 29.49,
+          "lab": "MUNDIAL",
+          "val": "2029-09-01",
+          "linha": "NAO MEDICAMENTOS",
+          "estPortal": 211
+        }
+      ]
+    },
+    {
+      "ean": "7891010035631",
+      "produto": "ABS S LIVRE NOT C/ABAS AG.NATU C/8",
+      "apresentacao": "NOTURNO MAX SUAVE COM ABAS",
+      "tipo": "PERFUMARIA",
+      "subtipo": "Perfumaria",
+      "c1": false,
+      "est": 0,
+      "v30": 3,
+      "v90": 11,
+      "giroMensal": 4,
+      "sug": 4,
+      "cmv": 10.23,
+      "ult": 10.64,
+      "refCost": 10.23,
+      "prVenda": 12.9,
+      "pedidoRecente": false,
+      "ofertas": [
+        {
+          "portal": "Distrimed",
+          "precoSemSt": 9.88,
+          "preco": 9.88,
+          "lab": "KENVUE"
+        }
+      ]
+    },
+    {
+      "ean": "7891010886547",
+      "produto": "ABS OB C/10 UND MEDIO L 10 P 8",
+      "apresentacao": "MEDIO/REGULAR",
+      "tipo": "PERFUMARIA",
+      "subtipo": "Perfumaria",
+      "c1": false,
+      "est": 0,
+      "v30": 3,
+      "v90": 5,
+      "giroMensal": 3,
+      "sug": 3,
+      "cmv": 10.04,
+      "ult": 9.95,
+      "refCost": 9.95,
+      "prVenda": 14.9,
+      "pedidoRecente": false,
+      "ofertas": [
+        {
+          "portal": "Distrimed",
+          "precoSemSt": 11.04,
+          "preco": 11.04,
+          "lab": "KENVUE"
+        }
+      ]
+    },
+    {
+      "ean": "7891150103290",
+      "produto": "CR D CLOSE UP LIQ CARVAO A MENTA 100G",
+      "apresentacao": "",
+      "tipo": "PERFUMARIA",
+      "subtipo": "Perfumaria",
+      "c1": false,
+      "est": 0,
+      "v30": 3,
+      "v90": 5,
+      "giroMensal": 3,
+      "sug": 3,
+      "cmv": 4.37,
+      "ult": 4.37,
+      "refCost": 4.37,
+      "prVenda": 8,
+      "pedidoRecente": false,
+      "ofertas": [
+        {
+          "portal": "Oriente",
+          "precoSemSt": 4.93,
+          "preco": 4.93,
+          "lab": "UNILEVER",
+          "val": "2029-10-01",
+          "linha": "NAO MEDICAMENTOS",
+          "estPortal": 913
+        },
+        {
+          "portal": "Distrimed",
+          "precoSemSt": 5.02,
+          "preco": 5.02,
+          "lab": "UNILEVER"
+        }
+      ]
+    },
+    {
+      "ean": "7891010973483",
+      "produto": "ABS S LIVRE SVE ADAPT C/ ABAS L 8 P 7",
+      "apresentacao": "",
+      "tipo": "PERFUMARIA",
+      "subtipo": "Perfumaria",
+      "c1": false,
+      "est": 0,
+      "v30": 3,
+      "v90": 4,
+      "giroMensal": 3,
+      "sug": 3,
+      "cmv": 3.68,
+      "ult": 3.68,
+      "refCost": 3.68,
+      "prVenda": 7.5,
+      "pedidoRecente": false,
+      "ofertas": [
+        {
+          "portal": "Distrimed",
+          "precoSemSt": 4.58,
+          "preco": 4.58,
+          "lab": "KENVUE"
+        }
+      ]
+    },
+    {
+      "ean": "7896000727534",
+      "produto": "TINT NIELY COR & TON 1.7+ PTO AZ.ESP+OX",
+      "apresentacao": "",
+      "tipo": "PERFUMARIA",
+      "subtipo": "Perfumaria",
+      "c1": false,
+      "est": 0,
+      "v30": 3,
+      "v90": 4,
+      "giroMensal": 3,
+      "sug": 3,
+      "cmv": 11.43,
+      "ult": 11.09,
+      "refCost": 11.09,
+      "prVenda": 16.9,
+      "pedidoRecente": false,
+      "ofertas": []
+    },
+    {
+      "ean": "7896221807602",
+      "produto": "RELAX ANEY 240G GUANIDINA",
+      "apresentacao": "ANEY 240G GUANIDINA",
+      "tipo": "PERFUMARIA",
+      "subtipo": "Perfumaria",
+      "c1": false,
+      "est": 0,
+      "v30": 3,
+      "v90": 4,
+      "giroMensal": 3,
+      "sug": 3,
+      "cmv": 17.91,
+      "ult": 18.46,
+      "refCost": 17.91,
+      "prVenda": 27.7,
+      "pedidoRecente": false,
+      "ofertas": []
+    },
+    {
+      "ean": "7896235354192",
+      "produto": "HID MONANGE 200ML EXTRATO ALGODAO *",
+      "apresentacao": "",
+      "tipo": "PERFUMARIA",
+      "subtipo": "Perfumaria",
+      "c1": false,
+      "est": 0,
+      "v30": 3,
+      "v90": 4,
+      "giroMensal": 3,
+      "sug": 3,
+      "cmv": 8.16,
+      "ult": 8.16,
+      "refCost": 8.16,
+      "prVenda": 15,
+      "pedidoRecente": false,
+      "ofertas": [
+        {
+          "portal": "Distrimed",
+          "precoSemSt": 9.77,
+          "preco": 9.77,
+          "lab": "COTY"
+        }
+      ]
+    },
+    {
+      "ean": "7898656391664",
+      "produto": "FR LIFREE CALCA SUP CONFORTO JUMBO P/M C/16",
+      "apresentacao": "",
+      "tipo": "PERFUMARIA",
+      "subtipo": "Perfumaria",
+      "c1": false,
+      "est": -4,
+      "v30": 3,
+      "v90": 4,
+      "giroMensal": 3,
+      "sug": 3,
+      "cmv": 0,
+      "ult": 171.53,
+      "refCost": 171.53,
+      "prVenda": 70,
+      "pedidoRecente": false,
+      "ofertas": [
+        {
+          "portal": "Distrimed",
+          "precoSemSt": 227.36,
+          "preco": 227.36,
+          "lab": "UNICHARM"
+        }
+      ]
+    },
+    {
+      "ean": "7896013521983",
+      "produto": "HENE PELUCIA 180 GR FORTE",
+      "apresentacao": "BG FORTE",
+      "tipo": "PERFUMARIA",
+      "subtipo": "Perfumaria",
+      "c1": false,
+      "est": -2,
+      "v30": 3,
+      "v90": 3,
+      "giroMensal": 3,
+      "sug": 3,
+      "cmv": 10.21,
+      "ult": 10.43,
+      "refCost": 10.21,
+      "prVenda": 16.2,
+      "pedidoRecente": false,
+      "ofertas": [
+        {
+          "portal": "Distrimed",
+          "precoSemSt": 10.19,
+          "preco": 10.19,
+          "lab": "EMBELLEZE"
+        }
+      ]
+    },
+    {
+      "ean": "7897517925406",
+      "produto": "ESC DENTE CLIA JUNIOR P(02540)",
+      "apresentacao": "",
+      "tipo": "PERFUMARIA",
+      "subtipo": "Perfumaria",
+      "c1": false,
+      "est": 0,
+      "v30": 3,
+      "v90": 3,
+      "giroMensal": 3,
+      "sug": 3,
+      "cmv": 3.2,
+      "ult": 3.2,
+      "refCost": 3.2,
+      "prVenda": 8.99,
+      "pedidoRecente": false,
+      "ofertas": [
+        {
+          "portal": "Distrimed",
+          "precoSemSt": 2.85,
+          "preco": 2.85,
+          "lab": "BELLIZ"
+        }
+      ]
+    },
+    {
+      "ean": "7897042015849",
+      "produto": "HIDRAT SKALA MANTEIGA KARITE 400 ML",
+      "apresentacao": "",
+      "tipo": "PERFUMARIA",
+      "subtipo": "Perfumaria",
+      "c1": false,
+      "est": 0,
+      "v30": 3,
+      "v90": 3,
+      "giroMensal": 3,
+      "sug": 3,
+      "cmv": 5.68,
+      "ult": 5.83,
+      "refCost": 5.68,
+      "prVenda": 12.9,
+      "pedidoRecente": false,
+      "ofertas": [
+        {
+          "portal": "Distrimed",
+          "precoSemSt": 7.11,
+          "preco": 7.11,
+          "lab": "SKALA"
+        }
+      ]
+    },
+    {
+      "ean": "7896110002248",
+      "produto": "ABS SYM 8 UND SV",
+      "apresentacao": "",
+      "tipo": "PERFUMARIA",
+      "subtipo": "Perfumaria",
+      "c1": false,
+      "est": 0,
+      "v30": 2,
+      "v90": 9,
+      "giroMensal": 3,
+      "sug": 3,
+      "cmv": 18.83,
+      "ult": 34.35,
+      "refCost": 18.83,
+      "prVenda": 6,
+      "pedidoRecente": false,
+      "ofertas": [
+        {
+          "portal": "Distrimed",
+          "precoSemSt": 3.25,
+          "preco": 3.25,
+          "lab": "SANTHER"
+        }
+      ]
+    },
+    {
+      "ean": "7896110008363",
+      "produto": "ABS SYM COB SECA ABAS LV16PG14",
+      "apresentacao": "L 16 P 14",
+      "tipo": "PERFUMARIA",
+      "subtipo": "Perfumaria",
+      "c1": false,
+      "est": 0,
+      "v30": 2,
+      "v90": 7,
+      "giroMensal": 3,
+      "sug": 3,
+      "cmv": 6.24,
+      "ult": 6.24,
+      "refCost": 6.24,
+      "prVenda": 9.9,
+      "pedidoRecente": false,
+      "ofertas": [
+        {
+          "portal": "Distrimed",
+          "precoSemSt": 3.22,
+          "preco": 3.22,
+          "lab": "SANTHER"
+        }
+      ]
+    },
+    {
+      "ean": "7791293022567",
+      "produto": "DESOD REXONA AERO V8 90 GR MASC",
+      "apresentacao": "",
+      "tipo": "PERFUMARIA",
+      "subtipo": "Perfumaria",
+      "c1": false,
+      "est": -1,
+      "v30": 2,
+      "v90": 6,
+      "giroMensal": 2,
+      "sug": 2,
+      "cmv": 13.01,
+      "ult": 13.28,
+      "refCost": 13.01,
+      "prVenda": 17.9,
+      "pedidoRecente": false,
+      "ofertas": [
+        {
+          "portal": "Distrimed",
+          "precoSemSt": 12.35,
+          "preco": 12.35,
+          "lab": "UNILEVER"
+        },
+        {
+          "portal": "Oriente",
+          "precoSemSt": 12.73,
+          "preco": 12.73,
+          "lab": "UNILEVER",
+          "val": "2029-10-01",
+          "linha": "NAO MEDICAMENTOS",
+          "estPortal": 3105
+        }
+      ]
+    },
+    {
+      "ean": "7898213880754",
+      "produto": "SPRAY DE MEL E PROPOLIS 35ML - COD:039",
+      "apresentacao": "",
+      "tipo": "PERFUMARIA",
+      "subtipo": "Perfumaria",
+      "c1": false,
+      "est": 0,
+      "v30": 2,
+      "v90": 6,
+      "giroMensal": 2,
+      "sug": 2,
+      "cmv": 12.88,
+      "ult": 12.88,
+      "refCost": 12.88,
+      "prVenda": 25,
+      "pedidoRecente": false,
+      "ofertas": [
+        {
+          "portal": "Distrimed",
+          "precoSemSt": 4.56,
+          "preco": 4.56,
+          "lab": "ARTE NATIVA"
+        }
+      ]
+    },
+    {
+      "ean": "7891060679724",
+      "produto": "ALICATE MUNDIAL P/CUTICULA (COD:522)INOX",
+      "apresentacao": "PERSONAL CARE REF. 522",
+      "tipo": "PERFUMARIA",
+      "subtipo": "Perfumaria",
+      "c1": false,
+      "est": 0,
+      "v30": 2,
+      "v90": 5,
+      "giroMensal": 2,
+      "sug": 2,
+      "cmv": 22.23,
+      "ult": 21.4,
+      "refCost": 21.4,
+      "prVenda": 37,
+      "pedidoRecente": false,
+      "ofertas": [
+        {
+          "portal": "Distrimed",
+          "precoSemSt": 20.8,
+          "preco": 20.8,
+          "lab": "MUNDIAL"
+        },
+        {
+          "portal": "Oriente",
+          "precoSemSt": 21.05,
+          "preco": 23.31,
+          "lab": "MUNDIAL",
+          "val": "2030-11-01",
+          "linha": "NAO MEDICAMENTOS",
+          "estPortal": 12763
+        }
+      ]
+    },
+    {
+      "ean": "7791293022581",
+      "produto": "DESOD REXONA AERO XTRACOOL 90 GR",
+      "apresentacao": "MEN XTRACOOL",
+      "tipo": "PERFUMARIA",
+      "subtipo": "Perfumaria",
+      "c1": false,
+      "est": -1,
+      "v30": 2,
+      "v90": 4,
+      "giroMensal": 2,
+      "sug": 2,
+      "cmv": 12.88,
+      "ult": 13.16,
+      "refCost": 12.88,
+      "prVenda": 17.9,
+      "pedidoRecente": false,
+      "ofertas": [
+        {
+          "portal": "Distrimed",
+          "precoSemSt": 12.35,
+          "preco": 12.35,
+          "lab": "UNILEVER"
+        },
+        {
+          "portal": "Oriente",
+          "precoSemSt": 12.73,
+          "preco": 12.73,
+          "lab": "UNILEVER",
+          "val": "2029-07-05",
+          "linha": "NAO MEDICAMENTOS",
+          "estPortal": 2333
+        }
+      ]
+    }
+  ]
+}

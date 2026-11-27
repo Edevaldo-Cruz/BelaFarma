@@ -66,6 +66,7 @@ import { CardMachineReconcileModal } from "./components/CardMachineReconcileModa
 import { MuralModal } from "./components/MuralModal";
 import { CentralCompras } from "./components/CentralCompras";
 import { BelaPedPortal } from "./components/compras/BelaPedPortal";
+import { TriagemFaltasPage } from "./components/compras/TriagemFaltasPage";
 import { EstoqueIdealModal } from "./components/compras/EstoqueIdealModal";
 import { VersionNotifier } from "./components/VersionNotifier";
 import { VersionModal } from "./components/VersionModal";
@@ -166,10 +167,15 @@ const App: React.FC = () => {
         setCurrentView('belinha-pdv');
       } else {
         // Se a URL não for de PDV, garante que não fique preso no PDV
-        setCurrentView(prev => (prev === 'belinha-pdv' ? 'dashboard' : prev));
-        const saved = localStorage.getItem('belinha_current_view');
-        if (saved === 'belinha-pdv') {
-          localStorage.setItem('belinha_current_view', 'dashboard');
+        if (search.includes('view=triagem-faltas') || hash.includes('triagem-faltas')) {
+          setCurrentView('triagem-faltas');
+          localStorage.setItem('belinha_current_view', 'triagem-faltas');
+        } else {
+          setCurrentView(prev => (prev === 'belinha-pdv' ? 'dashboard' : prev));
+          const saved = localStorage.getItem('belinha_current_view');
+          if (saved === 'belinha-pdv') {
+            localStorage.setItem('belinha_current_view', 'dashboard');
+          }
         }
       }
     };
@@ -209,6 +215,10 @@ const App: React.FC = () => {
 
       if (host.startsWith('ia.') || hash.includes('ia') || search.includes('view=ia') || search.includes('view=belafarma-ia')) {
         return 'belafarma-ia';
+      }
+
+      if (search.includes('view=triagem-faltas') || hash.includes('triagem-faltas')) {
+        return 'triagem-faltas';
       }
 
       if (savedView && savedView !== 'belinha-pdv') {
@@ -1662,6 +1672,9 @@ const App: React.FC = () => {
                   onUpdate={updateShortage}
                   onRefresh={fetchData}
                 />
+              )}
+              {currentView === "triagem-faltas" && (
+                <TriagemFaltasPage user={user} />
               )}
               {currentView === "quotations" && <Quotations />}
               {currentView === "medication-search" && <MedicationSearch />}

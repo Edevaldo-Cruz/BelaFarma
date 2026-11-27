@@ -10,6 +10,7 @@ import {
   Wallet,
   Users as UsersIcon,
   ClipboardList,
+  ClipboardCheck,
   Search,
   Calculator,
   Lock,
@@ -358,6 +359,7 @@ export const TopMenuBar: React.FC<TopMenuBarProps> = ({
       items: [
         { id: 'central-compras', label: 'Central de Compras', icon: ShoppingBag, adminOnly: true },
         { id: 'belaped', label: 'BelaPed Compras', icon: ShoppingBag, adminOnly: true },
+        { id: 'triagem-faltas', label: 'Triagem de Faltas & Cotação', icon: ClipboardCheck },
         { id: 'compras-live', label: 'Sugestão Compras', icon: ShoppingCart },
         { id: 'reposicao-tabela', label: 'Análise Reposição', icon: TableProperties },
         { id: 'purchase-calendar', label: 'Calendário de Compras', icon: Calendar, adminOnly: true },

@@ -1,0 +1,216 @@
+.triagem-sr-only {
+  position: absolute !important;
+  clip-path: inset(50%) !important;
+  overflow: hidden !important;
+  width: 1px !important;
+  height: 1px !important;
+  margin: -1px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  white-space: nowrap !important;
+}
+
+.triagem-table-wrapper {
+  overflow: auto;
+  max-inline-size: 100%;
+  max-block-size: min(640px, 68vh);
+  container-type: inline-size;
+  border: 1px solid var(--bf-card-border, var(--border-subtle, #e2e8f0));
+  border-radius: 0.75rem;
+  background: var(--bf-card-bg, var(--bg-secondary, #ffffff));
+}
+
+table.triagem-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  --label-1: "Decisão";
+  --label-3: "Últ. Compra";
+  --label-4: "Cotação";
+  --label-5: "Qtd 30d";
+  --label-6: "Subtotal";
+  --label-7: "Justificativa (se não comprar)";
+}
+
+table.triagem-table thead {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 3;
+  background: var(--bg-accent, #f1f5f9);
+}
+
+table.triagem-table thead th {
+  background: var(--bg-accent, #f1f5f9);
+  border-bottom: 1px solid var(--bf-card-border, var(--border-subtle, #e2e8f0));
+  white-space: nowrap;
+}
+
+.dark table.triagem-table thead,
+.dark table.triagem-table thead th {
+  background: #1e293b;
+}
+
+table.triagem-table tbody tr {
+  background: var(--bf-card-bg, var(--bg-secondary, #ffffff));
+}
+
+table.triagem-table tbody tr.triagem-row-selected {
+  background: color-mix(in srgb, #10b981 5%, var(--bf-card-bg, #ffffff));
+}
+
+table.triagem-table tbody tr.triagem-row-excluded {
+  background: color-mix(in srgb, #ef4444 4%, var(--bf-card-bg, #ffffff));
+}
+
+table.triagem-table tbody td,
+table.triagem-table tbody th {
+  border-bottom: 1px solid var(--bf-card-border, var(--border-subtle, #e2e8f0));
+  vertical-align: top;
+}
+
+@container (width >= 760px) {
+  table.triagem-table tbody th.col-produto {
+    position: sticky;
+    inset-inline-start: 0;
+    z-index: 1;
+    background: inherit;
+    min-width: 240px;
+    max-width: 310px;
+  }
+
+  table.triagem-table thead th.col-produto {
+    position: sticky;
+    inset-inline-start: 0;
+    z-index: 4;
+  }
+}
+
+@container (width < 760px) {
+  table.triagem-table,
+  table.triagem-table thead,
+  table.triagem-table tbody,
+  table.triagem-table tr,
+  table.triagem-table th,
+  table.triagem-table td {
+    display: block;
+  }
+
+  table.triagem-table thead {
+    display: none;
+  }
+
+  table.triagem-table tbody tr {
+    margin: 0.75rem;
+    border: 1px solid var(--bf-card-border, var(--border-subtle, #e2e8f0));
+    border-radius: 0.75rem;
+    overflow: hidden;
+  }
+
+  table.triagem-table tbody th.col-produto {
+    position: sticky;
+    inset-block-start: 0;
+    z-index: 2;
+    background: var(--bg-accent, #f1f5f9);
+    border-bottom: 1px solid var(--bf-card-border, var(--border-subtle, #e2e8f0));
+  }
+
+  .dark table.triagem-table tbody th.col-produto {
+    background: #1e293b;
+  }
+
+  table.triagem-table tbody td {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.55rem 0.75rem;
+    text-align: left !important;
+  }
+
+  table.triagem-table tbody td:nth-child(1)::before {
+    content: var(--label-1) ": ";
+    font-weight: 600;
+    color: var(--text-secondary, #475569);
+  }
+  table.triagem-table tbody td:nth-child(3)::before {
+    content: var(--label-3) ": ";
+    font-weight: 600;
+    color: var(--text-secondary, #475569);
+  }
+  table.triagem-table tbody td:nth-child(4)::before {
+    content: var(--label-4) ": ";
+    font-weight: 600;
+    color: var(--text-secondary, #475569);
+  }
+  table.triagem-table tbody td:nth-child(5)::before {
+    content: var(--label-5) ": ";
+    font-weight: 600;
+    color: var(--text-secondary, #475569);
+  }
+  table.triagem-table tbody td:nth-child(6)::before {
+    content: var(--label-6) ": ";
+    font-weight: 600;
+    color: var(--text-secondary, #475569);
+  }
+  table.triagem-table tbody td:nth-child(7) {
+    display: block;
+  }
+  table.triagem-table tbody td:nth-child(7)::before {
+    content: var(--label-7) ": ";
+    display: block;
+    margin-bottom: 0.35rem;
+    font-weight: 600;
+    color: var(--text-secondary, #475569);
+  }
+}
+
+.triagem-error-msg {
+  display: none;
+  color: #dc2626;
+  font-size: 0.75rem;
+  margin-top: 0.25rem;
+  font-weight: 600;
+}
+
+.dark .triagem-error-msg {
+  color: #f87171;
+}
+
+select.triagem-motivo-select:is(:user-invalid, .user-invalid-fallback),
+input.triagem-obs-input:is(:user-invalid, .user-invalid-fallback) {
+  border-color: #dc2626;
+  background-color: color-mix(in srgb, #dc2626 9%, transparent);
+}
+
+select.triagem-motivo-select:is(:user-invalid, .user-invalid-fallback) + .triagem-error-msg,
+input.triagem-obs-input:is(:user-invalid, .user-invalid-fallback) + .triagem-error-msg {
+  display: block;
+}
+
+dialog.triagem-modal {
+  margin: auto;
+  padding: 0;
+  border: 1px solid var(--bf-card-border, var(--border-subtle, #e2e8f0));
+  border-radius: 1rem;
+  background: var(--bf-card-bg, var(--bg-secondary, #ffffff));
+  color: var(--bf-main-text, var(--text-primary, #0f172a));
+  width: min(980px, calc(100vw - 1.5rem));
+  max-height: min(88vh, 860px);
+  box-shadow: 0 24px 48px rgba(15, 23, 42, 0.25);
+}
+
+dialog.triagem-modal[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+dialog.triagem-modal:modal {
+  overscroll-behavior: contain;
+}
+
+dialog.triagem-modal::backdrop {
+  overflow: hidden;
+  overscroll-behavior: contain;
+  background: rgba(15, 23, 42, 0.52);
+}

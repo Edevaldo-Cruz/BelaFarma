@@ -1595,5 +1595,502 @@ module.exports = (db) => {
     }
   });
 
+  // ──────────────────────────────────────────────────────────
+  // 10. TRIAGEM DE FALTAS & COTAÇÃO (MEDICAMENTOS + PERFUMARIA)
+  // ──────────────────────────────────────────────────────────
+
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS triagem_faltas_sessoes (
+        id TEXT PRIMARY KEY,
+        criado_em TEXT NOT NULL,
+        atualizado_em TEXT NOT NULL,
+        portais_resumo TEXT,
+        itens_json TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS triagem_faltas_decisoes (
+        sessao_id TEXT NOT NULL,
+        ean TEXT NOT NULL,
+        comprar INTEGER NOT NULL DEFAULT 0,
+        portal_index INTEGER NOT NULL DEFAULT 0,
+        qtd INTEGER NOT NULL DEFAULT 1,
+        motivo TEXT DEFAULT '',
+        observacao TEXT DEFAULT '',
+        usuario TEXT DEFAULT '',
+        atualizado_em TEXT NOT NULL,
+        PRIMARY KEY (sessao_id, ean)
+      );
+    `);
+  } catch (errSchema) {
+    console.warn('[TriagemFaltas] Aviso ao criar tabelas:', errSchema.message);
+  }
+
+  function garantirSessaoInicialTriagem() {
+    const existing = db.prepare('SELECT id FROM triagem_faltas_sessoes LIMIT 1').get();
+    if (existing) return;
+    const fsLocal = require('fs');
+    const pathLocal = require('path');
+    const seedPath = pathLocal.join(__dirname, 'data', 'triagem-faltas-seed.json');
+    if (!fsLocal.existsSync(seedPath)) return;
+    const seed = JSON.parse(fsLocal.readFileSync(seedPath, 'utf8'));
+    const now = new Date().toISOString();
+    db.prepare(
+      'INSERT INTO triagem_faltas_sessoes (id, criado_em, atualizado_em, portais_resumo, itens_json) VALUES (?, ?, ?, ?, ?)'
+    ).run(
+      seed.sessaoId || '2026-11-27-inicial',
+      seed.criadoEm || now,
+      seed.criadoEm || now,
+      JSON.stringify(seed.portaisResumo || {}),
+      JSON.stringify(seed.itens || [])
+    );
+  }
+
+  function lerDecisoesSessao(sessaoId) {
+    const rows = db
+      .prepare('SELECT ean, comprar, portal_index, qtd, motivo, observacao FROM triagem_faltas_decisoes WHERE sessao_id = ?')
+      .all(sessaoId);
+    const decisoes = {};
+    for (const r of rows) {
+      decisoes[r.ean] = {
+        comprar: Boolean(r.comprar),
+        portalIndex: Number(r.portal_index) || 0,
+        qtd: Number(r.qtd) || 1,
+        motivo: r.motivo || '',
+        obs: r.observacao || ''
+      };
+    }
+    return decisoes;
+  }
+
+  router.get('/triagem-faltas/atual', (req, res) => {
+    try {
+      garantirSessaoInicialTriagem();
+      const row = db
+        .prepare('SELECT id, criado_em, atualizado_em, portais_resumo, itens_json FROM triagem_faltas_sessoes ORDER BY atualizado_em DESC LIMIT 1')
+        .get();
+      if (!row) {
+        return res.status(404).json({ success: false, error: 'Nenhuma sessão de triagem encontrada' });
+      }
+      const decisoes = lerDecisoesSessao(row.id);
+      res.json({
+        success: true,
+        sessao: {
+          id: row.id,
+          criadoEm: row.criado_em,
+          atualizadoEm: row.atualizado_em,
+          portaisResumo: row.portais_resumo ? JSON.parse(row.portais_resumo) : {},
+          itens: JSON.parse(row.itens_json || '[]')
+        },
+        decisoes
+      });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.put('/triagem-faltas/decisao', (req, res) => {
+    try {
+      const { sessaoId, ean, comprar, portalIndex, qtd, motivo, obs, usuario } = req.body || {};
+      if (!sessaoId || !ean) {
+        return res.status(400).json({ success: false, error: 'sessaoId e ean são obrigatórios' });
+      }
+      const now = new Date().toISOString();
+      db.prepare(`
+        INSERT INTO triagem_faltas_decisoes (sessao_id, ean, comprar, portal_index, qtd, motivo, observacao, usuario, atualizado_em)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(sessao_id, ean) DO UPDATE SET
+          comprar = excluded.comprar,
+          portal_index = excluded.portal_index,
+          qtd = excluded.qtd,
+          motivo = excluded.motivo,
+          observacao = excluded.observacao,
+          usuario = excluded.usuario,
+          atualizado_em = excluded.atualizado_em
+      `).run(
+        String(sessaoId),
+        String(ean),
+        comprar ? 1 : 0,
+        Math.max(0, Number(portalIndex) || 0),
+        Math.max(1, parseInt(qtd, 10) || 1),
+        String(motivo || ''),
+        String(obs || ''),
+        String(usuario || ''),
+        now
+      );
+      res.json({ success: true, atualizadoEm: now });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.put('/triagem-faltas/decisoes-lote', (req, res) => {
+    try {
+      const { sessaoId, decisoes, usuario } = req.body || {};
+      if (!sessaoId || !Array.isArray(decisoes)) {
+        return res.status(400).json({ success: false, error: 'sessaoId e decisoes[] são obrigatórios' });
+      }
+      const now = new Date().toISOString();
+      const stmt = db.prepare(`
+        INSERT INTO triagem_faltas_decisoes (sessao_id, ean, comprar, portal_index, qtd, motivo, observacao, usuario, atualizado_em)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(sessao_id, ean) DO UPDATE SET
+          comprar = excluded.comprar,
+          portal_index = excluded.portal_index,
+          qtd = excluded.qtd,
+          motivo = excluded.motivo,
+          observacao = excluded.observacao,
+          usuario = excluded.usuario,
+          atualizado_em = excluded.atualizado_em
+      `);
+      const tx = db.transaction((list) => {
+        for (const d of list) {
+          if (!d?.ean) continue;
+          stmt.run(
+            String(sessaoId),
+            String(d.ean),
+            d.comprar ? 1 : 0,
+            Math.max(0, Number(d.portalIndex) || 0),
+            Math.max(1, parseInt(d.qtd, 10) || 1),
+            String(d.motivo || ''),
+            String(d.obs || ''),
+            String(usuario || ''),
+            now
+          );
+        }
+      });
+      tx(decisoes);
+      res.json({ success: true, total: decisoes.length, atualizadoEm: now });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/triagem-faltas/atualizar', async (req, res) => {
+    try {
+      const { cotarPortais = true, limiteMeds = 36, limitePerf = 30, usuario = 'Sistema' } = req.body || {};
+      const { queryDigifarma } = require('./services/digifarma.service');
+
+      const SKIP_NOISE = /POLPA MIX|POWERADE|GATORADE|HALLS|CURATIVO AVULSO|BELLIA ESMALTE|BENVIA|AGUA MINERAL|REFRIGERANTE|CHOCOLATE|BALA |CHICLETE/i;
+      const rows = await queryDigifarma(`
+        SELECT FIRST 260
+               p.PRODUTO_ID, TRIM(p.COD_BARRAS) AS EAN, TRIM(p.PRODUTO) AS PRODUTO,
+               TRIM(COALESCE(p.APRESENTACAO,'')) AS APRES,
+               p.CATEGORIA_ID, p.CLASS_MED, p.PSICOTROPICO,
+               COALESCE(p.PROD_SALDO,0) AS EST,
+               COALESCE(p.PROD_CMV,0) AS CMV,
+               COALESCE(p.VALOR_ULT_COMPRA,0) AS ULT,
+               COALESCE(p.PROD_PRVENDA,0) AS PRVENDA,
+               COALESCE(s30.Q30, 0) AS V30,
+               COALESCE(s90.Q90, 0) AS V90
+        FROM PRODUTOS p
+        LEFT JOIN (
+          SELECT iv.PRODUTO_ID, SUM(iv.ITEMVEND_QUANT) AS Q30
+          FROM ITEM_VENDAS iv JOIN CAB_VENDAS cv ON cv.VENDA_NOTA_ID = iv.VENDA_NOTA_ID
+          WHERE cv.CANCELADO <> 'S' AND cv.VENDA_DATA_HORA >= CURRENT_DATE - 30
+          GROUP BY iv.PRODUTO_ID
+        ) s30 ON s30.PRODUTO_ID = p.PRODUTO_ID
+        LEFT JOIN (
+          SELECT iv.PRODUTO_ID, SUM(iv.ITEMVEND_QUANT) AS Q90
+          FROM ITEM_VENDAS iv JOIN CAB_VENDAS cv ON cv.VENDA_NOTA_ID = iv.VENDA_NOTA_ID
+          WHERE cv.CANCELADO <> 'S' AND cv.VENDA_DATA_HORA >= CURRENT_DATE - 90
+          GROUP BY iv.PRODUTO_ID
+        ) s90 ON s90.PRODUTO_ID = p.PRODUTO_ID
+        WHERE CHAR_LENGTH(TRIM(COALESCE(p.COD_BARRAS,''))) BETWEEN 8 AND 13
+          AND COALESCE(p.PROD_ATIVO, 'S') <> 'N'
+          AND (
+            (COALESCE(p.PROD_SALDO,0) <= 0 AND COALESCE(s90.Q90,0) >= 3)
+            OR (COALESCE(p.PROD_SALDO,0) <= COALESCE(s30.Q30,0) * 0.5 AND COALESCE(s30.Q30,0) >= 3)
+          )
+        ORDER BY CASE WHEN COALESCE(p.PROD_SALDO,0) <= 0 THEN 0 ELSE 1 END,
+                 COALESCE(s30.Q30,0) DESC,
+                 COALESCE(s90.Q90,0) DESC
+      `);
+
+      const meds = [];
+      const perf = [];
+      const seenEan = new Set();
+
+      for (const r of rows) {
+        const ean = String(r.EAN || '').trim();
+        if (!/^\d{8,13}$/.test(ean) || seenEan.has(ean)) continue;
+        const desc = `${r.PRODUTO || ''} ${r.APRES || ''}`.trim();
+        if (SKIP_NOISE.test(desc)) continue;
+
+        const catId = Number(r.CATEGORIA_ID || 0);
+        const classMed = Number(r.CLASS_MED || 0);
+        const isMed = [1, 2, 7].includes(catId) || [1, 2, 3].includes(classMed);
+        const isPerf = !isMed && catId === 5;
+        if (!isMed && !isPerf) continue;
+
+        const cmv = Number(r.CMV || 0);
+        const ult = Number(r.ULT || 0);
+        const refCost = (cmv > 0 && ult > 0) ? Math.min(cmv, ult) : (cmv || ult);
+        const est = Number(r.EST || 0);
+        const v30 = Number(r.V30 || 0);
+        const v90 = Number(r.V90 || 0);
+        const giroMensal = Math.max(v30, Math.ceil(v90 / 3));
+        const sug = Math.max(1, giroMensal - Math.max(0, est));
+
+        const item = {
+          ean,
+          produto: String(r.PRODUTO || '').trim(),
+          apresentacao: String(r.APRES || '').trim(),
+          tipo: isMed ? 'MEDICAMENTO' : 'PERFUMARIA',
+          subtipo: catId === 1 ? 'Referência' : catId === 2 ? 'Similar' : catId === 7 ? 'Genérico' : (isMed ? 'Medicamento' : 'Perfumaria'),
+          c1: String(r.PSICOTROPICO || '').trim() === 'S',
+          est,
+          v30,
+          v90,
+          giroMensal,
+          sug,
+          cmv: Number(cmv.toFixed(2)),
+          ult: Number(ult.toFixed(2)),
+          refCost: Number(refCost.toFixed(2)),
+          prVenda: Number(Number(r.PRVENDA || 0).toFixed(2)),
+          ofertas: []
+        };
+
+        if (isMed && meds.length < Number(limiteMeds)) {
+          seenEan.add(ean);
+          meds.push(item);
+        } else if (isPerf && perf.length < Number(limitePerf)) {
+          seenEan.add(ean);
+          perf.push(item);
+        }
+        if (meds.length >= Number(limiteMeds) && perf.length >= Number(limitePerf)) break;
+      }
+
+      const items = [...meds, ...perf];
+      garantirSessaoInicialTriagem();
+      const prevRow = db
+        .prepare('SELECT id, portais_resumo, itens_json FROM triagem_faltas_sessoes ORDER BY atualizado_em DESC LIMIT 1')
+        .get();
+      const prevOffersMap = {};
+      if (prevRow?.itens_json) {
+        for (const pi of JSON.parse(prevRow.itens_json)) {
+          prevOffersMap[pi.ean] = pi.ofertas || [];
+        }
+      }
+      const prevDecisoes = prevRow ? lerDecisoesSessao(prevRow.id) : {};
+
+      let portaisResumo = prevRow?.portais_resumo ? JSON.parse(prevRow.portais_resumo) : {};
+
+      if (cotarPortais) {
+        const puppeteer = require('puppeteer');
+        const { DistrimedRobot } = require('./belaped-robot-distrimed');
+        const { DivimedRobot } = require('./belaped-robot-divimed');
+        const MgMedicamentosRobot = require('./belaped-robot-mgmedicamentos');
+
+        const quoteOriente = async () => {
+          const browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] });
+          try {
+            const page = await browser.newPage();
+            await page.setViewport({ width: 1440, height: 900 });
+            await page.setRequestInterception(true);
+            page.on('request', (r) => {
+              const t = r.resourceType();
+              if (t === 'image' || t === 'media' || t === 'font') r.abort();
+              else r.continue();
+            });
+            await page.goto('https://pedidoweb.orientefarma.com.br/auth/login', { waitUntil: 'networkidle2', timeout: 45000 }).catch(() => {});
+            await page.waitForSelector('input#email', { timeout: 20000 });
+            await page.type('input#email', process.env.ORIENTE_USER || 'belafarmasul@gmail.com', { delay: 10 });
+            await page.type('input#senha', process.env.ORIENTE_PASS || 'Bfs@882494', { delay: 10 });
+            await page.evaluate(() => {
+              const btn = Array.from(document.querySelectorAll('button')).find(b => (b.innerText || '').trim() === 'Entrar');
+              if (btn) btn.click();
+            });
+            await new Promise(r => setTimeout(r, 3500));
+            await page.evaluate(() => {
+              const btn = Array.from(document.querySelectorAll('button')).find(b => (b.innerText || '').toLowerCase().includes('confirmar'));
+              if (btn) btn.click();
+            });
+            await new Promise(r => setTimeout(r, 2500));
+            await page.evaluate(() => {
+              const allEls = Array.from(document.querySelectorAll('div, label, li, button')).filter(
+                el => (el.innerText || '').trim().length > 0 && (el.innerText || '').trim().length < 90
+              );
+              const opt = allEls.find(d => (d.innerText || '').includes('PE ORIENTE FARMA') && (d.innerText || '').includes('96'));
+              if (opt) opt.click();
+            });
+            await new Promise(r => setTimeout(r, 600));
+            await page.evaluate(() => {
+              const btn = Array.from(document.querySelectorAll('button')).find(b => (b.innerText || '').toLowerCase().includes('confirmar'));
+              if (btn) btn.click();
+            });
+            await new Promise(r => setTimeout(r, 3000));
+            await page.goto('https://pedidoweb.orientefarma.com.br/pedidos', { waitUntil: 'networkidle2', timeout: 35000 }).catch(() => {});
+            await new Promise(r => setTimeout(r, 1200));
+
+            return await page.evaluate(async (eans) => {
+              const map = {};
+              const BATCH = 10;
+              for (let i = 0; i < eans.length; i += BATCH) {
+                const slice = eans.slice(i, i + BATCH);
+                await Promise.all(slice.map(async (ean) => {
+                  try {
+                    const url = `/api/produtos/condicao/96?codigoCliente=299103&termo=${encodeURIComponent(ean)}&pagina=1&tamanhoPagina=10&apenasComEstoque=true&ordenarPor=5&diasRetroativos=100`;
+                    const resp = await fetch(url, { credentials: 'include' });
+                    if (!resp.ok) return;
+                    const data = await resp.json();
+                    const hit = (data?.produtos || []).find(p => String(p.codigoBarras || '').trim() === ean);
+                    if (!hit) return;
+                    const estQ = hit.estoque && typeof hit.estoque.quantidade === 'number' ? hit.estoque.quantidade : 1;
+                    const niv = String(hit.nivelEstoque || '').toUpperCase();
+                    if (hit.ativo === false || estQ <= 0 || niv.includes('INDISPON') || niv.includes('ESGOTADO') || niv.includes('ZERO')) return;
+                    const pSemSt = Number(hit.precoFinal || hit.valor || 0);
+                    const pComSt = Number(hit.precoComSt || 0) > 0 ? Number(hit.precoComSt) : Number((pSemSt + Number(hit.valorSt || 0)).toFixed(2));
+                    if (pComSt > 0) {
+                      map[ean] = {
+                        portal: 'Oriente',
+                        precoSemSt: Number(pSemSt.toFixed(2)),
+                        preco: Number(pComSt.toFixed(2)),
+                        lab: String(hit.nomeFantasiaFornecedor || '').trim(),
+                        val: String(hit.dataValidade || '').slice(0, 10),
+                        linha: String(hit.descricaoLinha || '').trim()
+                      };
+                    }
+                  } catch (_) {}
+                }));
+              }
+              return map;
+            }, items.map(x => x.ean));
+          } finally {
+            await browser.close().catch(() => {});
+          }
+        };
+
+        const quoteMG = async () => {
+          const r = new MgMedicamentosRobot();
+          const map = {};
+          try {
+            await r.iniciar();
+            for (const it of items) {
+              const hit = r.catalogoPorEan.get(it.ean) || r.catalogoPorEan.get(it.ean.replace(/^0+/, ''));
+              if (!hit) continue;
+              const temEst = hit.ESTOQUE === 'SIM' || (hit.SINALESTOQUE && hit.SINALESTOQUE !== 'ZERADO');
+              if (!temEst) continue;
+              const p = parseFloat(hit.PRECO_LIQUIDO || hit.VRLIQ || hit.PRECO || 0);
+              if (p > 0) {
+                map[it.ean] = {
+                  portal: 'MG Med',
+                  precoSemSt: Number(p.toFixed(2)),
+                  preco: Number(p.toFixed(2)),
+                  lab: String(hit.NOME_FORN || '').trim(),
+                  val: String(hit.VALID_PROD || '').trim()
+                };
+              }
+            }
+            return map;
+          } finally {
+            await r.fechar().catch(() => {});
+          }
+        };
+
+        const quoteRobot = async (portalName, RobotCls) => {
+          const r = new RobotCls();
+          const map = {};
+          const deadline = Date.now() + 75000;
+          try {
+            await r.iniciar();
+            for (const it of items) {
+              if (Date.now() > deadline) break;
+              try {
+                const resC = await r.cotarEAN(it.ean, it.produto);
+                if (resC && resC.disponivel && Number(resC.preco_nf || resC.preco || 0) > 0) {
+                  const pNf = Number(resC.preco_nf || resC.preco || 0);
+                  const pLiq = Number(resC.preco_liquido || pNf);
+                  map[it.ean] = {
+                    portal: portalName,
+                    precoSemSt: Number(pLiq.toFixed(2)),
+                    preco: Number(pNf.toFixed(2)),
+                    lab: String(resC.laboratorio || '').trim()
+                  };
+                }
+              } catch (_) {}
+            }
+            return map;
+          } finally {
+            await r.fechar().catch(() => {});
+          }
+        };
+
+        const [orR, mgR, distR, divR] = await Promise.allSettled([
+          quoteOriente(),
+          quoteMG(),
+          quoteRobot('Distrimed', DistrimedRobot),
+          quoteRobot('Divimed', DivimedRobot)
+        ]);
+
+        const maps = {
+          Oriente: orR.status === 'fulfilled' ? orR.value : {},
+          'MG Med': mgR.status === 'fulfilled' ? mgR.value : {},
+          Distrimed: distR.status === 'fulfilled' ? distR.value : {},
+          Divimed: divR.status === 'fulfilled' ? divR.value : {}
+        };
+        portaisResumo = {
+          Distrimed: Object.keys(maps.Distrimed).length,
+          Oriente: Object.keys(maps.Oriente).length,
+          'MG Med': Object.keys(maps['MG Med']).length,
+          Divimed: Object.keys(maps.Divimed).length
+        };
+
+        for (const it of items) {
+          const ofertas = [];
+          for (const m of [maps.Oriente, maps.Distrimed, maps['MG Med'], maps.Divimed]) {
+            if (m[it.ean]) ofertas.push(m[it.ean]);
+          }
+          ofertas.sort((a, b) => a.preco - b.preco);
+          it.ofertas = ofertas;
+        }
+      } else {
+        for (const it of items) {
+          it.ofertas = prevOffersMap[it.ean] || [];
+        }
+      }
+
+      const now = new Date().toISOString();
+      const sessaoId = `triagem-${Date.now()}`;
+      db.prepare(
+        'INSERT INTO triagem_faltas_sessoes (id, criado_em, atualizado_em, portais_resumo, itens_json) VALUES (?, ?, ?, ?, ?)'
+      ).run(sessaoId, now, now, JSON.stringify(portaisResumo), JSON.stringify(items));
+
+      // Preserva decisoes/motivos do usuario para EANs repetidos da sessao anterior
+      const stmtDec = db.prepare(`
+        INSERT INTO triagem_faltas_decisoes (sessao_id, ean, comprar, portal_index, qtd, motivo, observacao, usuario, atualizado_em)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      const decisoes = {};
+      const txCopy = db.transaction(() => {
+        for (const it of items) {
+          const prev = prevDecisoes[it.ean];
+          if (!prev) continue;
+          // Se antes nao tinha estoque e agora tem, libera escolha automatica ao frontend
+          if (prev.motivo === 'Sem estoque nas distribuidoras cotadas' && it.ofertas.length > 0) continue;
+          const maxIdx = Math.max(0, it.ofertas.length - 1);
+          const dec = {
+            comprar: it.ofertas.length > 0 ? prev.comprar : false,
+            portalIndex: Math.min(maxIdx, prev.portalIndex || 0),
+            qtd: prev.qtd || it.sug,
+            motivo: prev.motivo || '',
+            obs: prev.obs || ''
+          };
+          decisoes[it.ean] = dec;
+          stmtDec.run(sessaoId, it.ean, dec.comprar ? 1 : 0, dec.portalIndex, dec.qtd, dec.motivo, dec.obs, String(usuario), now);
+        }
+      });
+      txCopy();
+
+      res.json({
+        success: true,
+        sessao: { id: sessaoId, criadoEm: now, atualizadoEm: now, portaisResumo, itens: items },
+        decisoes
+      });
+    } catch (err) {
+      console.error('[TriagemFaltas] Erro ao atualizar:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   return router;
 };
