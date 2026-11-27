@@ -1,9 +1,19 @@
 {
   "version": "1.2.6",
-  "commitHash": "1ece136",
-  "commitMessage": "feat(pdv): adicionar seletor rapido de bairro/canal em Entregas e Painel Gerencial de Entregas",
-  "buildTime": "27/11/2026, 12:14:01",
+  "commitHash": "ef2eec3",
+  "commitMessage": "fix(compras): mover seed da triagem para backend/seeds fora de .dockerignore e volume data",
+  "buildTime": "27/11/2026, 18:08:56",
   "recentCommits": [
+    {
+      "hash": "ef2eec3",
+      "date": "27/11/2026",
+      "message": "fix(compras): mover seed da triagem para backend/seeds fora de .dockerignore e volume data"
+    },
+    {
+      "hash": "d15e3c4",
+      "date": "27/11/2026",
+      "message": "feat(compras): adicionar tela Triagem de Faltas e Cotacao com persistencia e justificativa de exclusoes"
+    },
     {
       "hash": "1ece136",
       "date": "27/11/2026",
@@ -93,16 +103,6 @@
       "hash": "9dcc1dc",
       "date": "26/11/2026",
       "message": "feat(caderninho): aplicar acrescimo de crediario automaticamente quando compra nao for paga no mesmo dia"
-    },
-    {
-      "hash": "cfbb844",
-      "date": "25/11/2026",
-      "message": "feat(pdv): adicionar Guia Farmaceutico e posologia com IA gradual e equivalentes em estoque"
-    },
-    {
-      "hash": "5b849b2",
-      "date": "25/11/2026",
-      "message": "fix(crediario): eliminar race condition no FICHARIO (#8376), ampliar motor de unificacao e criar modal visual Belinha+Digifarma"
     }
   ]
 }

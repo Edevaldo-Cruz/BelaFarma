@@ -1,14 +1,17 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Check,
   CheckCircle2,
   ClipboardCheck,
   Copy,
   Download,
+  Filter,
   Globe,
   Loader2,
   RefreshCw,
   RotateCcw,
   Search,
+  ShoppingCart,
 } from 'lucide-react';
 import { User } from '../../types';
 import { useToast } from '../ToastContext';
@@ -65,6 +68,15 @@ interface TriagemSessaoApi {
   itens: TriagemItemRaw[];
 }
 
+interface RobotCartState {
+  emAndamento: boolean;
+  atual: number;
+  total: number;
+  sucessos: number;
+  erros: number;
+  doneMsg?: string;
+}
+
 interface Props {
   user: User;
 }
@@ -82,11 +94,42 @@ const MOTIVOS_EXCLUSAO = [
   'Outro motivo (especificar)',
 ];
 
-const PORTAL_MINIMOS: Record<string, number> = {
-  Distrimed: 350,
-  Oriente: 300,
-  'MG Med': 300,
-  Divimed: 250,
+const PORTAL_ROBOT_ENDPOINTS: Record<string, { post: string; status: string; min: number }> = {
+  Distrimed: {
+    post: '/api/belaped/importar-carrinho-distrimed',
+    status: '/api/belaped/status-carrinho-distrimed',
+    min: 350,
+  },
+  Oriente: {
+    post: '/api/belaped/montar-carrinho-oriente',
+    status: '/api/belaped/status-carrinho-oriente',
+    min: 300,
+  },
+  'MG Med': {
+    post: '/api/belaped/montar-carrinho-mgmedicamentos',
+    status: '/api/belaped/status-carrinho-mgmedicamentos',
+    min: 300,
+  },
+  Divimed: {
+    post: '/api/belaped/montar-carrinho-divimed',
+    status: '/api/belaped/status-carrinho-divimed',
+    min: 250,
+  },
+  Profarma: {
+    post: '/api/belaped/montar-carrinho-profarma',
+    status: '/api/belaped/status-carrinho-profarma',
+    min: 150,
+  },
+  Soton: {
+    post: '/api/belaped/montar-carrinho-soton',
+    status: '/api/belaped/status-carrinho-soton',
+    min: 200,
+  },
+  DPC: {
+    post: '/api/belaped/montar-carrinho-dpc',
+    status: '/api/belaped/status-carrinho-dpc',
+    min: 300,
+  },
 };
 
 const PACK_ALERT_EANS = new Set([
@@ -153,6 +196,40 @@ function buildDefaultDecisions(itens: TriagemItem[]): Record<string, TriagemDeci
   return out;
 }
 
+function attachDialogDismissFallback(dlg: HTMLDialogElement | null): () => void {
+  if (!dlg) return () => {};
+  const onClose = () => {
+    dlg.returnValue = '';
+  };
+  dlg.addEventListener('close', onClose);
+
+  if (!('closedBy' in HTMLDialogElement.prototype)) {
+    const outside = (e: PointerEvent) => {
+      const r = dlg.getBoundingClientRect();
+      return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
+    };
+    let pressedOutside = false;
+    const onDown = (e: PointerEvent) => {
+      pressedOutside = outside(e);
+    };
+    const onUp = (e: PointerEvent) => {
+      if (pressedOutside && outside(e)) {
+        dlg.returnValue = '';
+        dlg.close();
+      }
+    };
+    dlg.addEventListener('pointerdown', onDown);
+    dlg.addEventListener('pointerup', onUp);
+    return () => {
+      dlg.removeEventListener('close', onClose);
+      dlg.removeEventListener('pointerdown', onDown);
+      dlg.removeEventListener('pointerup', onUp);
+    };
+  }
+
+  return () => dlg.removeEventListener('close', onClose);
+}
+
 export const TriagemFaltasPage: React.FC<Props> = ({ user }) => {
   const { addToast } = useToast();
 
@@ -171,11 +248,15 @@ export const TriagemFaltasPage: React.FC<Props> = ({ user }) => {
 
   const [activeModalTab, setActiveModalTab] = useState<'aprovados' | 'excluidos'>('aprovados');
   const [modalInlineStatus, setModalInlineStatus] = useState<string>('');
+  const [pendingCartPortal, setPendingCartPortal] = useState<string | null>(null);
+  const [robotStates, setRobotStates] = useState<Record<string, RobotCartState>>({});
 
   const reviewDialogRef = useRef<HTMLDialogElement | null>(null);
+  const cartConfirmDialogRef = useRef<HTMLDialogElement | null>(null);
   const tbodyRef = useRef<HTMLTableSectionElement | null>(null);
   const srAnnouncerRef = useRef<HTMLDivElement | null>(null);
   const obsTimersRef = useRef<Record<string, number>>({});
+  const pollTimersRef = useRef<Record<string, number>>({});
   const announceTimerRef = useRef<number | null>(null);
   const announcedFieldRef = useRef<Element | null>(null);
   const flaggedSetRef = useRef<WeakSet<Element>>(new WeakSet());
@@ -194,7 +275,7 @@ export const TriagemFaltasPage: React.FC<Props> = ({ user }) => {
 
   const showToastSafe = useCallback(
     (msg: string, type: 'success' | 'error' | 'warning' | 'info' = 'info', durationMs = 4500) => {
-      if (reviewDialogRef.current?.open) return;
+      if (reviewDialogRef.current?.open || cartConfirmDialogRef.current?.open) return;
       addToast(msg, type, durationMs);
     },
     [addToast]
@@ -265,7 +346,7 @@ export const TriagemFaltasPage: React.FC<Props> = ({ user }) => {
     [announceError, linkError, supportsUserInvalid]
   );
 
-  // Listeners globais no tbody para sincronizar :user-invalid / aria-invalid / aria-describedby
+  // Listeners no tbody para sincronizar :user-invalid / aria-invalid / aria-describedby
   useEffect(() => {
     const tbody = tbodyRef.current;
     if (!tbody) return;
@@ -306,41 +387,16 @@ export const TriagemFaltasPage: React.FC<Props> = ({ user }) => {
     };
   }, [syncAria]);
 
-  // Fallback de light-dismiss para <dialog closedby="any">
+  // Fallbacks das duas <dialog> nativas + limpeza de timers no unmount
   useEffect(() => {
-    const dlg = reviewDialogRef.current;
-    if (!dlg) return;
-
-    const onClose = () => {
-      dlg.returnValue = '';
+    const clean1 = attachDialogDismissFallback(reviewDialogRef.current);
+    const clean2 = attachDialogDismissFallback(cartConfirmDialogRef.current);
+    return () => {
+      clean1();
+      clean2();
+      Object.values(pollTimersRef.current).forEach((id) => window.clearInterval(id));
+      Object.values(obsTimersRef.current).forEach((id) => window.clearTimeout(id));
     };
-    dlg.addEventListener('close', onClose);
-
-    if (!('closedBy' in HTMLDialogElement.prototype)) {
-      const outside = (e: PointerEvent) => {
-        const r = dlg.getBoundingClientRect();
-        return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
-      };
-      let pressedOutside = false;
-      const onDown = (e: PointerEvent) => {
-        pressedOutside = outside(e);
-      };
-      const onUp = (e: PointerEvent) => {
-        if (pressedOutside && outside(e)) {
-          dlg.returnValue = '';
-          dlg.close();
-        }
-      };
-      dlg.addEventListener('pointerdown', onDown);
-      dlg.addEventListener('pointerup', onUp);
-      return () => {
-        dlg.removeEventListener('close', onClose);
-        dlg.removeEventListener('pointerdown', onDown);
-        dlg.removeEventListener('pointerup', onUp);
-      };
-    }
-
-    return () => dlg.removeEventListener('close', onClose);
   }, []);
 
   const applyServerPayload = useCallback(
@@ -594,12 +650,7 @@ export const TriagemFaltasPage: React.FC<Props> = ({ user }) => {
     const byPortal: Record<
       string,
       { itens: Array<{ item: TriagemItem; dec: TriagemDecisao; offer: TriagemOferta; sub: number }>; total: number; un: number }
-    > = {
-      Distrimed: { itens: [], total: 0, un: 0 },
-      Oriente: { itens: [], total: 0, un: 0 },
-      'MG Med': { itens: [], total: 0, un: 0 },
-      Divimed: { itens: [], total: 0, un: 0 },
-    };
+    > = {};
 
     for (const it of items) {
       const dec = decisions[it.ean];
@@ -613,11 +664,12 @@ export const TriagemFaltasPage: React.FC<Props> = ({ user }) => {
         if (!it.packAlert && !it.cadastroAlert && it.refCost > 0) {
           totalEco += (it.refCost - offer.preco) * dec.qtd;
         }
-        if (byPortal[offer.portal]) {
-          byPortal[offer.portal].itens.push({ item: it, dec, offer, sub });
-          byPortal[offer.portal].total += sub;
-          byPortal[offer.portal].un += dec.qtd;
+        if (!byPortal[offer.portal]) {
+          byPortal[offer.portal] = { itens: [], total: 0, un: 0 };
         }
+        byPortal[offer.portal].itens.push({ item: it, dec, offer, sub });
+        byPortal[offer.portal].total += sub;
+        byPortal[offer.portal].un += dec.qtd;
       } else {
         excluidos += 1;
         if (isExcludedInvalid(it)) semMotivo += 1;
@@ -627,10 +679,48 @@ export const TriagemFaltasPage: React.FC<Props> = ({ user }) => {
     return { aprovados, totalUn, totalValor, totalEco, excluidos, semMotivo, byPortal };
   }, [decisions, getSelectedOffer, isExcludedInvalid, items]);
 
+  // Apenas distribuidoras com >= 1 produto cotado na lista atual
+  const quotedPortals = useMemo(() => {
+    const quotedCounts: Record<string, number> = {};
+    for (const it of items) {
+      const seenInItem = new Set<string>();
+      for (const o of it.ofertas) {
+        if (!o?.portal || seenInItem.has(o.portal)) continue;
+        seenInItem.add(o.portal);
+        quotedCounts[o.portal] = (quotedCounts[o.portal] || 0) + 1;
+      }
+    }
+
+    return Object.entries(quotedCounts)
+      .filter(([, cotados]) => cotados > 0)
+      .map(([portal, cotados]) => {
+        const selected = summary.byPortal[portal] || { itens: [], total: 0, un: 0 };
+        return {
+          portal,
+          cotados,
+          selecionados: selected.itens.length,
+          un: selected.un,
+          total: selected.total,
+          min: PORTAL_ROBOT_ENDPOINTS[portal]?.min ?? 0,
+          hasRobot: Boolean(PORTAL_ROBOT_ENDPOINTS[portal]),
+          itens: selected.itens,
+        };
+      })
+      .sort((a, b) => b.cotados - a.cotados || b.total - a.total);
+  }, [items, summary.byPortal]);
+
+  // Se filtro de portal apontar para portal que nao tem mais cotados apos refresh, volta a TODOS
+  useEffect(() => {
+    if (filterPortal !== 'TODOS' && !quotedPortals.some((p) => p.portal === filterPortal)) {
+      setFilterPortal('TODOS');
+    }
+  }, [filterPortal, quotedPortals]);
+
   const countsByType = useMemo(() => {
     const meds = items.filter((i) => i.tipo === 'MEDICAMENTO').length;
     const perf = items.filter((i) => i.tipo === 'PERFUMARIA').length;
-    return { total: items.length, meds, perf };
+    const cotadosTotal = items.filter((i) => i.ofertas.length > 0).length;
+    return { total: items.length, meds, perf, cotadosTotal };
   }, [items]);
 
   const visibleItems = useMemo(() => {
@@ -639,7 +729,7 @@ export const TriagemFaltasPage: React.FC<Props> = ({ user }) => {
       const offer = getSelectedOffer(it);
       if (!dec) return false;
       if (filterTipo !== 'TODOS' && it.tipo !== filterTipo) return false;
-      if (filterPortal !== 'TODOS' && (!offer || offer.portal !== filterPortal)) return false;
+      if (filterPortal !== 'TODOS' && !it.ofertas.some((o) => o.portal === filterPortal)) return false;
 
       if (filterStatus === 'COMPRAR' && !dec.comprar) return false;
       if (filterStatus === 'EXCLUIDO' && dec.comprar) return false;
@@ -665,6 +755,144 @@ export const TriagemFaltasPage: React.FC<Props> = ({ user }) => {
       return true;
     });
   }, [decisions, filterPortal, filterStatus, filterTipo, getSelectedOffer, isExcludedInvalid, items, searchTerm]);
+
+  const copyPortalText = async (portal: string, fromModal = false) => {
+    const pData = quotedPortals.find((p) => p.portal === portal);
+    if (!pData || pData.itens.length === 0) {
+      const msg = `Nenhum item selecionado na distribuidora ${portal}.`;
+      if (fromModal) setModalInlineStatus(msg);
+      else showToastSafe(msg, 'warning');
+      return;
+    }
+    const lines = [
+      `*${portal}* (${pData.itens.length} itens | ${pData.un} un | ${fmtBRL(pData.total)}):`,
+      ...pData.itens.map(
+        ({ item, dec, offer }) => `- ${item.produto} (${item.ean}) x${dec.qtd} @ ${fmtBRL(offer.preco)}`
+      ),
+    ];
+    try {
+      await navigator.clipboard.writeText(lines.join('\n'));
+      const msg = `Lista de ${portal} (${pData.itens.length} itens) copiada!`;
+      if (fromModal) setModalInlineStatus(msg);
+      else showToastSafe(msg, 'success');
+    } catch {
+      const msg = 'Não foi possível copiar automaticamente; use a revisão para baixar CSV.';
+      if (fromModal) setModalInlineStatus(msg);
+      else showToastSafe(msg, 'error');
+    }
+  };
+
+  const requestCartBuild = (portal: string) => {
+    const pData = quotedPortals.find((p) => p.portal === portal);
+    if (!pData || pData.itens.length === 0) {
+      showToastSafe(`Selecione pelo menos 1 item de ${portal} para montar o carrinho.`, 'warning');
+      return;
+    }
+    if (!PORTAL_ROBOT_ENDPOINTS[portal]) {
+      showToastSafe(`Robô de carrinho não configurado para ${portal}.`, 'warning');
+      return;
+    }
+    if (reviewDialogRef.current?.open) {
+      reviewDialogRef.current.close();
+    }
+    setPendingCartPortal(portal);
+    cartConfirmDialogRef.current?.showModal();
+  };
+
+  const startRobotPolling = useCallback(
+    (portal: string, statusUrl: string) => {
+      if (pollTimersRef.current[portal]) {
+        window.clearInterval(pollTimersRef.current[portal]);
+      }
+      pollTimersRef.current[portal] = window.setInterval(async () => {
+        try {
+          const r = await fetch(statusUrl);
+          if (!r.ok) return;
+          const d = await r.json();
+          const st = d?.status || d;
+          if (!st) return;
+          const emAndamento = Boolean(st.emAndamento);
+          setRobotStates((prev) => ({
+            ...prev,
+            [portal]: {
+              emAndamento,
+              atual: Number(st.atual || 0),
+              total: Number(st.total || prev[portal]?.total || 0),
+              sucessos: Number(st.sucessos || 0),
+              erros: Number(st.erros || 0),
+              doneMsg: !emAndamento
+                ? `Concluído: ${st.sucessos || 0} OK${Number(st.erros || 0) > 0 ? `, ${st.erros} erro(s)` : ''}`
+                : undefined,
+            },
+          }));
+          if (!emAndamento) {
+            window.clearInterval(pollTimersRef.current[portal]);
+            delete pollTimersRef.current[portal];
+            showToastSafe(
+              `Carrinho ${portal} finalizado: ${st.sucessos || 0} item(ns) incluído(s)${
+                Number(st.erros || 0) > 0 ? `, ${st.erros} erro(s)` : ''
+              }.`,
+              Number(st.erros || 0) > 0 ? 'warning' : 'success',
+              6000
+            );
+          }
+        } catch {}
+      }, 2500);
+    },
+    [showToastSafe]
+  );
+
+  const executeCartBuild = async (portal: string) => {
+    const endpoint = PORTAL_ROBOT_ENDPOINTS[portal];
+    const pData = quotedPortals.find((p) => p.portal === portal);
+    if (!endpoint || !pData || pData.itens.length === 0) return;
+
+    setRobotStates((prev) => ({
+      ...prev,
+      [portal]: { emAndamento: true, atual: 0, total: pData.itens.length, sucessos: 0, erros: 0 },
+    }));
+
+    try {
+      const payload = {
+        itens: pData.itens.map(({ item, dec, offer }) => ({
+          ean: item.ean,
+          quantidade: dec.qtd,
+          descricao: item.produto,
+          preco_unitario: offer.preco,
+          preco_1: offer.preco,
+          preco_ult_compra: item.refCost,
+        })),
+      };
+      const res = await fetch(endpoint.post, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok || data?.success === false) {
+        throw new Error(data?.message || data?.error || `HTTP ${res.status}`);
+      }
+      showToastSafe(
+        data?.message || `Robô ${portal} iniciado com ${pData.itens.length} itens.`,
+        'info',
+        5000
+      );
+      startRobotPolling(portal, endpoint.status);
+    } catch (err: any) {
+      setRobotStates((prev) => ({
+        ...prev,
+        [portal]: {
+          emAndamento: false,
+          atual: 0,
+          total: pData.itens.length,
+          sucessos: 0,
+          erros: 1,
+          doneMsg: `Erro: ${err?.message || 'falha'}`,
+        },
+      }));
+      showToastSafe(`Falha ao montar carrinho em ${portal}: ${err?.message || 'erro'}`, 'error', 6000);
+    }
+  };
 
   const handleOpenReview = () => {
     const invalidEans = items.filter(isExcludedInvalid).map((x) => x.ean);
@@ -759,10 +987,10 @@ export const TriagemFaltasPage: React.FC<Props> = ({ user }) => {
 
   const handleCopyWhatsApp = async () => {
     const lines = [`*BELAFARMA · LISTA DE COMPRAS (${new Date().toLocaleDateString('pt-BR')})*`, ''];
-    for (const [portal, d] of Object.entries(summary.byPortal)) {
-      if (!d.itens.length) continue;
-      lines.push(`*${portal}* (${d.itens.length} itens | ${fmtBRL(d.total)}):`);
-      for (const { item, dec, offer } of d.itens) {
+    for (const pData of quotedPortals) {
+      if (!pData.itens.length) continue;
+      lines.push(`*${pData.portal}* (${pData.itens.length} itens | ${fmtBRL(pData.total)}):`);
+      for (const { item, dec, offer } of pData.itens) {
         lines.push(`- ${item.produto} (${item.ean}) x${dec.qtd} @ ${fmtBRL(offer.preco)}`);
       }
       lines.push('');
@@ -852,6 +1080,10 @@ export const TriagemFaltasPage: React.FC<Props> = ({ user }) => {
     setModalInlineStatus('Arquivo CSV baixado com sucesso.');
   };
 
+  const pendingPortalInfo = pendingCartPortal
+    ? quotedPortals.find((p) => p.portal === pendingCartPortal) || null
+    : null;
+
   return (
     <div className="space-y-4">
       <div ref={srAnnouncerRef} id="triagem-sr-announcer" aria-live="polite" className="triagem-sr-only" />
@@ -869,7 +1101,7 @@ export const TriagemFaltasPage: React.FC<Props> = ({ user }) => {
             </span>
           </div>
           <p className="text-xs text-slate-600 dark:text-slate-400">
-            Selecione o que realmente vai comprar e informe o motivo obrigatório para os itens excluídos.
+            Selecione o que realmente vai comprar, escolha a distribuidora em 1 clique e informe o motivo obrigatório para os itens excluídos.
             {atualizadoEm ? ` · Base atualizada em ${new Date(atualizadoEm).toLocaleString('pt-BR')}` : ''}
           </p>
         </div>
@@ -923,8 +1155,8 @@ export const TriagemFaltasPage: React.FC<Props> = ({ user }) => {
         </div>
       </header>
 
-      {/* Cards KPI + Mínimos */}
-      <section aria-label="Resumo da Compra e Mínimos por Distribuidora" className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-3">
+      {/* Cards KPI + 1 Card/Botões Dinâmicos para cada Distribuidora que possui produtos cotados */}
+      <section aria-label="Resumo da Compra e Distribuidoras Cotadas" className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
         <div className="bg-[var(--bf-card-bg)] border border-[var(--bf-card-border)] rounded-xl p-3.5 space-y-1 shadow-sm">
           <div className="text-xs text-slate-500 dark:text-slate-400 font-medium">Itens Aprovados</div>
           <div className="flex items-baseline justify-between gap-2">
@@ -952,115 +1184,210 @@ export const TriagemFaltasPage: React.FC<Props> = ({ user }) => {
           </div>
         </div>
 
-        {Object.entries(PORTAL_MINIMOS).map(([portal, min]) => {
-          const d = summary.byPortal[portal] || { itens: [], total: 0, un: 0 };
-          const pct = Math.min(100, Math.round((d.total / min) * 100));
-          const ok = d.total >= min;
-          const falta = Math.max(0, min - d.total);
+        {quotedPortals.map((p) => {
+          const pct = p.min > 0 ? Math.min(100, Math.round((p.total / p.min) * 100)) : 100;
+          const ok = p.min <= 0 || p.total >= p.min;
+          const falta = Math.max(0, p.min - p.total);
+          const isFiltering = filterPortal === p.portal;
+          const rState = robotStates[p.portal];
+
           return (
-            <div key={portal} className="bg-[var(--bf-card-bg)] border border-[var(--bf-card-border)] rounded-xl p-3.5 space-y-1.5 shadow-sm">
+            <div
+              key={p.portal}
+              className={`bg-[var(--bf-card-bg)] border rounded-xl p-3.5 space-y-2 shadow-sm transition-colors ${
+                isFiltering
+                  ? 'border-blue-500 ring-1 ring-blue-500/40'
+                  : 'border-[var(--bf-card-border)]'
+              }`}
+            >
               <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-bold">{portal}</span>
+                <span className="text-xs font-bold">{p.portal}</span>
                 <span
                   className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-                    d.itens.length === 0
+                    p.selecionados === 0
                       ? 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
                       : ok
                       ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
                       : 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
                   }`}
                 >
-                  {d.itens.length === 0 ? 'Sem itens' : ok ? 'Mínimo OK' : `Falta ${fmtBRL(falta)}`}
+                  {p.selecionados === 0 ? 'Sem selecionados' : ok ? 'Mínimo OK' : `Falta ${fmtBRL(falta)}`}
                 </span>
               </div>
+
               <div className="flex items-baseline justify-between gap-2">
-                <span className="text-base font-bold tabular-nums">{fmtBRL(d.total)}</span>
+                <span className="text-base font-bold tabular-nums">{fmtBRL(p.total)}</span>
                 <span className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
-                  {d.itens.length} itens · mín. {fmtBRL(min)}
+                  {p.selecionados} sel. / {p.cotados} cotados
                 </span>
               </div>
+
               <div className="w-full h-1.5 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
                 <div
-                  className={`h-full rounded-full ${ok ? 'bg-emerald-500' : 'bg-blue-600'}`}
-                  style={{ width: `${pct}%` }}
+                  className={`h-full rounded-full ${ok && p.selecionados > 0 ? 'bg-emerald-500' : 'bg-blue-600'}`}
+                  style={{ width: `${p.selecionados > 0 ? pct : 0}%` }}
                 />
+              </div>
+
+              {rState && (rState.emAndamento || rState.doneMsg) && (
+                <div className="text-xs font-medium text-blue-700 dark:text-blue-300">
+                  {rState.emAndamento
+                    ? `Montando: ${rState.atual}/${rState.total} (${rState.sucessos} OK)`
+                    : rState.doneMsg}
+                </div>
+              )}
+
+              <div className="flex items-center gap-1.5 pt-0.5">
+                <button
+                  type="button"
+                  onClick={() => setFilterPortal(isFiltering ? 'TODOS' : p.portal)}
+                  aria-pressed={isFiltering}
+                  title={`Filtrar produtos cotados na ${p.portal}`}
+                  className={`inline-flex items-center gap-1 px-2 py-1 rounded-md border text-xs font-semibold cursor-pointer ${
+                    isFiltering
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-slate-50 dark:bg-slate-800 border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  <Filter className="w-3 h-3" />
+                  {isFiltering ? 'Filtrando ✓' : `Filtrar (${p.cotados})`}
+                </button>
+
+                {p.hasRobot && (
+                  <button
+                    type="button"
+                    disabled={p.selecionados === 0 || Boolean(rState?.emAndamento)}
+                    onClick={() => requestCartBuild(p.portal)}
+                    title={`Enviar ${p.selecionados} item(ns) aprovado(s) para o carrinho da ${p.portal}`}
+                    className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed"
+                  >
+                    {rState?.emAndamento ? (
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <ShoppingCart className="w-3 h-3" />
+                    )}
+                    Carrinho
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  disabled={p.selecionados === 0}
+                  onClick={() => copyPortalText(p.portal, false)}
+                  title={`Copiar pedido da ${p.portal}`}
+                  aria-label={`Copiar pedido da ${p.portal}`}
+                  className="inline-flex items-center justify-center p-1.5 rounded-md border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer disabled:opacity-45"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                </button>
               </div>
             </div>
           );
         })}
       </section>
 
-      {/* Filtros */}
-      <section aria-label="Filtros da lista" className="bg-[var(--bf-card-bg)] border border-[var(--bf-card-border)] rounded-xl p-3.5 flex flex-col lg:flex-row lg:items-center justify-between gap-3 shadow-sm">
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="inline-flex rounded-lg border border-slate-300 dark:border-slate-700 p-0.5 bg-slate-100 dark:bg-slate-800" role="group" aria-label="Categoria">
-            {(
-              [
-                ['TODOS', `Todos (${countsByType.total})`],
-                ['MEDICAMENTO', `Medicamentos (${countsByType.meds})`],
-                ['PERFUMARIA', `Perfumaria (${countsByType.perf})`],
-              ] as const
-            ).map(([val, label]) => (
-              <button
-                key={val}
-                type="button"
-                onClick={() => setFilterTipo(val)}
-                className={`px-3 py-1.5 rounded-md text-xs font-semibold cursor-pointer transition-colors ${
-                  filterTipo === val
-                    ? 'bg-red-600 text-white font-bold'
-                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
+      {/* Filtros + Botões de Acesso Rápido por Distribuidora Cotada */}
+      <section aria-label="Filtros da lista" className="bg-[var(--bf-card-bg)] border border-[var(--bf-card-border)] rounded-xl p-3.5 space-y-2.5 shadow-sm">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="inline-flex rounded-lg border border-slate-300 dark:border-slate-700 p-0.5 bg-slate-100 dark:bg-slate-800" role="group" aria-label="Categoria">
+              {(
+                [
+                  ['TODOS', `Todos (${countsByType.total})`],
+                  ['MEDICAMENTO', `Medicamentos (${countsByType.meds})`],
+                  ['PERFUMARIA', `Perfumaria (${countsByType.perf})`],
+                ] as const
+              ).map(([val, label]) => (
+                <button
+                  key={val}
+                  type="button"
+                  onClick={() => setFilterTipo(val)}
+                  className={`px-3 py-1.5 rounded-md text-xs font-semibold cursor-pointer transition-colors ${
+                    filterTipo === val
+                      ? 'bg-red-600 text-white font-bold'
+                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            <select
+              aria-label="Filtrar por situação"
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value)}
+              className="h-9 px-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-medium"
+            >
+              <option value="TODOS">Todas as situações</option>
+              <option value="COMPRAR">Somente selecionados p/ comprar</option>
+              <option value="EXCLUIDO">Somente excluídos (não entram)</option>
+              <option value="PENDENTE_MOTIVO">Excluídos SEM justificativa</option>
+              <option value="SEM_ESTOQUE">Sem estoque nas distribuidoras</option>
+              <option value="ECONOMIA">Mais baratos que última compra</option>
+              <option value="ALERTA">Com alerta (emb./cadastro/24-11)</option>
+            </select>
           </div>
 
-          <select
-            aria-label="Filtrar por situação"
-            value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value)}
-            className="h-9 px-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-medium"
-          >
-            <option value="TODOS">Todas as situações</option>
-            <option value="COMPRAR">Somente selecionados p/ comprar</option>
-            <option value="EXCLUIDO">Somente excluídos (não entram)</option>
-            <option value="PENDENTE_MOTIVO">Excluídos SEM justificativa</option>
-            <option value="SEM_ESTOQUE">Sem estoque nas distribuidoras</option>
-            <option value="ECONOMIA">Mais baratos que última compra</option>
-            <option value="ALERTA">Com alerta (emb./cadastro/24-11)</option>
-          </select>
-
-          <select
-            aria-label="Filtrar por distribuidora escolhida"
-            value={filterPortal}
-            onChange={(e) => setFilterPortal(e.target.value)}
-            className="h-9 px-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-medium"
-          >
-            <option value="TODOS">Todas as distribuidoras</option>
-            <option value="Distrimed">Distrimed</option>
-            <option value="Oriente">Oriente Farma</option>
-            <option value="MG Med">MG Medicamentos</option>
-            <option value="Divimed">Divimed</option>
-          </select>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative flex-1 sm:flex-initial">
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-            <input
-              type="search"
-              aria-label="Buscar por nome ou EAN"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Buscar produto, EAN ou princípio ativo..."
-              className="h-9 w-full sm:w-72 pl-8 pr-3 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs"
-            />
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative flex-1 sm:flex-initial">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="search"
+                aria-label="Buscar por nome ou EAN"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Buscar produto, EAN ou princípio ativo..."
+                className="h-9 w-full sm:w-72 pl-8 pr-3 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs"
+              />
+            </div>
+            <span className="text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap tabular-nums">
+              {visibleItems.length} de {items.length} itens visíveis
+            </span>
           </div>
-          <span className="text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap tabular-nums">
-            {visibleItems.length} de {items.length} itens visíveis
-          </span>
         </div>
+
+        {/* Pills dinâmicas: 1 botão para cada distribuidora que tem produtos cotados */}
+        {quotedPortals.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-200 dark:border-slate-800" role="group" aria-label="Filtrar por distribuidora cotada">
+            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+              Distribuidoras com produtos cotados:
+            </span>
+            <button
+              type="button"
+              aria-pressed={filterPortal === 'TODOS'}
+              onClick={() => setFilterPortal('TODOS')}
+              className={`px-2.5 py-1 rounded-full text-xs font-semibold border cursor-pointer transition-colors ${
+                filterPortal === 'TODOS'
+                  ? 'bg-slate-900 text-white border-slate-900 dark:bg-slate-100 dark:text-slate-900 dark:border-slate-100'
+                  : 'bg-slate-50 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
+              }`}
+            >
+              Todas ({countsByType.cotadosTotal} cotados)
+            </button>
+            {quotedPortals.map((p) => {
+              const active = filterPortal === p.portal;
+              return (
+                <button
+                  key={p.portal}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => setFilterPortal(active ? 'TODOS' : p.portal)}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border cursor-pointer transition-colors ${
+                    active
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-slate-50 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  <span>{p.portal}</span>
+                  <span className={`px-1.5 py-0.2 rounded-full text-xs tabular-nums ${active ? 'bg-blue-500 text-white' : 'bg-slate-200 dark:bg-slate-700'}`}>
+                    {p.cotados}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </section>
 
       {/* Tabela Responsiva */}
@@ -1072,7 +1399,7 @@ export const TriagemFaltasPage: React.FC<Props> = ({ user }) => {
       >
         <table className="triagem-table text-xs">
           <caption id="triagem-table-caption" className="triagem-sr-only">
-            Lista de faltas de medicamentos e perfumaria cotadas em 4 distribuidoras com decisão de compra e justificativa obrigatória para itens excluídos
+            Lista de faltas de medicamentos e perfumaria cotadas em 4 distribuidoras com seleção direta por distribuidora e justificativa obrigatória para itens excluídos
           </caption>
           <thead>
             <tr>
@@ -1085,8 +1412,8 @@ export const TriagemFaltasPage: React.FC<Props> = ({ user }) => {
               <th scope="col" className="whitespace-nowrap px-3 py-2.5 text-right w-24">
                 Últ. Compra
               </th>
-              <th scope="col" className="whitespace-nowrap px-3 py-2.5 text-left min-w-[230px]">
-                Distribuidora &amp; Preço
+              <th scope="col" className="whitespace-nowrap px-3 py-2.5 text-left min-w-[270px]">
+                Distribuidora &amp; Preço (1 clique)
               </th>
               <th scope="col" className="whitespace-nowrap px-3 py-2.5 text-right w-20">
                 Qtd 30d
@@ -1232,25 +1559,54 @@ export const TriagemFaltasPage: React.FC<Props> = ({ user }) => {
 
                     <td className="px-3 py-2.5">
                       {hasOffer && offer ? (
-                        <div className="space-y-1">
-                          <select
-                            aria-label={`Selecionar distribuidora para ${it.produto}`}
-                            value={dec.portalIndex}
-                            onChange={(e) =>
-                              updateDecision(it.ean, { portalIndex: Math.max(0, parseInt(e.target.value, 10) || 0) })
-                            }
-                            className="w-full h-8 px-2 rounded border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-medium"
+                        <div className="space-y-1.5">
+                          <div
+                            className="flex flex-wrap gap-1.5"
+                            role="group"
+                            aria-label={`Distribuidoras cotadas para ${it.produto}`}
                           >
-                            {it.ofertas.map((o, idx) => (
-                              <option key={`${o.portal}-${idx}`} value={idx}>
-                                {o.portal} · {fmtBRL(o.preco)}
-                                {o.lab ? ` (${o.lab})` : ''}
-                              </option>
-                            ))}
-                          </select>
+                            {it.ofertas.map((o, idx) => {
+                              const isSelected = dec.comprar && idx === dec.portalIndex;
+                              const isHighlightedFilter = filterPortal !== 'TODOS' && o.portal === filterPortal;
+                              const tooltip = [
+                                o.portal,
+                                fmtBRL(o.preco),
+                                o.precoSemSt && o.precoSemSt !== o.preco ? `s/ ST ${fmtBRL(o.precoSemSt)}` : '',
+                                o.lab || '',
+                                o.val ? `Val ${o.val}` : '',
+                              ]
+                                .filter(Boolean)
+                                .join(' · ');
+
+                              return (
+                                <button
+                                  key={`${o.portal}-${idx}`}
+                                  type="button"
+                                  aria-pressed={isSelected}
+                                  title={tooltip}
+                                  onClick={() => updateDecision(it.ean, { comprar: true, portalIndex: idx })}
+                                  className={`inline-flex items-center gap-1 px-2 py-1 rounded-md border text-xs font-semibold tabular-nums cursor-pointer transition-colors ${
+                                    isSelected
+                                      ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                                      : isHighlightedFilter
+                                      ? 'bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border-blue-400 dark:border-blue-700 hover:bg-blue-100'
+                                      : idx === 0
+                                      ? 'bg-emerald-50/70 dark:bg-emerald-950/30 text-slate-800 dark:text-slate-200 border-emerald-300 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/40'
+                                      : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'
+                                  }`}
+                                >
+                                  {isSelected && <Check className="w-3 h-3 shrink-0" />}
+                                  <span>{o.portal}</span>
+                                  <span>·</span>
+                                  <span>{fmtBRL(o.preco)}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
                           <div className="flex flex-wrap items-center gap-1.5">
                             {ecoNode}
-                            {offer.val && <span className="text-xs text-slate-500 dark:text-slate-400">Val {offer.val}</span>}
+                            {offer.lab && <span className="text-xs text-slate-500 dark:text-slate-400">{offer.lab}</span>}
+                            {offer.val && <span className="text-xs text-slate-500 dark:text-slate-400">· Val {offer.val}</span>}
                           </div>
                         </div>
                       ) : (
@@ -1420,20 +1776,19 @@ export const TriagemFaltasPage: React.FC<Props> = ({ user }) => {
 
         <div className="p-5 overflow-y-auto space-y-4 flex-1 text-xs">
           {activeModalTab === 'aprovados' ? (
-            Object.entries(summary.byPortal).every(([, d]) => d.itens.length === 0) ? (
+            quotedPortals.every((p) => p.itens.length === 0) ? (
               <p className="text-slate-500 py-6 text-center">Nenhum item selecionado para compra até o momento.</p>
             ) : (
-              Object.entries(summary.byPortal).map(([portal, d]) => {
-                if (!d.itens.length) return null;
-                const min = PORTAL_MINIMOS[portal];
-                const ok = d.total >= min;
+              quotedPortals.map((p) => {
+                if (!p.itens.length) return null;
+                const ok = p.min <= 0 || p.total >= p.min;
                 return (
-                  <div key={portal} className="border border-slate-200 dark:border-slate-800 rounded-xl p-3.5 bg-slate-50 dark:bg-slate-900/60 space-y-2">
+                  <div key={p.portal} className="border border-slate-200 dark:border-slate-800 rounded-xl p-3.5 bg-slate-50 dark:bg-slate-900/60 space-y-2">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="font-bold text-sm">
-                        {portal} · {d.itens.length} itens ({d.un} un)
+                        {p.portal} · {p.itens.length} itens ({p.un} un)
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <span
                           className={`px-2 py-0.5 rounded-full font-semibold ${
                             ok
@@ -1441,9 +1796,27 @@ export const TriagemFaltasPage: React.FC<Props> = ({ user }) => {
                               : 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
                           }`}
                         >
-                          {ok ? 'Mínimo atingido' : `Falta ${fmtBRL(min - d.total)} para mín. ${fmtBRL(min)}`}
+                          {ok ? 'Mínimo atingido' : `Falta ${fmtBRL(p.min - p.total)} para mín. ${fmtBRL(p.min)}`}
                         </span>
-                        <span className="font-bold text-sm tabular-nums">{fmtBRL(d.total)}</span>
+                        <span className="font-bold text-sm tabular-nums">{fmtBRL(p.total)}</span>
+                        <button
+                          type="button"
+                          onClick={() => copyPortalText(p.portal, true)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold cursor-pointer"
+                        >
+                          <Copy className="w-3 h-3" />
+                          Copiar {p.portal}
+                        </button>
+                        {p.hasRobot && (
+                          <button
+                            type="button"
+                            onClick={() => requestCartBuild(p.portal)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer"
+                          >
+                            <ShoppingCart className="w-3 h-3" />
+                            Montar Carrinho {p.portal}
+                          </button>
+                        )}
                       </div>
                     </div>
                     <div className="overflow-x-auto">
@@ -1458,7 +1831,7 @@ export const TriagemFaltasPage: React.FC<Props> = ({ user }) => {
                           </tr>
                         </thead>
                         <tbody>
-                          {d.itens.map(({ item, dec, offer, sub }) => (
+                          {p.itens.map(({ item, dec, offer, sub }) => (
                             <tr key={item.ean} className="border-b border-slate-200/70 dark:border-slate-800">
                               <td className="py-1.5 pr-2 font-mono">{item.ean}</td>
                               <td className="py-1.5 pr-2 font-medium">{item.produto}</td>
@@ -1540,6 +1913,60 @@ export const TriagemFaltasPage: React.FC<Props> = ({ user }) => {
               Baixar CSV (Excel)
             </button>
           </div>
+        </div>
+      </dialog>
+
+      {/* Modal Nativa de Confirmação para Montagem de Carrinho por Distribuidora */}
+      <dialog
+        ref={cartConfirmDialogRef}
+        className="triagem-modal triagem-modal-sm"
+        aria-labelledby="triagem-cart-confirm-title"
+        {...({ closedby: 'any' } as any)}
+      >
+        <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900">
+          <h1 id="triagem-cart-confirm-title" className="text-base font-bold">
+            Confirmar Montagem de Carrinho — {pendingCartPortal || ''}
+          </h1>
+        </div>
+        <div className="p-5 space-y-3 text-xs">
+          {pendingPortalInfo && (
+            <>
+              <p className="leading-relaxed">
+                Você está prestes a acionar o robô da distribuidora{' '}
+                <strong>{pendingPortalInfo.portal}</strong> com{' '}
+                <strong>
+                  {pendingPortalInfo.selecionados} item(ns) ({pendingPortalInfo.un} un)
+                </strong>{' '}
+                totalizando <strong className="tabular-nums">{fmtBRL(pendingPortalInfo.total)}</strong>.
+              </p>
+              <p className="text-slate-600 dark:text-slate-400 leading-relaxed">
+                Os itens serão incluídos no carrinho aberto do portal sem finalizar o pedido, para você revisar e fechar pessoalmente.
+              </p>
+            </>
+          )}
+        </div>
+        <div className="px-5 py-3.5 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex items-center justify-end gap-2">
+          <form method="dialog" className="flex items-center gap-2">
+            <button
+              value="cancel"
+              autoFocus
+              className="px-3.5 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold cursor-pointer"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const portal = pendingCartPortal;
+                cartConfirmDialogRef.current?.close();
+                if (portal) executeCartBuild(portal);
+              }}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer"
+            >
+              <ShoppingCart className="w-3.5 h-3.5" />
+              Confirmar e Montar Carrinho
+            </button>
+          </form>
         </div>
       </dialog>
     </div>

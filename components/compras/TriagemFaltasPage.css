@@ -200,6 +200,10 @@ dialog.triagem-modal {
   box-shadow: 0 24px 48px rgba(15, 23, 42, 0.25);
 }
 
+dialog.triagem-modal.triagem-modal-sm {
+  width: min(540px, calc(100vw - 1.5rem));
+}
+
 dialog.triagem-modal[open] {
   display: flex;
   flex-direction: column;
