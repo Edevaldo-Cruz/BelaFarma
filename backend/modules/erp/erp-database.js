@@ -135,14 +135,17 @@ function initErpDatabase() {
     if (!sCols.includes('digifarma_sync_at')) db.prepare(`ALTER TABLE sales ADD COLUMN digifarma_sync_at TEXT`).run();
     if (!sCols.includes('digifarma_sync_error')) db.prepare(`ALTER TABLE sales ADD COLUMN digifarma_sync_error TEXT`).run();
 
-    // Tipo de venda: 0 = Venda Local (padrão), 1 = Entrega
+    // Tipo de venda: 0 = Venda Local (padrão), 1 = Entrega + metadados ágeis de entrega
     if (!sCols.includes('is_delivery')) db.prepare(`ALTER TABLE sales ADD COLUMN is_delivery INTEGER DEFAULT 0`).run();
+    if (!sCols.includes('delivery_neighborhood')) db.prepare(`ALTER TABLE sales ADD COLUMN delivery_neighborhood TEXT DEFAULT ''`).run();
+    if (!sCols.includes('delivery_channel')) db.prepare(`ALTER TABLE sales ADD COLUMN delivery_channel TEXT DEFAULT ''`).run();
   } catch (err) {
     console.warn('[Belinha ERP DB] Aviso ao verificar colunas sales:', err.message);
   }
 
   db.prepare(`CREATE INDEX IF NOT EXISTS idx_sales_digifarma_sync ON sales (digifarma_sync_status)`).run();
   db.prepare(`CREATE INDEX IF NOT EXISTS idx_sales_delivery ON sales (is_delivery)`).run();
+  db.prepare(`CREATE INDEX IF NOT EXISTS idx_sales_delivery_neighborhood ON sales (delivery_neighborhood)`).run();
 
   db.prepare(`CREATE INDEX IF NOT EXISTS idx_sales_date ON sales (sale_date)`).run();
   db.prepare(`CREATE INDEX IF NOT EXISTS idx_sales_status ON sales (status)`).run();

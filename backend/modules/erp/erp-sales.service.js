@@ -532,9 +532,289 @@ function obterVendasBelinhaLive(businessDayStart) {
   }
 }
 
+const DEFAULT_JF_NEIGHBORHOODS = [
+  'Ipiranga',
+  'Santa Luzia',
+  'São Mateus',
+  'Cascatinha',
+  'Teixeiras',
+  'Santa Efigênia',
+  'Jardim Gaúcho',
+  'Sagrado Coração',
+  'Bom Pastor',
+  'Centro',
+  'Bela Aurora',
+  'Alto dos Passos',
+  'Estrela Sul',
+  'Graminha',
+  'Vila Ideal',
+  'Olavo Costa',
+  'Cruzeiro do Sul',
+  'São Geraldo',
+  'Santa Cecília',
+  'Mundo Novo'
+];
+
+/**
+ * Retorna os bairros mais pedidos (para botões de 1 clique no PDV) + lista completa para autocomplete.
+ * Combina vendas do PDV (sales.delivery_neighborhood), entregas WhatsApp (deliveries.neighborhood)
+ * e lista padrão da região Zona Sul de Juiz de Fora.
+ */
+function obterBairrosMaisPedidos(topLimit = 8) {
+  const countsMap = new Map();
+  const displayMap = new Map();
+
+  const register = (rawName, weight = 1) => {
+    const clean = String(rawName || '').trim().replace(/\s+/g, ' ');
+    if (!clean || clean.length < 2) return;
+    if (/^(n[aã]o informado|balc[aã]o|sem bairro|null|undefined|-)$/i.test(clean)) return;
+    const key = clean.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+    if (!displayMap.has(key)) displayMap.set(key, clean);
+    countsMap.set(key, (countsMap.get(key) || 0) + weight);
+  };
+
+  try {
+    const salesRows = db.prepare(`
+      SELECT delivery_neighborhood AS bairro, COUNT(*) AS qtd
+      FROM sales
+      WHERE is_delivery = 1
+        AND status = 'CONCLUIDA'
+        AND delivery_neighborhood IS NOT NULL
+        AND TRIM(delivery_neighborhood) != ''
+      GROUP BY TRIM(delivery_neighborhood)
+    `).all();
+    for (const r of salesRows) register(r.bairro, Number(r.qtd || 0) * 2);
+  } catch (_) {}
+
+  try {
+    const delivRows = db.prepare(`
+      SELECT neighborhood AS bairro, COUNT(*) AS qtd
+      FROM deliveries
+      WHERE neighborhood IS NOT NULL AND TRIM(neighborhood) != ''
+      GROUP BY TRIM(neighborhood)
+    `).all();
+    for (const r of delivRows) register(r.bairro, Number(r.qtd || 0));
+  } catch (_) {}
+
+  // Garante bairros padrão no catálogo (peso 0 para só entrar no top se ainda não houver histórico suficiente)
+  for (const def of DEFAULT_JF_NEIGHBORHOODS) {
+    register(def, 0);
+  }
+
+  const ranked = Array.from(countsMap.entries())
+    .map(([key, score]) => ({ name: displayMap.get(key), score }))
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      const idxA = DEFAULT_JF_NEIGHBORHOODS.findIndex(d => d.toUpperCase() === a.name.toUpperCase());
+      const idxB = DEFAULT_JF_NEIGHBORHOODS.findIndex(d => d.toUpperCase() === b.name.toUpperCase());
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+      if (idxA !== -1) return -1;
+      if (idxB !== -1) return 1;
+      return a.name.localeCompare(b.name, 'pt-BR');
+    });
+
+  return {
+    topNeighborhoods: ranked.slice(0, topLimit).map(r => r.name),
+    allNeighborhoods: ranked.map(r => r.name)
+  };
+}
+
+/**
+ * Painel Analítico Gerencial de Entregas:
+ * - Comparativo Venda Local vs Entrega (qtd, faturamento, %, ticket médio)
+ * - Ranking por Bairro (qtd, faturamento, ticket médio, %)
+ * - Horários de Pico (07h-22h) e Dias da Semana (Dom-Sáb)
+ * - Desempenho por Canal (WhatsApp, Telefone, Balcão, iFood) e Forma de Pagamento
+ * - Top 15 Produtos mais pedidos em Entregas
+ * - Lista detalhada das entregas do período
+ */
+function obterRelatorioAnaliticoEntregas({ dataInicio, dataFim } = {}) {
+  const today = getLocalDateStr();
+  const start = dataInicio || today;
+  const end = dataFim || start;
+
+  const round2 = v => Math.round((Number(v) || 0) * 100) / 100;
+
+  const salesRows = db.prepare(`
+    SELECT
+      s.id,
+      s.sale_date,
+      s.sale_time,
+      s.total_value,
+      s.discount_value,
+      s.payment_method,
+      s.customer_name,
+      s.seller_name,
+      s.user_name,
+      COALESCE(s.is_delivery, 0) AS is_delivery,
+      COALESCE(NULLIF(TRIM(s.delivery_neighborhood), ''), 'Não Informado') AS delivery_neighborhood,
+      COALESCE(NULLIF(TRIM(s.delivery_channel), ''), 'WHATSAPP') AS delivery_channel,
+      (SELECT COALESCE(SUM(quantity), 0) FROM sale_items WHERE sale_id = s.id) AS total_units
+    FROM sales s
+    WHERE s.status = 'CONCLUIDA'
+      AND s.sale_date BETWEEN ? AND ?
+    ORDER BY s.sale_date DESC, s.sale_time DESC
+  `).all(start, end);
+
+  const deliveryRows = salesRows.filter(r => Number(r.is_delivery) === 1);
+  const localRows = salesRows.filter(r => Number(r.is_delivery) === 0);
+
+  const delivTotal = round2(deliveryRows.reduce((a, r) => a + Number(r.total_value || 0), 0));
+  const localTotal = round2(localRows.reduce((a, r) => a + Number(r.total_value || 0), 0));
+  const grandTotal = round2(delivTotal + localTotal);
+
+  const delivCount = deliveryRows.length;
+  const localCount = localRows.length;
+  const grandCount = salesRows.length;
+
+  // 1. Ranking por Bairro
+  const bairroMap = new Map();
+  for (const r of deliveryRows) {
+    const b = r.delivery_neighborhood || 'Não Informado';
+    const cur = bairroMap.get(b) || { neighborhood: b, count: 0, total: 0, units: 0 };
+    cur.count += 1;
+    cur.total = round2(cur.total + Number(r.total_value || 0));
+    cur.units += Number(r.total_units || 0);
+    bairroMap.set(b, cur);
+  }
+  const byNeighborhood = Array.from(bairroMap.values())
+    .map(b => ({
+      ...b,
+      avgTicket: b.count > 0 ? round2(b.total / b.count) : 0,
+      shareCountPct: delivCount > 0 ? round2((b.count / delivCount) * 100) : 0,
+      shareRevenuePct: delivTotal > 0 ? round2((b.total / delivTotal) * 100) : 0
+    }))
+    .sort((a, b) => b.count - a.count || b.total - a.total);
+
+  // 2. Horários de Pico (07h às 21h)
+  const hourMap = new Map();
+  for (let h = 7; h <= 21; h++) {
+    const label = `${String(h).padStart(2, '0')}h`;
+    hourMap.set(h, { hour: h, label, count: 0, total: 0 });
+  }
+  for (const r of deliveryRows) {
+    const h = parseInt(String(r.sale_time || '12:00').slice(0, 2), 10);
+    if (!Number.isNaN(h)) {
+      const bucket = hourMap.get(h) || { hour: h, label: `${String(h).padStart(2, '0')}h`, count: 0, total: 0 };
+      bucket.count += 1;
+      bucket.total = round2(bucket.total + Number(r.total_value || 0));
+      hourMap.set(h, bucket);
+    }
+  }
+  const byHour = Array.from(hourMap.values()).sort((a, b) => a.hour - b.hour);
+
+  // 3. Dias da Semana (Dom a Sáb)
+  const weekdayNames = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+  const weekdayBuckets = weekdayNames.map((label, day) => ({ day, label, count: 0, total: 0 }));
+  for (const r of deliveryRows) {
+    const parts = String(r.sale_date || '').split('-').map(Number);
+    if (parts.length === 3 && !parts.some(Number.isNaN)) {
+      const d = new Date(parts[0], parts[1] - 1, parts[2]);
+      const wd = d.getDay();
+      if (weekdayBuckets[wd]) {
+        weekdayBuckets[wd].count += 1;
+        weekdayBuckets[wd].total = round2(weekdayBuckets[wd].total + Number(r.total_value || 0));
+      }
+    }
+  }
+
+  // 4. Canal de Origem (WhatsApp, Telefone, Balcão, iFood)
+  const channelMap = new Map();
+  for (const r of deliveryRows) {
+    const ch = String(r.delivery_channel || 'WHATSAPP').toUpperCase();
+    const cur = channelMap.get(ch) || { channel: ch, count: 0, total: 0 };
+    cur.count += 1;
+    cur.total = round2(cur.total + Number(r.total_value || 0));
+    channelMap.set(ch, cur);
+  }
+  const byChannel = Array.from(channelMap.values())
+    .map(c => ({
+      ...c,
+      avgTicket: c.count > 0 ? round2(c.total / c.count) : 0,
+      sharePct: delivCount > 0 ? round2((c.count / delivCount) * 100) : 0
+    }))
+    .sort((a, b) => b.count - a.count || b.total - a.total);
+
+  // 5. Forma de Pagamento nas Entregas
+  const paymentMap = new Map();
+  for (const r of deliveryRows) {
+    const pm = String(r.payment_method || 'DINHEIRO').toUpperCase();
+    const cur = paymentMap.get(pm) || { method: pm, count: 0, total: 0 };
+    cur.count += 1;
+    cur.total = round2(cur.total + Number(r.total_value || 0));
+    paymentMap.set(pm, cur);
+  }
+  const byPayment = Array.from(paymentMap.values())
+    .map(p => ({
+      ...p,
+      sharePct: delivTotal > 0 ? round2((p.total / delivTotal) * 100) : 0
+    }))
+    .sort((a, b) => b.total - a.total);
+
+  // 6. Top 15 Produtos mais pedidos nas Entregas
+  const topProducts = db.prepare(`
+    SELECT
+      si.product_code AS code,
+      si.product_name AS name,
+      SUM(si.quantity) AS total_qty,
+      COUNT(DISTINCT si.sale_id) AS orders_count,
+      ROUND(SUM(si.total_price), 2) AS total_revenue
+    FROM sale_items si
+    JOIN sales s ON s.id = si.sale_id
+    WHERE s.status = 'CONCLUIDA'
+      AND COALESCE(s.is_delivery, 0) = 1
+      AND s.sale_date BETWEEN ? AND ?
+    GROUP BY si.product_code, si.product_name
+    ORDER BY total_qty DESC, total_revenue DESC
+    LIMIT 15
+  `).all(start, end);
+
+  return {
+    period: { dataInicio: start, dataFim: end },
+    comparison: {
+      delivery: {
+        count: delivCount,
+        total: delivTotal,
+        avgTicket: delivCount > 0 ? round2(delivTotal / delivCount) : 0,
+        shareCountPct: grandCount > 0 ? round2((delivCount / grandCount) * 100) : 0,
+        shareRevenuePct: grandTotal > 0 ? round2((delivTotal / grandTotal) * 100) : 0
+      },
+      local: {
+        count: localCount,
+        total: localTotal,
+        avgTicket: localCount > 0 ? round2(localTotal / localCount) : 0,
+        shareCountPct: grandCount > 0 ? round2((localCount / grandCount) * 100) : 0,
+        shareRevenuePct: grandTotal > 0 ? round2((localTotal / grandTotal) * 100) : 0
+      },
+      grandTotal,
+      grandCount
+    },
+    byNeighborhood,
+    byHour,
+    byWeekday: weekdayBuckets,
+    byChannel,
+    byPayment,
+    topProducts,
+    deliveries: deliveryRows.map(r => ({
+      id: r.id,
+      sale_date: r.sale_date,
+      sale_time: r.sale_time,
+      total_value: round2(r.total_value),
+      payment_method: r.payment_method || 'DINHEIRO',
+      customer_name: r.customer_name || 'Cliente Balcão',
+      seller_name: r.seller_name || r.user_name || 'Caixa',
+      neighborhood: r.delivery_neighborhood,
+      channel: r.delivery_channel,
+      total_units: Number(r.total_units || 0)
+    }))
+  };
+}
+
 module.exports = {
   listarVendas,
   obterVendaDetalhada,
   obterResumoCaixaDoDia,
-  obterVendasBelinhaLive
+  obterVendasBelinhaLive,
+  obterBairrosMaisPedidos,
+  obterRelatorioAnaliticoEntregas
 };

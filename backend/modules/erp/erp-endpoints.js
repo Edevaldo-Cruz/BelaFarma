@@ -36,7 +36,9 @@ const {
 const {
   listarVendas,
   obterVendaDetalhada,
-  obterResumoCaixaDoDia
+  obterResumoCaixaDoDia,
+  obterBairrosMaisPedidos,
+  obterRelatorioAnaliticoEntregas
 } = require('./erp-sales.service');
 
 const {
@@ -788,6 +790,26 @@ router.delete('/promotions/tiered/:id', async (req, res) => {
 // ==========================================
 // 3. ROTAS DE VENDAS & FECHAMENTO DIÁRIO
 // ==========================================
+router.get('/sales/delivery-neighborhoods', (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit, 10) || 8;
+    const data = obterBairrosMaisPedidos(limit);
+    res.json({ success: true, ...data });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+router.get('/sales/delivery-analytics', (req, res) => {
+  try {
+    const { dataInicio, dataFim } = req.query;
+    const data = obterRelatorioAnaliticoEntregas({ dataInicio, dataFim });
+    res.json({ success: true, data });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 router.get('/sales', (req, res) => {
   try {
     const { dataInicio, dataFim, status, paymentMethod, deliveryType, limit, offset } = req.query;

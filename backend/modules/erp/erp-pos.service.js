@@ -193,16 +193,20 @@ function registrarVenda(payload) {
     const paymentMethodSummary = payments.map(p => p.payment_method).join(', ') || 'DINHEIRO';
     const userIdVal = payload.user_id || user_name || 'caixa';
     const isDeliveryFlag = payload.is_delivery ? 1 : 0;
+    const deliveryNeighborhood = isDeliveryFlag ? String(payload.delivery_neighborhood || '').trim() : '';
+    const deliveryChannel = isDeliveryFlag ? String(payload.delivery_channel || 'WHATSAPP').trim().toUpperCase() : '';
 
     db.prepare(`
       INSERT INTO sales (
         id, sale_date, sale_time, total_items_value, discount_value, total_value,
         payment_method, customer_id, customer_name, customer_cpf, user_id, user_name,
-        seller_id, seller_name, is_delivery, status, notes, created_at
+        seller_id, seller_name, is_delivery, delivery_neighborhood, delivery_channel,
+        status, notes, created_at
       ) VALUES (
         ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?, ?, ?,
-        ?, ?, ?, 'CONCLUIDA', ?, datetime('now', 'localtime')
+        ?, ?, ?, ?, ?,
+        'CONCLUIDA', ?, datetime('now', 'localtime')
       )
     `).run(
       saleId,
@@ -220,6 +224,8 @@ function registrarVenda(payload) {
       seller_id || userIdVal,
       finalSellerName,
       isDeliveryFlag,
+      deliveryNeighborhood,
+      deliveryChannel,
       notes
     );
 

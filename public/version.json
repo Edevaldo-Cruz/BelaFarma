@@ -1,9 +1,14 @@
 {
   "version": "1.2.6",
-  "commitHash": "b0118cc",
-  "commitMessage": "feat(financeiro): adicionar termometro interativo de giro de caixa e necessidade de capital de giro no caixa inteligente",
-  "buildTime": "27/11/2026, 09:15:01",
+  "commitHash": "625fa6f",
+  "commitMessage": "feat(navigation): adicionar item direto Giro & Caixa Inteligente no menu lateral e superior",
+  "buildTime": "27/11/2026, 10:51:46",
   "recentCommits": [
+    {
+      "hash": "625fa6f",
+      "date": "27/11/2026",
+      "message": "feat(navigation): adicionar item direto Giro & Caixa Inteligente no menu lateral e superior"
+    },
     {
       "hash": "b0118cc",
       "date": "27/11/2026",
@@ -98,11 +103,6 @@
       "hash": "97d26c4",
       "date": "25/11/2026",
       "message": "feat(equivalentes): refinar motor farmaceutico, trava OUTROS (6) e edicao de categoria no Digifarma"
-    },
-    {
-      "hash": "078b2d9",
-      "date": "25/11/2026",
-      "message": "fix(crediario): regularizar venda 94471, bloquear overflow INT32 e unificar cadastros duplicados"
     }
   ]
 }
