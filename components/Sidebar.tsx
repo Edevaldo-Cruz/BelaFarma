@@ -26,6 +26,7 @@ import {
   Sun,
   Moon,
   Database,
+  PiggyBank,
   Bell,
   AlertTriangle, // Added for Devedores menu item
   FileText, // Added for Invoices
@@ -332,6 +333,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'stock', label: 'Estoque', icon: Package },
     { id: 'contas-a-pagar', label: 'Contas a Pagar', icon: Banknote },
     { id: 'financial', label: 'Gestão Financeira', icon: Landmark },
+    { id: 'caixa-inteligente', label: 'Giro & Caixa Inteligente', icon: PiggyBank },
     { id: 'financial-health', label: 'Saúde Financeira', icon: HeartPulse },
     { id: 'caixa-provisoes', label: 'Caixa & Provisões', icon: Wallet },
     { id: 'sales-report', label: 'Relatório Vendas', icon: TrendingUp },
@@ -518,6 +520,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         'crediario-report',
         'contas-a-pagar',
         'debtors-report',
+        'caixa-inteligente',
         'financial',
         'financial-health',
         'card-machines',

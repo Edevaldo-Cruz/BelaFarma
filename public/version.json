@@ -1,9 +1,14 @@
 {
   "version": "1.2.6",
-  "commitHash": "ab5cb00",
-  "commitMessage": "fix(ui): remove botao manual de atualizar saldo e exibe aviso de sincronizacao diaria MeuPluggy",
-  "buildTime": "27/11/2026, 08:40:40",
+  "commitHash": "b0118cc",
+  "commitMessage": "feat(financeiro): adicionar termometro interativo de giro de caixa e necessidade de capital de giro no caixa inteligente",
+  "buildTime": "27/11/2026, 09:15:01",
   "recentCommits": [
+    {
+      "hash": "b0118cc",
+      "date": "27/11/2026",
+      "message": "feat(financeiro): adicionar termometro interativo de giro de caixa e necessidade de capital de giro no caixa inteligente"
+    },
     {
       "hash": "ab5cb00",
       "date": "26/11/2026",
@@ -98,11 +103,6 @@
       "hash": "078b2d9",
       "date": "25/11/2026",
       "message": "fix(crediario): regularizar venda 94471, bloquear overflow INT32 e unificar cadastros duplicados"
-    },
-    {
-      "hash": "4cee7a1",
-      "date": "25/11/2026",
-      "message": "feat(crediario): sincronizacao completa de pagamentos Belinha -> Digifarma"
     }
   ]
 }
