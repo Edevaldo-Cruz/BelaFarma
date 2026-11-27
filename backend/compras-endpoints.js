@@ -1628,21 +1628,28 @@ module.exports = (db) => {
   function garantirSessaoInicialTriagem() {
     const existing = db.prepare('SELECT id FROM triagem_faltas_sessoes LIMIT 1').get();
     if (existing) return;
-    const fsLocal = require('fs');
-    const pathLocal = require('path');
-    const seedPath = pathLocal.join(__dirname, 'data', 'triagem-faltas-seed.json');
-    if (!fsLocal.existsSync(seedPath)) return;
-    const seed = JSON.parse(fsLocal.readFileSync(seedPath, 'utf8'));
-    const now = new Date().toISOString();
-    db.prepare(
-      'INSERT INTO triagem_faltas_sessoes (id, criado_em, atualizado_em, portais_resumo, itens_json) VALUES (?, ?, ?, ?, ?)'
-    ).run(
-      seed.sessaoId || '2026-11-27-inicial',
-      seed.criadoEm || now,
-      seed.criadoEm || now,
-      JSON.stringify(seed.portaisResumo || {}),
-      JSON.stringify(seed.itens || [])
-    );
+    try {
+      const fsLocal = require('fs');
+      const pathLocal = require('path');
+      const seedPath = pathLocal.join(__dirname, 'seeds', 'triagem-faltas-seed.json');
+      if (!fsLocal.existsSync(seedPath)) {
+        console.warn('[TriagemFaltas] Seed inicial não encontrado em:', seedPath);
+        return;
+      }
+      const seed = JSON.parse(fsLocal.readFileSync(seedPath, 'utf8'));
+      const now = new Date().toISOString();
+      db.prepare(
+        'INSERT INTO triagem_faltas_sessoes (id, criado_em, atualizado_em, portais_resumo, itens_json) VALUES (?, ?, ?, ?, ?)'
+      ).run(
+        seed.sessaoId || '2026-11-27-inicial',
+        seed.criadoEm || now,
+        seed.criadoEm || now,
+        JSON.stringify(seed.portaisResumo || {}),
+        JSON.stringify(seed.itens || [])
+      );
+    } catch (errSeed) {
+      console.warn('[TriagemFaltas] Erro ao carregar seed inicial:', errSeed.message);
+    }
   }
 
   function lerDecisoesSessao(sessaoId) {
@@ -1669,7 +1676,12 @@ module.exports = (db) => {
         .prepare('SELECT id, criado_em, atualizado_em, portais_resumo, itens_json FROM triagem_faltas_sessoes ORDER BY atualizado_em DESC LIMIT 1')
         .get();
       if (!row) {
-        return res.status(404).json({ success: false, error: 'Nenhuma sessão de triagem encontrada' });
+        const now = new Date().toISOString();
+        return res.json({
+          success: true,
+          sessao: { id: 'sem-sessao', criadoEm: now, atualizadoEm: now, portaisResumo: {}, itens: [] },
+          decisoes: {}
+        });
       }
       const decisoes = lerDecisoesSessao(row.id);
       res.json({
@@ -1882,7 +1894,7 @@ module.exports = (db) => {
         const MgMedicamentosRobot = require('./belaped-robot-mgmedicamentos');
 
         const quoteOriente = async () => {
-          const browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] });
+          const browser = await puppeteer.launch({ headless: true, executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined, args: ['--no-sandbox', '--disable-setuid-sandbox'] });
           try {
             const page = await browser.newPage();
             await page.setViewport({ width: 1440, height: 900 });
