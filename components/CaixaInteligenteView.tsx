@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { Boleto, FixedAccount, CashClosingRecord, User, BoletoStatus } from '../types';
 import { useToast } from './ToastContext';
+import { GiroDeCaixaSection } from './GiroDeCaixaSection';
 
 interface CaixaInteligenteViewProps {
   user?: User;
@@ -847,6 +848,15 @@ export const CaixaInteligenteView: React.FC<CaixaInteligenteViewProps> = ({
           </p>
         </div>
       </div>
+
+      {/* ─── TERMÔMETRO DE GIRO DE CAIXA & CAPITAL DE GIRO ──────────── */}
+      <GiroDeCaixaSection
+        cashClosings={cashClosings}
+        boletos={boletos}
+        fixedAccounts={fixedAccounts}
+        estoqueParado90d={1164}
+        valorParado90d={53193.52}
+      />
 
       {/* ─── SIMULADOR DE RENDIMENTO & CONTA DI ───────────────────────── */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm">

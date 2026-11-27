@@ -1,9 +1,14 @@
 {
   "version": "1.2.6",
-  "commitHash": "c4f6c49",
-  "commitMessage": "fix(bank-conciliation): adiciona sincronizacao real com feedback claro do MeuPluggy e horario do banco",
-  "buildTime": "26/11/2026, 20:02:37",
+  "commitHash": "ab5cb00",
+  "commitMessage": "fix(ui): remove botao manual de atualizar saldo e exibe aviso de sincronizacao diaria MeuPluggy",
+  "buildTime": "27/11/2026, 08:40:40",
   "recentCommits": [
+    {
+      "hash": "ab5cb00",
+      "date": "26/11/2026",
+      "message": "fix(ui): remove botao manual de atualizar saldo e exibe aviso de sincronizacao diaria MeuPluggy"
+    },
     {
       "hash": "c4f6c49",
       "date": "26/11/2026",
@@ -98,11 +103,6 @@
       "hash": "4cee7a1",
       "date": "25/11/2026",
       "message": "feat(crediario): sincronizacao completa de pagamentos Belinha -> Digifarma"
-    },
-    {
-      "hash": "371545e",
-      "date": "25/11/2026",
-      "message": "feat(marketing): plano de crescimento social, aba Isa, pagina /bio e artes com Brasil Card"
     }
   ]
 }
