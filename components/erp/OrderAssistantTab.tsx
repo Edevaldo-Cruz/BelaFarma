@@ -13,7 +13,9 @@ import {
   User as UserIcon,
   Clock,
   XCircle,
-  Package
+  Package,
+  Copy,
+  Check
 } from 'lucide-react';
 import { useToast } from '../ToastContext';
 import { imprimirComprovanteOrcamento } from '../../utils/thermalPrinter';
@@ -88,6 +90,119 @@ export const OrderAssistantTab: React.FC<OrderAssistantTabProps> = ({
   const [customerName, setCustomerName] = useState('');
   const [notes, setNotes] = useState('');
   const [isSavingQuote, setIsSavingQuote] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const copyTextToClipboard = async (text: string): Promise<boolean> => {
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch (_) {}
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      ta.style.top = '0';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      const ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      return ok;
+    } catch (_) {
+      return false;
+    }
+  };
+
+  const buildWhatsAppQuoteText = (params: {
+    shortCode?: string | number;
+    customer?: string;
+    notesText?: string;
+    items: Array<{ name: string; quantity: number; unit_price: number; total_price: number }>;
+    totalCash: number;
+    totalCred?: number;
+  }) => {
+    const fmt = (v: number) => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    const lines: string[] = [];
+    lines.push('💊 *ORÇAMENTO — DROGARIA BELA FARMA SUL*');
+    if (params.shortCode) lines.push(`📋 Orçamento: *#${params.shortCode}*`);
+    if (params.customer && params.customer.trim() && params.customer.trim().toLowerCase() !== 'balcão') {
+      lines.push(`👤 Cliente: *${params.customer.trim()}*`);
+    }
+    lines.push('');
+    lines.push('*Itens do Orçamento:*');
+    params.items.forEach((it, idx) => {
+      const sub = Number(it.total_price ?? it.quantity * it.unit_price);
+      lines.push(
+        `${idx + 1}. *${it.quantity}x* ${it.name} — ${fmt(it.unit_price)} un. = *${fmt(sub)}*`
+      );
+    });
+    lines.push('');
+    lines.push(`💰 *TOTAL À VISTA (Dinheiro/PIX/Cartão): ${fmt(params.totalCash)}*`);
+    if (params.totalCred && params.totalCred > params.totalCash + 0.01) {
+      lines.push(`📒 *No Crediário:* ${fmt(params.totalCred)}`);
+    }
+    if (params.notesText && params.notesText.trim()) {
+      lines.push(`📝 Obs: ${params.notesText.trim()}`);
+    }
+    lines.push('');
+    lines.push('_Valores sujeitos à confirmação de estoque. Podemos separar para entrega ou retirada?_ 🛵');
+    return lines.join('\n');
+  };
+
+  const handleCopyDraftWhatsApp = async () => {
+    if (draftItems.length === 0) {
+      addToast('Adicione pelo menos um item para copiar o orçamento.', 'warning');
+      return;
+    }
+    const text = buildWhatsAppQuoteText({
+      customer: customerName,
+      notesText: notes,
+      items: draftItems.map(it => ({
+        name: it.name,
+        quantity: it.quantity,
+        unit_price: it.unit_price,
+        total_price: Math.round(it.unit_price * it.quantity * 100) / 100
+      })),
+      totalCash: totals.totalCash,
+      totalCred: totals.totalCred
+    });
+    const ok = await copyTextToClipboard(text);
+    if (ok) {
+      setCopiedId('DRAFT');
+      addToast('📋 Orçamento copiado! Só colar no WhatsApp (Ctrl+V).', 'success', 2500);
+      setTimeout(() => setCopiedId(prev => (prev === 'DRAFT' ? null : prev)), 2200);
+    } else {
+      addToast('Não foi possível copiar automaticamente.', 'error');
+    }
+  };
+
+  const handleCopyPreSaleWhatsApp = async (ps: any) => {
+    const items = Array.isArray(ps?.items) ? ps.items : [];
+    const text = buildWhatsAppQuoteText({
+      shortCode: ps.short_code || String(ps.id || '').slice(-4),
+      customer: ps.customer_name || '',
+      notesText: ps.notes || '',
+      items: items.map((it: any) => ({
+        name: it.product_name || it.name || 'Produto',
+        quantity: Number(it.quantity || 1),
+        unit_price: Number(it.unit_price || 0),
+        total_price: Number(it.total_price ?? Number(it.quantity || 1) * Number(it.unit_price || 0))
+      })),
+      totalCash: Number(ps.total_value || 0)
+    });
+    const ok = await copyTextToClipboard(text);
+    if (ok) {
+      const key = String(ps.id);
+      setCopiedId(key);
+      addToast(`📋 Orçamento #${ps.short_code || key.slice(-4)} copiado para o WhatsApp!`, 'success', 2500);
+      setTimeout(() => setCopiedId(prev => (prev === key ? null : prev)), 2200);
+    } else {
+      addToast('Não foi possível copiar automaticamente.', 'error');
+    }
+  };
 
   // Busca inicial de produtos mais vendidos ao abrir a guia
   useEffect(() => {
@@ -539,25 +654,38 @@ export const OrderAssistantTab: React.FC<OrderAssistantTabProps> = ({
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                disabled={draftItems.length === 0 || isSavingQuote}
-                onClick={() => handleSaveQuote(true)}
-                className="py-2 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white font-black text-xs flex items-center justify-center gap-1.5 shadow-sm cursor-pointer"
-              >
-                <Printer className="w-4 h-4" />
-                <span>{isSavingQuote ? 'Salvando...' : 'Gerar Orçamento'}</span>
-              </button>
+            <div className="space-y-2">
               <button
                 type="button"
                 disabled={draftItems.length === 0}
-                onClick={handleConvertNow}
-                className="py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-black text-xs flex items-center justify-center gap-1.5 shadow-sm cursor-pointer"
+                onClick={handleCopyDraftWhatsApp}
+                className="w-full py-2 px-3 rounded-xl bg-teal-600 hover:bg-teal-500 disabled:opacity-40 text-white font-black text-xs flex items-center justify-center gap-1.5 shadow-sm cursor-pointer transition-colors"
+                title="Copiar orçamento formatado pronto para colar no WhatsApp"
               >
-                <ShoppingCart className="w-4 h-4" />
-                <span>Transformar em Venda</span>
+                {copiedId === 'DRAFT' ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                <span>{copiedId === 'DRAFT' ? 'Copiado para o WhatsApp!' : 'Copiar Orçamento p/ WhatsApp'}</span>
               </button>
+
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  disabled={draftItems.length === 0 || isSavingQuote}
+                  onClick={() => handleSaveQuote(true)}
+                  className="py-2 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white font-black text-xs flex items-center justify-center gap-1.5 shadow-sm cursor-pointer"
+                >
+                  <Printer className="w-4 h-4" />
+                  <span>{isSavingQuote ? 'Salvando...' : 'Gerar Orçamento'}</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={draftItems.length === 0}
+                  onClick={handleConvertNow}
+                  className="py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-black text-xs flex items-center justify-center gap-1.5 shadow-sm cursor-pointer"
+                >
+                  <ShoppingCart className="w-4 h-4" />
+                  <span>Transformar em Venda</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -605,6 +733,18 @@ export const OrderAssistantTab: React.FC<OrderAssistantTabProps> = ({
                     </div>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => handleCopyPreSaleWhatsApp(ps)}
+                      className="p-1.5 rounded-lg bg-teal-50 hover:bg-teal-100 text-teal-700 border border-teal-200 cursor-pointer"
+                      title="Copiar orçamento formatado para WhatsApp"
+                    >
+                      {copiedId === String(ps.id) ? (
+                        <Check className="w-3.5 h-3.5 text-emerald-600" />
+                      ) : (
+                        <Copy className="w-3.5 h-3.5" />
+                      )}
+                    </button>
                     <button
                       type="button"
                       onClick={() => onConvertPreSaleToSale(ps)}

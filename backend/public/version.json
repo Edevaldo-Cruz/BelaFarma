@@ -1,9 +1,19 @@
 {
   "version": "1.2.6",
-  "commitHash": "e64343e",
-  "commitMessage": "feat(financeiro): criar pagina Historico de Lancamentos e fixar Dashboard no topo do menu lateral",
-  "buildTime": "28/11/2026, 08:39:14",
+  "commitHash": "90916a8",
+  "commitMessage": "feat(triagem): pesquisa livre abrangente por termo nas 8 distribuidoras",
+  "buildTime": "28/11/2026, 11:19:07",
   "recentCommits": [
+    {
+      "hash": "90916a8",
+      "date": "28/11/2026",
+      "message": "feat(triagem): pesquisa livre abrangente por termo nas 8 distribuidoras"
+    },
+    {
+      "hash": "ce36d30",
+      "date": "28/11/2026",
+      "message": "fix(financeiro): corrigir loop infinito de recarregamento no Historico de Lancamentos"
+    },
     {
       "hash": "e64343e",
       "date": "28/11/2026",
@@ -93,16 +103,6 @@
       "hash": "261ad2c",
       "date": "26/11/2026",
       "message": "fix(ui): registra rota e categoria da tela de conciliacao bancaria no menu"
-    },
-    {
-      "hash": "7b2f41c",
-      "date": "26/11/2026",
-      "message": "feat(financeiro): adicionar Mercado Pago (Conta + Cofrinhos CDI) no Caixa Inteligente"
-    },
-    {
-      "hash": "1a09b2d",
-      "date": "26/11/2026",
-      "message": "feat(finance): adiciona tela e motor de conciliacao bancaria automatica com Itau (Rede e iFood)"
     }
   ]
 }

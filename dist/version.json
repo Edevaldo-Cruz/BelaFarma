@@ -1,9 +1,14 @@
 {
   "version": "1.2.6",
-  "commitHash": "ce36d30",
-  "commitMessage": "fix(financeiro): corrigir loop infinito de recarregamento no Historico de Lancamentos",
-  "buildTime": "28/11/2026, 09:11:33",
+  "commitHash": "90916a8",
+  "commitMessage": "feat(triagem): pesquisa livre abrangente por termo nas 8 distribuidoras",
+  "buildTime": "28/11/2026, 11:19:07",
   "recentCommits": [
+    {
+      "hash": "90916a8",
+      "date": "28/11/2026",
+      "message": "feat(triagem): pesquisa livre abrangente por termo nas 8 distribuidoras"
+    },
     {
       "hash": "ce36d30",
       "date": "28/11/2026",
@@ -98,11 +103,6 @@
       "hash": "261ad2c",
       "date": "26/11/2026",
       "message": "fix(ui): registra rota e categoria da tela de conciliacao bancaria no menu"
-    },
-    {
-      "hash": "7b2f41c",
-      "date": "26/11/2026",
-      "message": "feat(financeiro): adicionar Mercado Pago (Conta + Cofrinhos CDI) no Caixa Inteligente"
     }
   ]
 }
