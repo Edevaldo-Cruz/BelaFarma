@@ -22,7 +22,6 @@ import { useToast } from './ToastContext';
 
 interface DailyRecordsHistoryProps {
   dailyRecords: DailyRecordEntry[];
-  onRefresh?: () => Promise<void> | void;
   onNavigateToDailyRecords?: () => void;
 }
 
@@ -138,7 +137,6 @@ function formatCurrency(value: number): string {
 
 export const DailyRecordsHistory: React.FC<DailyRecordsHistoryProps> = ({
   dailyRecords,
-  onRefresh,
   onNavigateToDailyRecords,
 }) => {
   const { addToast } = useToast();
@@ -159,33 +157,35 @@ export const DailyRecordsHistory: React.FC<DailyRecordsHistoryProps> = ({
     setRecords(dailyRecords || []);
   }, [dailyRecords]);
 
-  const fetchLatestRecords = async (showFeedback = false) => {
+  const fetchLatestRecords = async (showFeedback = false, signal?: AbortSignal) => {
     setIsLoading(true);
     try {
-      const res = await fetch(`/api/daily-records?_t=${Date.now()}`);
+      const res = await fetch(`/api/daily-records?_t=${Date.now()}`, { signal });
       if (!res.ok) throw new Error('Falha ao buscar histórico de lançamentos');
       const data = await res.json();
       if (Array.isArray(data)) {
         setRecords(data);
       }
-      if (onRefresh) {
-        await onRefresh();
-      }
       if (showFeedback) {
         addToast('Histórico de lançamentos atualizado.', 'success');
       }
-    } catch (err) {
+    } catch (err: any) {
+      if (err?.name === 'AbortError') return;
       console.error('Erro ao buscar histórico de lançamentos:', err);
       if (showFeedback) {
         addToast('Não foi possível atualizar do servidor. Exibindo dados em cache.', 'warning');
       }
     } finally {
-      setIsLoading(false);
+      if (!signal?.aborted) {
+        setIsLoading(false);
+      }
     }
   };
 
   useEffect(() => {
-    fetchLatestRecords(false);
+    const controller = new AbortController();
+    fetchLatestRecords(false, controller.signal);
+    return () => controller.abort();
   }, []);
 
   const applyPreset = (preset: PeriodPreset) => {

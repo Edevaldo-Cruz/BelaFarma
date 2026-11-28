@@ -1691,7 +1691,6 @@ const App: React.FC = () => {
               {currentView === "daily-records-history" && (
                 <DailyRecordsHistory
                   dailyRecords={dailyRecords}
-                  onRefresh={fetchData}
                   onNavigateToDailyRecords={() => handleNavigate("daily-records")}
                 />
               )}

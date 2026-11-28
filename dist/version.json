@@ -1,9 +1,14 @@
 {
   "version": "1.2.6",
-  "commitHash": "84862e0",
-  "commitMessage": "feat(navigation): exibir itens do menu lateral em ordem alfabetica sem grupos",
-  "buildTime": "28/11/2026, 08:32:21",
+  "commitHash": "e64343e",
+  "commitMessage": "feat(financeiro): criar pagina Historico de Lancamentos e fixar Dashboard no topo do menu lateral",
+  "buildTime": "28/11/2026, 08:39:14",
   "recentCommits": [
+    {
+      "hash": "e64343e",
+      "date": "28/11/2026",
+      "message": "feat(financeiro): criar pagina Historico de Lancamentos e fixar Dashboard no topo do menu lateral"
+    },
     {
       "hash": "84862e0",
       "date": "28/11/2026",
@@ -98,11 +103,6 @@
       "hash": "1a09b2d",
       "date": "26/11/2026",
       "message": "feat(finance): adiciona tela e motor de conciliacao bancaria automatica com Itau (Rede e iFood)"
-    },
-    {
-      "hash": "eddd471",
-      "date": "26/11/2026",
-      "message": "fix(pdv): sincronizar e buscar COD_BARRAS_HOSPITALAR do Digifarma e priorizar produto com estoque/preco valido"
     }
   ]
 }
