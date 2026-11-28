@@ -560,7 +560,7 @@ module.exports = (db) => {
       }
 
       if (apenas_comprar === 'true' || apenas_comprar === '1') {
-        whereConditions.push(`ROUND(MAX(0, (COALESCE(e.vmd_ponderado, 0) * 7) - COALESCE(e.saldo, 0)), 1) > 0`);
+        whereConditions.push(`ROUND(MAX(0, (COALESCE(e.vmd_ponderado, 0) * 30) - COALESCE(e.saldo, 0)), 1) > 0`);
       }
 
       const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
@@ -600,7 +600,7 @@ module.exports = (db) => {
           COALESCE(e.curva_abc, 'C') as curva_abc,
           ROUND(COALESCE(e.vmd_ponderado, 0), 2) as vmd_ponderado,
           ROUND(COALESCE(e.saldo, 0) * COALESCE(NULLIF(e.custo_unitario, 0), m.preco_ofertado, 0), 2) as valor_estoque,
-          ROUND(MAX(0, (COALESCE(e.vmd_ponderado, 0) * 7) - COALESCE(e.saldo, 0)), 1) as comprar_suprir_semana,
+          ROUND(MAX(0, (COALESCE(e.vmd_ponderado, 0) * 30) - COALESCE(e.saldo, 0)), 1) as comprar_suprir_semana,
           COALESCE(NULLIF(e.custo_unitario, 0), m.preco_ofertado) as custo_unitario,
           CASE 
             WHEN ${precoUltCompraSql} > 0 
@@ -641,7 +641,7 @@ module.exports = (db) => {
         SELECT
           COUNT(*) as total_promocoes,
           SUM(CASE WHEN m.preco_ofertado < ${precoUltCompraSql} THEN 1 ELSE 0 END) as abaixo_ult_compra,
-          SUM(CASE WHEN COALESCE(e.curva_abc, 'C') = 'A' AND ROUND(MAX(0, (COALESCE(e.vmd_ponderado, 0) * 7) - COALESCE(e.saldo, 0)), 1) > 0 THEN 1 ELSE 0 END) as curva_a_comprar,
+          SUM(CASE WHEN COALESCE(e.curva_abc, 'C') = 'A' AND ROUND(MAX(0, (COALESCE(e.vmd_ponderado, 0) * 30) - COALESCE(e.saldo, 0)), 1) > 0 THEN 1 ELSE 0 END) as curva_a_comprar,
           COUNT(DISTINCT m.distribuidora) as total_distribuidoras,
           SUM(CASE WHEN DATE(COALESCE(m.data_oferta, m.created_at)) >= DATE('now', '-1 day') THEN 1 ELSE 0 END) as novas_24h
         FROM compras_oportunidades_mineradas m

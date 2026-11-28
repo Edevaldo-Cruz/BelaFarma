@@ -381,7 +381,7 @@ export const BelaPedCotacoesMatrizTab: React.FC<Props> = ({
 
           <div className="bg-[#070b14]/80 p-3 rounded-xl border border-amber-900/40">
             <span className="text-[10px] font-bold uppercase text-amber-400 block tracking-wider">
-              Economia Estimada (7d)
+              Economia Estimada (30d)
             </span>
             <span className="text-lg font-black text-amber-300 mt-0.5 block">
               {formatMoeda(resumo.economia_potencial_total)}

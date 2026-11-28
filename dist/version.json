@@ -1,9 +1,14 @@
 {
   "version": "1.2.6",
-  "commitHash": "b438af9",
-  "commitMessage": "feat(triagem): botoes para colocar selecionados da pesquisa nos carrinhos",
-  "buildTime": "28/11/2026, 15:43:09",
+  "commitHash": "ef18929",
+  "commitMessage": "feat(triagem): cruzamento com ultima compra por EAN na pesquisa livre",
+  "buildTime": "28/11/2026, 15:54:41",
   "recentCommits": [
+    {
+      "hash": "ef18929",
+      "date": "28/11/2026",
+      "message": "feat(triagem): cruzamento com ultima compra por EAN na pesquisa livre"
+    },
     {
       "hash": "b438af9",
       "date": "28/11/2026",
@@ -98,11 +103,6 @@
       "hash": "a0b1aa0",
       "date": "26/11/2026",
       "message": "fix(pdv): corrigir SQLite 500 na posologia com seed automatico, criar guia Assistente de Pedido e integrar Suprimento no Fechamento de Caixa"
-    },
-    {
-      "hash": "1c78b21",
-      "date": "26/11/2026",
-      "message": "feat(finance): unifica Conta Corrente e Conciliacao, suporta multi-banco, pagina de Alertas de Divergencia e sincroniza Saldo Conta Principal"
     }
   ]
 }

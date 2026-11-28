@@ -395,11 +395,11 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
       return true;
     });
 
-    // Ordenação estrita de Extrema Necessidade:
+    // Ordenação estrita de Extrema Necessidade (cobertura <= 30 dias):
     // P1: Curva A zerada (saldo <= 0)
     // P2: Curva B zerada (saldo <= 0)
-    // P3: Curva A com ruptura iminente (cobertura <= 7 dias)
-    // P4: Curva B com ruptura iminente (cobertura <= 7 dias)
+    // P3: Curva A com cobertura <= 30 dias
+    // P4: Curva B com cobertura <= 30 dias
     // P5: Curva C ou outros
     return lista.sort((a, b) => {
       const aPromovido = promovidosManualmente.has(a.produto_id) ? 1 : 0;
@@ -413,8 +413,8 @@ export const BelaPedDecisaoTab: React.FC<Props> = ({
 
         if (curva === 'A' && saldo <= 0) return 1000;
         if (curva === 'B' && saldo <= 0) return 800;
-        if (curva === 'A' && cob <= 7) return 600 - cob;
-        if (curva === 'B' && cob <= 7) return 400 - cob;
+        if (curva === 'A' && cob <= 30) return 600 - cob;
+        if (curva === 'B' && cob <= 30) return 400 - cob;
         if (curva === 'C' && saldo <= 0) return 200;
         return 50;
       };

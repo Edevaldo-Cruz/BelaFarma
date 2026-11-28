@@ -776,7 +776,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   BelaPed • Cotação & Carrinho Inteligente
                 </h3>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-white/30 text-white uppercase tracking-wider">
-                  1 Semana (Vendeu/Comprou)
+                  30 Dias (Abastecimento Mensal)
                 </span>
               </div>
               <p className="text-xs text-rose-100 font-medium mt-0.5">

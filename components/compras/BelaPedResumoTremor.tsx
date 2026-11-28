@@ -34,7 +34,7 @@ const BelaPedResumoTremor: React.FC<Props> = ({ faltas, totais }) => {
   return (
     <div className="dark grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
       <Card decoration="top" decorationColor="cyan" className="!bg-[#0e1626] !ring-slate-800">
-        <Text className="!text-slate-400">Total sugerido (1 semana)</Text>
+        <Text className="!text-slate-400">Total sugerido (30 dias)</Text>
         <Metric className="!text-white">{brl(kpis.total)}</Metric>
         <Text className="!text-slate-500 mt-1">{faltas.length} produtos</Text>
       </Card>

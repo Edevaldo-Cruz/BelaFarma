@@ -3,13 +3,14 @@
  * Endpoints dedicados para o BelaPed - Central de Cotação, Otimização de Carrinho e Gestão Orçamentária
  * 
  * Regras de Negócio:
- * 1. Regime "Vendeu, comprou de novo" com meta de cobertura de 1 semana (7 a 10 dias) para Curva A e B.
+ * 1. Regime "Vendeu, comprou de novo" com meta de cobertura de 1 mês (30 dias) para Curva A e B.
  * 2. REGRA MASTER: Não estourar o orçamento do mês. Se o mês estiver estourado, projeta boletos para o mês com saldo.
  * 3. Otimização de Carrinho: Menor preço líquido com validação de Pedido Mínimo e reagrupamento inteligente.
  * 4. Proteção Fiscal: Identificação e alerta de distribuidoras fora de MG (ICMS / DIFAL).
  * 5. Preparação para automação RPA em modo híbrido.
  */
 
+const DIAS_COBERTURA_COMPRA = 30;
 const express = require('express');
 const crypto = require('crypto');
 const medicamentosBuscaService = require('./services/medicamentos-busca.service');
@@ -870,7 +871,7 @@ function belapedEndpoints(db) {
       const motivos = [];
 
       const isFalta = saldo <= 0;
-      const isRupturaImediata = diasCob <= 7;
+      const isRupturaImediata = diasCob <= DIAS_COBERTURA_COMPRA;
       const isCurvaAlta = curva === 'A' || curva === 'B';
 
       if (isJaPedido) {
@@ -892,7 +893,7 @@ function belapedEndpoints(db) {
           tituloVeredito = '⭐ Recomendado: Comprar Agora';
           detalheVeredito = isFalta
             ? `Produto em falta total (0 un no estoque) com giro ativo (Curva ${curva}, ${vendas30} un/30d). Reposição urgente para não perder vendas.`
-            : `Estoque crítico para apenas ${diasCob} dias (${saldo} un restantes). Abastecimento necessário para a semana.`;
+            : `Estoque crítico para apenas ${diasCob} dias (${saldo} un restantes). Abastecimento necessário para o mês (30 dias).`;
           motivos.push(isFalta ? 'Falta total (Saldo 0)' : `Estoque crítico (${diasCob}d de cobertura)`);
           motivos.push(`Giro relevante: Curva ${curva}`);
           
@@ -910,7 +911,7 @@ function belapedEndpoints(db) {
           detalheVeredito = `Produto Curva C com saldo zerado mas sem vendas expressivas nos últimos 30 dias (${vendas30} un).`;
           motivos.push('Curva C sem histórico recente de saída');
         }
-      } else if (diasCob > 20) {
+      } else if (diasCob > 45) {
         statusVeredito = 'EVITAR';
         corVeredito = 'rose';
         tituloVeredito = 'Estoque Confortável / Não Comprar';
@@ -928,8 +929,8 @@ function belapedEndpoints(db) {
         } else {
           statusVeredito = 'AGUARDAR';
           corVeredito = 'amber';
-          tituloVeredito = 'Aguardar Próxima Semana';
-          detalheVeredito = `Estoque atende a demanda da semana (${diasCob} dias de cobertura). Monitore o preço para a próxima reposição.`;
+          tituloVeredito = 'Aguardar Próximo Ciclo';
+          detalheVeredito = `Estoque atende a demanda mensal (${diasCob} dias de cobertura). Monitore o preço para a próxima reposição.`;
           motivos.push(`Cobertura suficiente para os próximos ${diasCob} dias`);
         }
       }
@@ -952,7 +953,7 @@ function belapedEndpoints(db) {
           vmd_ponderado: vmd,
           vendas_30d: vendas30,
           is_falta: isFalta,
-          is_ruptura: diasCob <= 7
+          is_ruptura: diasCob <= DIAS_COBERTURA_COMPRA
         },
         ultima_compra: {
           preco: precoUltCompra,
@@ -1366,9 +1367,9 @@ function belapedEndpoints(db) {
 
         const diasCobertura = vmd > 0 && saldo > 0 ? Number((saldo / vmd).toFixed(1)) : (saldo <= 0 ? 0 : 99);
 
-        // REGRA DE COBERTURA: Se o estoque atual aguenta 7 dias ou mais, não precisa comprar agora
-        if (saldo > 0 && diasCobertura >= 7) continue;
-        if (r.curva_abc === 'B' && saldo > 0 && diasCobertura >= 4) continue;
+        // REGRA DE COBERTURA: Se o estoque atual aguenta 30 dias ou mais, não precisa comprar agora
+        if (saldo > 0 && diasCobertura >= DIAS_COBERTURA_COMPRA) continue;
+        if (r.curva_abc === 'B' && saldo > 0 && diasCobertura >= DIAS_COBERTURA_COMPRA) continue;
         if (r.curva_abc !== 'A' && r.curva_abc !== 'B' && saldo > 0) continue;
 
         // Se for Curva C com saldo <= 0 mas sem nenhuma venda nos últimos 6-10 meses, ignora cadastro morto
@@ -1390,7 +1391,7 @@ function belapedEndpoints(db) {
               .reduce((acc, l) => acc + l.saldo, 0);
           }
 
-          const necessidadeGrupoSemana = Math.max(2, Math.ceil(grpEq.vmdTotal * 5));
+          const necessidadeGrupoSemana = Math.max(2, Math.ceil(grpEq.vmdTotal * DIAS_COBERTURA_COMPRA));
           // Se o próprio item está zerado (ou baixo), mas a soma dos laboratórios equivalentes elegíveis na prateleira cobre a necessidade
           if (saldoElegivelGrupo > saldo && saldoElegivelGrupo >= necessidadeGrupoSemana) {
             ocultadosEquivalenteComEstoque++;
@@ -1625,8 +1626,8 @@ function belapedEndpoints(db) {
           }
         }
 
-        // Meta bruta de 1 semana (7 dias) com 15% de margem de segurança (sem somar saldo negativo virtual)
-        const necessidade7d = Math.ceil(vmd * 7 * 1.15);
+        // Meta bruta de 1 mês (30 dias) com 15% de margem de segurança (sem somar saldo negativo virtual)
+        const necessidade7d = Math.ceil(vmd * DIAS_COBERTURA_COMPRA * 1.15);
         const saldoFisico = Math.max(0, saldo);
         const qtdBruta7d = Math.max(1, necessidade7d - saldoFisico);
 
@@ -1735,16 +1736,16 @@ function belapedEndpoints(db) {
           diferencaPct = 0;
         }
 
-        // 5. EQUALIZADOR INTELIGENTE DE VOLUMES:
+        // 5. EQUALIZADOR INTELIGENTE DE VOLUMES (ABASTECIMENTO 30 DIAS):
         // - Para Esquecidos (6m) ou Curva C em ruptura: garante 1 a 2 unidades ("estoque semente") para recompor a vitrine
-        // - Para itens caros (>= R$ 35) ou de alto volume: reduz a gordura para 5 dias reais e aplica o teto máximo por item
+        // - Para itens caros (>= R$ 35): cobertura enxuta de 20 dias; demais itens: 30 dias reais
         let qtdEqualizada7d = qtdBruta7d;
         if (isEsquecido6m || r.curva_abc === 'C') {
           qtdEqualizada7d = vendasHistorico6m >= 6 ? 2 : 1;
         } else {
           let metaEnxuta = preco1 >= 35
-            ? Math.max(1, Math.ceil(vmd * 5) - saldoFisico)
-            : Math.max(1, Math.ceil(vmd * 6.5) - saldoFisico);
+            ? Math.max(1, Math.ceil(vmd * 20) - saldoFisico)
+            : Math.max(1, Math.ceil(vmd * DIAS_COBERTURA_COMPRA) - saldoFisico);
           if (tetoMaxUnidades > 0) {
             metaEnxuta = Math.min(metaEnxuta, tetoMaxUnidades);
           }
@@ -2678,8 +2679,8 @@ function belapedEndpoints(db) {
         const preco = Number(item.preco_portal);
         if (preco <= 0) continue;
         const vmd = Number(item.vmd_ponderado || 0);
-        // Quantidade sugerida: 7 dias de giro (mínimo 1 un, teto prudencial 20 un)
-        const qtdSugerida = Math.max(1, Math.min(20, Math.ceil(vmd * 7)));
+        // Quantidade sugerida: 30 dias de giro (mínimo 1 un, teto prudencial 60 un)
+        const qtdSugerida = Math.max(1, Math.min(60, Math.ceil(vmd * DIAS_COBERTURA_COMPRA)));
         const subtotal = Number((qtdSugerida * preco).toFixed(2));
 
         sugestoes.push({
@@ -3635,7 +3636,7 @@ function belapedEndpoints(db) {
               const preco = Number(item.preco_portal);
               if (preco <= 0) continue;
               const vmd = Number(item.vmd_ponderado || 0);
-              const qtdSugerida = Math.max(1, Math.min(20, Math.ceil(vmd * 7)));
+              const qtdSugerida = Math.max(1, Math.min(60, Math.ceil(vmd * DIAS_COBERTURA_COMPRA)));
               const subtotal = Number((qtdSugerida * preco).toFixed(2));
               sugsCurvaA.push({
                 ...item,
@@ -3870,10 +3871,9 @@ function belapedEndpoints(db) {
       }
       mapaPrioridadeEan[ean] = prio;
 
-      // NOVA ABORDAGEM: O robô só cota o CRÍTICO DA SEMANA (Curvas A e B com falta ou risco de ruptura <= 7 dias)
-      // e produtos solicitados sob demanda (P1 / eans explícitos). Não pesquisa mais a base inteira!
+      // O robô cota itens de Curva A e B com falta ou cobertura <= 30 dias
       if (!setDesejadosP1.has(ean) && !eansCotadosHoje.has(ean) && !eansNaoCotar.has(ean)) {
-        if (isCurvaAlta && (saldo <= 0 || diasCob <= 7)) {
+        if (isCurvaAlta && (saldo <= 0 || diasCob <= DIAS_COBERTURA_COMPRA)) {
           if (saldo <= 0) p1List.push(ean);
           else p2List.push(ean);
         }
@@ -5176,7 +5176,7 @@ function belapedEndpoints(db) {
           if (isMaisBarato) {
             totalComEconomiaGeral++;
             const vmd = Number(p.vmd_ponderado) || 0;
-            const qtdEst = Math.max(1, Math.ceil(vmd * 7));
+            const qtdEst = Math.max(1, Math.ceil(vmd * DIAS_COBERTURA_COMPRA));
             economiaPotencialTotal += economiaUnitaria * qtdEst;
           }
         }
@@ -5555,7 +5555,7 @@ function belapedEndpoints(db) {
       for (const p of produtos) {
         const vmd = Number(p.vmd_ponderado) || 0;
         const saldo = Number(p.saldo) || 0;
-        const necessidade7d = Math.ceil(vmd * 7 * 1.15);
+        const necessidade7d = Math.ceil(vmd * DIAS_COBERTURA_COMPRA * 1.15);
         let qtd = saldo <= 0 ? Math.max(1, Math.abs(saldo) + necessidade7d) : Math.max(1, necessidade7d - saldo);
         const eanExport = p.ean_final || p.ean;
         csvContent += `${eanExport};${qtd}\r\n`;
@@ -5598,7 +5598,7 @@ function belapedEndpoints(db) {
       for (const p of produtos) {
         const vmd = Number(p.vmd_ponderado) || 0;
         const saldo = Number(p.saldo) || 0;
-        const necessidade7d = Math.ceil(vmd * 7 * 1.15);
+        const necessidade7d = Math.ceil(vmd * DIAS_COBERTURA_COMPRA * 1.15);
         let qtd = saldo <= 0 ? Math.max(1, Math.abs(saldo) + necessidade7d) : Math.max(1, necessidade7d - saldo);
         const eanExport = p.ean_final || p.ean;
         csvContent += `${eanExport};${qtd}\r\n`;
@@ -6104,7 +6104,7 @@ function belapedEndpoints(db) {
         itensParaAdicionar = produtosGanhadores.map(p => {
           const vmd = Number(p.vmd_ponderado) || 0;
           const saldo = Number(p.saldo) || 0;
-          const necessidade7d = Math.ceil(vmd * 7 * 1.15);
+          const necessidade7d = Math.ceil(vmd * DIAS_COBERTURA_COMPRA * 1.15);
           const qtd = saldo <= 0 ? Math.max(1, Math.abs(saldo) + necessidade7d) : Math.max(1, necessidade7d - saldo);
           return {
             ean: p.ean,
@@ -6318,7 +6318,7 @@ function belapedEndpoints(db) {
         itensParaAdicionar = produtosGanhadores.map(p => {
           const vmd = Number(p.vmd_ponderado) || 0;
           const saldo = Number(p.saldo) || 0;
-          const necessidade7d = Math.ceil(vmd * 7 * 1.15);
+          const necessidade7d = Math.ceil(vmd * DIAS_COBERTURA_COMPRA * 1.15);
           const qtd = saldo <= 0 ? Math.max(1, Math.abs(saldo) + necessidade7d) : Math.max(1, necessidade7d - saldo);
           return {
             ean: p.ean,
@@ -6522,7 +6522,7 @@ function belapedEndpoints(db) {
       for (const p of produtos) {
         const vmd = Number(p.vmd_ponderado) || 0;
         const saldo = Number(p.saldo) || 0;
-        const necessidade7d = Math.ceil(vmd * 7 * 1.15);
+        const necessidade7d = Math.ceil(vmd * DIAS_COBERTURA_COMPRA * 1.15);
         let qtd = saldo <= 0 ? Math.max(1, Math.abs(saldo) + necessidade7d) : Math.max(1, necessidade7d - saldo);
         const eanExport = p.ean_final || p.ean;
         csvContent += `${eanExport};${qtd}\r\n`;
@@ -6595,7 +6595,7 @@ function belapedEndpoints(db) {
         itensParaAdicionar = produtos.map(p => {
           const vmd = Number(p.vmd_ponderado) || 0;
           const saldo = Number(p.saldo) || 0;
-          const necessidade7d = Math.ceil(vmd * 7 * 1.15);
+          const necessidade7d = Math.ceil(vmd * DIAS_COBERTURA_COMPRA * 1.15);
           const qtd = saldo <= 0 ? Math.max(1, Math.abs(saldo) + necessidade7d) : Math.max(1, necessidade7d - saldo);
           return {
             ean: p.ean,
@@ -6795,7 +6795,7 @@ function belapedEndpoints(db) {
         itensParaAdicionar = produtosGanhadores.map(p => {
           const vmd = Number(p.vmd_ponderado) || 0;
           const saldo = Number(p.saldo) || 0;
-          const necessidade7d = Math.ceil(vmd * 7 * 1.15);
+          const necessidade7d = Math.ceil(vmd * DIAS_COBERTURA_COMPRA * 1.15);
           const qtd = saldo <= 0 ? Math.max(1, Math.abs(saldo) + necessidade7d) : Math.max(1, necessidade7d - saldo);
           return {
             ean: p.ean,
@@ -6993,7 +6993,7 @@ function belapedEndpoints(db) {
         itensParaAdicionar = produtosGanhadores.map(p => {
           const vmd = Number(p.vmd_ponderado) || 0;
           const saldo = Number(p.saldo) || 0;
-          const necessidade7d = Math.ceil(vmd * 7 * 1.15);
+          const necessidade7d = Math.ceil(vmd * DIAS_COBERTURA_COMPRA * 1.15);
           const qtd = saldo <= 0 ? Math.max(1, Math.abs(saldo) + necessidade7d) : Math.max(1, necessidade7d - saldo);
           return {
             ean: p.ean,
@@ -7191,7 +7191,7 @@ function belapedEndpoints(db) {
         itensParaAdicionar = produtosGanhadores.map(p => {
           const vmd = Number(p.vmd_ponderado) || 0;
           const saldo = Number(p.saldo) || 0;
-          const necessidade7d = Math.ceil(vmd * 7 * 1.15);
+          const necessidade7d = Math.ceil(vmd * DIAS_COBERTURA_COMPRA * 1.15);
           const qtd = saldo <= 0 ? Math.max(1, Math.abs(saldo) + necessidade7d) : Math.max(1, necessidade7d - saldo);
           return {
             ean: p.ean,
@@ -7389,7 +7389,7 @@ function belapedEndpoints(db) {
         itensParaAdicionar = produtosGanhadores.map(p => {
           const vmd = Number(p.vmd_ponderado) || 0;
           const saldo = Number(p.saldo) || 0;
-          const necessidade7d = Math.ceil(vmd * 7 * 1.15);
+          const necessidade7d = Math.ceil(vmd * DIAS_COBERTURA_COMPRA * 1.15);
           const qtd = saldo <= 0 ? Math.max(1, Math.abs(saldo) + necessidade7d) : Math.max(1, necessidade7d - saldo);
           return {
             ean: p.ean,
@@ -8904,7 +8904,7 @@ function belapedEndpoints(db) {
         const entradas10m = Number(r.entradas_10m) || 0;
         const vendas6m = vendas60d + vendas90dIsolado + Math.max(0, vendas10m - vendas30d);
         const diasCobertura = vmd > 0 ? Math.round(saldo / vmd) : (saldo > 0 ? 999 : 0);
-        const metaUnidades7d = Math.max(1, Math.ceil(vmd * 7));
+        const metaUnidades7d = Math.max(1, Math.ceil(vmd * DIAS_COBERTURA_COMPRA));
         const eanTrim = String(r.ean || '').trim();
         const reg = (eanTrim && regrasMap[eanTrim]) || regrasMap[`ID_${r.produto_id}`] || null;
         const regDesejado = (eanTrim && avulsosMap[eanTrim]) || avulsosMap[`ID_${r.produto_id}`] || avulsosMap[String(r.descricao || '').toUpperCase().trim()] || null;
@@ -8936,32 +8936,32 @@ function belapedEndpoints(db) {
         const isCurvaCRupturaAtiva = r.curva_abc === 'C' && saldo <= 0 && (vendas30d >= 1 || isEsquecido6m);
         const precisaComprarPelaRegra = !equivComSaldo &&
           (isCurvaAB || isCurvaCRupturaAtiva || isEsquecido6m) &&
-          (saldo <= 0 || diasCobertura <= 7 || saldo < metaUnidades7d) &&
+          (saldo <= 0 || diasCobertura <= DIAS_COBERTURA_COMPRA || saldo < metaUnidades7d) &&
           !(reg && reg.nao_cotar);
 
         const jaNaCotacao = Boolean(precisaComprarPelaRegra || isAvulso);
         const labelUnidades = saldo === 1 ? '1 unidade' : `${saldo} unidades`;
 
-        // Constrói a justificativa direta e amigável de por que está ou não está indicado para compra nesta semana
+        // Constrói a justificativa direta e amigável de por que está ou não está indicado para compra neste mês
         let justificativaNaoComprar = '';
         if (isAvulso) {
           justificativaNaoComprar = `⭐ Produto gravado na sua lista de Produtos Desejados (${regDesejado.qtd_sugerida || 1} un) — já está na fila de cotação dos robôs! (Estoque atual: ${labelUnidades} • Vendas 10m: ${vendas10m} un)`;
         } else if (jaNaCotacao) {
           justificativaNaoComprar = saldo <= 0
             ? `Em ruptura (0 unidades em estoque) com histórico de ${vendas10m} un vendidas nos últimos 10 meses (${vendas30d} un em 30d • Curva ${r.curva_abc}) — já está indicado na cotação!`
-            : `Cobertura baixa: consta com ${labelUnidades} em estoque (dura apenas ${diasCobertura} dias para meta semanal de ${metaUnidades7d} un • Vendas 10m: ${vendas10m} un) — já está indicado na cotação!`;
+            : `Cobertura baixa: consta com ${labelUnidades} em estoque (dura apenas ${diasCobertura} dias para meta mensal de ${metaUnidades7d} un • Vendas 10m: ${vendas10m} un) — já está indicado na cotação!`;
         } else if (reg && reg.nao_cotar) {
           justificativaNaoComprar = `Esse produto consta com ${labelUnidades} em estoque, mas está bloqueado manualmente pela regra "Não Cotar"${reg.motivo_justificativa ? `: ${reg.motivo_justificativa}` : ''}.`;
         } else if (equivComSaldo) {
-          justificativaNaoComprar = `Esse produto consta com 0 unidades em estoque, porém a loja já possui equivalente da mesma molécula/dosagem em estoque (${equivComSaldo.descricao} com ${equivComSaldo.saldo} un) — saldo suficiente para essa semana.`;
-        } else if (saldo > 0 && (diasCobertura > 7 || saldo >= metaUnidades7d) && (vmd > 0 || vendas30d > 0 || vendas10m > 0)) {
-          justificativaNaoComprar = `Esse produto consta com ${labelUnidades} em estoque, seu saldo é suficiente para essa semana (cobre ~${diasCobertura} dias • meta semanal: ${metaUnidades7d} un • vendeu ${vendas30d} un em 30d e ${vendas10m} un em 10 meses).`;
+          justificativaNaoComprar = `Esse produto consta com 0 unidades em estoque, porém a loja já possui equivalente da mesma molécula/dosagem em estoque (${equivComSaldo.descricao} com ${equivComSaldo.saldo} un) — saldo suficiente para o mês.`;
+        } else if (saldo > 0 && (diasCobertura > DIAS_COBERTURA_COMPRA || saldo >= metaUnidades7d) && (vmd > 0 || vendas30d > 0 || vendas10m > 0)) {
+          justificativaNaoComprar = `Esse produto consta com ${labelUnidades} em estoque, seu saldo é suficiente para 30 dias (cobre ~${diasCobertura} dias • meta mensal: ${metaUnidades7d} un • vendeu ${vendas30d} un em 30d e ${vendas10m} un em 10 meses).`;
         } else if (saldo > 0 && vmd <= 0 && vendas30d === 0) {
-          justificativaNaoComprar = `Esse produto consta com ${labelUnidades} em estoque, seu saldo é suficiente para essa semana (0 vendas nos últimos 30 dias • ${vendas10m} un vendidas em 10 meses • Curva ${r.curva_abc}).`;
+          justificativaNaoComprar = `Esse produto consta com ${labelUnidades} em estoque, seu saldo é suficiente para 30 dias (0 vendas nos últimos 30 dias • ${vendas10m} un vendidas em 10 meses • Curva ${r.curva_abc}).`;
         } else if (saldo <= 0 && vendas30d === 0 && vendas10m === 0) {
           justificativaNaoComprar = `Esse produto consta com 0 unidades em estoque e não teve vendas registradas nos últimos 10 meses (Curva ${r.curva_abc}) — se desejar reativar na loja, grave em "⭐ Produtos Desejados".`;
         } else {
-          justificativaNaoComprar = `Esse produto consta com ${labelUnidades} em estoque, seu saldo é suficiente para essa semana (Vendas 30d: ${vendas30d} un • Vendas 10m: ${vendas10m} un • Curva ${r.curva_abc}).`;
+          justificativaNaoComprar = `Esse produto consta com ${labelUnidades} em estoque, seu saldo é suficiente para 30 dias (Vendas 30d: ${vendas30d} un • Vendas 10m: ${vendas10m} un • Curva ${r.curva_abc}).`;
         }
 
         const precoRef = Number(r.preco_unitario_ult_compra || r.custo_unitario || 5.0);

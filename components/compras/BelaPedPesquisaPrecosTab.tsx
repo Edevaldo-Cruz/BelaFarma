@@ -99,9 +99,9 @@ export const BelaPedPesquisaPrecosTab: React.FC<Props> = ({
 
       if (data.success && data.encontrado) {
         setResultado(data);
-        // Sugere quantidade para 1 semana baseado no VMD ou padrão 2 un
+        // Sugere quantidade para 1 mês (30 dias) baseado no VMD ou padrão 2 un
         const vmd = Number(data.estoque?.vmd_ponderado || 0);
-        const sugestao = vmd > 0 ? Math.max(1, Math.ceil(vmd * 7)) : 2;
+        const sugestao = vmd > 0 ? Math.max(1, Math.ceil(vmd * 30)) : 2;
         setQtdCompra(sugestao);
       } else {
         setResultado(null);
@@ -439,7 +439,7 @@ export const BelaPedPesquisaPrecosTab: React.FC<Props> = ({
                 <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                   resultado.estoque?.is_falta
                     ? 'bg-rose-950 text-rose-300 border border-rose-800'
-                    : resultado.estoque?.dias_cobertura <= 7
+                    : resultado.estoque?.dias_cobertura <= 30
                     ? 'bg-amber-950 text-amber-300 border border-amber-800'
                     : 'bg-emerald-950 text-emerald-300 border border-emerald-800'
                 }`}>
@@ -447,7 +447,7 @@ export const BelaPedPesquisaPrecosTab: React.FC<Props> = ({
                 </span>
               </div>
               <span className="text-[10px] text-slate-400 block">
-                Demanda semanal: ~{Math.ceil((resultado.estoque?.vmd_ponderado || 0) * 7)} un
+                Demanda mensal (30d): ~{Math.ceil((resultado.estoque?.vmd_ponderado || 0) * 30)} un
               </span>
             </div>
 

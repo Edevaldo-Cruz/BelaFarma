@@ -460,7 +460,7 @@ export const BelaPedPromocoesWhatsappTab: React.FC<Props> = ({
               }`}
             >
               <ShoppingCart className="w-3.5 h-3.5 text-amber-400" />
-              <span>Suprir 1 Semana &gt; 0</span>
+              <span>Suprir 30 Dias &gt; 0</span>
             </button>
 
             {/* Ordenação */}
@@ -475,7 +475,7 @@ export const BelaPedPromocoesWhatsappTab: React.FC<Props> = ({
                 className="bg-transparent text-white text-xs font-bold focus:outline-none cursor-pointer"
               >
                 <option value="desconto_desc" className="bg-[#0b1222] text-white">Maior Desconto (%)</option>
-                <option value="comprar_desc" className="bg-[#0b1222] text-white">Mais Necessários (7d)</option>
+                <option value="comprar_desc" className="bg-[#0b1222] text-white">Mais Necessários (30d)</option>
                 <option value="data_desc" className="bg-[#0b1222] text-white">Mais Recentes</option>
                 <option value="preco_asc" className="bg-[#0b1222] text-white">Menor Preço Ofertado</option>
                 <option value="saldo_asc" className="bg-[#0b1222] text-white">Menor Saldo Estoque</option>
@@ -529,7 +529,7 @@ export const BelaPedPromocoesWhatsappTab: React.FC<Props> = ({
                   <th className="py-3 px-3 text-center">Desconto</th>
                   <th className="py-3 px-3 text-right">Estoque Atual</th>
                   <th className="py-3 px-3 text-right">Valor em Estoque</th>
-                  <th className="py-3 px-3 text-center">Suprir 1 Sem</th>
+                  <th className="py-3 px-3 text-center">Suprir 30d</th>
                   <th className="py-3 px-3 text-center">Ações</th>
                 </tr>
               </thead>

@@ -983,14 +983,14 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
       }
       const melhorDiaNome = DIAS_SEMANA_NOMES[melhorDiaIdx];
 
-      // Cálculo da quantidade equalizada padrão de 7 dias
+      // Cálculo da quantidade equalizada padrão de 30 dias (1 mês)
       let equalizada = bruta;
       if (item.is_esquecido_6m || item.curva_abc === 'C') {
         equalizada = hist6m >= 6 ? 2 : 1;
       } else {
         let metaEnxuta = precoRef >= 35
-          ? Math.max(1, Math.ceil(vmd * 5) - saldoFisico)
-          : Math.max(1, Math.ceil(vmd * 6.5) - saldoFisico);
+          ? Math.max(1, Math.ceil(vmd * 20) - saldoFisico)
+          : Math.max(1, Math.ceil(vmd * 30) - saldoFisico);
         if (tetoMaxUnidades > 0) {
           metaEnxuta = Math.min(metaEnxuta, tetoMaxUnidades);
         }
@@ -3578,10 +3578,10 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
             </div>
           </div>
 
-          {/* Caixa de Sugestão 7d e Subtotal */}
+          {/* Caixa de Sugestão 30d e Subtotal */}
           <div className="flex items-center justify-between bg-cyan-950/30 px-3 py-2 rounded-xl border border-cyan-800/60 mb-3">
             <div>
-              <span className="text-[10px] uppercase font-bold text-cyan-300 block">Pedir (7 Dias)</span>
+              <span className="text-[10px] uppercase font-bold text-cyan-300 block">Pedir (30 Dias)</span>
               <span className="text-base font-black text-cyan-200">
                 {item.qtd_sugerida_7d} un
               </span>
@@ -4002,7 +4002,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
   ], [itensPendentesDecisaoCount, carrinhosOtimizados.length]);
 
   const modulosAvancados = useMemo(() => [
-    { id: 'faltas' as const, label: 'Lista Completa (7d)', icon: <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />, badge: faltas.length },
+    { id: 'faltas' as const, label: 'Lista Completa (30d)', icon: <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />, badge: faltas.length },
     { id: 'orcamento' as const, label: 'Radar de Orçamento', icon: <DollarSign className="w-3.5 h-3.5 text-emerald-400" />, badge: 0 },
     { id: 'relatorios' as const, label: 'Relatórios & Preços', icon: <BarChart3 className="w-3.5 h-3.5 text-purple-400" />, badge: 0 },
     { id: 'simulador' as const, label: 'Simulador de Giro', icon: <Calendar className="w-3.5 h-3.5 text-teal-400" />, badge: 0 }
@@ -4054,7 +4054,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                 </span>
               </div>
               <p className="text-[10px] text-slate-400 font-medium hidden md:block">
-                Cotações Multi-Portais • Regime Vendeu/Comprou (7d) • Trava de Orçamento
+                Cotações Multi-Portais • Abastecimento Mensal (30d) • Trava de Orçamento
               </p>
             </div>
           </div>
@@ -4766,7 +4766,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                           </span>
                         </div>
                         <p className="text-xs text-slate-300 font-medium mt-0.5">
-                          Limita o pedido para abastecer 1 semana com proteção de caixa, mantendo compras até a última semana do mês.
+                          Limita o pedido para abastecer 30 dias com proteção de caixa, mantendo compras até o fim do mês.
                         </p>
                       </div>
                     </div>
@@ -5075,9 +5075,9 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                         ? 'bg-cyan-600 text-white shadow-md'
                         : 'text-slate-400 hover:text-white'
                     }`}
-                    title="Exibe todos os produtos da matriz de 7 dias, inclusive os que ainda têm estoque e cujo melhor dia de compra é outro dia da semana"
+                    title="Exibe todos os produtos da matriz de 30 dias, inclusive os que ainda têm estoque e cujo melhor dia de compra é outro dia da semana"
                   >
-                    <span>📋 Toda a Semana ({faltas.length} itens)</span>
+                    <span>📋 Toda a Matriz (30d · {faltas.length} itens)</span>
                   </button>
                 </div>
               </div>
@@ -6661,14 +6661,14 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
                         { key: 'curva_abc', label: 'Curva', align: 'center', thClass: 'py-3 px-2.5 w-16 bg-[#09101f] text-slate-300' },
                         { key: 'saldo', label: 'Saldo', align: 'center', thClass: 'py-3 px-2.5 w-20 bg-[#09101f] text-slate-300' },
                         { key: 'dias_estoque_restante', label: 'Cobertura', align: 'center', thClass: 'py-3 px-2.5 w-20 bg-[#09101f] text-slate-300' },
-                        { key: 'qtd_sugerida_7d', label: 'Pedir 7d', align: 'center', thClass: 'py-3 px-3 w-24 bg-[#0c2135] text-cyan-300' },
+                        { key: 'qtd_sugerida_7d', label: 'Pedir 30d', align: 'center', thClass: 'py-3 px-3 w-24 bg-[#0c2135] text-cyan-300' },
                         { key: 'preco_ult_compra', label: 'Últ. Compra', align: 'right', thClass: 'py-3 px-3 w-28 bg-[#18150d] text-amber-300', title: 'Último valor unitário de compra registrado no Digifarma' },
                         { key: 'fornecedor_1', label: '1º Colocado', align: 'left', thClass: 'py-3 px-3.5 w-36 bg-[#0b1b2e] text-cyan-400' },
                         { key: 'preco_1', label: '1º Preço', align: 'right', thClass: 'py-3 px-3.5 w-28 bg-[#0b1b2e] text-cyan-300' },
                         { key: 'fornecedor_2', label: '2º Colocado', align: 'left', thClass: 'py-3 px-3.5 w-36 bg-[#0b1324] text-slate-300' },
                         { key: 'preco_2', label: '2º Preço', align: 'right', thClass: 'py-3 px-3.5 w-28 bg-[#0b1324] text-slate-300' },
                         { key: 'margem_lucro_percentual', label: 'Margem', align: 'right', thClass: 'py-3 px-3 w-20 bg-[#09101f] text-emerald-400' },
-                        { key: 'subtotal_7d', label: 'Subtotal 7d', align: 'right', thClass: 'py-3 px-3.5 w-28 bg-[#0b1324] text-white' }
+                        { key: 'subtotal_7d', label: 'Subtotal 30d', align: 'right', thClass: 'py-3 px-3.5 w-28 bg-[#0b1324] text-white' }
                       ] as const).map(col => {
                         const ativo = ordenarColuna === col.key;
                         const justify = col.align === 'right' ? 'justify-end' : col.align === 'center' ? 'justify-center' : 'justify-start';
@@ -8046,7 +8046,7 @@ export const BelaPedPortal: React.FC<BelaPedPortalProps> = ({
               <div className="p-12 text-center bg-[#0e1626] rounded-2xl border border-slate-800 text-slate-500">
                 <Sparkles className="w-8 h-8 mx-auto text-slate-600 mb-2" />
                 <p className="font-bold text-sm text-slate-300">Nenhuma cotação simulada ativa.</p>
-                <p className="text-xs text-slate-500 mt-1">Vá na aba "1. Reposição 1 Semana" e clique em "Cotar nos Portais".</p>
+                <p className="text-xs text-slate-500 mt-1">Vá na aba "1. Reposição 30 Dias" e clique em "Cotar nos Portais".</p>
               </div>
             )}
           </div>
