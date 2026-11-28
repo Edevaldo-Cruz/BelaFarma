@@ -1,9 +1,14 @@
 {
   "version": "1.2.6",
-  "commitHash": "c83e1fa",
-  "commitMessage": "feat(assistente-vendas): adicionar controle de quantidade solicitada nos cards e no orcamento",
-  "buildTime": "28/11/2026, 15:28:12",
+  "commitHash": "b438af9",
+  "commitMessage": "feat(triagem): botoes para colocar selecionados da pesquisa nos carrinhos",
+  "buildTime": "28/11/2026, 15:43:09",
   "recentCommits": [
+    {
+      "hash": "b438af9",
+      "date": "28/11/2026",
+      "message": "feat(triagem): botoes para colocar selecionados da pesquisa nos carrinhos"
+    },
     {
       "hash": "c83e1fa",
       "date": "28/11/2026",
@@ -98,11 +103,6 @@
       "hash": "1c78b21",
       "date": "26/11/2026",
       "message": "feat(finance): unifica Conta Corrente e Conciliacao, suporta multi-banco, pagina de Alertas de Divergencia e sincroniza Saldo Conta Principal"
-    },
-    {
-      "hash": "726a01f",
-      "date": "26/11/2026",
-      "message": "feat(bank-conciliation): renomeia menu, zera pendencias vencidas e adiciona rotina diaria automatica com alertas WhatsApp"
     }
   ]
 }

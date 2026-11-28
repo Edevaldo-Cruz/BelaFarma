@@ -46,6 +46,10 @@ export interface DigifarmaInfoItem {
   ult: number;
   refCost: number;
   prVenda: number;
+  ultimaCompraData?: string | null;
+  ultimaCompraFornecedor?: string | null;
+  ultimaCompraNf?: string | null;
+  ultimaCompraFonte?: string | null;
 }
 
 export interface PesquisaLivrePayload {
@@ -114,8 +118,8 @@ interface Props {
   onCopyPesquisaSelecionados: () => void;
 }
 
-type FilterMode = 'TODOS' | 'MAIS_BARATO' | 'MULTI_DIST' | 'NA_LOJA' | 'SELECIONADOS';
-type SortMode = 'MELHOR_AQUI' | 'MENOR_PRECO' | 'MAIOR_GIRO' | 'NOME_AZ';
+type FilterMode = 'TODOS' | 'MAIS_BARATO' | 'MULTI_DIST' | 'NA_LOJA' | 'ABAIXO_ULT' | 'SELECIONADOS';
+type SortMode = 'MELHOR_AQUI' | 'MAIOR_ECONOMIA' | 'MENOR_PRECO' | 'MAIOR_GIRO' | 'NOME_AZ';
 
 interface ComparisonTag {
   kind: 'sem_ean' | 'exclusivo' | 'mais_barato' | 'empate' | 'mais_caro';
@@ -133,6 +137,18 @@ const SUGESTOES_RAPIDAS = ['desodorante aerosol', 'hidratante corporal', 'adoça
 
 const fmtBRL = (val: number) =>
   Number(val || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+const fmtDataCurta = (iso?: string | null) => {
+  if (!iso) return '';
+  const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[3]}/${m[2]}/${m[1].slice(2)}`;
+  return String(iso).slice(0, 10);
+};
+
+const getBaseUltCompra = (digi: DigifarmaInfoItem | null | undefined) => {
+  if (!digi) return 0;
+  return digi.ult > 0 ? digi.ult : digi.refCost > 0 ? digi.refCost : 0;
+};
 
 export function normalizeEanChaveFront(ean: string): string {
   const dig = String(ean || '').replace(/\D/g, '');
@@ -323,6 +339,10 @@ export const TriagemPesquisaLivreTab: React.FC<Props> = ({
         }
         if (filterMode === 'MULTI_DIST' && row.tag.distCount < 2) return false;
         if (filterMode === 'NA_LOJA' && !row.digi?.cadastradoNaLoja) return false;
+        if (filterMode === 'ABAIXO_ULT') {
+          const baseUlt = getBaseUltCompra(row.digi);
+          if (!(baseUlt > 0 && row.item.preco <= baseUlt * 1.005)) return false;
+        }
         if (filterMode === 'SELECIONADOS' && !row.selectedHere) return false;
 
         if (q) {
@@ -342,6 +362,14 @@ export const TriagemPesquisaLivreTab: React.FC<Props> = ({
           if (rDiff !== 0) return rDiff;
           return a.item.preco - b.item.preco;
         }
+        if (sortMode === 'MAIOR_ECONOMIA') {
+          const ua = getBaseUltCompra(a.digi);
+          const ub = getBaseUltCompra(b.digi);
+          const da = ua > 0 ? (a.item.preco - ua) / ua : 999;
+          const db = ub > 0 ? (b.item.preco - ub) / ub : 999;
+          if (da !== db) return da - db;
+          return a.item.preco - b.item.preco;
+        }
         if (sortMode === 'MAIOR_GIRO') {
           const ga = a.digi?.giroMensal || 0;
           const gb = b.digi?.giroMensal || 0;
@@ -357,6 +385,10 @@ export const TriagemPesquisaLivreTab: React.FC<Props> = ({
       const winnersHere = enriched.filter(
         (r) => r.tag.kind === 'mais_barato' || r.tag.kind === 'empate'
       ).length;
+      const belowUltHere = enriched.filter((r) => {
+        const u = getBaseUltCompra(r.digi);
+        return u > 0 && r.item.preco <= u * 1.005;
+      }).length;
       const selectedHereCount = enriched.filter((r) => r.selectedHere).length;
 
       return {
@@ -364,6 +396,7 @@ export const TriagemPesquisaLivreTab: React.FC<Props> = ({
         status: st,
         totalRaw: enriched.length,
         winnersHere,
+        belowUltHere,
         selectedHereCount,
         rows: filtered,
       };
@@ -772,6 +805,7 @@ export const TriagemPesquisaLivreTab: React.FC<Props> = ({
                 ['MAIS_BARATO', '★ Mais barato aqui'],
                 ['MULTI_DIST', `Em 2+ dists (${consolidation.repetidosCount})`],
                 ['NA_LOJA', 'Já cadastrados na loja'],
+                ['ABAIXO_ULT', '≤ Últ. compra'],
                 ['SELECIONADOS', `Selecionados (${selecoesList.length})`],
               ] as Array<[FilterMode, string]>
             ).map(([mode, label]) => (
@@ -810,6 +844,7 @@ export const TriagemPesquisaLivreTab: React.FC<Props> = ({
               className="h-8 px-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-medium"
             >
               <option value="MELHOR_AQUI">Mais baratos aqui no topo</option>
+              <option value="MAIOR_ECONOMIA">Maior economia vs. últ. compra</option>
               <option value="MENOR_PRECO">Menor preço primeiro</option>
               <option value="MAIOR_GIRO">Maior giro na loja</option>
               <option value="NOME_AZ">Ordem alfabética (A-Z)</option>
@@ -921,8 +956,8 @@ export const TriagemPesquisaLivreTab: React.FC<Props> = ({
                           <tr>
                             <th className="py-2 px-3 text-left whitespace-nowrap w-24">Comprar</th>
                             <th className="py-2 px-3 text-left whitespace-nowrap">Produto</th>
-                            <th className="py-2 px-3 text-right whitespace-nowrap w-40">Loja (Digifarma)</th>
-                            <th className="py-2 px-3 text-right whitespace-nowrap w-32">Preço NF</th>
+                            <th className="py-2 px-3 text-right whitespace-nowrap w-40">Últ. Compra</th>
+                            <th className="py-2 px-3 text-right whitespace-nowrap w-36">Preço NF</th>
                             <th className="py-2 px-3 text-left whitespace-nowrap w-64">Onde é mais barato</th>
                           </tr>
                         </thead>
@@ -932,9 +967,19 @@ export const TriagemPesquisaLivreTab: React.FC<Props> = ({
                               row;
                             const rowKey = `${group.portal}::${item.eanChave || item.descricao}`;
                             const isFlashing = flashRowKey === rowKey;
-                            const refCost = digi?.refCost || 0;
-                            const varPct =
-                              refCost > 0 ? Math.round(((item.preco - refCost) / refCost) * 100) : null;
+                            const baseUlt = getBaseUltCompra(digi);
+                            const diffUlt = baseUlt > 0 ? item.preco - baseUlt : 0;
+                            const varPct = baseUlt > 0 ? Math.round((diffUlt / baseUlt) * 100) : null;
+                            const ultTooltip = [
+                              digi?.ult && digi.ult > 0 ? `Última compra: ${fmtBRL(digi.ult)}` : '',
+                              digi?.cmv && digi.cmv > 0 ? `CMV: ${fmtBRL(digi.cmv)}` : '',
+                              digi?.ultimaCompraFornecedor ? `Fornecedor: ${digi.ultimaCompraFornecedor}` : '',
+                              digi?.ultimaCompraData ? `Data: ${fmtDataCurta(digi.ultimaCompraData)}` : '',
+                              digi?.ultimaCompraNf ? `NF: ${digi.ultimaCompraNf}` : '',
+                              digi?.prVenda && digi.prVenda > 0 ? `Venda loja: ${fmtBRL(digi.prVenda)}` : '',
+                            ]
+                              .filter(Boolean)
+                              .join(' · ');
 
                             return (
                               <tr
@@ -956,7 +1001,7 @@ export const TriagemPesquisaLivreTab: React.FC<Props> = ({
                                       checked={selectedHere}
                                       disabled={inFaltasApproved}
                                       onChange={() =>
-                                        onToggleSelecao(item, refCost, pesquisaAtual.termo)
+                                        onToggleSelecao(item, baseUlt, pesquisaAtual.termo)
                                       }
                                       className="w-4 h-4 accent-emerald-600 cursor-pointer disabled:opacity-40"
                                     />
@@ -998,9 +1043,11 @@ export const TriagemPesquisaLivreTab: React.FC<Props> = ({
                                     {item.laboratorio && <span>· {item.laboratorio}</span>}
                                     {item.validade && <span>· Val {item.validade}</span>}
                                     {digi?.cadastradoNaLoja ? (
-                                      <span className="px-1.5 py-0 rounded bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200 font-semibold">
-                                        Na loja
-                                      </span>
+                                      <>
+                                        <span className="px-1.5 py-0 rounded bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200 font-semibold">
+                                          Na loja · Est {digi.est} · Giro {digi.giroMensal}/mês
+                                        </span>
+                                      </>
                                     ) : (
                                       <span className="px-1.5 py-0 rounded bg-slate-200/80 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
                                         Novo p/ loja
@@ -1009,32 +1056,62 @@ export const TriagemPesquisaLivreTab: React.FC<Props> = ({
                                   </div>
                                 </td>
 
-                                <td className="py-2 px-3 align-top text-right tabular-nums">
-                                  {digi?.cadastradoNaLoja ? (
+                                <td
+                                  className="py-2 px-3 align-top text-right tabular-nums whitespace-nowrap"
+                                  title={ultTooltip || 'Sem histórico de entrada para este EAN'}
+                                >
+                                  {digi?.ult && digi.ult > 0 ? (
                                     <div>
-                                      <div className="font-semibold">
-                                        Est {digi.est} · Giro {digi.giroMensal}/mês
+                                      <div className="font-bold text-slate-800 dark:text-slate-200">
+                                        {fmtBRL(digi.ult)}
                                       </div>
-                                      <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                                        {refCost > 0 ? `Últ. ${fmtBRL(refCost)}` : 'Sem custo ant.'}
+                                      <div className="text-[11px] text-slate-500 dark:text-slate-400 max-w-[165px] truncate ml-auto">
+                                        {[
+                                          fmtDataCurta(digi.ultimaCompraData),
+                                          digi.ultimaCompraFornecedor,
+                                        ]
+                                          .filter(Boolean)
+                                          .join(' · ') || 'Hist. Digifarma'}
                                       </div>
                                     </div>
+                                  ) : digi?.cmv && digi.cmv > 0 ? (
+                                    <div>
+                                      <div className="font-semibold text-slate-600 dark:text-slate-300">
+                                        {fmtBRL(digi.cmv)}
+                                      </div>
+                                      <div className="text-[11px] text-slate-400">CMV loja (s/ NF)</div>
+                                    </div>
                                   ) : (
-                                    <span className="text-slate-400">Sem cadastro</span>
+                                    <span className="text-slate-400">Sem compra</span>
                                   )}
                                 </td>
 
-                                <td className="py-2 px-3 align-top text-right tabular-nums">
+                                <td className="py-2 px-3 align-top text-right tabular-nums whitespace-nowrap">
                                   <div className="font-bold text-sm text-slate-900 dark:text-slate-100">
                                     {fmtBRL(item.preco)}
                                   </div>
-                                  <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                                    {item.precoSemSt > 0 && Math.abs(item.precoSemSt - item.preco) >= 0.02
-                                      ? `s/ ST ${fmtBRL(item.precoSemSt)}`
-                                      : varPct !== null
-                                      ? `${varPct > 0 ? '+' : ''}${varPct}% vs últ.`
-                                      : ''}
-                                  </div>
+                                  {varPct !== null && (
+                                    <div className="mt-0.5">
+                                      {diffUlt <= -0.01 ? (
+                                        <span className="inline-block px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-200 text-[11px] font-bold">
+                                          {varPct}% ({fmtBRL(diffUlt)})
+                                        </span>
+                                      ) : diffUlt <= baseUlt * 0.03 ? (
+                                        <span className="inline-block px-1.5 py-0.2 rounded bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-200 text-[11px] font-semibold">
+                                          Empate últ.
+                                        </span>
+                                      ) : (
+                                        <span className="inline-block px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200 text-[11px] font-semibold">
+                                          +{varPct}% (+{fmtBRL(diffUlt)})
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
+                                  {item.precoSemSt > 0 && Math.abs(item.precoSemSt - item.preco) >= 0.02 && (
+                                    <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                                      s/ ST {fmtBRL(item.precoSemSt)}
+                                    </div>
+                                  )}
                                 </td>
 
                                 <td className="py-2 px-3 align-top">

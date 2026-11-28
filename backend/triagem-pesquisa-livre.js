@@ -237,20 +237,190 @@ async function executarBuscaPortalLivre(portalName, termo) {
   }
 }
 
-async function enriquecerEansDigifarma(eans) {
-  const mapa = {};
-  const candidatosSql = new Set();
-
+function buildEanCandidates(eans) {
+  const set = new Set();
   for (const ean of Array.isArray(eans) ? eans : []) {
     const dig = String(ean || '').replace(/\D/g, '');
     if (dig.length < 7 || dig.length > 14) continue;
-    candidatosSql.add(dig);
+    set.add(dig);
     const semZero = dig.replace(/^0+/, '');
-    if (semZero) candidatosSql.add(semZero);
-    if (dig.length < 13) candidatosSql.add(dig.padStart(13, '0'));
+    if (semZero) set.add(semZero);
+    if (dig.length < 13) set.add(dig.padStart(13, '0'));
+    if (dig.length <= 13) set.add(dig.padStart(14, '0'));
+  }
+  return Array.from(set);
+}
+
+function mesclarInfoDigifarma(atual, extra) {
+  if (!atual) return extra ? { ...extra } : null;
+  if (!extra) return { ...atual };
+
+  const ult =
+    Number(extra.ult || 0) > 0 && extra.ultimaCompraFonte === 'NOTA_FISCAL'
+      ? Number(extra.ult)
+      : Number(atual.ult || 0) > 0
+      ? Number(atual.ult)
+      : Number(extra.ult || 0);
+  const cmv = Number(atual.cmv || 0) > 0 ? Number(atual.cmv) : Number(extra.cmv || 0);
+  const refCost = ult > 0 ? ult : cmv;
+
+  const est = Number(atual.est ?? extra.est ?? 0);
+  const v30 = Number(atual.v30 || extra.v30 || 0);
+  const v90 = Number(atual.v90 || extra.v90 || 0);
+  const giroMensal = Math.max(Number(atual.giroMensal || 0), Number(extra.giroMensal || 0));
+
+  return {
+    cadastradoNaLoja: Boolean(atual.cadastradoNaLoja || extra.cadastradoNaLoja),
+    eanLoja: atual.eanLoja || extra.eanLoja || '',
+    produtoLoja: atual.produtoLoja || extra.produtoLoja || '',
+    est,
+    v30,
+    v90,
+    giroMensal,
+    cmv: Number(cmv.toFixed(2)),
+    ult: Number(ult.toFixed(2)),
+    refCost: Number(refCost.toFixed(2)),
+    prVenda: Number((Number(atual.prVenda || 0) || Number(extra.prVenda || 0)).toFixed(2)),
+    ultimaCompraData: extra.ultimaCompraData || atual.ultimaCompraData || null,
+    ultimaCompraFornecedor: extra.ultimaCompraFornecedor || atual.ultimaCompraFornecedor || null,
+    ultimaCompraNf: extra.ultimaCompraNf || atual.ultimaCompraNf || null,
+    ultimaCompraFonte: extra.ultimaCompraFonte || atual.ultimaCompraFonte || null
+  };
+}
+
+function enriquecerEansSqlite(db, eans) {
+  const mapa = {};
+  const lista = buildEanCandidates(eans);
+  if (!db || lista.length === 0) return mapa;
+
+  const placeholdersFor = (arr) => arr.map(() => '?').join(',');
+
+  // 1. Notas fiscais de entrada reais (cache Digifarma -> SQLite)
+  try {
+    for (let i = 0; i < lista.length; i += 200) {
+      const slice = lista.slice(i, i + 200);
+      const rows = db
+        .prepare(
+          `SELECT ean, descricao, preco_unitario_ult_compra, data_compra, fornecedor_nome, numero_nota_fiscal, fonte, atualizado_em
+           FROM digifarma_ultimas_compras_cache
+           WHERE (TRIM(COALESCE(ean, '')) IN (${placeholdersFor(slice)})
+              OR LTRIM(TRIM(COALESCE(ean, '')), '0') IN (${placeholdersFor(slice)}))
+             AND preco_unitario_ult_compra > 0`
+        )
+        .all(...slice, ...slice);
+
+      for (const r of rows) {
+        const eanChave = normalizarEanChave(r.ean);
+        if (!eanChave) continue;
+        const ult = Number(Number(r.preco_unitario_ult_compra || 0).toFixed(2));
+        if (!(ult > 0)) continue;
+
+        const novaInfo = {
+          cadastradoNaLoja: true,
+          eanLoja: String(r.ean || '').trim(),
+          produtoLoja: String(r.descricao || '').trim(),
+          est: 0,
+          v30: 0,
+          v90: 0,
+          giroMensal: 0,
+          cmv: 0,
+          ult,
+          refCost: ult,
+          prVenda: 0,
+          ultimaCompraData: r.data_compra ? String(r.data_compra).trim() : null,
+          ultimaCompraFornecedor: r.fornecedor_nome ? String(r.fornecedor_nome).trim() : null,
+          ultimaCompraNf: r.numero_nota_fiscal ? String(r.numero_nota_fiscal).trim() : null,
+          ultimaCompraFonte: r.fonte ? String(r.fonte).trim() : 'NOTA_FISCAL',
+          _ord: `${r.data_compra || ''}|${r.atualizado_em || ''}`
+        };
+
+        const prev = mapa[eanChave];
+        if (!prev || novaInfo._ord > (prev._ord || '')) {
+          mapa[eanChave] = novaInfo;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[PesquisaLivre] Aviso digifarma_ultimas_compras_cache:', err.message);
   }
 
-  const lista = Array.from(candidatosSql);
+  for (const k of Object.keys(mapa)) {
+    delete mapa[k]._ord;
+  }
+
+  // 2. Estoque, giro e última compra consolidados do cache do ERP
+  try {
+    for (let i = 0; i < lista.length; i += 200) {
+      const slice = lista.slice(i, i + 200);
+      const rows = db
+        .prepare(
+          `SELECT ean, descricao, apresentacao, saldo, vendas_30d, vmd_ponderado, custo_unitario,
+                  preco_venda_vigente, preco_unitario_ult_compra, ultima_compra_fornecedor,
+                  ultima_compra_data, ultima_compra_nf
+           FROM compras_estoque_cache
+           WHERE TRIM(COALESCE(ean, '')) IN (${placeholdersFor(slice)})
+              OR LTRIM(TRIM(COALESCE(ean, '')), '0') IN (${placeholdersFor(slice)})`
+        )
+        .all(...slice, ...slice);
+
+      for (const r of rows) {
+        const eanChave = normalizarEanChave(r.ean);
+        if (!eanChave) continue;
+        const ult = Number(Number(r.preco_unitario_ult_compra || 0).toFixed(2));
+        const cmv = Number(Number(r.custo_unitario || 0).toFixed(2));
+        const v30 = Number(r.vendas_30d || 0);
+        const giroMensal = Math.max(v30, Math.ceil(Number(r.vmd_ponderado || 0) * 30));
+
+        const infoCache = {
+          cadastradoNaLoja: true,
+          eanLoja: String(r.ean || '').trim(),
+          produtoLoja: `${String(r.descricao || '').trim()} ${String(r.apresentacao || '').trim()}`.trim(),
+          est: Number(r.saldo || 0),
+          v30,
+          v90: 0,
+          giroMensal,
+          cmv,
+          ult,
+          refCost: ult > 0 ? ult : cmv,
+          prVenda: Number(Number(r.preco_venda_vigente || 0).toFixed(2)),
+          ultimaCompraData: r.ultima_compra_data ? String(r.ultima_compra_data).trim() : null,
+          ultimaCompraFornecedor: r.ultima_compra_fornecedor ? String(r.ultima_compra_fornecedor).trim() : null,
+          ultimaCompraNf: r.ultima_compra_nf ? String(r.ultima_compra_nf).trim() : null,
+          ultimaCompraFonte: ult > 0 ? 'ESTOQUE_CACHE' : null
+        };
+
+        const existing = mapa[eanChave];
+        if (!existing) {
+          mapa[eanChave] = infoCache;
+        } else {
+          // NF-e tem prioridade no preço/fornecedor/data; estoque/giro/CMV vêm do cache de estoque
+          mapa[eanChave] = {
+            ...existing,
+            est: infoCache.est,
+            v30: Math.max(existing.v30 || 0, infoCache.v30),
+            giroMensal: Math.max(existing.giroMensal || 0, infoCache.giroMensal),
+            cmv: infoCache.cmv || existing.cmv,
+            prVenda: infoCache.prVenda || existing.prVenda,
+            ult: existing.ult > 0 ? existing.ult : infoCache.ult,
+            refCost: (existing.ult > 0 ? existing.ult : infoCache.ult) || infoCache.cmv,
+            ultimaCompraData: existing.ultimaCompraData || infoCache.ultimaCompraData,
+            ultimaCompraFornecedor: existing.ultimaCompraFornecedor || infoCache.ultimaCompraFornecedor,
+            ultimaCompraNf: existing.ultimaCompraNf || infoCache.ultimaCompraNf,
+            ultimaCompraFonte: existing.ultimaCompraFonte || infoCache.ultimaCompraFonte
+          };
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[PesquisaLivre] Aviso compras_estoque_cache:', err.message);
+  }
+
+  return mapa;
+}
+
+async function enriquecerEansDigifarma(eans) {
+  const mapa = {};
+  const lista = buildEanCandidates(eans);
   if (lista.length === 0) return mapa;
 
   try {
@@ -294,7 +464,7 @@ async function enriquecerEansDigifarma(eans) {
 
         const cmv = Number(r.CMV || 0);
         const ult = Number(r.ULT || 0);
-        const refCost = cmv > 0 && ult > 0 ? Math.min(cmv, ult) : cmv || ult;
+        const refCost = ult > 0 ? ult : cmv;
         const est = Number(r.EST || 0);
         const v30 = Number(r.V30 || 0);
         const v90 = Number(r.V90 || 0);
@@ -441,13 +611,26 @@ function createTriagemPesquisaLivreManager(db, deps = {}) {
 
         const novosEans = [];
         for (const it of lista) {
-          if (it.eanChave && !job.digifarmaPorEan[it.eanChave]) {
+          if (it.eanChave) {
             novosEans.push(it.ean || it.eanChave);
           }
         }
         if (novosEans.length > 0) {
-          const info = await enriquecedorDigifarma(novosEans);
-          Object.assign(job.digifarmaPorEan, info || {});
+          const sqliteInfo = enriquecerEansSqlite(db, novosEans);
+          for (const [k, v] of Object.entries(sqliteInfo)) {
+            job.digifarmaPorEan[k] = mesclarInfoDigifarma(job.digifarmaPorEan[k], v);
+          }
+
+          const faltandoAoVivo = novosEans.filter((raw) => {
+            const c = normalizarEanChave(raw);
+            return c && !job.digifarmaPorEan[c]?.v90;
+          });
+          if (faltandoAoVivo.length > 0) {
+            const liveInfo = await enriquecedorDigifarma(faltandoAoVivo);
+            for (const [k, v] of Object.entries(liveInfo || {})) {
+              job.digifarmaPorEan[k] = mesclarInfoDigifarma(v, job.digifarmaPorEan[k]);
+            }
+          }
         }
       } catch (err) {
         job.resultadosPorPortal[portalName] = [];
@@ -593,6 +776,21 @@ function createTriagemPesquisaLivreManager(db, deps = {}) {
       .get(id);
     if (!row) return null;
 
+    const resultadosPorPortal = JSON.parse(row.resultados_json || '{}');
+    const digifarmaPorEan = JSON.parse(row.digifarma_json || '{}');
+    const todosEans = [];
+    for (const lista of Object.values(resultadosPorPortal)) {
+      for (const it of Array.isArray(lista) ? lista : []) {
+        if (it?.eanChave || it?.ean) todosEans.push(it.ean || it.eanChave);
+      }
+    }
+    if (todosEans.length > 0) {
+      const sqliteInfo = enriquecerEansSqlite(db, todosEans);
+      for (const [k, v] of Object.entries(sqliteInfo)) {
+        digifarmaPorEan[k] = mesclarInfoDigifarma(digifarmaPorEan[k], v);
+      }
+    }
+
     return {
       id: row.id,
       termo: row.termo,
@@ -601,8 +799,8 @@ function createTriagemPesquisaLivreManager(db, deps = {}) {
       atualizadoEm: row.atualizado_em,
       usuario: row.usuario || '',
       portaisStatus: JSON.parse(row.portais_status_json || '{}'),
-      resultadosPorPortal: JSON.parse(row.resultados_json || '{}'),
-      digifarmaPorEan: JSON.parse(row.digifarma_json || '{}')
+      resultadosPorPortal,
+      digifarmaPorEan
     };
   }
 
@@ -750,6 +948,8 @@ module.exports = {
   normalizarEanChave,
   normalizarListaPortal,
   executarBuscaPortalLivre,
+  enriquecerEansSqlite,
   enriquecerEansDigifarma,
+  mesclarInfoDigifarma,
   createTriagemPesquisaLivreManager
 };
