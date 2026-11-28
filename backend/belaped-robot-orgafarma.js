@@ -304,6 +304,116 @@ class OrgafarmaRobot {
   }
 
   /**
+   * Pesquisa abrangente por termo genérico ou EAN no portal e catálogo em memória da Orgafarma
+   */
+  async buscarTermo(termo) {
+    if (!this.iniciado) {
+      await this.iniciar();
+    }
+
+    const normalizar = (s) =>
+      String(s || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toUpperCase();
+
+    const termoLimpo = String(termo || '').trim();
+    if (!termoLimpo) return [];
+
+    const digitos = termoLimpo.replace(/\D/g, '');
+    const ehEan = /^\d{8,14}$/.test(termoLimpo);
+    const tokens = normalizar(termoLimpo)
+      .split(/\s+/)
+      .filter((t) => t.length >= 2);
+
+    if (!ehEan && tokens.length === 0) return [];
+
+    const candidatos = [];
+    try {
+      const queryParams = querystring.stringify({
+        consulta: termoLimpo,
+        faturamento: this.faturamento,
+        filial: this.filial,
+        cliente: this.cliente,
+        prazo: '',
+        filtro: -999,
+        forma_pagamento: ''
+      });
+
+      const resGrid = await this._request({
+        path: `/pedido/produto/grid/dados?${queryParams}`,
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json, text/javascript, */*; q=0.01',
+          'X-Requested-With': 'XMLHttpRequest',
+          'Referer': this.urlAZ
+        }
+      });
+
+      if (resGrid.statusCode === 200 && resGrid.body.length > 10) {
+        const data = JSON.parse(resGrid.body);
+        if (Array.isArray(data?.dados)) {
+          candidatos.push(...data.dados);
+        }
+      }
+    } catch (errGrid) {
+      console.warn('[Orgafarma] Aviso em buscarTermo via grid:', errGrid.message);
+    }
+
+    for (const memItem of new Set(this.catalogoPorEan.values())) {
+      candidatos.push(memItem);
+    }
+
+    const vistos = new Map();
+    for (const item of candidatos) {
+      const temEstoque =
+        item.ESTOQUE === 'SIM' || (item.SINALESTOQUE && item.SINALESTOQUE !== 'ZERADO');
+      if (!temEstoque) continue;
+
+      const preco = parseFloat(item.PRECO_LIQUIDO || item.VRLIQ || item.PRECO || 0);
+      if (!(preco > 0)) continue;
+
+      const eanRaw = item.EAN13 ? String(item.EAN13).trim() : '';
+      const eanDig = eanRaw.replace(/\D/g, '');
+      const eanChave = eanDig.replace(/^0+/, '') || eanRaw;
+
+      if (ehEan) {
+        if (!eanDig) continue;
+        const bate =
+          eanDig === digitos ||
+          eanDig.replace(/^0+/, '') === digitos.replace(/^0+/, '');
+        if (!bate) continue;
+      } else {
+        const alvo = normalizar(
+          `${item.DESCRICAO || ''} ${item.GENERICO || ''} ${item.NOME_FORN || ''}`
+        );
+        if (!tokens.every((t) => alvo.includes(t))) continue;
+      }
+
+      const chave = eanChave || `orga:${String(item.DESCRICAO || '').trim()}`;
+      const atual = {
+        ean: eanRaw,
+        descricao: String(item.DESCRICAO || '').trim(),
+        laboratorio: String(item.NOME_FORN || '').trim(),
+        preco: Number(preco.toFixed(2)),
+        preco_nf: Number(preco.toFixed(2)),
+        preco_liquido: Number(preco.toFixed(2)),
+        estoque: 'Disponível',
+        validade: String(item.VALID_PROD || '').trim() || null
+      };
+
+      const prev = vistos.get(chave);
+      if (!prev || atual.preco < prev.preco) {
+        vistos.set(chave, atual);
+      }
+    }
+
+    return Array.from(vistos.values())
+      .sort((a, b) => a.preco - b.preco)
+      .slice(0, 60);
+  }
+
+  /**
    * Adiciona um produto ao carrinho
    */
   async adicionarAoCarrinho(ean, quantidade, descricao = '') {

@@ -243,6 +243,80 @@ class MgMedicamentosRobot {
   }
 
   /**
+   * Pesquisa abrangente por termo genérico ou EAN no catálogo em memória da MG Medicamentos
+   */
+  async buscarTermo(termo) {
+    if (!this.iniciado) {
+      await this.iniciar();
+    }
+
+    const normalizar = (s) =>
+      String(s || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toUpperCase();
+
+    const termoLimpo = String(termo || '').trim();
+    if (!termoLimpo) return [];
+
+    const digitos = termoLimpo.replace(/\D/g, '');
+    const ehEan = /^\d{8,14}$/.test(termoLimpo);
+    const tokens = normalizar(termoLimpo)
+      .split(/\s+/)
+      .filter((t) => t.length >= 2);
+
+    if (!ehEan && tokens.length === 0) return [];
+
+    const vistos = new Map();
+    for (const item of new Set(this.catalogoPorEan.values())) {
+      const temEstoque =
+        item.ESTOQUE === 'SIM' || (item.SINALESTOQUE && item.SINALESTOQUE !== 'ZERADO');
+      if (!temEstoque) continue;
+
+      const preco = parseFloat(item.PRECO_LIQUIDO || item.VRLIQ || item.PRECO || 0);
+      if (!(preco > 0)) continue;
+
+      const eanRaw = item.EAN13 ? String(item.EAN13).trim() : '';
+      const eanDig = eanRaw.replace(/\D/g, '');
+      const eanChave = eanDig.replace(/^0+/, '') || eanRaw;
+
+      if (ehEan) {
+        if (!eanDig) continue;
+        const bate =
+          eanDig === digitos ||
+          eanDig.replace(/^0+/, '') === digitos.replace(/^0+/, '');
+        if (!bate) continue;
+      } else {
+        const alvo = normalizar(
+          `${item.DESCRICAO || ''} ${item.GENERICO || ''} ${item.NOME_FORN || ''} ${item.PRINCIPIO_ATIVO || ''}`
+        );
+        if (!tokens.every((t) => alvo.includes(t))) continue;
+      }
+
+      const chave = eanChave || `mg:${String(item.DESCRICAO || '').trim()}`;
+      const atual = {
+        ean: eanRaw,
+        descricao: String(item.DESCRICAO || '').trim(),
+        laboratorio: String(item.NOME_FORN || '').trim(),
+        preco: Number(preco.toFixed(2)),
+        preco_nf: Number(preco.toFixed(2)),
+        preco_liquido: Number(preco.toFixed(2)),
+        estoque: 'Disponível',
+        validade: String(item.VALID_PROD || '').trim() || null
+      };
+
+      const prev = vistos.get(chave);
+      if (!prev || atual.preco < prev.preco) {
+        vistos.set(chave, atual);
+      }
+    }
+
+    return Array.from(vistos.values())
+      .sort((a, b) => a.preco - b.preco)
+      .slice(0, 60);
+  }
+
+  /**
    * Adiciona um produto ao carrinho
    */
   async adicionarAoCarrinho(ean, quantidade, descricao = '') {

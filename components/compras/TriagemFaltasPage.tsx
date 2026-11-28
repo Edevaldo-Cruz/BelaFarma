@@ -12,9 +12,18 @@ import {
   RotateCcw,
   Search,
   ShoppingCart,
+  Sparkles,
 } from 'lucide-react';
 import { User } from '../../types';
 import { useToast } from '../ToastContext';
+import {
+  normalizeEanChaveFront,
+  PesquisaHistoricoResumo,
+  PesquisaLivrePayload,
+  PesquisaOfertaItem,
+  PesquisaSelecaoItem,
+  TriagemPesquisaLivreTab,
+} from './TriagemPesquisaLivreTab';
 import './TriagemFaltasPage.css';
 
 export interface TriagemOferta {
@@ -129,6 +138,11 @@ const PORTAL_ROBOT_ENDPOINTS: Record<string, { post: string; status: string; min
     post: '/api/belaped/montar-carrinho-dpc',
     status: '/api/belaped/status-carrinho-dpc',
     min: 300,
+  },
+  Orgafarma: {
+    post: '/api/belaped/montar-carrinho-orgafarma',
+    status: '/api/belaped/status-carrinho-orgafarma',
+    min: 200,
   },
 };
 
@@ -246,6 +260,12 @@ export const TriagemFaltasPage: React.FC<Props> = ({ user }) => {
   const [filterPortal, setFilterPortal] = useState<string>('TODOS');
   const [searchTerm, setSearchTerm] = useState<string>('');
 
+  const [activePageTab, setActivePageTab] = useState<'faltas' | 'pesquisa'>('faltas');
+  const [pesquisaAtual, setPesquisaAtual] = useState<PesquisaLivrePayload | null>(null);
+  const [pesquisaHistorico, setPesquisaHistorico] = useState<PesquisaHistoricoResumo[]>([]);
+  const [pesquisaSelecoes, setPesquisaSelecoes] = useState<Record<string, PesquisaSelecaoItem>>({});
+  const [iniciandoBuscaLivre, setIniciandoBuscaLivre] = useState<boolean>(false);
+
   const [activeModalTab, setActiveModalTab] = useState<'aprovados' | 'excluidos'>('aprovados');
   const [modalInlineStatus, setModalInlineStatus] = useState<string>('');
   const [pendingCartPortal, setPendingCartPortal] = useState<string | null>(null);
@@ -257,6 +277,8 @@ export const TriagemFaltasPage: React.FC<Props> = ({ user }) => {
   const srAnnouncerRef = useRef<HTMLDivElement | null>(null);
   const obsTimersRef = useRef<Record<string, number>>({});
   const pollTimersRef = useRef<Record<string, number>>({});
+  const pesquisaPollTimerRef = useRef<number | null>(null);
+  const prevPesquisaStatusRef = useRef<string>('');
   const announceTimerRef = useRef<number | null>(null);
   const announcedFieldRef = useRef<Element | null>(null);
   const flaggedSetRef = useRef<WeakSet<Element>>(new WeakSet());
@@ -396,6 +418,7 @@ export const TriagemFaltasPage: React.FC<Props> = ({ user }) => {
       clean2();
       Object.values(pollTimersRef.current).forEach((id) => window.clearInterval(id));
       Object.values(obsTimersRef.current).forEach((id) => window.clearTimeout(id));
+      if (pesquisaPollTimerRef.current) window.clearInterval(pesquisaPollTimerRef.current);
     };
   }, []);
 
@@ -472,6 +495,243 @@ export const TriagemFaltasPage: React.FC<Props> = ({ user }) => {
       active = false;
     };
   }, [applyServerPayload, showToastSafe]);
+
+  // Carregamento de selecoes acumuladas e historico da Pesquisa Livre (incluindo retomada de job em andamento)
+  const carregarHistoricoPesquisa = useCallback(async (autoOpenLast = false) => {
+    try {
+      const res = await fetch('/api/central-compras/triagem-faltas/pesquisa-livre/historico?limit=12');
+      if (!res.ok) return;
+      const data = await res.json();
+      if (!data?.success) return;
+      const hist: PesquisaHistoricoResumo[] = Array.isArray(data.historico) ? data.historico : [];
+      setPesquisaHistorico(hist);
+
+      const targetId = data.ativaId || (autoOpenLast && hist.length > 0 ? hist[0].id : null);
+      if (targetId) {
+        const resP = await fetch(`/api/central-compras/triagem-faltas/pesquisa-livre/${encodeURIComponent(targetId)}`);
+        if (resP.ok) {
+          const dp = await resP.json();
+          if (dp?.success && dp.pesquisa) {
+            setPesquisaAtual(dp.pesquisa);
+          }
+        }
+      }
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    carregarHistoricoPesquisa(true);
+  }, [carregarHistoricoPesquisa]);
+
+  useEffect(() => {
+    if (!sessaoId) return;
+    let active = true;
+    fetch(`/api/central-compras/triagem-faltas/pesquisa-selecoes?sessaoId=${encodeURIComponent(sessaoId)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!active || !d?.success || !Array.isArray(d.selecoes)) return;
+        const map: Record<string, PesquisaSelecaoItem> = {};
+        for (const s of d.selecoes) {
+          if (s?.eanChave) map[s.eanChave] = s;
+        }
+        setPesquisaSelecoes(map);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [sessaoId]);
+
+  useEffect(() => {
+    if (pesquisaPollTimerRef.current) {
+      window.clearInterval(pesquisaPollTimerRef.current);
+      pesquisaPollTimerRef.current = null;
+    }
+
+    const id = pesquisaAtual?.id;
+    const status = pesquisaAtual?.status || '';
+    if (prevPesquisaStatusRef.current === 'em_andamento' && status && status !== 'em_andamento') {
+      const total = Object.values(pesquisaAtual?.portaisStatus || {}).reduce(
+        (acc, p) => acc + Number(p?.count || 0),
+        0
+      );
+      showToastSafe(
+        status === 'concluida'
+          ? `Pesquisa "${pesquisaAtual?.termo}" concluída: ${total} ofertas encontradas nas distribuidoras.`
+          : `Pesquisa "${pesquisaAtual?.termo}" finalizada (${status}).`,
+        status === 'concluida' ? 'success' : 'info',
+        5500
+      );
+      carregarHistoricoPesquisa(false);
+    }
+    prevPesquisaStatusRef.current = status;
+
+    if (!id || status !== 'em_andamento') return;
+
+    pesquisaPollTimerRef.current = window.setInterval(async () => {
+      try {
+        const res = await fetch(`/api/central-compras/triagem-faltas/pesquisa-livre/${encodeURIComponent(id)}`);
+        if (!res.ok) return;
+        const d = await res.json();
+        if (d?.success && d.pesquisa) {
+          setPesquisaAtual(d.pesquisa);
+        }
+      } catch {}
+    }, 2000);
+
+    return () => {
+      if (pesquisaPollTimerRef.current) {
+        window.clearInterval(pesquisaPollTimerRef.current);
+        pesquisaPollTimerRef.current = null;
+      }
+    };
+  }, [carregarHistoricoPesquisa, pesquisaAtual, showToastSafe]);
+
+  const handleIniciarPesquisaLivre = async (termo: string) => {
+    setIniciandoBuscaLivre(true);
+    try {
+      const res = await fetch('/api/central-compras/triagem-faltas/pesquisa-livre', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ termo, usuario: user?.name || 'Usuário' }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success || !data.pesquisa) {
+        throw new Error(data?.error || `HTTP ${res.status}`);
+      }
+      prevPesquisaStatusRef.current = 'em_andamento';
+      setPesquisaAtual(data.pesquisa);
+      carregarHistoricoPesquisa(false);
+    } catch (err: any) {
+      showToastSafe(`Falha ao iniciar pesquisa: ${err?.message || 'erro'}`, 'error');
+    } finally {
+      setIniciandoBuscaLivre(false);
+    }
+  };
+
+  const handleCancelarPesquisaLivre = async (id: string) => {
+    try {
+      await fetch(`/api/central-compras/triagem-faltas/pesquisa-livre/${encodeURIComponent(id)}/cancelar`, {
+        method: 'POST',
+      });
+      const res = await fetch(`/api/central-compras/triagem-faltas/pesquisa-livre/${encodeURIComponent(id)}`);
+      const d = await res.json();
+      if (d?.success && d.pesquisa) setPesquisaAtual(d.pesquisa);
+      showToastSafe('Pesquisa interrompida; resultados já obtidos foram mantidos.', 'info');
+    } catch {}
+  };
+
+  const handleSelecionarHistoricoLivre = async (id: string) => {
+    try {
+      const res = await fetch(`/api/central-compras/triagem-faltas/pesquisa-livre/${encodeURIComponent(id)}`);
+      const d = await res.json();
+      if (d?.success && d.pesquisa) {
+        setPesquisaAtual(d.pesquisa);
+      }
+    } catch {
+      showToastSafe('Não foi possível abrir esta pesquisa salva.', 'error');
+    }
+  };
+
+  const handleTogglePesquisaSelecao = useCallback(
+    async (item: PesquisaOfertaItem, refCost: number, termoOrigem: string) => {
+      const selectionKey =
+        item.eanChave || `noean::${item.portal}::${item.descricao.slice(0, 40)}`;
+      const existing = pesquisaSelecoes[selectionKey];
+
+      if (existing && existing.portal === item.portal) {
+        setPesquisaSelecoes((prev) => {
+          const next = { ...prev };
+          delete next[selectionKey];
+          return next;
+        });
+        fetch('/api/central-compras/triagem-faltas/pesquisa-selecoes/item', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessaoId, eanChave: selectionKey }),
+        }).catch(() => {});
+        return;
+      }
+
+      const payload: PesquisaSelecaoItem = {
+        sessaoId: sessaoId || undefined,
+        eanChave: selectionKey,
+        ean: item.ean || '',
+        portal: item.portal,
+        descricao: item.descricao,
+        laboratorio: item.laboratorio || '',
+        preco: item.preco,
+        precoSemSt: item.precoSemSt || item.preco,
+        refCost: Number(refCost || 0),
+        qtd: existing?.qtd || 1,
+        termoOrigem,
+      };
+
+      setPesquisaSelecoes((prev) => ({ ...prev, [selectionKey]: payload }));
+      try {
+        const res = await fetch('/api/central-compras/triagem-faltas/pesquisa-selecoes/item', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...payload, usuario: user?.name || 'Usuário' }),
+        });
+        const d = await res.json();
+        if (d?.success && d.item) {
+          setPesquisaSelecoes((prev) => ({ ...prev, [selectionKey]: d.item }));
+        }
+      } catch {}
+    },
+    [pesquisaSelecoes, sessaoId, user?.name]
+  );
+
+  const handleChangePesquisaQtd = useCallback(
+    (eanChave: string, qtd: number) => {
+      const current = pesquisaSelecoes[eanChave];
+      if (!current) return;
+      const updated = { ...current, qtd: Math.max(1, qtd || 1) };
+      setPesquisaSelecoes((prev) => ({ ...prev, [eanChave]: updated }));
+      fetch('/api/central-compras/triagem-faltas/pesquisa-selecoes/item', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...updated, sessaoId, usuario: user?.name || 'Usuário' }),
+      }).catch(() => {});
+    },
+    [pesquisaSelecoes, sessaoId, user?.name]
+  );
+
+  const handleRemoverPesquisaSelecao = useCallback(
+    (eanChave: string) => {
+      setPesquisaSelecoes((prev) => {
+        const next = { ...prev };
+        delete next[eanChave];
+        return next;
+      });
+      fetch('/api/central-compras/triagem-faltas/pesquisa-selecoes/item', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessaoId, eanChave }),
+      }).catch(() => {});
+    },
+    [sessaoId]
+  );
+
+  const handleLimparPesquisaSelecoes = useCallback(() => {
+    setPesquisaSelecoes({});
+    fetch(`/api/central-compras/triagem-faltas/pesquisa-selecoes/limpar?sessaoId=${encodeURIComponent(sessaoId)}`, {
+      method: 'DELETE',
+    }).catch(() => {});
+    showToastSafe('Seleções da Pesquisa Livre removidas dos carrinhos.', 'info');
+  }, [sessaoId, showToastSafe]);
+
+  const approvedFaltasEanKeys = useMemo(() => {
+    const set = new Set<string>();
+    for (const it of items) {
+      if (decisions[it.ean]?.comprar) {
+        const chave = normalizeEanChaveFront(it.ean);
+        if (chave) set.add(chave);
+      }
+    }
+    return set;
+  }, [decisions, items]);
 
   const persistSingleDecision = useCallback(
     async (ean: string, dec: TriagemDecisao) => {
@@ -646,10 +906,23 @@ export const TriagemFaltasPage: React.FC<Props> = ({ user }) => {
     let totalEco = 0;
     let excluidos = 0;
     let semMotivo = 0;
+    let pesquisaAprovados = 0;
+
+    type UnifiedCartEntry = {
+      origem: 'faltas' | 'pesquisa';
+      ean: string;
+      produto: string;
+      lab: string;
+      portal: string;
+      qtd: number;
+      preco: number;
+      refCost: number;
+      sub: number;
+    };
 
     const byPortal: Record<
       string,
-      { itens: Array<{ item: TriagemItem; dec: TriagemDecisao; offer: TriagemOferta; sub: number }>; total: number; un: number }
+      { itens: UnifiedCartEntry[]; total: number; un: number; faltasCount: number; pesquisaCount: number }
     > = {};
 
     for (const it of items) {
@@ -665,21 +938,64 @@ export const TriagemFaltasPage: React.FC<Props> = ({ user }) => {
           totalEco += (it.refCost - offer.preco) * dec.qtd;
         }
         if (!byPortal[offer.portal]) {
-          byPortal[offer.portal] = { itens: [], total: 0, un: 0 };
+          byPortal[offer.portal] = { itens: [], total: 0, un: 0, faltasCount: 0, pesquisaCount: 0 };
         }
-        byPortal[offer.portal].itens.push({ item: it, dec, offer, sub });
+        byPortal[offer.portal].itens.push({
+          origem: 'faltas',
+          ean: it.ean,
+          produto: it.produto,
+          lab: offer.lab || '',
+          portal: offer.portal,
+          qtd: dec.qtd,
+          preco: offer.preco,
+          refCost: it.refCost,
+          sub,
+        });
         byPortal[offer.portal].total += sub;
         byPortal[offer.portal].un += dec.qtd;
+        byPortal[offer.portal].faltasCount += 1;
       } else {
         excluidos += 1;
         if (isExcludedInvalid(it)) semMotivo += 1;
       }
     }
 
-    return { aprovados, totalUn, totalValor, totalEco, excluidos, semMotivo, byPortal };
-  }, [decisions, getSelectedOffer, isExcludedInvalid, items]);
+    for (const sel of Object.values(pesquisaSelecoes)) {
+      const chaveNorm = normalizeEanChaveFront(sel.ean || sel.eanChave);
+      if (chaveNorm && approvedFaltasEanKeys.has(chaveNorm)) {
+        continue;
+      }
+      const sub = sel.preco * sel.qtd;
+      aprovados += 1;
+      pesquisaAprovados += 1;
+      totalUn += sel.qtd;
+      totalValor += sub;
+      if (sel.refCost > 0) {
+        totalEco += (sel.refCost - sel.preco) * sel.qtd;
+      }
+      if (!byPortal[sel.portal]) {
+        byPortal[sel.portal] = { itens: [], total: 0, un: 0, faltasCount: 0, pesquisaCount: 0 };
+      }
+      byPortal[sel.portal].itens.push({
+        origem: 'pesquisa',
+        ean: sel.ean || sel.eanChave,
+        produto: sel.descricao,
+        lab: sel.laboratorio || '',
+        portal: sel.portal,
+        qtd: sel.qtd,
+        preco: sel.preco,
+        refCost: sel.refCost,
+        sub,
+      });
+      byPortal[sel.portal].total += sub;
+      byPortal[sel.portal].un += sel.qtd;
+      byPortal[sel.portal].pesquisaCount += 1;
+    }
 
-  // Apenas distribuidoras com >= 1 produto cotado na lista atual
+    return { aprovados, totalUn, totalValor, totalEco, excluidos, semMotivo, pesquisaAprovados, byPortal };
+  }, [approvedFaltasEanKeys, decisions, getSelectedOffer, isExcludedInvalid, items, pesquisaSelecoes]);
+
+  // Distribuidoras com >= 1 produto cotado na triagem OU selecionado na pesquisa livre
   const quotedPortals = useMemo(() => {
     const quotedCounts: Record<string, number> = {};
     for (const it of items) {
@@ -690,15 +1006,28 @@ export const TriagemFaltasPage: React.FC<Props> = ({ user }) => {
         quotedCounts[o.portal] = (quotedCounts[o.portal] || 0) + 1;
       }
     }
+    for (const portal of Object.keys(summary.byPortal)) {
+      if (!(portal in quotedCounts)) {
+        quotedCounts[portal] = 0;
+      }
+    }
 
     return Object.entries(quotedCounts)
-      .filter(([, cotados]) => cotados > 0)
+      .filter(([portal, cotados]) => cotados > 0 || (summary.byPortal[portal]?.itens.length || 0) > 0)
       .map(([portal, cotados]) => {
-        const selected = summary.byPortal[portal] || { itens: [], total: 0, un: 0 };
+        const selected = summary.byPortal[portal] || {
+          itens: [],
+          total: 0,
+          un: 0,
+          faltasCount: 0,
+          pesquisaCount: 0,
+        };
         return {
           portal,
           cotados,
           selecionados: selected.itens.length,
+          faltasCount: selected.faltasCount,
+          pesquisaCount: selected.pesquisaCount,
           un: selected.un,
           total: selected.total,
           min: PORTAL_ROBOT_ENDPOINTS[portal]?.min ?? 0,
@@ -706,7 +1035,7 @@ export const TriagemFaltasPage: React.FC<Props> = ({ user }) => {
           itens: selected.itens,
         };
       })
-      .sort((a, b) => b.cotados - a.cotados || b.total - a.total);
+      .sort((a, b) => b.selecionados - a.selecionados || b.cotados - a.cotados || b.total - a.total);
   }, [items, summary.byPortal]);
 
   // Se filtro de portal apontar para portal que nao tem mais cotados apos refresh, volta a TODOS
@@ -767,7 +1096,7 @@ export const TriagemFaltasPage: React.FC<Props> = ({ user }) => {
     const lines = [
       `*${portal}* (${pData.itens.length} itens | ${pData.un} un | ${fmtBRL(pData.total)}):`,
       ...pData.itens.map(
-        ({ item, dec, offer }) => `- ${item.produto} (${item.ean}) x${dec.qtd} @ ${fmtBRL(offer.preco)}`
+        (entry) => `- ${entry.produto} (${entry.ean}) x${entry.qtd} @ ${fmtBRL(entry.preco)}`
       ),
     ];
     try {
@@ -854,13 +1183,13 @@ export const TriagemFaltasPage: React.FC<Props> = ({ user }) => {
 
     try {
       const payload = {
-        itens: pData.itens.map(({ item, dec, offer }) => ({
-          ean: item.ean,
-          quantidade: dec.qtd,
-          descricao: item.produto,
-          preco_unitario: offer.preco,
-          preco_1: offer.preco,
-          preco_ult_compra: item.refCost,
+        itens: pData.itens.map((entry) => ({
+          ean: entry.ean,
+          quantidade: entry.qtd,
+          descricao: entry.produto,
+          preco_unitario: entry.preco,
+          preco_1: entry.preco,
+          preco_ult_compra: entry.refCost,
         })),
       };
       const res = await fetch(endpoint.post, {
@@ -971,6 +1300,21 @@ export const TriagemFaltasPage: React.FC<Props> = ({ user }) => {
         });
       }
     }
+    for (const sel of Object.values(pesquisaSelecoes)) {
+      const chaveNorm = normalizeEanChaveFront(sel.ean || sel.eanChave);
+      if (chaveNorm && approvedFaltasEanKeys.has(chaveNorm)) continue;
+      compras.push({
+        ean: sel.ean || sel.eanChave,
+        produto: sel.descricao,
+        tipo: 'PESQUISA_LIVRE',
+        distribuidora: sel.portal,
+        laboratorio: sel.laboratorio || '',
+        qtd: sel.qtd,
+        precoUnitario: sel.preco,
+        subtotal: Number((sel.preco * sel.qtd).toFixed(2)),
+        ultCompra: sel.refCost,
+      });
+    }
     return {
       sessaoId,
       data: new Date().toISOString().slice(0, 10),
@@ -990,8 +1334,8 @@ export const TriagemFaltasPage: React.FC<Props> = ({ user }) => {
     for (const pData of quotedPortals) {
       if (!pData.itens.length) continue;
       lines.push(`*${pData.portal}* (${pData.itens.length} itens | ${fmtBRL(pData.total)}):`);
-      for (const { item, dec, offer } of pData.itens) {
-        lines.push(`- ${item.produto} (${item.ean}) x${dec.qtd} @ ${fmtBRL(offer.preco)}`);
+      for (const entry of pData.itens) {
+        lines.push(`- ${entry.produto} (${entry.ean}) x${entry.qtd} @ ${fmtBRL(entry.preco)}`);
       }
       lines.push('');
     }
@@ -1218,7 +1562,9 @@ export const TriagemFaltasPage: React.FC<Props> = ({ user }) => {
               <div className="flex items-baseline justify-between gap-2">
                 <span className="text-base font-bold tabular-nums">{fmtBRL(p.total)}</span>
                 <span className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
-                  {p.selecionados} sel. / {p.cotados} cotados
+                  {p.pesquisaCount > 0
+                    ? `${p.faltasCount} faltas + ${p.pesquisaCount} pesquisa`
+                    : `${p.selecionados} sel. / ${p.cotados} cotados`}
                 </span>
               </div>
 
@@ -1286,6 +1632,96 @@ export const TriagemFaltasPage: React.FC<Props> = ({ user }) => {
         })}
       </section>
 
+      {/* Navegação por Abas: Faltas do Digifarma | Pesquisa Livre por Termo */}
+      <div className="bg-[var(--bf-card-bg)] border border-[var(--bf-card-border)] rounded-xl px-4 pt-2 shadow-sm">
+        <div role="tablist" aria-label="Modos de cotação da tela" className="triagem-main-tablist">
+          <button
+            type="button"
+            id="triagem-tab-faltas"
+            role="tab"
+            aria-selected={activePageTab === 'faltas'}
+            onClick={() => setActivePageTab('faltas')}
+            className="triagem-main-tab"
+          >
+            <ClipboardCheck className="w-4 h-4 shrink-0" />
+            <span>Faltas do Digifarma</span>
+            <span className="px-1.5 py-0.5 rounded-full text-[11px] bg-slate-100 dark:bg-slate-800 tabular-nums">
+              {items.length}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            id="triagem-tab-pesquisa"
+            role="tab"
+            aria-selected={activePageTab === 'pesquisa'}
+            onClick={() => setActivePageTab('pesquisa')}
+            className="triagem-main-tab"
+          >
+            <Sparkles className="w-4 h-4 shrink-0" />
+            <span>Pesquisa Livre por Termo</span>
+            {pesquisaAtual?.status === 'em_andamento' && (
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[11px] bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-200 tabular-nums">
+                <Loader2 className="w-3 h-3 animate-spin" />
+                {Object.values(pesquisaAtual.portaisStatus || {}).filter(
+                  (s) => s.status === 'concluido' || s.status === 'erro'
+                ).length}
+                /8
+              </span>
+            )}
+            {summary.pesquisaAprovados > 0 && (
+              <span className="px-1.5 py-0.5 rounded-full text-[11px] bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-200 font-bold tabular-nums">
+                {summary.pesquisaAprovados} sel.
+              </span>
+            )}
+          </button>
+        </div>
+      </div>
+
+      {/* Aviso discreto quando pesquisa livre está rodando em segundo plano enquanto vê as Faltas */}
+      {activePageTab === 'faltas' && pesquisaAtual?.status === 'em_andamento' && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-xl px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 text-xs"
+        >
+          <div className="flex items-center gap-2 font-semibold text-blue-800 dark:text-blue-200">
+            <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+            <span>
+              Pesquisa livre "{pesquisaAtual.termo}" rodando em segundo plano (
+              {Object.values(pesquisaAtual.portaisStatus || {}).filter(
+                (s) => s.status === 'concluido' || s.status === 'erro'
+              ).length}
+              /8 dists)
+            </span>
+          </div>
+          <div className="flex items-center gap-3 flex-1 max-w-md">
+            <progress
+              className="triagem-progress"
+              max={8}
+              value={Object.values(pesquisaAtual.portaisStatus || {}).filter(
+                (s) => s.status === 'concluido' || s.status === 'erro'
+              ).length}
+              aria-label="Progresso em segundo plano da pesquisa livre"
+            />
+            <button
+              type="button"
+              onClick={() => setActivePageTab('pesquisa')}
+              className="px-2.5 py-1 rounded-md bg-blue-600 hover:bg-blue-700 text-white font-bold cursor-pointer whitespace-nowrap"
+            >
+              Ver resultados
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Painel Aba 1: Faltas do Digifarma */}
+      <div
+        role="tabpanel"
+        aria-labelledby="triagem-tab-faltas"
+        hidden={activePageTab !== 'faltas'}
+      >
+        <div className="space-y-4">
       {/* Filtros + Botões de Acesso Rápido por Distribuidora Cotada */}
       <section aria-label="Filtros da lista" className="bg-[var(--bf-card-bg)] border border-[var(--bf-card-border)] rounded-xl p-3.5 space-y-2.5 shadow-sm">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
@@ -1711,6 +2147,30 @@ export const TriagemFaltasPage: React.FC<Props> = ({ user }) => {
           </tbody>
         </table>
       </div>
+        </div>
+      </div>
+
+      {/* Painel Aba 2: Pesquisa Livre por Termo */}
+      <div
+        role="tabpanel"
+        aria-labelledby="triagem-tab-pesquisa"
+        hidden={activePageTab !== 'pesquisa'}
+      >
+        <TriagemPesquisaLivreTab
+          pesquisaAtual={pesquisaAtual}
+          historico={pesquisaHistorico}
+          selecoes={pesquisaSelecoes}
+          approvedFaltasEanKeys={approvedFaltasEanKeys}
+          iniciandoBusca={iniciandoBuscaLivre}
+          onIniciarPesquisa={handleIniciarPesquisaLivre}
+          onCancelarPesquisa={handleCancelarPesquisaLivre}
+          onSelecionarHistorico={handleSelecionarHistoricoLivre}
+          onToggleSelecao={handleTogglePesquisaSelecao}
+          onChangeQtdSelecao={handleChangePesquisaQtd}
+          onRemoverSelecao={handleRemoverPesquisaSelecao}
+          onLimparSelecoes={handleLimparPesquisaSelecoes}
+        />
+      </div>
 
       {/* Modal Nativa de Revisão & Exportação */}
       <dialog
@@ -1831,13 +2291,20 @@ export const TriagemFaltasPage: React.FC<Props> = ({ user }) => {
                           </tr>
                         </thead>
                         <tbody>
-                          {p.itens.map(({ item, dec, offer, sub }) => (
-                            <tr key={item.ean} className="border-b border-slate-200/70 dark:border-slate-800">
-                              <td className="py-1.5 pr-2 font-mono">{item.ean}</td>
-                              <td className="py-1.5 pr-2 font-medium">{item.produto}</td>
-                              <td className="py-1.5 px-2 text-right tabular-nums font-bold">{dec.qtd}</td>
-                              <td className="py-1.5 px-2 text-right tabular-nums">{fmtBRL(offer.preco)}</td>
-                              <td className="py-1.5 pl-2 text-right tabular-nums font-bold">{fmtBRL(sub)}</td>
+                          {p.itens.map((entry, idx) => (
+                            <tr key={`${entry.ean}-${entry.origem}-${idx}`} className="border-b border-slate-200/70 dark:border-slate-800">
+                              <td className="py-1.5 pr-2 font-mono">{entry.ean}</td>
+                              <td className="py-1.5 pr-2 font-medium">
+                                {entry.produto}
+                                {entry.origem === 'pesquisa' && (
+                                  <span className="ml-1.5 px-1.5 py-0.2 rounded bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-200 text-[10px] font-bold">
+                                    Pesquisa
+                                  </span>
+                                )}
+                              </td>
+                              <td className="py-1.5 px-2 text-right tabular-nums font-bold">{entry.qtd}</td>
+                              <td className="py-1.5 px-2 text-right tabular-nums">{fmtBRL(entry.preco)}</td>
+                              <td className="py-1.5 pl-2 text-right tabular-nums font-bold">{fmtBRL(entry.sub)}</td>
                             </tr>
                           ))}
                         </tbody>

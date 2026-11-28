@@ -2104,5 +2104,92 @@ module.exports = (db) => {
     }
   });
 
+
+  // ── Pesquisa Livre por Termo (Cotação Abrangente nas 8 Distribuidoras) ──
+  const { createTriagemPesquisaLivreManager } = require('./triagem-pesquisa-livre');
+  const pesquisaLivreMgr = createTriagemPesquisaLivreManager(db);
+
+  router.post('/triagem-faltas/pesquisa-livre', (req, res) => {
+    try {
+      const { termo, usuario } = req.body || {};
+      const pesquisa = pesquisaLivreMgr.iniciarPesquisa(termo, usuario);
+      res.json({ success: true, pesquisa });
+    } catch (err) {
+      const status = err?.message?.includes('caracteres') ? 400 : 500;
+      res.status(status).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/triagem-faltas/pesquisa-livre/historico', (req, res) => {
+    try {
+      const limit = Math.min(30, Math.max(1, parseInt(req.query?.limit, 10) || 12));
+      const result = pesquisaLivreMgr.listarHistorico(limit);
+      res.json({ success: true, ...result });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/triagem-faltas/pesquisa-livre/:id', (req, res) => {
+    try {
+      const pesquisa = pesquisaLivreMgr.obterPesquisa(req.params.id);
+      if (!pesquisa) {
+        return res.status(404).json({ success: false, error: 'Pesquisa não encontrada' });
+      }
+      res.json({ success: true, pesquisa });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/triagem-faltas/pesquisa-livre/:id/cancelar', (req, res) => {
+    try {
+      const cancelada = pesquisaLivreMgr.cancelarPesquisa(req.params.id);
+      res.json({ success: true, cancelada });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/triagem-faltas/pesquisa-selecoes', (req, res) => {
+    try {
+      const data = pesquisaLivreMgr.listarSelecoes(req.query?.sessaoId);
+      res.json({ success: true, ...data });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.put('/triagem-faltas/pesquisa-selecoes/item', (req, res) => {
+    try {
+      const item = pesquisaLivreMgr.salvarSelecaoItem(req.body || {});
+      res.json({ success: true, item });
+    } catch (err) {
+      const status = err?.message?.includes('obrigat') ? 400 : 500;
+      res.status(status).json({ success: false, error: err.message });
+    }
+  });
+
+  router.delete('/triagem-faltas/pesquisa-selecoes/item', (req, res) => {
+    try {
+      const sessaoId = req.body?.sessaoId || req.query?.sessaoId;
+      const eanChave = req.body?.eanChave || req.query?.eanChave;
+      const removido = pesquisaLivreMgr.removerSelecaoItem(sessaoId, eanChave);
+      res.json({ success: true, removido });
+    } catch (err) {
+      const status = err?.message?.includes('obrigat') ? 400 : 500;
+      res.status(status).json({ success: false, error: err.message });
+    }
+  });
+
+  router.delete('/triagem-faltas/pesquisa-selecoes/limpar', (req, res) => {
+    try {
+      const sessaoId = req.body?.sessaoId || req.query?.sessaoId;
+      const removidos = pesquisaLivreMgr.limparSelecoes(sessaoId);
+      res.json({ success: true, removidos });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
   return router;
 };
