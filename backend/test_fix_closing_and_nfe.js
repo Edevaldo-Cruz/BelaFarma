@@ -8,6 +8,7 @@ const { processarPreviewNfe, confirmarImportacaoNfe } = require('./modules/erp/e
 const { obterVendasBelinhaLive } = require('./modules/erp/erp-sales.service');
 const { db, initErpDatabase } = require('./modules/erp/erp-database');
 
+async function main() {
 console.log('--- TESTANDO CORREÇÕES: NF-e PREVIEW/CONFIRM & FECHAMENTO BELINHA PDV ---');
 initErpDatabase();
 
@@ -61,11 +62,12 @@ const sampleXml = `<?xml version="1.0" encoding="UTF-8"?>
   </NFe>
 </nfeProc>`;
 
-// Limpa nota se já existir
+// Limpa nota e produto se já existirem
 db.prepare('DELETE FROM invoices WHERE invoice_number = ?').run('99999');
+db.prepare('DELETE FROM products WHERE barcode = ?').run('7891234567890');
 
 // Simula chamada de preview
-const preview = processarPreviewNfe(sampleXml);
+const preview = await processarPreviewNfe(sampleXml);
 console.log(`Preview processado: NF #${preview.invoice_number}, Total: R$ ${preview.total_invoice}, Itens: ${preview.items.length}`);
 
 // Simula resposta formatada com { success: true, data: preview, ...preview }
@@ -86,7 +88,7 @@ const confirmPayload = {
   created_by: 'Operador Teste'
 };
 
-const confirmResult = confirmarImportacaoNfe(confirmPayload);
+const confirmResult = await confirmarImportacaoNfe(confirmPayload);
 const apiConfirmResponse = { success: true, data: confirmResult, ...confirmResult };
 console.log('Confirmação:', apiConfirmResponse);
 if (!apiConfirmResponse.data || typeof apiConfirmResponse.data.total_quantity_added !== 'number') {
@@ -94,4 +96,14 @@ if (!apiConfirmResponse.data || typeof apiConfirmResponse.data.total_quantity_ad
 }
 console.log('✅ Formato de resposta da confirmação compatível com data.data.total_quantity_added');
 
+// Limpeza final
+db.prepare('DELETE FROM invoices WHERE invoice_number = ?').run('99999');
+db.prepare('DELETE FROM products WHERE barcode = ?').run('7891234567890');
+
 console.log('\n🎉 TODAS AS CORREÇÕES FORAM TESTADAS E VALIDADAS COM SUCESSO!');
+}
+
+main().catch((err) => {
+  console.error('❌ ERRO NO TESTE:', err);
+  process.exit(1);
+});

@@ -1,9 +1,14 @@
 {
   "version": "1.2.6",
-  "commitHash": "ef18929",
-  "commitMessage": "feat(triagem): cruzamento com ultima compra por EAN na pesquisa livre",
-  "buildTime": "28/11/2026, 15:54:41",
+  "commitHash": "e9e9e15",
+  "commitMessage": "feat(compras): altera meta de cobertura e abastecimento de 7 para 30 dias",
+  "buildTime": "28/11/2026, 16:01:46",
   "recentCommits": [
+    {
+      "hash": "e9e9e15",
+      "date": "28/11/2026",
+      "message": "feat(compras): altera meta de cobertura e abastecimento de 7 para 30 dias"
+    },
     {
       "hash": "ef18929",
       "date": "28/11/2026",
@@ -98,11 +103,6 @@
       "hash": "c82f148",
       "date": "26/11/2026",
       "message": "feat(pdv): resetar forma de pagamento para Dinheiro apos venda e destacar troco em verde"
-    },
-    {
-      "hash": "a0b1aa0",
-      "date": "26/11/2026",
-      "message": "fix(pdv): corrigir SQLite 500 na posologia com seed automatico, criar guia Assistente de Pedido e integrar Suprimento no Fechamento de Caixa"
     }
   ]
 }

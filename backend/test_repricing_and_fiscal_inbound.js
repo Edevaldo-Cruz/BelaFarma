@@ -12,7 +12,7 @@ const { processarPreviewNfe, confirmarImportacaoNfe, converterCfopEntrada } = re
 const { gerarSpedFiscalEfd } = require('./modules/erp/fiscal-accounting.service');
 const { gerarArquivoSintegra } = require('./modules/erp/sintegra.service');
 
-function runTest() {
+async function runTest() {
   console.log('🧪 [TEST] Iniciando bateria de testes fiscais e de precificação...');
   initErpDatabase();
 
@@ -158,7 +158,7 @@ function runTest() {
 </nfeProc>`;
 
   // 4. Teste de Preview
-  const preview = processarPreviewNfe(xmlFake);
+  const preview = await processarPreviewNfe(xmlFake);
   if (!preview.success || preview.items.length !== 3) {
     throw new Error('Falha no processamento do Preview do XML.');
   }
@@ -193,7 +193,7 @@ function runTest() {
   console.log('✅ Regras de aumento e redução >= 15% validadas perfeitamente no Preview!');
 
   // 5. Confirmação da Importação com Repasse Ativo
-  const confirmResult = confirmarImportacaoNfe({
+  const confirmResult = await confirmarImportacaoNfe({
     ...preview,
     items: preview.items
   });
@@ -270,9 +270,7 @@ function runTest() {
   console.log('\n🎉 TODOS OS TESTES PASSARAM COM SUCESSO ABSOLUTO!');
 }
 
-try {
-  runTest();
-} catch (e) {
+runTest().catch((e) => {
   console.error('❌ ERRO NO TESTE:', e);
   process.exit(1);
-}
+});

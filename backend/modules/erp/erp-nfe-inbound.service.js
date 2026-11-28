@@ -8,7 +8,7 @@
 
 const { XMLParser } = require('fast-xml-parser');
 const { db, initErpDatabase } = require('./erp-database');
-const { obterProdutoPorCodigo, cadastrarProduto } = require('./erp-products.service');
+const { obterProdutoPorCodigo, obterProdutoPorCodigoSync, cadastrarProduto } = require('./erp-products.service');
 const { roundUpToAcceptedCents, calcularPrecoSugeridoMarkup } = require('../../services/pricing-customizations.service');
 const { atualizarPrecoVendaDigifarma } = require('../../services/digifarma.service');
 
@@ -106,7 +106,7 @@ function obterCustoReferenciaPreco(productCode, currentCostCadastrado) {
  * @param {string|Buffer} xmlContent Conteúdo em texto ou buffer do arquivo .xml
  * @returns {Object} Dados estruturados da nota e lista de produtos com conferência de estoque
  */
-function processarPreviewNfe(xmlContent) {
+async function processarPreviewNfe(xmlContent) {
   ensureNfeColumns();
   initErpDatabase();
 
@@ -185,6 +185,12 @@ function processarPreviewNfe(xmlContent) {
     if (cEAN.toUpperCase() === 'SEM GTIN' || cEAN.toUpperCase() === 'SEM_GTIN') {
       cEAN = '';
     }
+    if (!cEAN) {
+      let cEANTrib = String(prod.cEANTrib || '').trim();
+      if (cEANTrib.toUpperCase() !== 'SEM GTIN' && cEANTrib.toUpperCase() !== 'SEM_GTIN') {
+        cEAN = cEANTrib;
+      }
+    }
     const xProd = String(prod.xProd || '').trim().toUpperCase();
     const ncm = String(prod.NCM || '').trim();
     const cest = String(prod.CEST || '').trim();
@@ -228,13 +234,13 @@ function processarPreviewNfe(xmlContent) {
       }
     }
 
-    // Match no catálogo nativo do Belinha (por EAN ou Código)
+    // Match no catálogo nativo do Belinha (por EAN ou Código quando não houver EAN)
     let matchedProduct = null;
     if (cEAN) {
-      matchedProduct = obterProdutoPorCodigo(cEAN);
+      matchedProduct = await obterProdutoPorCodigo(cEAN);
     }
-    if (!matchedProduct && cProd) {
-      matchedProduct = obterProdutoPorCodigo(cProd);
+    if (!matchedProduct && !cEAN && cProd) {
+      matchedProduct = await obterProdutoPorCodigo(cProd);
     }
 
     // Dados de Estoque e Preço Vigentes
@@ -378,7 +384,7 @@ function processarPreviewNfe(xmlContent) {
  * @param {Object} payload Dados confirmados da nota e itens conferidos
  * @returns {Object} Resultado da importação
  */
-function confirmarImportacaoNfe(payload) {
+async function confirmarImportacaoNfe(payload) {
   ensureNfeColumns();
   initErpDatabase();
 
@@ -412,12 +418,17 @@ function confirmarImportacaoNfe(payload) {
     throw new Error('A nota deve conter pelo menos 1 item.');
   }
 
-  // Verifica se a nota já foi importada anteriormente pela chave de acesso
+  // Verifica se a nota já foi importada anteriormente pela chave de acesso ou número
   if (access_key) {
     const existing = db.prepare('SELECT id, invoice_number, supplier_name FROM invoices WHERE access_key = ?').get(access_key);
     if (existing) {
       throw new Error(`Esta NF-e (Chave ${access_key}) já foi importada anteriormente como Nota #${existing.invoice_number}.`);
     }
+  }
+
+  const existingByNumber = db.prepare('SELECT id, invoice_number, supplier_name FROM invoices WHERE invoice_number = ?').get(invoice_number);
+  if (existingByNumber) {
+    throw new Error(`A Nota Fiscal #${invoice_number} já foi importada anteriormente (${existingByNumber.supplier_name}).`);
   }
 
   const invoiceId = `NF-${invoice_number.replace(/\D/g, '') || Date.now()}-${Date.now().toString().slice(-4)}`;
@@ -427,6 +438,85 @@ function confirmarImportacaoNfe(payload) {
   let totalProdutosNovos = 0;
   let totalPrecosAtualizados = 0;
   const repricingEvents = [];
+
+  // Resolve/cadastra todos os produtos de forma assíncrona antes da transação síncrona do SQLite
+  const resolvedItems = [];
+  const createdByKey = new Map();
+
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i];
+    const convFactor = Math.max(1, parseFloat(it.conversion_factor) || 1);
+    const qtdConvertida = (parseFloat(it.quantity_bought) || 0) * convFactor;
+    const custoFinalUnitario = (parseFloat(it.unit_cost) || 0) / convFactor;
+    const totalCostItem = Math.round((qtdConvertida * custoFinalUnitario) * 100) / 100;
+
+    let cleanBarcode = String(it.barcode || '').trim();
+    if (cleanBarcode.toUpperCase() === 'SEM GTIN' || cleanBarcode.toUpperCase() === 'SEM_GTIN') {
+      cleanBarcode = '';
+    }
+    const cleanSupplierCode = String(it.supplier_code || '').trim();
+    const cleanDesc = String(it.description || '').trim().toUpperCase();
+    const batchKey = cleanBarcode ? `ean:${cleanBarcode}` : `sup:${cleanSupplierCode}:${cleanDesc}`;
+
+    let targetProductCode = null;
+
+    if (it.product_code) {
+      const existente = obterProdutoPorCodigoSync(it.product_code);
+      if (existente && existente.code) {
+        targetProductCode = existente.code;
+      }
+    }
+
+    if (!targetProductCode && createdByKey.has(batchKey)) {
+      targetProductCode = createdByKey.get(batchKey);
+    }
+
+    if (!targetProductCode && cleanBarcode) {
+      const porEan = await obterProdutoPorCodigo(cleanBarcode);
+      if (porEan && porEan.code) {
+        targetProductCode = porEan.code;
+      }
+    }
+
+    if (!targetProductCode && !cleanBarcode && cleanSupplierCode) {
+      const porCodForn = await obterProdutoPorCodigo(cleanSupplierCode);
+      if (porCodForn && porCodForn.code) {
+        targetProductCode = porCodForn.code;
+      }
+    }
+
+    // Se o produto não existe no catálogo nativo, cadastra-o automaticamente
+    if (!targetProductCode) {
+      const novoBarcode = cleanBarcode || cleanSupplierCode || String(Date.now() + i);
+      const precoSugerido = parseFloat(it.suggested_sale_price) || parseFloat(it.sale_price) || Math.round((custoFinalUnitario * 1.45) * 100) / 100;
+
+      const novoProduto = await cadastrarProduto({
+        barcode: novoBarcode,
+        name: it.description,
+        sale_price: precoSugerido,
+        cost_price: custoFinalUnitario,
+        stock_qty: 0,
+        ncm: it.ncm || null,
+        cest: it.cest || null
+      });
+
+      if (!novoProduto || !novoProduto.code) {
+        throw new Error(`Falha ao cadastrar automaticamente o produto "${it.description || novoBarcode}".`);
+      }
+
+      targetProductCode = novoProduto.code;
+      createdByKey.set(batchKey, targetProductCode);
+      totalProdutosNovos++;
+    }
+
+    resolvedItems.push({
+      it: { ...it, barcode: cleanBarcode || it.barcode },
+      targetProductCode,
+      qtdConvertida,
+      custoFinalUnitario,
+      totalCostItem
+    });
+  }
 
   // Execução Transacional Atômica
   const executeImportTransaction = db.transaction(() => {
@@ -510,34 +600,8 @@ function confirmarImportacaoNfe(payload) {
       )
     `);
 
-    for (let i = 0; i < items.length; i++) {
-      const it = items[i];
-      const convFactor = Math.max(1, parseFloat(it.conversion_factor) || 1);
-      const qtdConvertida = (parseFloat(it.quantity_bought) || 0) * convFactor;
-      const custoFinalUnitario = (parseFloat(it.unit_cost) || 0) / convFactor;
-      const totalCostItem = Math.round((qtdConvertida * custoFinalUnitario) * 100) / 100;
-
-      let targetProductCode = it.product_code;
-
-      // Se o produto não existe no catálogo nativo, cadastra-o automaticamente
-      if (!targetProductCode) {
-        const novoBarcode = it.barcode || it.supplier_code || String(Date.now());
-        const precoSugerido = parseFloat(it.suggested_sale_price) || Math.round((custoFinalUnitario * 1.45) * 100) / 100;
-
-        const novoProduto = cadastrarProduto({
-          barcode: novoBarcode,
-          name: it.description,
-          sale_price: precoSugerido,
-          cost_price: custoFinalUnitario,
-          stock_qty: 0,
-          ncm: it.ncm || null,
-          cest: it.cest || null
-        });
-
-        targetProductCode = novoProduto.code;
-        totalProdutosNovos++;
-      }
-
+    for (let i = 0; i < resolvedItems.length; i++) {
+      const { it, targetProductCode, qtdConvertida, custoFinalUnitario, totalCostItem } = resolvedItems[i];
       const invoiceItemId = `${invoiceId}-ITEM-${i + 1}`;
 
       // Grava o item da nota com dados fiscais completos
@@ -591,7 +655,7 @@ function confirmarImportacaoNfe(payload) {
         updateProductPriceStmt.run(novoPrecoVenda, targetProductCode);
 
         // Registra histórico
-        const histId = `PRC-${Date.now()}-${i + 1}`;
+        const histId = `PRC-${invoiceId}-${i + 1}-${Date.now().toString().slice(-4)}`;
         insertPriceHistoryStmt.run(
           histId,
           targetProductCode,

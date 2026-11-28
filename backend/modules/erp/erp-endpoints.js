@@ -929,7 +929,7 @@ router.get('/migration/history', (req, res) => {
 // ==========================================
 // 5. ROTAS DE NOTAS FISCAIS (ENTRADA / XML)
 // ==========================================
-router.post('/invoices/preview-xml', uploadXml.single('xmlFile'), (req, res) => {
+router.post('/invoices/preview-xml', uploadXml.single('xmlFile'), async (req, res) => {
   try {
     let xmlContent = '';
     if (req.file && req.file.buffer) {
@@ -942,17 +942,17 @@ router.post('/invoices/preview-xml', uploadXml.single('xmlFile'), (req, res) => 
       return res.status(400).json({ success: false, error: 'Envie um arquivo .xml ou o texto da NF-e no campo xml ou xmlString.' });
     }
 
-    const preview = processarPreviewNfe(xmlContent);
+    const preview = await processarPreviewNfe(xmlContent);
     res.json({ success: true, data: preview, ...preview });
   } catch (err) {
     res.status(400).json({ success: false, error: err.message });
   }
 });
 
-router.post('/invoices/confirm-import', (req, res) => {
+router.post('/invoices/confirm-import', async (req, res) => {
   try {
     const userName = req.headers['x-user-name'] || req.body.created_by || 'Almoxarifado';
-    const result = confirmarImportacaoNfe({
+    const result = await confirmarImportacaoNfe({
       ...req.body,
       created_by: userName
     });

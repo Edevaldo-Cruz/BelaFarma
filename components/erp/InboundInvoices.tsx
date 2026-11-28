@@ -46,6 +46,8 @@ interface NfeItemPreview {
   cost_difference_val?: number;
   cost_difference_pct?: number;
   cost_action?: 'INCREASE' | 'DECREASE_15PCT' | 'STABLE' | 'NEW_PRODUCT';
+  cfop_original?: string;
+  cfop_entrada?: string;
   conversion_factor: number;
   quantity_to_add: number;
   final_unit_cost: number;
@@ -171,15 +173,17 @@ export const InboundInvoices: React.FC = () => {
         throw new Error(data.error || 'Erro ao processar arquivo XML.');
       }
 
-      // Prepara itens com sugestão inicial de preço se forem novos produtos
+      // Prepara itens com sugestão inicial de preço preservando cálculo do backend
       const itemsComPreco = data.data.items.map((it: NfeItemPreview) => ({
         ...it,
         conversion_factor: it.conversion_factor || 1,
         quantity_to_add: it.quantity_bought * (it.conversion_factor || 1),
         final_unit_cost: it.unit_cost / (it.conversion_factor || 1),
-        suggested_sale_price: it.current_sale_price > 0 
-          ? it.current_sale_price 
-          : Math.round(((it.unit_cost / (it.conversion_factor || 1)) * 1.45) * 100) / 100
+        suggested_sale_price: Number(it.suggested_sale_price) > 0
+          ? Number(it.suggested_sale_price)
+          : (it.current_sale_price > 0
+              ? it.current_sale_price
+              : Math.round(((it.unit_cost / (it.conversion_factor || 1)) * 1.45) * 100) / 100)
       }));
 
       setPreview({
@@ -205,20 +209,50 @@ export const InboundInvoices: React.FC = () => {
     const updatedItems = [...preview.items];
     const item = updatedItems[index];
 
-    const qtdFinal = item.quantity_bought * safeFactor;
-    const custoUnitConvertido = item.unit_cost / safeFactor;
+    const qtdFinal = Math.round((item.quantity_bought * safeFactor) * 1000) / 1000;
+    const custoUnitConvertido = Math.round((item.unit_cost / safeFactor) * 100) / 100;
 
-    let variacao = 0;
-    if (item.current_cost > 0 && custoUnitConvertido > 0) {
-      variacao = Math.round(((custoUnitConvertido - item.current_cost) / item.current_cost) * 1000) / 10;
+    const refCost = item.last_cost && item.last_cost > 0 ? item.last_cost : item.current_cost;
+    let variacaoPct = 0;
+    let diffVal = 0;
+    let costAction: NfeItemPreview['cost_action'] = item.cost_action || 'STABLE';
+    let suggestedSalePrice = item.current_sale_price;
+    let applyRepricing = false;
+
+    if (refCost > 0 && custoUnitConvertido > 0 && item.current_sale_price > 0) {
+      diffVal = Math.round((custoUnitConvertido - refCost) * 100) / 100;
+      variacaoPct = Math.round(((custoUnitConvertido - refCost) / refCost) * 1000) / 10;
+
+      if (custoUnitConvertido > refCost) {
+        costAction = 'INCREASE';
+        suggestedSalePrice = Math.round((custoUnitConvertido * (item.current_sale_price / refCost)) * 100) / 100;
+        applyRepricing = true;
+      } else if (variacaoPct <= -15.0) {
+        costAction = 'DECREASE_15PCT';
+        suggestedSalePrice = Math.round((custoUnitConvertido * (item.current_sale_price / refCost)) * 100) / 100;
+        applyRepricing = true;
+      } else {
+        costAction = 'STABLE';
+        suggestedSalePrice = item.current_sale_price;
+        applyRepricing = false;
+      }
+    } else if (custoUnitConvertido > 0) {
+      costAction = 'NEW_PRODUCT';
+      suggestedSalePrice = Math.round((custoUnitConvertido * 1.45) * 100) / 100;
+      applyRepricing = true;
     }
 
     updatedItems[index] = {
       ...item,
       conversion_factor: safeFactor,
-      quantity_to_add: Math.round(qtdFinal * 1000) / 1000,
-      final_unit_cost: Math.round(custoUnitConvertido * 100) / 100,
-      cost_variation_pct: variacao
+      quantity_to_add: qtdFinal,
+      final_unit_cost: custoUnitConvertido,
+      cost_difference_val: diffVal,
+      cost_difference_pct: variacaoPct,
+      cost_variation_pct: variacaoPct,
+      cost_action: costAction,
+      suggested_sale_price: suggestedSalePrice,
+      apply_repricing: applyRepricing
     };
 
     setPreview({
@@ -684,9 +718,13 @@ export const InboundInvoices: React.FC = () => {
                                     CFOP {item.cfop_entrada}
                                   </span>
                                 )}
-                                {item.is_matched && (
+                                {item.is_matched ? (
                                   <span className="text-slate-400">
                                     Estoque: <strong className="text-white">{item.current_stock}</strong>
+                                  </span>
+                                ) : (
+                                  <span className="px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-500/30 text-amber-300 font-semibold">
+                                    Novo produto
                                   </span>
                                 )}
                               </div>
