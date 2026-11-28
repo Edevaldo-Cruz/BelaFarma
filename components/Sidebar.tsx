@@ -302,6 +302,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'notes', label: 'Anotações', icon: NotebookPen },
     { id: 'temperature-map', label: 'Mapa de Temperatura', icon: Thermometer },
     { id: 'daily-records', label: 'Lançamentos', icon: Receipt },
+    { id: 'daily-records-history', label: 'Histórico de Lançamentos', icon: History },
 
     { id: 'shortages', label: 'Lista de Faltas', icon: ClipboardList },
     { id: 'inventario', label: 'Inventário Rotativo', icon: ClipboardList },
@@ -430,9 +431,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
   });
 
 
-  const sortedMenuItems = [...filteredMenuItems].sort((a, b) =>
-    a.label.localeCompare(b.label, 'pt-BR', { sensitivity: 'base' })
-  );
+  const dashboardItem = filteredMenuItems.find(i => i.id === 'dashboard');
+  const otherMenuItems = filteredMenuItems
+    .filter(i => i.id !== 'dashboard')
+    .sort((a, b) => a.label.localeCompare(b.label, 'pt-BR', { sensitivity: 'base' }));
+
+  const sortedMenuItems = [
+    ...(dashboardItem ? [dashboardItem] : []),
+    ...otherMenuItems,
+  ];
 
   // Lista de abandonados visíveis para o Admin no menu
   const visibleAbandonedIds = sortedMenuItems

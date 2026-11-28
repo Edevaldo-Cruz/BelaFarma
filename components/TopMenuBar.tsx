@@ -323,6 +323,7 @@ export const TopMenuBar: React.FC<TopMenuBarProps> = ({
         { id: 'belinha-pdv', label: 'Belinha PDV', icon: DollarSign },
         { id: 'erp-vendas', label: 'Vendas do Dia', icon: Receipt },
         { id: 'daily-records', label: 'Lançamentos', icon: Receipt },
+        { id: 'daily-records-history', label: 'Histórico de Lançamentos', icon: History },
         { id: 'deliveries', label: 'Pedidos & Entregas', icon: Truck },
         { id: 'orders', label: 'Pedidos', icon: ShoppingCart },
         { id: 'ifood-control', label: 'Controle iFood', icon: ShoppingCart, adminOnly: true },

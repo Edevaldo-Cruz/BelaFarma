@@ -12,6 +12,7 @@ import { MedicationSearch } from "./components/MedicationSearch";
 import { CashClosing } from "./components/CashClosing";
 import { Safe } from "./components/Safe";
 import { DailyRecords } from "./components/DailyRecords";
+import { DailyRecordsHistory } from "./components/DailyRecordsHistory";
 import { Logs } from "./components/Logs";
 import { Quotations } from "./components/Quotations";
 import { CheckingAccount } from "./components/CheckingAccount";
@@ -1684,6 +1685,14 @@ const App: React.FC = () => {
                   onLog={(act, det) => createLog("Financeiro", act, det)}
                   dailyRecords={dailyRecords}
                   onSave={fetchData} // Use fetchData to refresh parent state
+                  onOpenHistory={() => handleNavigate("daily-records-history")}
+                />
+              )}
+              {currentView === "daily-records-history" && (
+                <DailyRecordsHistory
+                  dailyRecords={dailyRecords}
+                  onRefresh={fetchData}
+                  onNavigateToDailyRecords={() => handleNavigate("daily-records")}
                 />
               )}
               {currentView === "cash-closing" && user.role === UserRole.ADM && (

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
-  Plus, Trash2, Pencil, Save, X, AlertCircle, 
+  Plus, Trash2, Pencil, Save, X, AlertCircle, History,
   CheckCircle2, ShoppingBag, DollarSign, UserPlus, Search, AlertTriangle, Package, ArrowRightLeft, Percent
 } from 'lucide-react';
 import { useToast } from './ToastContext';
@@ -11,6 +11,7 @@ interface DailyRecordsProps {
   onLog: (action: string, details: string) => void;
   dailyRecords: DailyRecordEntry[];
   onSave: () => void;
+  onOpenHistory?: () => void;
 }
 
 type TabType = 'expenses' | 'pix' | 'crediario' | 'non-registered' | 'consignado' | 'ifood' | 'sangria';
@@ -40,7 +41,7 @@ interface NonRegisteredItem {
   val: number;
 }
 
-export const DailyRecords: React.FC<DailyRecordsProps> = ({ user, onLog, dailyRecords, onSave }) => {
+export const DailyRecords: React.FC<DailyRecordsProps> = ({ user, onLog, dailyRecords, onSave, onOpenHistory }) => {
   const { addToast } = useToast();
   const [activeTab, setActiveTab] = useState<TabType>('expenses');
   const [todayRecord, setTodayRecord] = useState<DailyRecordEntry | null>(null);
@@ -786,6 +787,16 @@ export const DailyRecords: React.FC<DailyRecordsProps> = ({ user, onLog, dailyRe
             {new Date().toLocaleDateString('pt-BR', { dateStyle: 'full' })}
           </p>
         </div>
+        {onOpenHistory && (
+          <button
+            type="button"
+            onClick={onOpenHistory}
+            className="flex items-center gap-2 px-5 py-3 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-black uppercase tracking-wider shadow-md transition-all cursor-pointer self-start md:self-auto"
+          >
+            <History className="w-4 h-4" />
+            <span>Ver Histórico</span>
+          </button>
+        )}
       </header>
 
       {/* Tabs */}

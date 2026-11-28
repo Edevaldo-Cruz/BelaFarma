@@ -1,9 +1,14 @@
 {
   "version": "1.2.6",
-  "commitHash": "071b710",
-  "commitMessage": "feat(compras): adicionar botoes clicaveis e montagem de carrinho por distribuidora cotada na Triagem de Faltas",
-  "buildTime": "28/11/2026, 08:14:57",
+  "commitHash": "84862e0",
+  "commitMessage": "feat(navigation): exibir itens do menu lateral em ordem alfabetica sem grupos",
+  "buildTime": "28/11/2026, 08:32:21",
   "recentCommits": [
+    {
+      "hash": "84862e0",
+      "date": "28/11/2026",
+      "message": "feat(navigation): exibir itens do menu lateral em ordem alfabetica sem grupos"
+    },
     {
       "hash": "071b710",
       "date": "27/11/2026",
@@ -98,11 +103,6 @@
       "hash": "eddd471",
       "date": "26/11/2026",
       "message": "fix(pdv): sincronizar e buscar COD_BARRAS_HOSPITALAR do Digifarma e priorizar produto com estoque/preco valido"
-    },
-    {
-      "hash": "5e64ce6",
-      "date": "26/11/2026",
-      "message": "fix(dashboard): corrigir duplicacao de boletos com pedidos e separar receita realizada vs projecao media"
     }
   ]
 }
