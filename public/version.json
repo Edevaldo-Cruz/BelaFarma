@@ -1,9 +1,14 @@
 {
   "version": "1.2.6",
-  "commitHash": "90916a8",
-  "commitMessage": "feat(triagem): pesquisa livre abrangente por termo nas 8 distribuidoras",
-  "buildTime": "28/11/2026, 11:19:07",
+  "commitHash": "263460a",
+  "commitMessage": "feat(pdv): adicionar botao Copiar Orcamento para WhatsApp no Assistente de Pedido",
+  "buildTime": "28/11/2026, 11:44:14",
   "recentCommits": [
+    {
+      "hash": "263460a",
+      "date": "28/11/2026",
+      "message": "feat(pdv): adicionar botao Copiar Orcamento para WhatsApp no Assistente de Pedido"
+    },
     {
       "hash": "90916a8",
       "date": "28/11/2026",
@@ -98,11 +103,6 @@
       "hash": "f9e93f9",
       "date": "26/11/2026",
       "message": "fix(bank-conciliation): corrige leitura de credenciais Pluggy e adiciona configuracao pela tela"
-    },
-    {
-      "hash": "261ad2c",
-      "date": "26/11/2026",
-      "message": "fix(ui): registra rota e categoria da tela de conciliacao bancaria no menu"
     }
   ]
 }
