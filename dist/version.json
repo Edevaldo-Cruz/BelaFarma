@@ -1,9 +1,14 @@
 {
   "version": "1.2.6",
-  "commitHash": "263460a",
-  "commitMessage": "feat(pdv): adicionar botao Copiar Orcamento para WhatsApp no Assistente de Pedido",
-  "buildTime": "28/11/2026, 11:44:14",
+  "commitHash": "c83e1fa",
+  "commitMessage": "feat(assistente-vendas): adicionar controle de quantidade solicitada nos cards e no orcamento",
+  "buildTime": "28/11/2026, 15:28:12",
   "recentCommits": [
+    {
+      "hash": "c83e1fa",
+      "date": "28/11/2026",
+      "message": "feat(assistente-vendas): adicionar controle de quantidade solicitada nos cards e no orcamento"
+    },
     {
       "hash": "263460a",
       "date": "28/11/2026",
@@ -98,11 +103,6 @@
       "hash": "726a01f",
       "date": "26/11/2026",
       "message": "feat(bank-conciliation): renomeia menu, zera pendencias vencidas e adiciona rotina diaria automatica com alertas WhatsApp"
-    },
-    {
-      "hash": "f9e93f9",
-      "date": "26/11/2026",
-      "message": "fix(bank-conciliation): corrige leitura de credenciais Pluggy e adiciona configuracao pela tela"
     }
   ]
 }

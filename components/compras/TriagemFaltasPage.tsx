@@ -86,6 +86,11 @@ interface RobotCartState {
   doneMsg?: string;
 }
 
+type PendingCartRequest =
+  | { scope: 'combined-portal'; portal: string }
+  | { scope: 'pesquisa-portal'; portal: string }
+  | { scope: 'pesquisa-all' };
+
 interface Props {
   user: User;
 }
@@ -268,7 +273,8 @@ export const TriagemFaltasPage: React.FC<Props> = ({ user }) => {
 
   const [activeModalTab, setActiveModalTab] = useState<'aprovados' | 'excluidos'>('aprovados');
   const [modalInlineStatus, setModalInlineStatus] = useState<string>('');
-  const [pendingCartPortal, setPendingCartPortal] = useState<string | null>(null);
+  const [pendingCartRequest, setPendingCartRequest] = useState<PendingCartRequest | null>(null);
+  const [includeFaltasInPesquisaCart, setIncludeFaltasInPesquisaCart] = useState<boolean>(false);
   const [robotStates, setRobotStates] = useState<Record<string, RobotCartState>>({});
 
   const reviewDialogRef = useRef<HTMLDialogElement | null>(null);
@@ -1111,21 +1117,66 @@ export const TriagemFaltasPage: React.FC<Props> = ({ user }) => {
     }
   };
 
+  const openCartConfirm = (req: PendingCartRequest) => {
+    const preGroups = getCartGroupsForRequest(req, false);
+    if (preGroups.length === 0) {
+      showToastSafe('Nenhum item selecionado para enviar ao carrinho.', 'warning');
+      return;
+    }
+    const missingRobot = preGroups.filter((g) => !g.hasRobot).map((g) => g.portal);
+    const eligible = preGroups.filter((g) => g.hasRobot && g.itensValidos.length > 0);
+    if (eligible.length === 0) {
+      if (missingRobot.length > 0) {
+        showToastSafe(`Robô de carrinho não configurado para ${missingRobot.join(', ')}.`, 'warning');
+      } else {
+        showToastSafe('Os itens selecionados não possuem EAN válido para envio ao carrinho.', 'warning');
+      }
+      return;
+    }
+    if (reviewDialogRef.current?.open) {
+      reviewDialogRef.current.close();
+    }
+    setIncludeFaltasInPesquisaCart(false);
+    setPendingCartRequest(req);
+    cartConfirmDialogRef.current?.showModal();
+  };
+
   const requestCartBuild = (portal: string) => {
     const pData = quotedPortals.find((p) => p.portal === portal);
     if (!pData || pData.itens.length === 0) {
       showToastSafe(`Selecione pelo menos 1 item de ${portal} para montar o carrinho.`, 'warning');
       return;
     }
-    if (!PORTAL_ROBOT_ENDPOINTS[portal]) {
-      showToastSafe(`Robô de carrinho não configurado para ${portal}.`, 'warning');
+    openCartConfirm({ scope: 'combined-portal', portal });
+  };
+
+  const handleCopyPesquisaSelecionados = async () => {
+    const selList = Object.values(pesquisaSelecoes);
+    if (selList.length === 0) {
+      showToastSafe('Nenhum item selecionado na Pesquisa Livre para copiar.', 'warning');
       return;
     }
-    if (reviewDialogRef.current?.open) {
-      reviewDialogRef.current.close();
+    const grouped: Record<string, PesquisaSelecaoItem[]> = {};
+    for (const s of selList) {
+      if (!grouped[s.portal]) grouped[s.portal] = [];
+      grouped[s.portal].push(s);
     }
-    setPendingCartPortal(portal);
-    cartConfirmDialogRef.current?.showModal();
+    const lines = [`*BELAFARMA · PESQUISA LIVRE (${new Date().toLocaleDateString('pt-BR')})*`, ''];
+    for (const [portal, list] of Object.entries(grouped).sort((a, b) => a[0].localeCompare(b[0]))) {
+      const sub = list.reduce((acc, s) => acc + s.preco * s.qtd, 0);
+      const un = list.reduce((acc, s) => acc + s.qtd, 0);
+      lines.push(`*${portal}* (${list.length} itens | ${un} un | ${fmtBRL(sub)}):`);
+      for (const s of list.sort((a, b) => a.descricao.localeCompare(b.descricao))) {
+        lines.push(`- ${s.descricao} (${s.ean || 'Sem EAN'}) x${s.qtd} @ ${fmtBRL(s.preco)}`);
+      }
+      lines.push('');
+    }
+    try {
+      await navigator.clipboard.writeText(lines.join('\n'));
+      showToastSafe(`Lista da Pesquisa Livre (${selList.length} itens) copiada!`, 'success');
+    } catch {
+      showToastSafe('Não foi possível copiar automaticamente.', 'error');
+    }
   };
 
   const startRobotPolling = useCallback(
@@ -1171,20 +1222,30 @@ export const TriagemFaltasPage: React.FC<Props> = ({ user }) => {
     [showToastSafe]
   );
 
-  const executeCartBuild = async (portal: string) => {
+  const executeCartBuildItems = async (
+    portal: string,
+    rawItens: Array<{ ean: string; qtd: number; produto: string; preco: number; refCost: number }>
+  ) => {
     const endpoint = PORTAL_ROBOT_ENDPOINTS[portal];
-    const pData = quotedPortals.find((p) => p.portal === portal);
-    if (!endpoint || !pData || pData.itens.length === 0) return;
+    if (!endpoint) {
+      showToastSafe(`Robô de carrinho não configurado para ${portal}.`, 'warning');
+      return;
+    }
+    const itensValidos = rawItens.filter((entry) => /^\d{7,14}$/.test(String(entry.ean || '').replace(/\D/g, '')));
+    if (itensValidos.length === 0) {
+      showToastSafe(`Nenhum item de ${portal} possui EAN válido para enviar ao carrinho.`, 'warning');
+      return;
+    }
 
     setRobotStates((prev) => ({
       ...prev,
-      [portal]: { emAndamento: true, atual: 0, total: pData.itens.length, sucessos: 0, erros: 0 },
+      [portal]: { emAndamento: true, atual: 0, total: itensValidos.length, sucessos: 0, erros: 0 },
     }));
 
     try {
       const payload = {
-        itens: pData.itens.map((entry) => ({
-          ean: entry.ean,
+        itens: itensValidos.map((entry) => ({
+          ean: String(entry.ean).replace(/\D/g, ''),
           quantidade: entry.qtd,
           descricao: entry.produto,
           preco_unitario: entry.preco,
@@ -1202,7 +1263,7 @@ export const TriagemFaltasPage: React.FC<Props> = ({ user }) => {
         throw new Error(data?.message || data?.error || `HTTP ${res.status}`);
       }
       showToastSafe(
-        data?.message || `Robô ${portal} iniciado com ${pData.itens.length} itens.`,
+        data?.message || `Robô ${portal} iniciado com ${itensValidos.length} itens.`,
         'info',
         5000
       );
@@ -1213,7 +1274,7 @@ export const TriagemFaltasPage: React.FC<Props> = ({ user }) => {
         [portal]: {
           emAndamento: false,
           atual: 0,
-          total: pData.itens.length,
+          total: itensValidos.length,
           sucessos: 0,
           erros: 1,
           doneMsg: `Erro: ${err?.message || 'falha'}`,
@@ -1222,6 +1283,99 @@ export const TriagemFaltasPage: React.FC<Props> = ({ user }) => {
       showToastSafe(`Falha ao montar carrinho em ${portal}: ${err?.message || 'erro'}`, 'error', 6000);
     }
   };
+
+  function getCartGroupsForRequest(req: PendingCartRequest | null, includeFaltas: boolean) {
+    if (!req) return [];
+
+    type CartEntry = {
+      origem: 'faltas' | 'pesquisa';
+      ean: string;
+      produto: string;
+      qtd: number;
+      preco: number;
+      refCost: number;
+    };
+
+    const byPortal = new Map<string, CartEntry[]>();
+    const addEntry = (portal: string, entry: CartEntry) => {
+      const arr = byPortal.get(portal) || [];
+      arr.push(entry);
+      byPortal.set(portal, arr);
+    };
+
+    if (req.scope === 'combined-portal') {
+      const pData = quotedPortals.find((p) => p.portal === req.portal);
+      if (pData) {
+        for (const e of pData.itens) {
+          addEntry(req.portal, {
+            origem: e.origem,
+            ean: e.ean,
+            produto: e.produto,
+            qtd: e.qtd,
+            preco: e.preco,
+            refCost: e.refCost,
+          });
+        }
+      }
+    } else {
+      const targetPortals = new Set<string>();
+      const seenEansByPortal = new Map<string, Set<string>>();
+
+      for (const s of Object.values(pesquisaSelecoes)) {
+        if (req.scope === 'pesquisa-portal' && s.portal !== req.portal) continue;
+        targetPortals.add(s.portal);
+        const eanNorm = normalizeEanChaveFront(s.ean || s.eanChave);
+        if (eanNorm) {
+          const set = seenEansByPortal.get(s.portal) || new Set<string>();
+          set.add(eanNorm);
+          seenEansByPortal.set(s.portal, set);
+        }
+        addEntry(s.portal, {
+          origem: 'pesquisa',
+          ean: s.ean || s.eanChave,
+          produto: s.descricao,
+          qtd: s.qtd,
+          preco: s.preco,
+          refCost: s.refCost,
+        });
+      }
+
+      if (includeFaltas) {
+        for (const p of quotedPortals) {
+          if (!targetPortals.has(p.portal)) continue;
+          const seen = seenEansByPortal.get(p.portal) || new Set<string>();
+          for (const e of p.itens) {
+            if (e.origem !== 'faltas') continue;
+            const eanNorm = normalizeEanChaveFront(e.ean);
+            if (eanNorm && seen.has(eanNorm)) continue;
+            addEntry(p.portal, {
+              origem: 'faltas',
+              ean: e.ean,
+              produto: e.produto,
+              qtd: e.qtd,
+              preco: e.preco,
+              refCost: e.refCost,
+            });
+          }
+        }
+      }
+    }
+
+    return Array.from(byPortal.entries())
+      .map(([portal, itens]) => {
+        const itensValidos = itens.filter((it) => /^\d{7,14}$/.test(String(it.ean || '').replace(/\D/g, '')));
+        return {
+          portal,
+          itens,
+          itensValidos,
+          semEanCount: itens.length - itensValidos.length,
+          un: itensValidos.reduce((acc, it) => acc + it.qtd, 0),
+          total: itensValidos.reduce((acc, it) => acc + it.preco * it.qtd, 0),
+          hasRobot: Boolean(PORTAL_ROBOT_ENDPOINTS[portal]),
+        };
+      })
+      .sort((a, b) => b.total - a.total || a.portal.localeCompare(b.portal));
+  }
 
   const handleOpenReview = () => {
     const invalidEans = items.filter(isExcludedInvalid).map((x) => x.ean);
@@ -1424,9 +1578,15 @@ export const TriagemFaltasPage: React.FC<Props> = ({ user }) => {
     setModalInlineStatus('Arquivo CSV baixado com sucesso.');
   };
 
-  const pendingPortalInfo = pendingCartPortal
-    ? quotedPortals.find((p) => p.portal === pendingCartPortal) || null
-    : null;
+  const pendingCartGroups = getCartGroupsForRequest(pendingCartRequest, includeFaltasInPesquisaCart);
+  const pendingHasExtraFaltas = useMemo(() => {
+    if (!pendingCartRequest || pendingCartRequest.scope === 'combined-portal') return false;
+    const baseGroups = getCartGroupsForRequest(pendingCartRequest, false);
+    const portals = new Set(baseGroups.map((g) => g.portal));
+    return quotedPortals.some(
+      (p) => portals.has(p.portal) && p.itens.some((e) => e.origem === 'faltas')
+    );
+  }, [pendingCartRequest, pesquisaSelecoes, quotedPortals]);
 
   return (
     <div className="space-y-4">
@@ -2161,6 +2321,7 @@ export const TriagemFaltasPage: React.FC<Props> = ({ user }) => {
           historico={pesquisaHistorico}
           selecoes={pesquisaSelecoes}
           approvedFaltasEanKeys={approvedFaltasEanKeys}
+          robotStates={robotStates}
           iniciandoBusca={iniciandoBuscaLivre}
           onIniciarPesquisa={handleIniciarPesquisaLivre}
           onCancelarPesquisa={handleCancelarPesquisaLivre}
@@ -2169,6 +2330,9 @@ export const TriagemFaltasPage: React.FC<Props> = ({ user }) => {
           onChangeQtdSelecao={handleChangePesquisaQtd}
           onRemoverSelecao={handleRemoverPesquisaSelecao}
           onLimparSelecoes={handleLimparPesquisaSelecoes}
+          onRequestCartAllPesquisa={() => openCartConfirm({ scope: 'pesquisa-all' })}
+          onRequestCartPortalPesquisa={(portal) => openCartConfirm({ scope: 'pesquisa-portal', portal })}
+          onCopyPesquisaSelecionados={handleCopyPesquisaSelecionados}
         />
       </div>
 
@@ -2392,22 +2556,52 @@ export const TriagemFaltasPage: React.FC<Props> = ({ user }) => {
       >
         <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900">
           <h1 id="triagem-cart-confirm-title" className="text-base font-bold">
-            Confirmar Montagem de Carrinho — {pendingCartPortal || ''}
+            {pendingCartRequest?.scope === 'pesquisa-all'
+              ? `Colocar Pesquisa nos Carrinhos (${pendingCartGroups.length} dists)`
+              : `Confirmar Montagem de Carrinho — ${
+                  pendingCartRequest && 'portal' in pendingCartRequest ? pendingCartRequest.portal : ''
+                }`}
           </h1>
         </div>
         <div className="p-5 space-y-3 text-xs">
-          {pendingPortalInfo && (
+          {pendingCartGroups.length > 0 && (
             <>
-              <p className="leading-relaxed">
-                Você está prestes a acionar o robô da distribuidora{' '}
-                <strong>{pendingPortalInfo.portal}</strong> com{' '}
-                <strong>
-                  {pendingPortalInfo.selecionados} item(ns) ({pendingPortalInfo.un} un)
-                </strong>{' '}
-                totalizando <strong className="tabular-nums">{fmtBRL(pendingPortalInfo.total)}</strong>.
-              </p>
+              <div className="space-y-2 max-h-60 overflow-y-auto">
+                {pendingCartGroups.map((g) => (
+                  <div
+                    key={g.portal}
+                    className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60"
+                  >
+                    <div>
+                      <div className="font-bold text-sm">{g.portal}</div>
+                      <div className="text-slate-600 dark:text-slate-400 tabular-nums">
+                        {g.itensValidos.length} item(ns) · {g.un} un
+                        {g.semEanCount > 0 ? ` (${g.semEanCount} sem EAN ignorado)` : ''}
+                      </div>
+                    </div>
+                    <div className="font-bold text-sm tabular-nums text-emerald-700 dark:text-emerald-300">
+                      {fmtBRL(g.total)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {pendingHasExtraFaltas && (
+                <label className="flex items-start gap-2 p-2.5 rounded-lg border border-blue-200 dark:border-blue-900 bg-blue-50/70 dark:bg-blue-950/30 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={includeFaltasInPesquisaCart}
+                    onChange={(e) => setIncludeFaltasInPesquisaCart(e.target.checked)}
+                    className="mt-0.5 w-4 h-4 accent-blue-600 cursor-pointer"
+                  />
+                  <span className="leading-snug">
+                    Incluir também os itens aprovados na aba <strong>Faltas do Digifarma</strong> dessas distribuidoras neste envio
+                  </span>
+                </label>
+              )}
+
               <p className="text-slate-600 dark:text-slate-400 leading-relaxed">
-                Os itens serão incluídos no carrinho aberto do portal sem finalizar o pedido, para você revisar e fechar pessoalmente.
+                Os robôs incluirão os itens no carrinho aberto de cada portal sem finalizar o pedido, para você revisar e fechar pessoalmente.
               </p>
             </>
           )}
@@ -2424,14 +2618,18 @@ export const TriagemFaltasPage: React.FC<Props> = ({ user }) => {
             <button
               type="button"
               onClick={() => {
-                const portal = pendingCartPortal;
+                const groupsToSend = pendingCartGroups.filter(
+                  (g) => g.hasRobot && g.itensValidos.length > 0 && !robotStates[g.portal]?.emAndamento
+                );
                 cartConfirmDialogRef.current?.close();
-                if (portal) executeCartBuild(portal);
+                for (const g of groupsToSend) {
+                  executeCartBuildItems(g.portal, g.itensValidos);
+                }
               }}
               className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer"
             >
               <ShoppingCart className="w-3.5 h-3.5" />
-              Confirmar e Montar Carrinho
+              Confirmar e Colocar no(s) Carrinho(s)
             </button>
           </form>
         </div>

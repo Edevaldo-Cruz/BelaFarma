@@ -3,10 +3,12 @@ import {
   AlertCircle,
   Check,
   Clock,
+  Copy,
   Loader2,
   PackageCheck,
   RefreshCw,
   Search,
+  ShoppingCart,
   Sparkles,
   Square,
   Trash2,
@@ -84,11 +86,21 @@ export interface PesquisaSelecaoItem {
   atualizadoEm?: string;
 }
 
+interface PortalRobotCartProgress {
+  emAndamento: boolean;
+  atual: number;
+  total: number;
+  sucessos: number;
+  erros: number;
+  doneMsg?: string;
+}
+
 interface Props {
   pesquisaAtual: PesquisaLivrePayload | null;
   historico: PesquisaHistoricoResumo[];
   selecoes: Record<string, PesquisaSelecaoItem>;
   approvedFaltasEanKeys: Set<string>;
+  robotStates: Record<string, PortalRobotCartProgress>;
   iniciandoBusca: boolean;
   onIniciarPesquisa: (termo: string) => void;
   onCancelarPesquisa: (id: string) => void;
@@ -97,6 +109,9 @@ interface Props {
   onChangeQtdSelecao: (eanChave: string, qtd: number) => void;
   onRemoverSelecao: (eanChave: string) => void;
   onLimparSelecoes: () => void;
+  onRequestCartAllPesquisa: () => void;
+  onRequestCartPortalPesquisa: (portal: string) => void;
+  onCopyPesquisaSelecionados: () => void;
 }
 
 type FilterMode = 'TODOS' | 'MAIS_BARATO' | 'MULTI_DIST' | 'NA_LOJA' | 'SELECIONADOS';
@@ -130,6 +145,7 @@ export const TriagemPesquisaLivreTab: React.FC<Props> = ({
   historico,
   selecoes,
   approvedFaltasEanKeys,
+  robotStates,
   iniciandoBusca,
   onIniciarPesquisa,
   onCancelarPesquisa,
@@ -138,6 +154,9 @@ export const TriagemPesquisaLivreTab: React.FC<Props> = ({
   onChangeQtdSelecao,
   onRemoverSelecao,
   onLimparSelecoes,
+  onRequestCartAllPesquisa,
+  onRequestCartPortalPesquisa,
+  onCopyPesquisaSelecionados,
 }) => {
   const [termoInput, setTermoInput] = useState('');
   const [localFilter, setLocalFilter] = useState('');
@@ -422,6 +441,20 @@ export const TriagemPesquisaLivreTab: React.FC<Props> = ({
     [selecoesList]
   );
 
+  const selecoesPorPortal = useMemo(() => {
+    const map = new Map<string, { portal: string; itens: PesquisaSelecaoItem[]; un: number; total: number }>();
+    for (const s of selecoesList) {
+      const entry = map.get(s.portal) || { portal: s.portal, itens: [], un: 0, total: 0 };
+      entry.itens.push(s);
+      entry.un += s.qtd;
+      entry.total += s.preco * s.qtd;
+      map.set(s.portal, entry);
+    }
+    return Array.from(map.values()).sort((a, b) => b.total - a.total || a.portal.localeCompare(b.portal));
+  }, [selecoesList]);
+
+  const anyRobotRunning = selecoesPorPortal.some((p) => robotStates[p.portal]?.emAndamento);
+
   return (
     <div className="space-y-4">
       {/* Formulário de Pesquisa Livre + Histórico */}
@@ -624,19 +657,69 @@ export const TriagemPesquisaLivreTab: React.FC<Props> = ({
         >
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2 text-xs font-bold text-emerald-800 dark:text-emerald-300">
-              <PackageCheck className="w-4 h-4" />
+              <PackageCheck className="w-4 h-4 shrink-0" />
               <span>
-                {selecoesList.length} item(ns) selecionados na Pesquisa Livre · Total {fmtBRL(totalSelecoesValor)} (já somados nos cards das distribuidoras no topo)
+                {selecoesList.length} item(ns) selecionado(s) na Pesquisa Livre · Total {fmtBRL(totalSelecoesValor)}
               </span>
             </div>
-            <button
-              type="button"
-              onClick={onLimparSelecoes}
-              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-red-300 dark:border-red-800 bg-white dark:bg-slate-900 text-red-700 dark:text-red-300 text-xs font-semibold cursor-pointer hover:bg-red-50"
-            >
-              <Trash2 className="w-3 h-3" />
-              Limpar seleção da pesquisa
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                disabled={anyRobotRunning}
+                onClick={onRequestCartAllPesquisa}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer shadow-xs disabled:opacity-50"
+              >
+                {anyRobotRunning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShoppingCart className="w-3.5 h-3.5" />}
+                Colocar nos Carrinhos ({selecoesPorPortal.length} {selecoesPorPortal.length === 1 ? 'dist' : 'dists'})
+              </button>
+
+              <button
+                type="button"
+                onClick={onCopyPesquisaSelecionados}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800"
+              >
+                <Copy className="w-3.5 h-3.5" />
+                Copiar lista
+              </button>
+
+              <button
+                type="button"
+                onClick={onLimparSelecoes}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md border border-red-300 dark:border-red-800 bg-white dark:bg-slate-900 text-red-700 dark:text-red-300 text-xs font-semibold cursor-pointer hover:bg-red-50"
+              >
+                <Trash2 className="w-3 h-3" />
+                Limpar
+              </button>
+            </div>
+          </div>
+
+          {/* Botões individuais por distribuidora com itens selecionados */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            {selecoesPorPortal.map((p) => {
+              const rSt = robotStates[p.portal];
+              const running = Boolean(rSt?.emAndamento);
+              return (
+                <button
+                  key={p.portal}
+                  type="button"
+                  disabled={running}
+                  onClick={() => onRequestCartPortalPesquisa(p.portal)}
+                  title={`Colocar ${p.itens.length} item(ns) no carrinho da ${p.portal}`}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-emerald-400 dark:border-emerald-700 bg-white dark:bg-slate-900 hover:bg-emerald-100/70 dark:hover:bg-emerald-900/40 text-xs font-semibold cursor-pointer disabled:opacity-55"
+                >
+                  {running ? (
+                    <Loader2 className="w-3 h-3 animate-spin text-blue-600" />
+                  ) : (
+                    <ShoppingCart className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                  )}
+                  <span>
+                    {running
+                      ? `${p.portal}: ${rSt.atual}/${rSt.total}...`
+                      : `Carrinho ${p.portal} (${p.itens.length} · ${fmtBRL(p.total)})`}
+                  </span>
+                </button>
+              );
+            })}
           </div>
           <div className="flex flex-wrap gap-2">
             {selecoesList.map((s) => (
@@ -794,9 +877,32 @@ export const TriagemPesquisaLivreTab: React.FC<Props> = ({
                       </span>
                     )}
                   </div>
-                  <span className="text-slate-500 dark:text-slate-400 tabular-nums">
-                    {group.status.duracaoMs > 0 ? `${(group.status.duracaoMs / 1000).toFixed(1)}s` : ''}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    {group.selectedHereCount > 0 && (
+                      <button
+                        type="button"
+                        disabled={Boolean(robotStates[group.portal]?.emAndamento)}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          onRequestCartPortalPesquisa(group.portal);
+                        }}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer disabled:opacity-50"
+                      >
+                        {robotStates[group.portal]?.emAndamento ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <ShoppingCart className="w-3 h-3" />
+                        )}
+                        {robotStates[group.portal]?.emAndamento
+                          ? `Montando ${robotStates[group.portal].atual}/${robotStates[group.portal].total}...`
+                          : `Colocar ${group.selectedHereCount} no Carrinho`}
+                      </button>
+                    )}
+                    <span className="text-slate-500 dark:text-slate-400 tabular-nums">
+                      {group.status.duracaoMs > 0 ? `${(group.status.duracaoMs / 1000).toFixed(1)}s` : ''}
+                    </span>
+                  </div>
                 </summary>
 
                 <div className="border-t border-[var(--bf-card-border)]">
