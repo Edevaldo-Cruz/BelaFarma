@@ -51,8 +51,6 @@ import {
   TableProperties, // Added for Análise de Reposição / Importador Digifarma
   Flame, // Added for Liquidação & Aceleração de Caixa
   FileSpreadsheet, // Added for Entrada de NF-e ERP
-  ChevronDown,
-  ChevronRight,
   Sparkle,
   Zap,
   Scale,
@@ -432,192 +430,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   });
 
 
-  // Fixa itens prioritários estratégicos logo no topo após o Dashboard
-  const priorityTopIds = ['promocoes-whatsapp', 'belaped', 'belinha-pdv', 'erp-vendas'];
-  const topItems = priorityTopIds
-    .map(id => filteredMenuItems.find(i => i.id === id))
-    .filter(Boolean) as typeof menuItems;
-
-  const otherItems = filteredMenuItems
-    .filter(i => i.id !== 'dashboard' && i.id !== 'settings' && !priorityTopIds.includes(i.id))
-    .sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'));
-
-  const sortedMenuItems = [
-    filteredMenuItems.find(i => i.id === 'dashboard')!,
-    ...topItems,
-    ...otherItems,
-    filteredMenuItems.find(i => i.id === 'settings')!
-  ].filter(Boolean);
-
-  const categoryDefinitions = React.useMemo(() => [
-    {
-      id: 'vendas',
-      label: 'Vendas & Atendimento',
-      itemIds: [
-        'belinha-pdv',
-        'erp-promocoes',
-        'erp-vendas',
-        'erp-rejected-products',
-        'daily-records',
-        'deliveries',
-        'orders',
-        'ifood-control',
-        'promocoes-whatsapp',
-        'whatsapp-crm',
-        'whatsapp-vendas',
-        'sales-report'
-      ]
-    },
-    {
-      id: 'estoque',
-      label: 'Estoque & Farmácia',
-      itemIds: [
-        'erp-promocoes',
-        'erp-produtos',
-        'erp-express-products',
-        'erp-rejected-products',
-        'erp-nfe',
-        'medication-search',
-        'anvisa-alerts',
-        'controlled-medications',
-        'inventario',
-        'perdas-avarias',
-        'temperature-map',
-        'labels',
-        'price-manager',
-        'levantamento-proffer',
-        'critical-stock',
-        'stock'
-      ]
-    },
-    {
-      id: 'compras',
-      label: 'Compras & Reposição',
-      itemIds: [
-        'central-compras',
-        'belaped',
-        'triagem-faltas',
-        'compras-live',
-        'reposicao-tabela',
-        'purchase-calendar',
-        'suppliers',
-        'quotations',
-        'shortages'
-      ]
-    },
-    {
-      id: 'crediario',
-      label: 'Crediário & Cobrança',
-      itemIds: [
-        'crediario-report',
-        'debtors-report'
-      ]
-    },
-    {
-      id: 'financeiro',
-      label: 'Financeiro & Fiscal',
-      itemIds: [
-        'cash-closing',
-        'caixa-provisoes',
-        'crediario-report',
-        'contas-a-pagar',
-        'debtors-report',
-        'caixa-inteligente',
-        'financial',
-        'financial-health',
-        'card-machines',
-        'bank-conciliation',
-        'bank-divergence-alerts',
-        'liquidacao-caixa',
-        'fiscal-contabil',
-        'invoices',
-        'consignados',
-        'safe'
-      ]
-    },
-    {
-      id: 'ferramentas',
-      label: 'Ferramentas & IA',
-      itemIds: [
-        'belafarma-ia',
-        'ai-portal',
-        'messaging-center',
-        'radio-manager',
-        'agenda',
-        'notes',
-        'system-watcher',
-        'logs'
-      ]
-    },
-    {
-      id: 'sistema',
-      label: 'Sistema & Cadastros',
-      itemIds: [
-        'customers',
-        'users',
-        'team-schedule',
-        'backups',
-        'settings',
-        'about'
-      ]
-    }
-  ], []);
-
-  const categoryGroups = React.useMemo(() => {
-    return categoryDefinitions.map(cat => ({
-      ...cat,
-      items: cat.itemIds
-        .map(id => filteredMenuItems.find(m => m.id === id))
-        .filter(Boolean) as typeof menuItems
-    })).filter(cat => cat.items.length > 0);
-  }, [categoryDefinitions, filteredMenuItems]);
-
-  const currentCategory = React.useMemo(() => {
-    return categoryDefinitions.find(cat => cat.itemIds.includes(currentView))?.id || null;
-  }, [categoryDefinitions, currentView]);
-
-  const [expandedCategories, setExpandedCategories] = React.useState<Record<string, boolean>>(() => {
-    const init: Record<string, boolean> = {
-      vendas: true
-    };
-    if (currentCategory) init[currentCategory] = true;
-    return init;
-  });
-
-  React.useEffect(() => {
-    if (currentCategory) {
-      setExpandedCategories(prev => ({
-        ...prev,
-        [currentCategory]: true
-      }));
-    }
-  }, [currentCategory]);
-
-  const toggleCategory = (catId: string) => {
-    setExpandedCategories(prev => ({
-      ...prev,
-      [catId]: !prev[catId]
-    }));
-  };
-
-  const getCategoryBadgeCount = (catId: string) => {
-    if (catId === 'vendas') {
-      return ifoodNotifCount + pendingReviewCount + inTransitDeliveriesCount;
-    }
-    if (catId === 'estoque') {
-      return anvisaAlertCount;
-    }
-    if (catId === 'compras') {
-      return purchasingPendingCount;
-    }
-    if (catId === 'crediario') {
-      return (hasOverdue ? 1 : 0);
-    }
-    if (catId === 'financeiro') {
-      return (hasOverdue ? 1 : 0);
-    }
-    return 0;
-  };
+  const sortedMenuItems = [...filteredMenuItems].sort((a, b) =>
+    a.label.localeCompare(b.label, 'pt-BR', { sensitivity: 'base' })
+  );
 
   // Lista de abandonados visíveis para o Admin no menu
   const visibleAbandonedIds = sortedMenuItems
@@ -951,7 +766,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
 
           {(() => {
-            const renderItem = (item: (typeof menuItems)[0], isChild = false) => {
+            const renderItem = (item: (typeof menuItems)[0]) => {
               const Icon = item.icon;
               const isActive = currentView === item.id;
               const isPromocoesWa = item.id === 'promocoes-whatsapp';
@@ -1025,10 +840,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       setView(item.id as View);
                       if (window.innerWidth < 768) setIsOpen(false);
                     }}
-                    className={`flex items-center flex-1 min-w-0 gap-2.5 ${isChild ? 'px-3 py-2 text-xs' : 'px-3.5 py-2.5 text-sm'} rounded-xl font-bold transition-all ${buttonClass}`}
+                    className={`flex items-center flex-1 min-w-0 gap-3 px-3.5 py-2.5 text-sm rounded-xl font-bold transition-all ${buttonClass}`}
                     style={buttonStyle}
                   >
-                    <Icon className={`${isChild ? 'w-4 h-4' : 'w-5 h-5'} shrink-0 ${iconClass}`} style={iconStyle} />
+                    <Icon className={`w-5 h-5 shrink-0 ${iconClass}`} style={iconStyle} />
                     <span className={`truncate ${showCleanupCheckboxes && isItemAbandoned && isCheckedForRemoval ? 'line-through opacity-75' : ''}`}>
                       {item.label}
                     </span>
@@ -1082,57 +897,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
               );
             };
 
-            const dashboardItem = filteredMenuItems.find(i => i.id === 'dashboard');
-
             return (
-              <nav className="flex-1 px-3 space-y-1.5 overflow-y-auto custom-scrollbar">
-                {/* Dashboard no topo */}
-                {dashboardItem && (
-                  <div className="mb-2">
-                    {renderItem(dashboardItem, false)}
-                  </div>
-                )}
-
-                {/* 6 Categorias em Acordeão */}
-                {categoryGroups.map((cat) => {
-                  const isExpanded = expandedCategories[cat.id];
-                  const badgeCount = getCategoryBadgeCount(cat.id);
-                  const hasActiveChild = cat.items.some(i => i.id === currentView);
-
-                  return (
-                    <div key={cat.id} className="rounded-xl border border-slate-200/50 dark:border-slate-800/60 overflow-hidden bg-slate-50/50 dark:bg-slate-900/40">
-                      <button
-                        type="button"
-                        onClick={() => toggleCategory(cat.id)}
-                        className={`flex items-center justify-between w-full px-3 py-2 text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
-                          hasActiveChild
-                            ? 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40'
-                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100/70 dark:hover:bg-slate-800/50'
-                        }`}
-                      >
-                        <div className="flex items-center gap-1.5 truncate">
-                          <span>{cat.label}</span>
-                          {badgeCount > 0 && (
-                            <span className="px-1.5 py-0.2 rounded-full text-[9px] font-black bg-red-600 text-white animate-pulse">
-                              {badgeCount}
-                            </span>
-                          )}
-                        </div>
-                        {isExpanded ? (
-                          <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                        ) : (
-                          <ChevronRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                        )}
-                      </button>
-
-                      {isExpanded && (
-                        <div className="p-1 space-y-1 bg-white/40 dark:bg-slate-950/30 border-t border-slate-200/40 dark:border-slate-800/40">
-                          {cat.items.map(item => renderItem(item, true))}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+              <nav className="flex-1 px-3 space-y-1 overflow-y-auto custom-scrollbar">
+                {sortedMenuItems.map(item => renderItem(item))}
               </nav>
             );
           })()}

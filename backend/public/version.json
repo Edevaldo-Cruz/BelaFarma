@@ -1,9 +1,14 @@
 {
   "version": "1.2.6",
-  "commitHash": "ef2eec3",
-  "commitMessage": "fix(compras): mover seed da triagem para backend/seeds fora de .dockerignore e volume data",
-  "buildTime": "27/11/2026, 18:08:56",
+  "commitHash": "071b710",
+  "commitMessage": "feat(compras): adicionar botoes clicaveis e montagem de carrinho por distribuidora cotada na Triagem de Faltas",
+  "buildTime": "28/11/2026, 08:14:57",
   "recentCommits": [
+    {
+      "hash": "071b710",
+      "date": "27/11/2026",
+      "message": "feat(compras): adicionar botoes clicaveis e montagem de carrinho por distribuidora cotada na Triagem de Faltas"
+    },
     {
       "hash": "ef2eec3",
       "date": "27/11/2026",
@@ -98,11 +103,6 @@
       "hash": "5e64ce6",
       "date": "26/11/2026",
       "message": "fix(dashboard): corrigir duplicacao de boletos com pedidos e separar receita realizada vs projecao media"
-    },
-    {
-      "hash": "9dcc1dc",
-      "date": "26/11/2026",
-      "message": "feat(caderninho): aplicar acrescimo de crediario automaticamente quando compra nao for paga no mesmo dia"
     }
   ]
 }
